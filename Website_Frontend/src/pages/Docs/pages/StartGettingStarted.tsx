@@ -1,0 +1,98 @@
+import type { ReactElement } from "react";
+import DocsLayout from "../DocsLayout";
+import styles from "../Docs.module.scss";
+
+const StartGettingStarted = (): ReactElement => (
+  <DocsLayout>
+    <h2>Getting Started</h2>
+
+    <h3>What happens when you open the plugin</h3>
+    <p>
+      When you open Web2Wireframe for the first time, the plugin launches into
+      its main workspace inside Figma. This is the central area where all
+      imports, AI generation, and library actions begin.
+    </p>
+    <p>
+      Nothing is generated automatically at this stage. Web2Wireframe waits
+      for your input so you can decide how you want to start — whether by
+      importing existing content or generating wireframes using AI.
+    </p>
+    <p>
+      This approach ensures you stay in full control from the very beginning.
+    </p>
+    <figure className={styles.imageBlock}>
+      <div
+        className={styles.imagePlaceholder}
+        role="img"
+        aria-label="Web2Wireframe main workspace inside Figma"
+      />
+      <figcaption className={styles.imageCaption}>
+        Web2Wireframe main workspace inside Figma.
+      </figcaption>
+    </figure>
+
+    <h3>Main interface overview</h3>
+    <p>
+      The main interface is designed to be simple, focused, and task-oriented.
+      It highlights the most important actions without overwhelming you with
+      advanced options.
+    </p>
+    <p>From the main screen, you can:</p>
+    <ul>
+      <li>Choose an import method</li>
+      <li>Access AI Generation features</li>
+      <li>Open your Library</li>
+      <li>Adjust basic settings before starting</li>
+    </ul>
+    <p>
+      The layout is intentionally minimal to help you move from opening the
+      plugin to generating wireframes with as few steps as possible.
+    </p>
+    <figure className={styles.imageBlock}>
+      <div
+        className={styles.imagePlaceholder}
+        role="img"
+        aria-label="Main screen with Import, AI Generation, and Library entry points"
+      />
+      <figcaption className={styles.imageCaption}>
+        Main screen entry points for Import, AI Generation, and Library.
+      </figcaption>
+    </figure>
+    <p>
+      Related:{" "}
+      <a href="/docs/start/fast-first-import">Fast First Import</a>
+    </p>
+
+    <h3>Basic workflow</h3>
+    <p>
+      The basic workflow in Web2Wireframe follows a clear and repeatable
+      pattern:
+    </p>
+    <ol>
+      <li>Open the plugin inside your Figma file</li>
+      <li>Choose how you want to start (Import or AI Generation)</li>
+      <li>Adjust settings if needed</li>
+      <li>Generate the wireframe</li>
+      <li>Edit and reuse the result</li>
+    </ol>
+    <p>
+      This workflow is designed for iteration. You can repeat it multiple
+      times, regenerate wireframes, or switch methods as your ideas evolve.
+    </p>
+    <figure className={styles.imageBlock}>
+      <div
+        className={styles.imagePlaceholder}
+        role="img"
+        aria-label="Basic workflow steps overview"
+      />
+      <figcaption className={styles.imageCaption}>
+        Basic workflow steps overview.
+      </figcaption>
+    </figure>
+    <p>
+      Related: <a href="/docs/start/set-settings">Set Settings</a>
+    </p>
+  </DocsLayout>
+);
+
+export default StartGettingStarted;

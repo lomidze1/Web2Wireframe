@@ -1,0 +1,84 @@
+/* Footer Bar - Fixed at bottom */
+.footerBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(30, 58, 71, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text);
+  font-size: 12px;
+  z-index: 100;
+}
+
+.footerLeft,
+.footerRight {
+  display: flex;
+  align-items: center;
+  min-width: 32px;
+}
+
+.footerLeft {
+  justify-content: flex-start;
+}
+
+.footerRight {
+  justify-content: flex-end;
+}
+
+.footerIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.footerIcon:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(244, 162, 97, 0.1);
+}
+
+.footerIcon svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.4;
+}
+
+/* Extension Button - Center of footer */
+.extensionBtn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: rgba(244, 162, 97, 0.1);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.extensionBtn:hover {
+  border-color: var(--accent);
+  color: var(--bg);
+  background: var(--accent);
+  box-shadow: 0 2px 8px rgba(244, 162, 97, 0.3);
+}

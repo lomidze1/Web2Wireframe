@@ -1,0 +1,70 @@
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
+import cors from "cors";
+import { config } from "./config/env.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import supportRoutes from "./routes/support.js";
+
+const app = express();
+
+// Middleware
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ limit: "1mb", extended: true }));
+
+// CORS configuration
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        return callback(null, true);
+      }
+
+      if (config.cors.allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`[CORS] Blocked request from ${origin}`);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    maxAge: 86400, // 24 hours
+  })
+);
+
+// Request logging
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
+// Routes
+app.use("/api", supportRoutes);
+
+// 404 handler
+app.use((req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    error: `Route not found: ${req.method} ${req.path}`,
+  });
+});
+
+// Error handling middleware (must be last)
+app.use(errorHandler);
+
+// Start server
+const PORT = config.server.port;
+app.listen(PORT, () => {
+  console.log(
+    `[${new Date().toISOString()}] Support API listening on port ${PORT}`
+  );
+  console.log(`Environment: ${config.server.nodeEnv}`);
+  console.log(`Allowed origins: ${config.cors.allowedOrigins.join(", ")}`);
+});
+
+export default app;

@@ -1,0 +1,57 @@
+{
+  "name": "web2wireframe",
+  "version": "2.0.0",
+  "description": "Web2Wireframe - Convert websites to Figma wireframes with AI-powered design system",
+  "homepage": "https://web2wireframe.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/web2wireframe"
+  },
+  "private": true,
+  "workspaces": [
+    "Website_Frontend",
+    "Website_Backend",
+    "Plugin_Frontend",
+    "Plugin_Backend"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "setup": "bash setup-support-system.sh",
+    "setup:full": "npm run setup && npm run build:all && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:plugin\"",
+    "dev:backend": "cd Website_Backend && npm run dev",
+    "dev:frontend": "cd Website_Frontend && npm run dev",
+    "dev:plugin": "cd Plugin_Frontend && npm run dev",
+    "dev:single": "npm run dev:backend & npm run dev:frontend",
+    "build": "npm run build:all",
+    "build:all": "npm run build:backend && npm run build:frontend && npm run build:plugin",
+    "build:backend": "cd Website_Backend && npm run build",
+    "build:frontend": "cd Website_Frontend && npm run build",
+    "build:plugin": "cd Plugin_Frontend && npm run build",
+    "start": "npm run start:backend",
+    "start:backend": "cd Website_Backend && npm start",
+    "type-check": "tsc --noEmit && npm run type-check --workspaces",
+    "lint": "npm run lint --workspaces",
+    "test": "npm -ws --if-present test",
+    "clean": "rm -rf node_modules && npm run clean --workspaces",
+    "reset": "npm run clean && npm install && npm run setup"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "webpack-dev-server": "^5.2.2"
+  },
+  "keywords": [
+    "figma",
+    "wireframe",
+    "website",
+    "conversion",
+    "design",
+    "ai",
+    "plugin"
+  ],
+  "author": "Your Team",
+  "license": "MIT"
+}

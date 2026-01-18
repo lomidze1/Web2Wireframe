@@ -1,0 +1,358 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.hero {
+  padding-top: 2rem;
+}
+
+.heroCard {
+  background: linear-gradient(
+    140deg,
+    var(--glass-bg),
+    rgba(255, 255, 255, 0.7)
+  );
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  box-shadow: 0 18px 60px rgba(12, 13, 18, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.section {
+  padding: 0.5rem 0;
+  position: relative;
+}
+
+.sectionHead {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+
+  h2 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.8rem;
+  }
+
+  p {
+    margin: 0;
+    color: var(--muted);
+  }
+}
+
+.section-label {
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+// Alias for camelCase use in TSX
+.sectionLabel {
+  @extend .section-label;
+}
+
+.sectionNumber {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: rgba(59, 130, 246, 0.2);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.card {
+  all: unset;
+  background: linear-gradient(
+    135deg,
+    var(--glass-bg),
+    rgba(255, 255, 255, 0.68)
+  );
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 1.4rem;
+  box-shadow: 0 16px 50px rgba(12, 13, 18, 0.08);
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  cursor: pointer;
+  transition: all 200ms ease;
+  text-align: left;
+
+  h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 60px rgba(12, 13, 18, 0.12);
+    border-color: rgba(59, 130, 246, 0.15);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  &.active {
+    background: linear-gradient(
+      135deg,
+      rgba(59, 130, 246, 0.08),
+      rgba(36, 109, 255, 0.06)
+    );
+    border-color: rgba(59, 130, 246, 0.35);
+    box-shadow: 0 24px 60px rgba(59, 130, 246, 0.2);
+  }
+}
+
+.cardIcon {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+}
+
+.cardPreviewImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  object-position: top;
+}
+
+.cardPreview {
+  width: 100%;
+  height: 60px;
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.05),
+    rgba(59, 130, 246, 0.02)
+  );
+  border-radius: 8px;
+  margin-top: 0.4rem;
+  flex-shrink: 0;
+}
+
+.cardList {
+  margin: 0.35rem 0 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.3rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+// Expand panel
+.expandPanel {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.08),
+    rgba(36, 109, 255, 0.04)
+  );
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-md);
+  padding: 2rem;
+  margin-top: 1rem;
+  box-shadow: 0 16px 60px rgba(59, 130, 246, 0.1);
+  backdrop-filter: blur(10px);
+  animation: slideDown 250ms ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 1000px;
+  }
+}
+
+.panelHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.2rem;
+
+  h3 {
+    margin: 0;
+    font-size: 1.3rem;
+    color: var(--text);
+  }
+}
+
+.closeBtn {
+  all: unset;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.5rem;
+  color: var(--muted);
+  border-radius: 8px;
+  transition: all 150ms ease;
+
+  &:hover {
+    background: rgba(12, 13, 18, 0.08);
+    color: var(--text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.panelDescription {
+  margin: 0 0 1.5rem 0;
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+.panelList {
+  padding-left: 1.2rem;
+  margin: 0 0 1.5rem 0;
+  line-height: 1.6;
+  color: var(--text);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.panelScreenshots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.2rem;
+}
+
+.screenshotContainer {
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(12, 13, 18, 0.06);
+
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: #f9f9f9;
+  }
+}
+
+// CTA Box
+.ctaBox {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.12),
+    rgba(59, 130, 246, 0.06)
+  );
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius-md);
+  padding: 2.5rem;
+  text-align: center;
+  box-shadow: 0 18px 60px rgba(12, 13, 18, 0.08);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+
+  h2 {
+    margin: 0;
+    font-size: 1.6rem;
+    color: var(--text);
+  }
+
+  > p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  .btn {
+    margin-bottom: 1rem;
+  }
+}
+
+.ctaEmail {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    transition: color 150ms ease;
+
+    &:hover {
+      color: var(--accent-strong);
+      text-decoration: underline;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+  }
+}
+
+// Responsive
+@media (max-width: 768px) {
+  .sectionHead {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .sectionNumber {
+    font-size: 2rem;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  .expandPanel {
+    padding: 1.5rem;
+  }
+
+  .ctaBox {
+    padding: 1.8rem;
+
+    h2 {
+      font-size: 1.4rem;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panelScreenshots {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,119 @@
+/* Sub Header Section */
+.subHeader {
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  background: var(--bg, #264653);
+}
+
+.subHeaderContent {
+  padding: 0 12px 8px 12px;
+}
+
+/* Extension Button */
+.extensionButton {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted, #b8c6cf);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: "Montserrat", sans-serif;
+  font-size: 12px;
+}
+
+.extensionButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent, #f4a261);
+  color: var(--accent, #f4a261);
+}
+
+.extensionButton:active {
+  transform: scale(0.98);
+}
+
+.extensionButtonActive {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--accent, #f4a261);
+  color: #1c2f3a;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: "Montserrat", sans-serif;
+  font-size: 12px;
+  box-shadow: 0 1px 4px rgba(244, 162, 97, 0.25);
+}
+
+.extensionButtonActive:hover {
+  background: var(--accent, #f4a261);
+  color: #1c2f3a;
+  box-shadow: 0 1px 4px rgba(244, 162, 97, 0.25);
+}
+
+.extensionButtonActive:active {
+  transform: scale(0.98);
+}
+
+/* Content Navigation */
+.contentNav {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg, #264653);
+  overflow-x: auto;
+  justify-content: space-between;
+}
+
+/* Navigation Button - Default */
+.navButton {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.15));
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted, #b8c6cf);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: "Montserrat", sans-serif;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.navButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent, #f4a261);
+  color: var(--accent, #f4a261);
+}
+
+.navButton:active {
+  transform: scale(0.98);
+}
+
+/* Navigation Button - Active */
+.navButtonActive {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--accent, #f4a261);
+  color: #1c2f3a;
+  cursor: pointer;
+  font-family: "Montserrat", sans-serif;
+  transition: all 0.2s ease;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(244, 162, 97, 0.25);
+}
+
+.navButtonActive:hover {
+  background: var(--accent, #f4a261);
+  color: #1c2f3a;
+  box-shadow: 0 1px 4px rgba(244, 162, 97, 0.25);
+}
+
+.navButtonActive:active {
+  transform: scale(0.98);
+}

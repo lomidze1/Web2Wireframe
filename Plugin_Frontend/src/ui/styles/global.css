@@ -1,0 +1,119 @@
+/* ============================================
+   Global Design Tokens & Variables
+   ============================================
+   IMPORTANT: All CSS variables MUST be defined here at :root
+   for Figma's sandboxed iframe. Never rely on host/external vars.
+   ============================================ */
+
+:root {
+  /* Base Colors */
+  --bg: #264653;
+  --bg-rgb: 38, 70, 83;
+  --bg-dark: #1e3a47;
+  --bg-darker: #162c36;
+  --panel: #2f5667;
+  --panel-rgb: 47, 86, 103;
+  --accent: #f4a261;
+  --accent-hover: #e89450;
+  --secondary: #2a9d8f;
+  --muted: #b8c6cf;
+  --text: #ffffff;
+  --text-secondary: #b8c6cf;
+  --text-tertiary: #9fb2bc;
+  --logo-color: #e94e1b;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.15);
+  --border-accent: rgba(244, 162, 97, 0.5);
+  --border-light: rgba(255, 255, 255, 0.08);
+  --border-color: rgba(255, 255, 255, 0.06);
+
+  /* Status Colors */
+  --success-color: #22c55e;
+  --disabled-color: #4a5568;
+
+  /* Border Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Shadows */
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
+
+  /* Transitions */
+  --transition-fast: 0.2s ease-in-out;
+  --transition-normal: 0.3s ease-in-out;
+  --transition-slow: 0.5s ease-out;
+
+  /* Main Background - solid color for reliability */
+  --main-gradient: #264653;
+
+  /* Decorative Gradient Overlay (for optional use) */
+  --gradient-overlay: radial-gradient(
+      ellipse at 20% 50%,
+      rgba(244, 162, 97, 0.06) 0%,
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse at 80% 80%,
+      rgba(42, 157, 143, 0.06) 0%,
+      transparent 50%
+    );
+}
+
+/* Global Box Sizing */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Global Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Text Gradient Fix - prevents text clipping */
+.gradientText {
+  display: inline-block;
+  padding-top: 0.1em;
+  line-height: 1.2;
+}
+
+/* ============================================
+   Global Button Base Reset
+   ============================================
+   NOTE: Component-specific button styles should be in 
+   CSS Modules (e.g., Import.css, Web.css) NOT here.
+   Global classes like .btn-primary won't work because
+   CSS Modules hash class names.
+   ============================================ */
+
+/* Base Button Reset - applies to all buttons */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: all var(--transition-fast, 0.2s ease-in-out);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

@@ -1,0 +1,37 @@
+@import "./global.css";
+
+/* ============================================
+   Figma Plugin Root Container Styles
+   ============================================
+   IMPORTANT: In Figma's sandboxed iframe, we cannot rely on 
+   body/html styles as Figma injects its own. Always style 
+   our .app root container instead.
+   ============================================ */
+
+/* Base document setup */
+html {
+  height: 100%;
+}
+
+body {
+  width: 100%;
+  /* height: 520px; */
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: "Open Sans", sans-serif;
+  /* Let .app handle background - Figma overrides body styles */
+  background: transparent;
+}
+
+/* Main App Container - PRIMARY styling target */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  /* Use fallback for safety in case --main-gradient is undefined */
+  background: var(--main-gradient, #264653);
+  color: var(--text, #ffffff);
+}

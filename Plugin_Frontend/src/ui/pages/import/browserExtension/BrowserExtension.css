@@ -1,0 +1,91 @@
+/* Extension Container */
+.extensionContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 20px;
+}
+
+/* Extension Title */
+.extensionTitle {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: "Montserrat", sans-serif;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+/* Extension Description */
+.extensionDescription {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+/* Extension Benefits */
+.extensionBenefits {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.extensionBenefits ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.extensionBenefits li {
+  padding: 6px 0;
+}
+
+.extensionBenefits li::before {
+  content: "✓ ";
+  color: var(--accent);
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+/* Extension Subtext */
+.extensionSubtext {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+
+/* Extension Button */
+.extensionBtn {
+  width: 100%;
+  max-width: 280px;
+  padding: 12px 20px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent, #f4a261);
+  color: #1c2f3a;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: "Montserrat", sans-serif;
+  font-size: 14px;
+  transition: background 0.2s ease;
+  box-shadow: 0 1px 4px rgba(244, 162, 97, 0.25);
+}
+
+/* No hover change - button is always active style */
+.extensionBtn:hover {
+  background: var(--accent, #f4a261);
+  color: #1c2f3a;
+}
+
+.extensionBtn:active {
+  transform: scale(0.98);
+}
