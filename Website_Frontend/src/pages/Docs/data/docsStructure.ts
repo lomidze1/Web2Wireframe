@@ -18,7 +18,7 @@ export const docsNavigation: DocsTopic[] = [
     id: "introduction",
     title: "Introduction",
     icon: "👋",
-    path: "/docs/introduction",
+    path: "/docs/introduction/what-is",
     pages: [
       {
         id: "what-is",
@@ -38,7 +38,7 @@ export const docsNavigation: DocsTopic[] = [
     id: "start",
     title: "Start",
     icon: "⚡",
-    path: "/docs/start",
+    path: "/docs/start/getting-started",
     pages: [
       {
         id: "how-to-install",
@@ -70,7 +70,7 @@ export const docsNavigation: DocsTopic[] = [
     id: "import-methods",
     title: "Import Methods",
     icon: "📥",
-    path: "/docs/import-methods",
+    path: "/docs/import-methods/web-import",
     pages: [
       {
         id: "web-import",
@@ -102,7 +102,7 @@ export const docsNavigation: DocsTopic[] = [
     id: "browser-extension",
     title: "Browser Extension",
     icon: "🧩",
-    path: "/docs/browser-extension",
+    path: "/docs/browser-extension/extension-overview",
     pages: [
       {
         id: "extension-overview",
@@ -122,7 +122,7 @@ export const docsNavigation: DocsTopic[] = [
     id: "ai-generation",
     title: "AI Generation",
     icon: "✨",
-    path: "/docs/ai-generation",
+    path: "/docs/ai-generation/overview",
     pages: [
       {
         id: "overview",
@@ -154,7 +154,7 @@ export const docsNavigation: DocsTopic[] = [
     id: "library",
     title: "Library",
     icon: "📚",
-    path: "/docs/library",
+    path: "/docs/library/overview",
     pages: [
       {
         id: "overview",
@@ -198,7 +198,7 @@ export const docsNavigation: DocsTopic[] = [
     id: "pricing",
     title: "Pricing & Plans",
     icon: "💳",
-    path: "/docs/pricing",
+    path: "/docs/pricing/overview",
     pages: [
       {
         id: "overview",

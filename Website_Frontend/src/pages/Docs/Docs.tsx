@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, Link } from "react-router-dom";
 import DocsLayout from "./DocsLayout";
 import { getTopics } from "./data/docsStructure";
 import styles from "./Docs.module.scss";
@@ -40,11 +40,11 @@ const DocsHub = (): ReactElement => {
 
       <div className={styles.docsGrid}>
         {topics.map((topic) => (
-          <a key={topic.id} href={topic.path} className={styles.docsCard}>
+          <Link key={topic.id} to={topic.path} className={styles.docsCard}>
             <div className={styles.cardIcon}>{topic.icon}</div>
             <h3>{topic.title}</h3>
             <span className={styles.cardArrow}>→</span>
-          </a>
+          </Link>
         ))}
       </div>
     </DocsLayout>
