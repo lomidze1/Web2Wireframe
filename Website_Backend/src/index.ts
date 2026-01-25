@@ -4,15 +4,34 @@ import express, {
   type NextFunction,
 } from "express";
 import cors from "cors";
+import session from "express-session";
 import { config } from "./config/env.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import supportRoutes from "./routes/support.js";
+import figmaAuthRoutes from "./routes/figmaAuth.js";
+import sessionApiRoutes from "./routes/sessionApi.js";
 
 const app = express();
 
 // Middleware
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ limit: "1mb", extended: true }));
+app.set("trust proxy", 1);
+
+app.use(
+  session({
+    name: "w2w_session",
+    secret: config.session.secret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: config.server.nodeEnv === "production",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    },
+  })
+);
 
 // CORS configuration
 app.use(
@@ -34,7 +53,7 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 86400, // 24 hours
-  })
+  }),
 );
 
 // Request logging
@@ -44,6 +63,8 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 });
 
 // Routes
+app.use(figmaAuthRoutes);
+app.use("/api", sessionApiRoutes);
 app.use("/api", supportRoutes);
 
 // 404 handler
@@ -61,7 +82,7 @@ app.use(errorHandler);
 const PORT = config.server.port;
 app.listen(PORT, () => {
   console.log(
-    `[${new Date().toISOString()}] Support API listening on port ${PORT}`
+    `[${new Date().toISOString()}] Support API listening on port ${PORT}`,
   );
   console.log(`Environment: ${config.server.nodeEnv}`);
   console.log(`Allowed origins: ${config.cors.allowedOrigins.join(", ")}`);

@@ -5,6 +5,11 @@ const requiredEnvVars = [
   "SUPPORT_TO_EMAIL",
   "NOREPLY_EMAIL",
   "ALLOWED_ORIGIN",
+  "SESSION_SECRET",
+  "FIGMA_CLIENT_ID",
+  "FIGMA_CLIENT_SECRET",
+  "LICENSE_SERVICE_URL",
+  "LICENSE_SERVICE_TOKEN",
 ];
 
 for (const envVar of requiredEnvVars) {
@@ -21,7 +26,21 @@ export const config = {
       | "production",
   },
   cors: {
-    allowedOrigins: (process.env.ALLOWED_ORIGIN || "").split(","),
+    allowedOrigins: Array.from(
+      new Set(
+        (process.env.ALLOWED_ORIGIN || "")
+          .split(",")
+          .map((origin) => origin.trim())
+          .filter(Boolean)
+          .concat([
+            "http://localhost:5173",
+            "https://www.web2wireframe.design",
+          ])
+      )
+    ),
+  },
+  session: {
+    secret: process.env.SESSION_SECRET!,
   },
   email: {
     resendApiKey: process.env.RESEND_API_KEY!,
@@ -39,5 +58,10 @@ export const config = {
   figma: {
     clientId: process.env.FIGMA_CLIENT_ID,
     clientSecret: process.env.FIGMA_CLIENT_SECRET,
+    redirectUri: process.env.FIGMA_REDIRECT_URI || "",
+  },
+  licenseService: {
+    url: process.env.LICENSE_SERVICE_URL || "",
+    token: process.env.LICENSE_SERVICE_TOKEN || "",
   },
 };
