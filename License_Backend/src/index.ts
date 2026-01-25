@@ -1,4 +1,8 @@
-import express, { type Request, type Response, type NextFunction } from "express";
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import cors, { type CorsOptions } from "cors";
 import dotenv from "dotenv";
 
@@ -83,7 +87,10 @@ const getOrCreateLicense = (userId: string): License => {
   return created;
 };
 
-const updateLicense = (license: License, updates: Partial<License>): License => {
+const updateLicense = (
+  license: License,
+  updates: Partial<License>,
+): License => {
   const updated = {
     ...license,
     ...updates,
@@ -189,10 +196,16 @@ app.post("/admin/set-license", adminAuth, (req: Request, res: Response) => {
   res.json(updated);
 });
 
-const port = Number(process.env.PORT ?? 4001);
+const port = Number(process.env.PORT) || 4001;
+const host = "0.0.0.0";
 
-app.listen(port, () => {
-  console.log(`License backend listening on :${port}`);
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const message = err instanceof Error ? err.message : "Server error";
+  res.status(500).json({ error: message });
+});
+
+app.listen(port, host, () => {
+  console.log(`License backend listening on ${host}:${port}`);
 });
 
 declare global {
