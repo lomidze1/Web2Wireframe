@@ -16,6 +16,7 @@ import BrowserExtension from "./pages/import/browserExtension";
 // Modals
 import Settings from "./components/modalPopup/Settings";
 import Help from "./components/modalPopup/Help";
+import Plan from "./components/modalPopup/planPopup/Plan";
 
 // Components
 import Footer from "./components/footer";
@@ -60,6 +61,7 @@ function AppContent() {
   const [settingsPanel, setSettingsPanel] =
     useState<SettingsPanel>("terminology");
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isPlanOpen, setIsPlanOpen] = useState(false);
 
   const { setOpenSettingsCallback } = useConfig();
 
@@ -120,6 +122,7 @@ function AppContent() {
       <Footer
         onSettingsClick={() => setIsSettingsOpen(true)}
         onHelpClick={() => setIsHelpOpen(true)}
+        onPlanClick={() => setIsPlanOpen(true)}
         showExtension={page === "import"}
         onExtensionClick={() => {
           setPage("import");
@@ -134,6 +137,7 @@ function AppContent() {
         initialPanel={settingsPanel}
       />
       <Help isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+      <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
     </div>
   );
 }
