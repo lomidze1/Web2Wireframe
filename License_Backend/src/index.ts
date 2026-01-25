@@ -1,5 +1,5 @@
 import express, { type Request, type Response, type NextFunction } from "express";
-import cors from "cors";
+import cors, { type CorsOptions } from "cors";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -29,29 +29,29 @@ interface License {
 const app = express();
 app.use(express.json());
 
-const rawAllowedOrigins = process.env.ALLOWED_ORIGINS || "";
+const rawAllowedOrigins = process.env.ALLOWED_ORIGINS ?? "";
 const allowedOrigins = rawAllowedOrigins
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) {
-        return callback(null, true);
-      }
-      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error("Not allowed by CORS"));
-    },
-  }),
-);
+const corsOptions: CorsOptions = {
+  origin(origin: string | undefined, callback) {
+    if (!origin) {
+      return callback(null, true);
+    }
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error("Not allowed by CORS"));
+  },
+};
 
-const DEV_TOKEN = process.env.DEV_TOKEN;
-const DEV_USER_ID = process.env.DEV_USER_ID || "dev-user";
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+app.use(cors(corsOptions));
+
+const DEV_TOKEN = process.env.DEV_TOKEN ?? "";
+const DEV_USER_ID = process.env.DEV_USER_ID ?? "dev-user";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "";
 
 const licenseStore = new Map<string, License>();
 
@@ -93,48 +93,52 @@ const updateLicense = (license: License, updates: Partial<License>): License => 
   return updated;
 };
 
-const auth = (req: Request, res: Response, next: NextFunction) => {
+const auth = (req: Request, res: Response, next: NextFunction): void => {
   const authHeader = req.header("Authorization");
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length)
     : undefined;
 
-  if (!token || !DEV_TOKEN || token !== DEV_TOKEN) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if (!token || token !== DEV_TOKEN) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
   }
 
   req.userId = DEV_USER_ID;
-  return next();
+  next();
 };
 
-const adminAuth = (req: Request, res: Response, next: NextFunction) => {
+const adminAuth = (req: Request, res: Response, next: NextFunction): void => {
   const authHeader = req.header("Authorization");
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length)
     : undefined;
 
-  if (!token || !ADMIN_TOKEN || token !== ADMIN_TOKEN) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if (!token || token !== ADMIN_TOKEN) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
   }
 
-  return next();
+  next();
 };
 
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-app.get("/me/license", auth, (req, res) => {
-  const license = getOrCreateLicense(req.userId);
+app.get("/me/license", auth, (req: Request, res: Response) => {
+  const license = getOrCreateLicense(req.userId ?? DEV_USER_ID);
   res.json(license);
 });
 
-app.post("/license/activate", auth, (req, res) => {
-  const { userId, plan } = req.body as { userId?: string; plan?: Plan };
-  const targetUserId = userId || req.userId;
+app.post("/license/activate", auth, (req: Request, res: Response) => {
+  const body = req.body as { userId?: string; plan?: Plan };
+  const targetUserId = body.userId ?? req.userId ?? DEV_USER_ID;
+  const plan = body.plan;
 
   if (!plan || (plan !== "free" && plan !== "plus" && plan !== "pro")) {
-    return res.status(400).json({ error: "Invalid plan" });
+    res.status(400).json({ error: "Invalid plan" });
+    return;
   }
 
   const license = getOrCreateLicense(targetUserId);
@@ -143,10 +147,10 @@ app.post("/license/activate", auth, (req, res) => {
     status: "active",
   });
 
-  return res.json(updated);
+  res.json(updated);
 });
 
-app.post("/admin/set-license", adminAuth, (req, res) => {
+app.post("/admin/set-license", adminAuth, (req: Request, res: Response) => {
   const { userId, plan, status, expiresAt } = req.body as {
     userId?: string;
     plan?: Plan;
@@ -155,11 +159,13 @@ app.post("/admin/set-license", adminAuth, (req, res) => {
   };
 
   if (!userId) {
-    return res.status(400).json({ error: "userId is required" });
+    res.status(400).json({ error: "userId is required" });
+    return;
   }
 
   if (!plan || (plan !== "free" && plan !== "plus" && plan !== "pro")) {
-    return res.status(400).json({ error: "Invalid plan" });
+    res.status(400).json({ error: "Invalid plan" });
+    return;
   }
 
   if (
@@ -169,7 +175,8 @@ app.post("/admin/set-license", adminAuth, (req, res) => {
       status !== "expired" &&
       status !== "canceled")
   ) {
-    return res.status(400).json({ error: "Invalid status" });
+    res.status(400).json({ error: "Invalid status" });
+    return;
   }
 
   const license = getOrCreateLicense(userId);
@@ -179,10 +186,10 @@ app.post("/admin/set-license", adminAuth, (req, res) => {
     expiresAt,
   });
 
-  return res.json(updated);
+  res.json(updated);
 });
 
-const port = Number(process.env.PORT || 4001);
+const port = Number(process.env.PORT ?? 4001);
 
 app.listen(port, () => {
   console.log(`License backend listening on :${port}`);
@@ -191,7 +198,7 @@ app.listen(port, () => {
 declare global {
   namespace Express {
     interface Request {
-      userId: string;
+      userId?: string;
     }
   }
 }
