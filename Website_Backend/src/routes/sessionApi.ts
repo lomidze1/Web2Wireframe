@@ -16,8 +16,13 @@ router.get(
   "/license/me",
   requireSessionAuth,
   async (_req: Request, res: Response) => {
-    const serviceUrl = config.licenseService.url;
-    const serviceToken = config.licenseService.token;
+    if (!config.features.licenseProxyEnabled) {
+      res.status(503).json({ error: "License proxy disabled" });
+      return;
+    }
+
+    const serviceUrl = config.license.serviceUrl;
+    const serviceToken = config.license.token;
 
     if (!serviceUrl || !serviceToken) {
       res.status(500).json({ error: "License service not configured" });

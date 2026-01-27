@@ -63,7 +63,18 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 });
 
 // Routes
-app.use(figmaAuthRoutes);
+if (config.features.figmaOAuthEnabled) {
+  app.use(figmaAuthRoutes);
+} else if (config.server.nodeEnv !== "production") {
+  console.warn(
+    "[CONFIG] Figma OAuth routes disabled (missing FIGMA_CLIENT_ID/SECRET)"
+  );
+}
+if (!config.features.licenseProxyEnabled && config.server.nodeEnv !== "production") {
+  console.warn(
+    "[CONFIG] License proxy disabled (missing LICENSE_SERVICE_URL/TOKEN)"
+  );
+}
 app.use("/api", sessionApiRoutes);
 app.use("/api", supportRoutes);
 
