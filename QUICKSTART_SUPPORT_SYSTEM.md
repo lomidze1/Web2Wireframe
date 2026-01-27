@@ -113,9 +113,8 @@ Your support system is ready to use!
 
 **Next Steps:**
 
-1. Configure Lemon Squeezy webhooks (optional, for subscription lookup)
-2. Deploy to production (see DEPLOYMENT.md)
-3. Update your website to link to `/support`
+1. Deploy to production (see DEPLOYMENT.md)
+2. Update your website to link to `/support`
 
 ---
 

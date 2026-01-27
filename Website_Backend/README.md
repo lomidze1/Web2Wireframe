@@ -22,17 +22,13 @@ PORT=3001
 NODE_ENV=development
 RATE_LIMIT_WINDOW_MS=600000
 RATE_LIMIT_MAX_REQUESTS=5
-LEMON_SQUEEZY_API_KEY=
-LEMON_SQUEEZY_STORE_ID=
-LEMON_SQ_PLUS_PRODUCT_ID=
-LEMON_SQ_PRO_PRODUCT_ID=
 FIGMA_CLIENT_ID=
 FIGMA_CLIENT_SECRET=
 ```
 
 Notes:
 
-- `.env.example` does not list `NOREPLY_EMAIL` or `LEMON_SQ_*` product IDs (needs verification).
+- `.env.example` does not list `NOREPLY_EMAIL` (needs verification).
 - Rate limiting is skipped when `NODE_ENV=development` (see `src/middleware/rateLimit.ts`).
 
 ## Development

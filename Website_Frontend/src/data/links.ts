@@ -1,4 +1,3 @@
-// Placeholder links; replace with live Lemon Squeezy and store URLs when ready.
 export type CheckoutLinks = {
   free: string;
   proMonthly: string;
@@ -6,9 +5,9 @@ export type CheckoutLinks = {
 };
 
 export const checkoutLinks: CheckoutLinks = {
-  free: "#lemon-free-checkout",
-  proMonthly: "#lemon-pro-monthly",
-  proYearly: "#lemon-pro-yearly",
+  free: "#",
+  proMonthly: "#",
+  proYearly: "#",
 };
 
 export type InstallLinks = {

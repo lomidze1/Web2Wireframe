@@ -33,17 +33,13 @@ PORT=3001
 NODE_ENV=production
 RATE_LIMIT_WINDOW_MS=600000
 RATE_LIMIT_MAX_REQUESTS=5
-LEMON_SQUEEZY_API_KEY=
-LEMON_SQUEEZY_STORE_ID=
-LEMON_SQ_PLUS_PRODUCT_ID=
-LEMON_SQ_PRO_PRODUCT_ID=
 FIGMA_CLIENT_ID=
 FIGMA_CLIENT_SECRET=
 ```
 
 Notes:
 
-- `.env.example` does not include `NOREPLY_EMAIL` or `LEMON_SQ_*` product IDs (needs verification).
+- `.env.example` does not include `NOREPLY_EMAIL` (needs verification).
 - `ALLOWED_ORIGIN` must include the deployed `Website_Frontend` URL.
 
 ## Frontend: Website_Frontend
@@ -83,14 +79,4 @@ Serve the `Website_Frontend/dist` directory with your preferred static host.
 - Create an account and API key at https://resend.com.
 - Configure `NOREPLY_EMAIL` and `SUPPORT_TO_EMAIL` to match your verified domain (needs verification).
 
-## Lemon Squeezy Plan Mapping
-
-If you enable Lemon Squeezy lookup, set:
-
-```env
-LEMON_SQ_PLUS_PRODUCT_ID=
-LEMON_SQ_PRO_PRODUCT_ID=
-```
-
-These are compared to the subscription product ID in `Website_Backend/src/services/planService.ts`.
 **Version**: 1.0.0

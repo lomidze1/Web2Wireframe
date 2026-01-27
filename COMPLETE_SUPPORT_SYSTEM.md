@@ -28,17 +28,13 @@ PORT=3001
 NODE_ENV=development
 RATE_LIMIT_WINDOW_MS=600000
 RATE_LIMIT_MAX_REQUESTS=5
-LEMON_SQUEEZY_API_KEY=
-LEMON_SQUEEZY_STORE_ID=
-LEMON_SQ_PLUS_PRODUCT_ID=
-LEMON_SQ_PRO_PRODUCT_ID=
 FIGMA_CLIENT_ID=
 FIGMA_CLIENT_SECRET=
 ```
 
 Notes:
 
-- `.env.example` in `Website_Backend` does not currently include `NOREPLY_EMAIL` or the `LEMON_SQ_*` product IDs (needs verification).
+- `.env.example` in `Website_Backend` does not currently include `NOREPLY_EMAIL` (needs verification).
 - Rate limiting is disabled in development (see `Website_Backend/src/middleware/rateLimit.ts`).
 
 Frontend env vars (from `Website_Frontend/.env.local.example`):
@@ -127,11 +123,9 @@ From `Website_Backend/src/middleware/validation.ts`:
 
 From `Website_Backend/src/services/planService.ts`:
 
-1. Lemon Squeezy API (if configured)
-   - Maps subscription product IDs to `Plus`/`Pro` using `LEMON_SQ_PLUS_PRODUCT_ID` and `LEMON_SQ_PRO_PRODUCT_ID`.
-2. Figma lookup placeholder (returns `null`).
-3. Client hint (`selectedPlan`) fallback.
-4. Default to `Free`.
+1. Figma lookup placeholder (returns `null`).
+2. Client hint (`selectedPlan`) fallback.
+3. Default to `Free`.
 
 Verified plans are cached in memory (1 hour).
 
