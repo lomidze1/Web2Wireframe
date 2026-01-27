@@ -34,6 +34,7 @@ router.get("/auth/figma/login", (req: Request, res: Response) => {
   authorizeUrl.searchParams.set("client_id", clientId);
   authorizeUrl.searchParams.set("redirect_uri", redirectUri);
   authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("scope", "file_content");
   authorizeUrl.searchParams.set("state", state);
 
   res.redirect(authorizeUrl.toString());

@@ -19,7 +19,7 @@ export interface License {
   updatedAt: string;
 }
 
-const BASE_URL = "http://localhost:4001";
+const BASE_URL = "http://localhost:3003";
 const DEV_TOKEN = "dev-token";
 
 export async function fetchMyLicense(

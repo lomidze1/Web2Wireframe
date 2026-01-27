@@ -58,8 +58,8 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`
 | Website_Frontend | 5173 | src/main.tsx |
 | Website_Backend | 3001 | src/index.ts |
 | Plugin_Frontend | - | src/main.ts |
-| Plugin_Backend | 3001 | api/index.js |
-| License_Backend | 4001 | src/index.ts |
+| Plugin_Backend | 3002 | api/index.js |
+| License_Backend | 3003 | src/index.ts |
 
 ## Skills Available
 

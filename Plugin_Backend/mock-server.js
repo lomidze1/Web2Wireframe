@@ -4,7 +4,7 @@
 const http = require("http");
 const url = require("url");
 
-const PORT = 3001;
+const PORT = 3002;
 
 // Mock wireframe data
 function generateMockWireframe(sourceUrl, viewports, colorMode) {

@@ -274,7 +274,7 @@ function applyColorModeToFrames(frames, colorMode, colorsByMode) {
   return frames;
 }
 
-const PORT = process.env.API_PORT || 3001;
+const PORT = process.env.API_PORT || 3002;
 app.listen(PORT, () => {
   console.log(`Web2Wireframe API running on port ${PORT}`);
 });
