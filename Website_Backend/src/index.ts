@@ -62,6 +62,15 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
+// Root-level health check (required by Render)
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({
+    ok: true,
+    service: "website-backend",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Routes
 if (config.features.figmaOAuthEnabled) {
   app.use(figmaAuthRoutes);
