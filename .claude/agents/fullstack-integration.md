@@ -1,3 +1,10 @@
+---
+name: fullstack-integration
+description: Monorepo architecture and cross-service integration expert. Use for multi-service features, data flows, deployment, and service communication issues.
+tools: Read, Write, Edit, Glob, Grep, Bash
+model: inherit
+---
+
 # Full Stack Integration Agent
 
 Monorepo Architecture & Cross-Service Integration Expert

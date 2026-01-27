@@ -1,3 +1,10 @@
+---
+name: database-mongodb
+description: Mongoose/MongoDB expert for Plugin_Backend data layer. Use for schema design, queries, indexes, aggregations, and database operations.
+tools: Read, Write, Edit, Glob, Grep, Bash
+model: inherit
+---
+
 # Database MongoDB Agent
 
 Mongoose + MongoDB Expert for Web2Wireframe Data Layer

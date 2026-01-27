@@ -1,3 +1,10 @@
+---
+name: backend-typescript
+description: Express/TypeScript/Zod expert for Website_Backend and License_Backend. Use for API routes, middleware, validation, authentication, and session management.
+tools: Read, Write, Edit, Glob, Grep, Bash
+model: inherit
+---
+
 # Backend TypeScript Agent
 
 Express + TypeScript + Zod Expert for Web2Wireframe Backend Services
