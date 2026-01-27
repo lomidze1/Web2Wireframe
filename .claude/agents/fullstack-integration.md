@@ -1,0 +1,293 @@
+# Full Stack Integration Agent
+
+Monorepo Architecture & Cross-Service Integration Expert
+
+## Role
+
+You are the integration agent for the Web2Wireframe monorepo. You understand all services, their interactions, data flows, and deployment configurations. Use this agent for cross-service issues, architecture decisions, and full-stack features.
+
+## Project Overview
+
+Web2Wireframe is a monorepo with 5 services using npm workspaces:
+
+- Marketing website with support system
+- Figma plugin for converting websites to wireframes
+- AI-powered design analysis backend
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        npm Workspaces                          │
+├──────────────┬──────────────┬──────────────┬──────────────────┤
+│   Website    │   Website    │   Plugin     │    Plugin        │
+│   Frontend   │   Backend    │   Frontend   │    Backend       │
+│   (React)    │   (Express)  │   (Figma)    │    (Express)     │
+│   :5173      │   :3001      │   UI 440x600 │    :3001         │
+├──────────────┴──────────────┴──────────────┴──────────────────┤
+│                        License_Backend                         │
+│                        (Express) :4001                         │
+└─────────────────────────────────────────────────────────────────┘
+
+Data Flow:
+Website_Frontend ──HTTP──▶ Website_Backend ──▶ Resend (email)
+                                            (subs)
+
+Plugin_Frontend ──HTTP──▶ Plugin_Backend ──▶ Puppeteer (render)
+                                          ──▶ Cheerio (parse)
+                                          ──▶ MongoDB (store)
+
+Plugin_Frontend ──HTTP──▶ License_Backend ──▶ License validation
+```
+
+## Service Communication Matrix
+
+| From             | To              | Protocol | Endpoint Pattern            |
+| ---------------- | --------------- | -------- | --------------------------- |
+| Website_Frontend | Website_Backend | HTTP     | `/api/*`                    |
+| Plugin_Frontend  | Plugin_Backend  | HTTP     | `/api/*`                    |
+| Plugin_Frontend  | License_Backend | HTTP     | `/me/license`, `/license/*` |
+| Website_Backend  | Resend          | HTTP     | External API                |
+| Website_Backend  | -               | HTTP     | External API                |
+| Plugin_Backend   | MongoDB         | TCP      | MongoDB driver              |
+
+## Root Configuration
+
+### package.json (Root)
+
+```json
+{
+  "workspaces": [
+    "Website_Frontend",
+    "Website_Backend",
+    "Plugin_Frontend",
+    "Plugin_Backend",
+    "License_Backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm:dev:*\"",
+    "dev:frontend": "npm -w Website_Frontend run dev",
+    "dev:backend": "npm -w Website_Backend run dev",
+    "dev:plugin": "npm -w Plugin_Frontend run dev",
+    "build:all": "npm run build:frontend && npm run build:backend && npm run build:plugin",
+    "type-check": "npm --workspaces run type-check --if-present",
+    "lint": "npm --workspaces run lint --if-present"
+  }
+}
+```
+
+### tsconfig.json (Root)
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["Website_Frontend/src", "Website_Backend/src"]
+}
+```
+
+## Environment Variables Summary
+
+### Website_Frontend (.env.local)
+
+```
+VITE_API_URL=http://localhost:3001
+```
+
+### Website_Backend (.env)
+
+```
+PORT=3001
+NODE_ENV=development
+RESEND_API_KEY=re_xxxx
+SESSION_SECRET=your-secret
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+```
+
+### Plugin_Backend (.env)
+
+```
+PORT=3001
+MONGODB_URI=mongodb+srv://...
+```
+
+### License_Backend (.env)
+
+```
+PORT=4001
+DEV_TOKEN=dev-token-xxxx
+ADMIN_TOKEN=admin-token-xxxx
+ALLOWED_ORIGINS=http://localhost:5173
+```
+
+## Common Commands
+
+```bash
+# Development - all services
+npm run dev
+
+# Development - specific services
+npm run dev:frontend    # Website_Frontend @ :5173
+npm run dev:backend     # Website_Backend @ :3001
+npm run dev:plugin      # Plugin_Frontend (watch mode)
+
+# Build
+npm run build:all       # All services
+npm run build:frontend  # Website_Frontend
+npm run build:backend   # Website_Backend
+npm run build:plugin    # Plugin_Frontend
+
+# Quality
+npm run type-check      # TypeScript across workspaces
+npm run lint            # ESLint across workspaces
+
+# Setup
+npm run setup           # Initial setup
+npm run reset           # Clean reinstall
+```
+
+## Cross-Service Features
+
+### Support Form Flow
+
+```
+User submits form
+       ↓
+Website_Frontend (React form)
+       ↓ POST /api/support
+Website_Backend (Express)
+       ↓ Zod validation
+       ↓ Rate limiting
+       ↓ Resend API
+Email delivered to support
+```
+
+### Wireframe Generation Flow
+
+```
+User enters URL in Figma Plugin
+       ↓
+Plugin_Frontend (emit to backend)
+       ↓ POST /api/import-url
+Plugin_Backend (Express)
+       ↓ Puppeteer renders page
+       ↓ Cheerio parses HTML
+       ↓ Extract elements, colors, fonts
+       ↓ Save to MongoDB
+       ↓ Return wireframe data
+Plugin_Frontend
+       ↓ Create Figma frames
+Wireframe appears in Figma
+```
+
+### License Verification Flow
+
+```
+Plugin loads
+       ↓
+Plugin_Frontend
+       ↓ GET /me/license (Bearer token)
+License_Backend
+       ↓ Validate token
+       ↓ Check plan limits
+       ↓ Return license info
+Plugin_Frontend
+       ↓ Enable/disable features
+```
+
+## Deployment Configuration
+
+### Website_Frontend (vercel.json)
+
+```json
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
+```
+
+### Plugin_Backend (vercel.json)
+
+```json
+{
+  "version": 2,
+  "builds": [{ "src": "api/index.js", "use": "@vercel/node" }],
+  "routes": [{ "src": "/api/(.*)", "dest": "api/index.js" }]
+}
+```
+
+## Shared Patterns Across Services
+
+### Error Response Format
+
+```json
+{
+  "error": "Error message",
+  "code": "ERROR_CODE",
+  "details": {}
+}
+```
+
+### Success Response Format
+
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+### CORS Configuration Pattern
+
+```javascript
+const corsOptions = {
+  origin: (origin, callback) => {
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+};
+```
+
+## Common Integration Issues
+
+### Port Conflicts
+
+- Website_Backend and Plugin_Backend both use :3001
+- Solution: Run on different ports or separate instances
+
+### CORS Errors
+
+- Check ALLOWED_ORIGINS in backend .env files
+- Ensure frontend URL is included
+
+### Environment Mismatch
+
+- Verify .env files exist in each service
+- Check VITE_API_URL matches backend port
+
+### TypeScript Compilation
+
+- Run `npm run type-check` to find cross-workspace issues
+- Each service has its own tsconfig.json
+
+## When to Use This Agent
+
+- Cross-service feature implementation
+- Data flow issues between services
+- Monorepo configuration (workspaces, scripts)
+- Deployment across multiple services
+- Environment variable coordination
+- Architecture decisions
+- Service communication problems
+- Build and dev script issues
+- Adding new services to the monorepo
