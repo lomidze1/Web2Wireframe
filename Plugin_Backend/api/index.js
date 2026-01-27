@@ -15,19 +15,30 @@ const {
 
 const app = express();
 
-// Middleware
+// Middleware - CORS configuration for Figma plugin (origin 'null')
+const corsOrigin = process.env.CORS_ORIGIN;
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN?.split(",") || "*",
+    // If CORS_ORIGIN is "*" or not set, allow all origins
+    // Otherwise, split by comma for specific origins
+    origin: !corsOrigin || corsOrigin === "*" ? true : corsOrigin.split(","),
+    credentials: true,
   })
 );
 app.use(express.json({ limit: "50mb" }));
 
-// MongoDB Connection
+// MongoDB Connection (optional - wireframe generation works without it)
+let mongoConnected = false;
 mongoose
   .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/web2wireframe")
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+  .then(() => {
+    console.log("MongoDB connected");
+    mongoConnected = true;
+  })
+  .catch((err) => {
+    console.warn("MongoDB connection failed (wireframe generation will still work):", err.message);
+    mongoConnected = false;
+  });
 
 // Health check
 app.get("/api/health", (req, res) => {
@@ -40,9 +51,11 @@ app.post("/api/import-url", async (req, res) => {
     const {
       userId,
       sourceUrl,
-      viewports = [1440, 375],
+      viewports = [1440],
       colorMode = "plugin-colors",
       typographyMode = "plugin-fonts",
+      textMode = "website", // NEW: "website" | "lorem" | "semantic"
+      pluginMainColor = "#1f3a5f", // NEW: Color for image/video placeholders
     } = req.body;
 
     if (!userId || !sourceUrl) {
@@ -58,67 +71,74 @@ app.post("/api/import-url", async (req, res) => {
       return res.status(400).json({ error: "Invalid URL format" });
     }
 
-    // Create wireframe document
-    const wireframe = new Wireframe({
-      userId,
-      sourceUrl,
-      viewports: viewports.filter((v) =>
-        [375, 768, 1024, 1440, 1920].includes(v)
-      ),
-      colorMode,
-      typographyMode,
-      status: "processing",
-    });
-
-    await wireframe.save();
-
-    // Generate wireframe data (async - could move to queue)
-    try {
-      const frames = await createWireframeData(sourceUrl, viewports, colorMode);
-
-      // Extract colors and fonts from frames for color mode support
-      const extractedColors = extractUniqueColors(frames);
-      const extractedFonts = extractUniqueFonts(frames);
-
-      // Get colors based on mode
-      const colorsByMode = getColorByMode(colorMode, extractedColors);
-      const fontsByMode = getFontByMode(typographyMode, extractedFonts);
-
-      // Create local styles based on selected mode
-      const localStyles = createLocalStylesStructure(colorsByMode, fontsByMode);
-
-      // Apply color mode to frame elements
-      const processedFrames = applyColorModeToFrames(
-        frames,
-        colorMode,
-        colorsByMode
-      );
-
-      wireframe.wireframeData = { frames: processedFrames };
-      wireframe.localStyles = localStyles;
-      wireframe.status = "completed";
-      await wireframe.save();
-
-      res.json({
-        success: true,
-        wireframeId: wireframe._id,
-        sourceUrl: wireframe.sourceUrl,
-        viewports: wireframe.viewports,
-        colorMode: wireframe.colorMode,
-        frames: processedFrames.length,
-        wireframeData: { frames: processedFrames },
-        localStyles: localStyles,
-      });
-    } catch (error) {
-      wireframe.status = "failed";
-      wireframe.error = error.message;
-      await wireframe.save();
-
-      return res.status(500).json({
-        error: "Failed to extract wireframe",
-        details: error.message,
+    // Validate textMode
+    const validTextModes = ["website", "lorem", "semantic"];
+    if (!validTextModes.includes(textMode)) {
+      return res.status(400).json({
+        error: `Invalid textMode. Must be one of: ${validTextModes.join(", ")}`,
       });
     }
+
+    // Generate wireframe data (works without MongoDB)
+    const frames = await createWireframeData(
+      sourceUrl,
+      viewports,
+      colorMode,
+      textMode,
+      pluginMainColor
+    );
+
+    // Extract colors and fonts from frames for color mode support
+    const extractedColors = extractUniqueColors(frames);
+    const extractedFonts = extractUniqueFonts(frames);
+
+    // Get colors based on mode
+    const colorsByMode = getColorByMode(colorMode, extractedColors);
+    const fontsByMode = getFontByMode(typographyMode, extractedFonts);
+
+    // Create local styles based on selected mode
+    const localStyles = createLocalStylesStructure(colorsByMode, fontsByMode);
+
+    // Apply color mode to frame elements
+    const processedFrames = applyColorModeToFrames(
+      frames,
+      colorMode,
+      colorsByMode
+    );
+
+    // Save to MongoDB if connected (optional)
+    let wireframeId = null;
+    if (mongoConnected) {
+      try {
+        const wireframe = new Wireframe({
+          userId,
+          sourceUrl,
+          viewports: viewports.filter((v) =>
+            [375, 768, 1024, 1440, 1920].includes(v)
+          ),
+          colorMode,
+          typographyMode,
+          status: "completed",
+          wireframeData: { frames: processedFrames },
+          localStyles: localStyles,
+        });
+        await wireframe.save();
+        wireframeId = wireframe._id;
+      } catch (dbError) {
+        console.warn("Failed to save wireframe to database:", dbError.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      wireframeId: wireframeId,
+      sourceUrl: sourceUrl,
+      viewports: viewports,
+      colorMode: colorMode,
+      frames: processedFrames.length,
+      wireframeData: { frames: processedFrames },
+      localStyles: localStyles,
+    });
   } catch (error) {
     console.error("Import URL error:", error);
     res.status(500).json({ error: error.message });

@@ -21,8 +21,9 @@
   "scripts": {
     "setup": "bash setup-support-system.sh",
     "setup:full": "npm run setup && npm run build:all && npm run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:plugin\"",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:plugin-backend\" \"npm run dev:frontend\" \"npm run dev:plugin\"",
     "dev:backend": "cd Website_Backend && npm run dev",
+    "dev:plugin-backend": "cd Plugin_Backend && npm run dev",
     "dev:frontend": "cd Website_Frontend && npm run dev",
     "dev:plugin": "cd Plugin_Frontend && npm run dev",
     "dev:single": "npm run dev:backend & npm run dev:frontend",

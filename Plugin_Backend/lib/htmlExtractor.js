@@ -1,5 +1,4 @@
 const puppeteer = require("puppeteer");
-const cheerio = require("cheerio");
 const {
   generateLoremIpsum,
   countWords,
@@ -7,11 +6,69 @@ const {
 } = require("../utils/loremGenerator");
 const { normalizeColor } = require("../utils/styleUtils");
 
-async function renderWebsite(url, viewportWidth = 1440) {
+// Maximum elements to extract (performance limit)
+const MAX_ELEMENTS = 500;
+
+// Semantic placeholder text based on element type
+const SEMANTIC_PLACEHOLDERS = {
+  h1: "Main Heading",
+  h2: "Section Title",
+  h3: "Subsection",
+  h4: "Minor Heading",
+  h5: "Small Heading",
+  h6: "Smallest Heading",
+  p: "Body text paragraph content",
+  a: "Link Text",
+  button: "Button",
+  span: "Text",
+  li: "List Item",
+  label: "Label",
+};
+
+/**
+ * Renders website and extracts wireframe elements using Puppeteer
+ * @param {string} url - Website URL to render
+ * @param {number} viewportWidth - Viewport width for rendering
+ * @param {string} textMode - Text mode: "website" | "lorem" | "semantic"
+ * @param {string} pluginMainColor - Color for image/video placeholders
+ * @returns {Promise<{elements: Array, pageHeight: number, pageWidth: number}>}
+ */
+async function renderWebsite(
+  url,
+  viewportWidth = 1440,
+  textMode = "website",
+  pluginMainColor = "#1f3a5f"
+) {
+  let browser;
   try {
-    const browser = await puppeteer.launch({
+    // Try to find Chrome on the system
+    const possiblePaths = [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", // macOS
+      "/usr/bin/google-chrome", // Linux
+      "/usr/bin/chromium-browser", // Linux Chromium
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", // Windows
+    ];
+
+    let executablePath;
+    for (const path of possiblePaths) {
+      try {
+        require("fs").accessSync(path);
+        executablePath = path;
+        break;
+      } catch {
+        // Path doesn't exist, try next
+      }
+    }
+
+    browser = await puppeteer.launch({
       headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: executablePath, // Use system Chrome if found
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
     });
 
     const page = await browser.newPage();
@@ -26,200 +83,274 @@ async function renderWebsite(url, viewportWidth = 1440) {
       timeout: 30000,
     });
 
-    // Get full page height
-    const bodyHandle = await page.$("body");
-    const { height } = await bodyHandle.boundingBox();
+    // Wait for dynamic content to load
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Get full page dimensions
+    const dimensions = await page.evaluate(() => ({
+      width: document.documentElement.scrollWidth,
+      height: document.documentElement.scrollHeight,
+    }));
+
+    // Set viewport to full page height for accurate positioning
     await page.setViewport({
       width: viewportWidth,
-      height: Math.ceil(height) + 100,
+      height: Math.min(dimensions.height, 10000), // Cap at 10000 for memory
     });
 
-    // Get HTML
-    const html = await page.content();
+    // Extract elements with proper positioning using page.evaluate()
+    const elements = await extractElementsFromPage(
+      page,
+      textMode,
+      pluginMainColor
+    );
+
     await browser.close();
 
-    return html;
+    return {
+      elements: elements.slice(0, MAX_ELEMENTS),
+      pageHeight: dimensions.height,
+      pageWidth: viewportWidth,
+    };
   } catch (error) {
+    if (browser) await browser.close();
     console.error("Puppeteer error:", error);
     throw new Error(`Failed to render website: ${error.message}`);
   }
 }
 
-async function extractWireframeElements(html, colorMode = "plugin-colors") {
-  const $ = cheerio.load(html);
-  const elements = [];
-  let elementId = 0;
+/**
+ * Extracts elements from rendered page using Puppeteer's evaluate()
+ * This runs in the browser context and has access to actual DOM positions
+ */
+async function extractElementsFromPage(page, textMode, pluginMainColor) {
+  return await page.evaluate(
+    (textMode, pluginMainColor, semanticPlaceholders) => {
+      const elements = [];
+      let elementId = 0;
 
-  // Remove script and style tags
-  $("script, style, noscript, meta, link, head").remove();
+      // Helper: Generate lorem ipsum words
+      const loremWords = [
+        "lorem",
+        "ipsum",
+        "dolor",
+        "sit",
+        "amet",
+        "consectetur",
+        "adipiscing",
+        "elit",
+        "sed",
+        "do",
+        "eiusmod",
+        "tempor",
+        "incididunt",
+        "ut",
+        "labore",
+      ];
 
-  // Process main elements
-  $("body *").each(function () {
-    const $elem = $(this);
-    const tag = this.name;
-
-    // Skip certain elements
-    if (["script", "style", "meta", "noscript", "link"].includes(tag)) {
-      return;
-    }
-
-    // Get computed styles
-    const styles = $elem.attr("style") || "";
-    const computedStyle = parseInlineStyles(styles);
-
-    // Get text content
-    let textContent = cleanText($elem.text());
-
-    // Skip if empty and no background color
-    if (!textContent && !computedStyle.backgroundColor) {
-      return;
-    }
-
-    // Limit text length for display
-    if (textContent.length > 200) {
-      textContent = textContent.substring(0, 200) + "...";
-    }
-
-    // Determine element type
-    let elementType = "div";
-    if (["h1", "h2", "h3", "h4", "h5", "h6"].includes(tag)) {
-      elementType = "heading";
-    } else if (["p", "span", "a", "li"].includes(tag)) {
-      elementType = "text";
-    } else if (["img"].includes(tag)) {
-      elementType = "image";
-      textContent = "Image";
-    } else if (["video", "iframe"].includes(tag)) {
-      elementType = "video";
-      textContent = "Video";
-    } else if (["i", "svg", "button"].includes(tag)) {
-      if (tag === "button") elementType = "div";
-      else {
-        elementType = "icon";
-        textContent = "Icon";
-      }
-    }
-
-    // Create placeholder element
-    const element = {
-      id: elementId++,
-      type: elementType,
-      x: Math.random() * 50 + 20, // Placeholder positioning
-      y: Math.random() * 50 + 20,
-      width: 100,
-      height: elementType === "image" || elementType === "video" ? 150 : 40,
-      backgroundColor: computedStyle.backgroundColor || "#ffffff",
-      textColor: computedStyle.color || "#333333",
-      borderColor: computedStyle.borderColor || "transparent",
-      borderWidth: computedStyle.borderWidth || 0,
-      borderStyle: "solid",
-      fontFamily: computedStyle.fontFamily || "Open Sans",
-      fontSize: computedStyle.fontSize || 14,
-      fontWeight: computedStyle.fontWeight || 400,
-      textAlign: computedStyle.textAlign || "left",
-      content: textContent || "Content",
-      gradient: computedStyle.gradient || "",
-      shadow: computedStyle.boxShadow || "",
-      opacity: computedStyle.opacity !== null ? computedStyle.opacity : 1,
-      borderRadius: computedStyle.borderRadius || 0,
-    };
-
-    elements.push(element);
-  });
-
-  return elements;
-}
-
-function parseInlineStyles(styleStr) {
-  const styles = {
-    backgroundColor: null,
-    color: null,
-    borderColor: null,
-    borderWidth: 0,
-    fontFamily: null,
-    fontSize: 14,
-    fontWeight: 400,
-    textAlign: "left",
-    opacity: 1,
-    borderRadius: 0,
-    boxShadow: "",
-    gradient: "",
-  };
-
-  if (!styleStr) return styles;
-
-  const declarations = styleStr.split(";");
-  declarations.forEach((decl) => {
-    const [prop, value] = decl.split(":").map((s) => s.trim());
-    if (!prop || !value) return;
-
-    switch (prop.toLowerCase()) {
-      case "background-color":
-        styles.backgroundColor = normalizeColor(value);
-        break;
-      case "color":
-        styles.color = normalizeColor(value);
-        break;
-      case "border-color":
-        styles.borderColor = normalizeColor(value);
-        break;
-      case "border-width":
-        styles.borderWidth = parseInt(value) || 0;
-        break;
-      case "font-family":
-        styles.fontFamily = value.replace(/['"]/g, "");
-        break;
-      case "font-size":
-        styles.fontSize = parseInt(value) || 14;
-        break;
-      case "font-weight":
-        styles.fontWeight = parseInt(value) || 400;
-        break;
-      case "text-align":
-        styles.textAlign = value;
-        break;
-      case "opacity":
-        styles.opacity = parseFloat(value) || 1;
-        break;
-      case "border-radius":
-        styles.borderRadius = parseInt(value) || 0;
-        break;
-      case "box-shadow":
-        styles.boxShadow = value;
-        break;
-      case "background":
-        if (value.includes("gradient")) {
-          styles.gradient = value;
-        } else {
-          styles.backgroundColor = normalizeColor(value);
+      const generateLorem = (wordCount) => {
+        const result = [];
+        for (let i = 0; i < wordCount; i++) {
+          result.push(loremWords[i % loremWords.length]);
         }
-        break;
-    }
-  });
+        if (result.length > 0) {
+          result[0] = result[0].charAt(0).toUpperCase() + result[0].slice(1);
+        }
+        return result.join(" ");
+      };
 
-  return styles;
+      // Helper: Parse color to hex
+      const parseColor = (color) => {
+        if (
+          !color ||
+          color === "rgba(0, 0, 0, 0)" ||
+          color === "transparent"
+        ) {
+          return null;
+        }
+        const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (match) {
+          const r = parseInt(match[1]).toString(16).padStart(2, "0");
+          const g = parseInt(match[2]).toString(16).padStart(2, "0");
+          const b = parseInt(match[3]).toString(16).padStart(2, "0");
+          return `#${r}${g}${b}`;
+        }
+        return color.startsWith("#") ? color : null;
+      };
+
+      // Get all visible elements in the body
+      const allElements = document.body.querySelectorAll("*");
+
+      allElements.forEach((elem) => {
+        const tag = elem.tagName.toLowerCase();
+
+        // Skip invisible and non-visual elements
+        if (
+          [
+            "script",
+            "style",
+            "meta",
+            "noscript",
+            "link",
+            "head",
+            "title",
+            "br",
+            "hr",
+            "base",
+            "template",
+          ].includes(tag)
+        ) {
+          return;
+        }
+
+        const rect = elem.getBoundingClientRect();
+        const computedStyle = window.getComputedStyle(elem);
+
+        // Skip elements with no visible dimensions
+        if (rect.width < 5 || rect.height < 5) return;
+
+        // Skip hidden elements
+        if (computedStyle.display === "none") return;
+        if (computedStyle.visibility === "hidden") return;
+        if (parseFloat(computedStyle.opacity) === 0) return;
+
+        // Determine element type
+        let elementType = "div";
+        let content = "";
+        let isMediaPlaceholder = false;
+
+        if (["h1", "h2", "h3", "h4", "h5", "h6"].includes(tag)) {
+          elementType = "heading";
+          content = elem.textContent?.trim().substring(0, 100) || "";
+        } else if (["p", "span", "a", "li", "label", "td", "th"].includes(tag)) {
+          elementType = "text";
+          // Only get direct text, not from children
+          const directText = Array.from(elem.childNodes)
+            .filter((node) => node.nodeType === Node.TEXT_NODE)
+            .map((node) => node.textContent.trim())
+            .join(" ");
+          content = directText.substring(0, 200) || "";
+        } else if (tag === "img") {
+          elementType = "image";
+          content = "Image";
+          isMediaPlaceholder = true;
+        } else if (["video", "iframe"].includes(tag)) {
+          elementType = "video";
+          content = "Video";
+          isMediaPlaceholder = true;
+        } else if (tag === "svg" || elem.querySelector("svg")) {
+          elementType = "icon";
+          content = "Icon";
+        } else if (
+          tag === "button" ||
+          elem.getAttribute("role") === "button"
+        ) {
+          elementType = "text";
+          content = elem.textContent?.trim().substring(0, 50) || "Button";
+        } else if (["input", "textarea", "select"].includes(tag)) {
+          elementType = "div";
+          content = elem.placeholder || elem.value || "";
+        }
+
+        // Apply text mode transformations (not for media placeholders)
+        if (content && !isMediaPlaceholder) {
+          if (textMode === "lorem") {
+            const wordCount = Math.max(content.split(/\s+/).length, 2);
+            content = generateLorem(wordCount);
+          } else if (textMode === "semantic") {
+            content = semanticPlaceholders[tag] || "Content Block";
+          }
+          // "website" mode keeps original content
+        }
+
+        // Parse colors
+        let backgroundColor = parseColor(computedStyle.backgroundColor);
+        const textColor = parseColor(computedStyle.color) || "#333333";
+        const borderColor = parseColor(computedStyle.borderColor);
+
+        // For images/videos, use plugin placeholder color
+        if (isMediaPlaceholder) {
+          backgroundColor = pluginMainColor;
+        }
+
+        // Skip elements with no visual representation (no bg, no border, no text)
+        if (
+          !backgroundColor &&
+          !borderColor &&
+          !content &&
+          elementType === "div"
+        ) {
+          return;
+        }
+
+        elements.push({
+          id: elementId++,
+          type: elementType,
+          x: Math.round(rect.x),
+          y: Math.round(rect.y + window.scrollY), // Account for scroll position
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          backgroundColor: backgroundColor || "transparent",
+          textColor: textColor,
+          borderColor: borderColor || "transparent",
+          borderWidth: parseInt(computedStyle.borderWidth) || 0,
+          borderRadius: parseInt(computedStyle.borderRadius) || 0,
+          fontFamily:
+            computedStyle.fontFamily?.split(",")[0]?.replace(/['"]/g, "") ||
+            "Inter",
+          fontSize: parseInt(computedStyle.fontSize) || 14,
+          fontWeight: parseInt(computedStyle.fontWeight) || 400,
+          textAlign: computedStyle.textAlign || "left",
+          opacity: parseFloat(computedStyle.opacity) || 1,
+          content: content || "",
+          isMediaPlaceholder: isMediaPlaceholder,
+        });
+      });
+
+      return elements;
+    },
+    textMode,
+    pluginMainColor,
+    SEMANTIC_PLACEHOLDERS
+  );
 }
 
+/**
+ * Creates wireframe data for multiple viewports
+ * @param {string} url - Website URL
+ * @param {number[]} viewports - Array of viewport widths
+ * @param {string} colorMode - Color mode for styling
+ * @param {string} textMode - Text mode: "website" | "lorem" | "semantic"
+ * @param {string} pluginMainColor - Color for media placeholders
+ * @returns {Promise<Array>} Array of frame objects
+ */
 async function createWireframeData(
   url,
   viewports,
-  colorMode = "plugin-colors"
+  colorMode = "plugin-colors",
+  textMode = "website",
+  pluginMainColor = "#1f3a5f"
 ) {
   const frames = [];
 
   for (const viewport of viewports) {
     try {
-      const html = await renderWebsite(url, viewport);
-      const elements = await extractWireframeElements(html, colorMode);
+      const { elements, pageHeight, pageWidth } = await renderWebsite(
+        url,
+        viewport,
+        textMode,
+        pluginMainColor
+      );
 
       frames.push({
-        viewportWidth: viewport,
-        viewportHeight: 1080,
+        viewportWidth: pageWidth,
+        viewportHeight: pageHeight,
         backgroundColor: "#ffffff",
         elements: elements,
       });
     } catch (error) {
       console.error(`Error processing viewport ${viewport}:`, error);
+      // Continue with other viewports even if one fails
     }
   }
 
@@ -228,7 +359,6 @@ async function createWireframeData(
 
 module.exports = {
   renderWebsite,
-  extractWireframeElements,
-  parseInlineStyles,
+  extractElementsFromPage,
   createWireframeData,
 };
