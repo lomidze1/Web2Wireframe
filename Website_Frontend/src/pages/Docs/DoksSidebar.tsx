@@ -1,5 +1,5 @@
 import type { ReactElement, KeyboardEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { docsNavigation } from "./data/docsStructure";
 import { getDocsSearchIndex } from "./data/docsSearchIndex";
@@ -43,13 +43,17 @@ const DoksSidebar = (): ReactElement => {
     return location.pathname === `${topicPath}/${pagePath}`;
   };
 
-  // Auto-expand the topic containing the active page
+  // Auto-expand the topic containing the active page on route change
   useEffect(() => {
     const activeTopic = docsNavigation.find((topic) =>
       location.pathname.startsWith(topic.path)
     );
-    if (activeTopic && !expandedTopics.has(activeTopic.id)) {
-      setExpandedTopics(new Set([...expandedTopics, activeTopic.id]));
+    if (activeTopic) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Sync expanded state with route
+      setExpandedTopics((prev) => {
+        if (prev.has(activeTopic.id)) return prev;
+        return new Set([...prev, activeTopic.id]);
+      });
     }
   }, [location.pathname]);
 
@@ -69,9 +73,15 @@ const DoksSidebar = (): ReactElement => {
       .slice(0, 8);
   }, [searchIndex, normalizedQuery]);
 
+  // Reset activeIndex when search query changes
+  const prevQueryRef = useRef("");
   useEffect(() => {
-    if (filteredResults.length > 0) {
-      setActiveIndex(0);
+    if (prevQueryRef.current !== normalizedQuery) {
+      prevQueryRef.current = normalizedQuery;
+      if (filteredResults.length > 0) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset selection on query change
+        setActiveIndex(0);
+      }
     }
   }, [normalizedQuery, filteredResults.length]);
 

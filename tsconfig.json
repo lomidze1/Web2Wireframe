@@ -2,19 +2,16 @@
   "compilerOptions": {
     "target": "es2020",
     "lib": ["es2020", "dom"],
-    "jsx": "react",
     "module": "esnext",
     "moduleResolution": "node",
-    "strict": false,
+    "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
   "include": [
-    "Website_Frontend/src/**/*.ts",
-    "Website_Frontend/src/**/*.tsx",
     "Website_Backend/src/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "Website_Frontend", "Plugin_Frontend", "Plugin_Backend", "License_Backend"]
 }

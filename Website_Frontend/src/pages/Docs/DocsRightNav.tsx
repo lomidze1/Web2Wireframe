@@ -13,7 +13,6 @@ const DocsRightNav = (): ReactElement => {
   const [headings, setHeadings] = useState<Heading[]>([]);
   const [activeHeading, setActiveHeading] = useState<string>("");
 
-  const observerRef = useRef<IntersectionObserver | null>(null);
   const mutationObserverRef = useRef<MutationObserver | null>(null);
 
   const activeHeadingRef = useRef<string>("");
