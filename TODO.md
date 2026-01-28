@@ -21,11 +21,11 @@
 - [x] Test network access restrictions
 - [x] Verify no unrestricted access warnings
 
-### 1.2 Plugin Architecture
-- [ ] Setup Plugin UI (HTML/CSS/React)
-- [ ] Setup Plugin Backend (sandbox code)
-- [ ] Establish UI ↔ Backend communication
-- [ ] Add error handling & logging
+### 1.2 Plugin Architecture ✅
+- [x] Setup Plugin UI (Preact with @create-figma-plugin/ui)
+- [x] Setup Plugin Backend (sandbox code in main.ts)
+- [x] Establish UI ↔ Backend communication (postMessage pattern)
+- [x] Add error handling & logging (logger.ts + errorHandler.ts)
 
 ---
 

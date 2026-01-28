@@ -1,4 +1,6 @@
 import { showUI } from "@create-figma-plugin/utilities";
+import { logger } from "./utils/logger";
+import { errorHandler, ErrorCode } from "./utils/errorHandler";
 
 // Types for wireframe data
 interface WireframeElement {
@@ -130,7 +132,7 @@ async function createWireframeFrame(
     await figma.loadFontAsync({ family: "Inter", style: "Medium" });
     await figma.loadFontAsync({ family: "Inter", style: "Bold" });
   } catch (e) {
-    console.error("Failed to load Inter fonts, using fallback");
+    logger.warn("Failed to load Inter fonts, using fallback", { error: e });
   }
 
   // Create main frame
@@ -288,7 +290,7 @@ async function createWireframeFrame(
 
       wireframeFrame.appendChild(rectNode);
     } catch (err) {
-      console.error("Error creating element:", element.type, err);
+      logger.error("Error creating element", err, { elementType: element.type });
     }
   }
 
@@ -309,10 +311,14 @@ export default function () {
       const { frames, sourceUrl, pluginMainColor } = data;
 
       if (!frames || frames.length === 0) {
-        figma.notify("No wireframe data received", { error: true });
+        errorHandler.handle({
+          code: ErrorCode.NO_DATA_RECEIVED,
+          message: "No wireframe data received",
+        });
         return;
       }
 
+      logger.info("Creating wireframe", { frameCount: frames.length, sourceUrl });
       figma.notify("Creating wireframe...", { timeout: 2000 });
 
       try {
@@ -334,24 +340,29 @@ export default function () {
         // Zoom to fit created frames
         figma.viewport.scrollAndZoomIntoView(createdFrames);
 
+        logger.info("Wireframe created successfully", { frameCount: createdFrames.length });
         figma.notify(`Created ${createdFrames.length} wireframe frame(s)!`, {
           timeout: 3000,
         });
       } catch (error) {
-        console.error("Wireframe creation error:", error);
-        figma.notify("Error creating wireframe", { error: true });
+        errorHandler.handle({
+          code: ErrorCode.WIREFRAME_CREATION_FAILED,
+          message: "Error creating wireframe",
+          originalError: error,
+          context: { sourceUrl, frameCount: frames.length },
+        });
       }
     }
 
     // Handle open-wireframe message from Library
     if (msg.type === "open-wireframe") {
-      console.log("Open wireframe:", msg.data);
+      logger.debug("Open wireframe requested", { data: msg.data });
       // TODO: Implement opening saved wireframes
     }
 
     // Handle community wireframe usage
     if (msg.type === "use-community-wireframe") {
-      console.log("Use community wireframe:", msg.data);
+      logger.debug("Use community wireframe requested", { data: msg.data });
       // TODO: Implement community wireframe insertion
     }
   };
