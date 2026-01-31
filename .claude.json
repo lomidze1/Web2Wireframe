@@ -1,0 +1,120 @@
+{
+  "name": "Web2Wireframe",
+  "description": "Figma plugin for converting websites to wireframes",
+  "model": "sonnet",
+  "mcpServers": {
+    "figma-desktop": {
+      "type": "http",
+      "url": "http://127.0.0.1:3845/mcp"
+    }
+  },
+  "context": {
+    "include": [
+      "CLAUDE.md",
+      "README.md",
+      "package.json",
+      "tsconfig.json"
+    ],
+    "exclude": [
+      "node_modules/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/*.log",
+      ".DS_Store"
+    ]
+  },
+  "services": {
+    "website-frontend": {
+      "path": "Website_Frontend",
+      "port": 5173,
+      "entry": "src/main.tsx",
+      "stack": ["React", "Vite", "TypeScript", "SCSS"]
+    },
+    "website-backend": {
+      "path": "Website_Backend",
+      "port": 3001,
+      "entry": "src/index.ts",
+      "stack": ["Express", "TypeScript", "Zod", "MongoDB"]
+    },
+    "plugin-frontend": {
+      "path": "Plugin_Frontend",
+      "entry": "src/main.ts",
+      "stack": ["TypeScript", "Figma Plugin API"]
+    },
+    "plugin-backend": {
+      "path": "Plugin_Backend",
+      "port": 3002,
+      "entry": "api/index.js",
+      "stack": ["Node.js", "Puppeteer", "Cheerio"],
+      "endpoints": ["/api/import-url", "/api/import-cdp"]
+    },
+    "browser-extension": {
+      "path": "Browser_Extension",
+      "entry": "src/background/index.ts",
+      "stack": ["TypeScript", "Preact", "Chrome DevTools Protocol"],
+      "purpose": "CDP-based website capture for 1:1 quality extraction"
+    },
+    "license-backend": {
+      "path": "License_Backend",
+      "port": 3003,
+      "entry": "src/index.ts",
+      "stack": ["Express", "TypeScript"]
+    }
+  },
+  "scripts": {
+    "dev": "npm run dev",
+    "build": "npm run build:all",
+    "typecheck": "npm run type-check",
+    "lint": "npm run lint",
+    "verify": "npm run type-check && npm run lint"
+  },
+  "codeStyle": {
+    "typescript": {
+      "strict": true,
+      "noAny": true
+    },
+    "react": {
+      "styling": "SCSS modules"
+    },
+    "api": {
+      "validation": "Zod",
+      "errorHandling": "Express middleware"
+    },
+    "database": {
+      "type": "MongoDB",
+      "indexing": "userId fields"
+    }
+  },
+  "commitConvention": {
+    "types": ["feat", "fix", "refactor", "docs", "test"],
+    "format": "type: short description",
+    "coAuthor": "Claude <noreply@anthropic.com>"
+  },
+  "workflow": {
+    "interviewBeforeCoding": true,
+    "verifyAfterChanges": true,
+    "commands": {
+      "preCommit": "npm run type-check && npm run lint"
+    }
+  },
+  "extractionStrategy": {
+    "primary": "CDP (Chrome DevTools Protocol)",
+    "fallback": "Puppeteer",
+    "quality": "1:1 maximum fidelity like html.to.design",
+    "critical": {
+      "NEVER_USE_ONLY": "getComputedStyle() - loses gradients, CSS vars, hover states",
+      "ALWAYS_USE": "CSS.getMatchedStylesForNode - preserves original CSS rules",
+      "KEY_CDP_METHODS": [
+        "DOM.getDocument",
+        "CSS.getMatchedStylesForNode",
+        "CSS.getComputedStyleForNode",
+        "CSS.getPlatformFontsForNode"
+      ]
+    },
+    "browserExtension": {
+      "location": "Browser_Extension/src/background/cdp/",
+      "mainFile": "css.ts",
+      "keyFunction": "getMatchedStylesForNode"
+    }
+  }
+}

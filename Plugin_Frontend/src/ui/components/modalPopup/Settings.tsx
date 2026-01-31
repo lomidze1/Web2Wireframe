@@ -486,6 +486,94 @@ export default function Settings({
                               />
                             </div>
                           </div>
+
+                          {/* Border Color */}
+                          <div class={styles.colorCard}>
+                            <div class={styles.colorSwatch}>
+                              <input
+                                type="color"
+                                value={
+                                  config.pluginColors?.border ||
+                                  DEFAULT_PLUGIN_COLORS.border
+                                }
+                                onChange={(e) =>
+                                  updateConfig({
+                                    pluginColors: {
+                                      ...config.pluginColors,
+                                      border: (e.target as HTMLInputElement)
+                                        .value,
+                                    },
+                                  })
+                                }
+                              />
+                            </div>
+                            <div class={styles.colorBody}>
+                              <div class={styles.colorLabel}>
+                                Plugin variable: border
+                              </div>
+                              <input
+                                type="text"
+                                class={styles.colorInput}
+                                value={
+                                  config.pluginColors?.border ||
+                                  DEFAULT_PLUGIN_COLORS.border
+                                }
+                                onChange={(e) =>
+                                  updateConfig({
+                                    pluginColors: {
+                                      ...config.pluginColors,
+                                      border: (e.target as HTMLInputElement)
+                                        .value,
+                                    },
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          {/* Background Color */}
+                          <div class={styles.colorCard}>
+                            <div class={styles.colorSwatch}>
+                              <input
+                                type="color"
+                                value={
+                                  config.pluginColors?.background ||
+                                  DEFAULT_PLUGIN_COLORS.background
+                                }
+                                onChange={(e) =>
+                                  updateConfig({
+                                    pluginColors: {
+                                      ...config.pluginColors,
+                                      background: (e.target as HTMLInputElement)
+                                        .value,
+                                    },
+                                  })
+                                }
+                              />
+                            </div>
+                            <div class={styles.colorBody}>
+                              <div class={styles.colorLabel}>
+                                Plugin variable: background
+                              </div>
+                              <input
+                                type="text"
+                                class={styles.colorInput}
+                                value={
+                                  config.pluginColors?.background ||
+                                  DEFAULT_PLUGIN_COLORS.background
+                                }
+                                onChange={(e) =>
+                                  updateConfig({
+                                    pluginColors: {
+                                      ...config.pluginColors,
+                                      background: (e.target as HTMLInputElement)
+                                        .value,
+                                    },
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}

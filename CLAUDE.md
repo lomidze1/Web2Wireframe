@@ -83,4 +83,69 @@ See `.claude/agents/` for specialized agents:
 
 - Resend - Email delivery
 - MongoDB - Wireframe storage
-- Puppeteer - Website rendering
+- Puppeteer - Website rendering (legacy)
+- **Chrome DevTools Protocol** - Website capture (primary)
+
+---
+
+## 🚨 CRITICAL: CDP Extraction Approach
+
+### მიზანი: 1:1 ხარისხიანი ექსტრაქცია (html.to.design დონეზე)
+
+**არასდროს გამოიყენო მხოლოდ `getComputedStyle()`** - ის კარგავს:
+- Gradients (ხდება solid color)
+- CSS Variables (მხოლოდ resolved value)
+- Hover/Focus states
+- Original CSS rules
+
+### სწორი მიდგომა: Chrome DevTools Protocol (CDP)
+
+```
+Browser_Extension (CDP)  →  Plugin_Backend  →  Figma Plugin
+```
+
+#### CDP vs Puppeteer
+
+| ფუნქცია | Puppeteer ❌ | CDP ✅ |
+|---------|-------------|--------|
+| Styles | `getComputedStyle()` | `CSS.getMatchedStylesForNode` |
+| Gradients | იკარგება | ინახება original |
+| CSS Variables | resolved only | `var(--name)` + resolved |
+| Hover states | ვერ | pseudo-class rules |
+| Fonts | family name | @font-face + files |
+| Private pages | ვერ | user session |
+
+#### მთავარი CDP მეთოდები
+
+```typescript
+// DOM
+await client.send("DOM.getDocument", { depth: -1, pierce: true });
+await client.send("DOM.getBoxModel", { nodeId });
+
+// CSS - KEY DIFFERENCE!
+await client.send("CSS.getMatchedStylesForNode", { nodeId });  // ✅ Original rules
+await client.send("CSS.getComputedStyleForNode", { nodeId });  // Fallback only
+
+// Fonts
+await client.send("CSS.getPlatformFontsForNode", { nodeId });
+```
+
+#### Browser Extension Location
+
+```
+Browser_Extension/
+├── src/background/cdp/
+│   ├── client.ts   # chrome.debugger wrapper
+│   ├── css.ts      # getMatchedStylesForNode (!)
+│   ├── dom.ts      # DOM extraction
+│   ├── fonts.ts    # @font-face extraction
+│   └── assets.ts   # Images, SVGs
+```
+
+#### Plugin_Backend Endpoint
+
+`POST /api/import-cdp` - მიიღებს CDP-ფორმატის data-ს
+
+### წესი
+
+**ყოველთვის CDP გამოიყენე ვებსაიტის capture-ისთვის. Puppeteer მხოლოდ fallback-ად.**

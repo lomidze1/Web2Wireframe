@@ -8,6 +8,8 @@ export interface PluginColors {
   text: string;
   accent: string;
   surface: string;
+  border: string;
+  background: string;
 }
 
 export interface PluginConfig {
@@ -18,12 +20,14 @@ export interface PluginConfig {
   pluginColors: PluginColors;
 }
 
-// Default plugin colors
+// Default plugin colors - 6 color palette for wireframes
 export const DEFAULT_PLUGIN_COLORS: PluginColors = {
-  main: "#1f3a5f",
-  text: "#b7c1cc",
-  accent: "#3d6aa8",
-  surface: "#2a3f54",
+  main: "#1f3a5f",       // Brand color, primary elements
+  text: "#333333",       // All text colors
+  accent: "#3b82f6",     // Buttons, links, CTAs
+  surface: "#f5f5f5",    // Cards, containers, placeholders
+  border: "#e0e0e0",     // Borders, dividers
+  background: "#ffffff", // Page background
 };
 
 // Default configuration

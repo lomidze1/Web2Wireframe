@@ -71,7 +71,7 @@ export default function Web() {
           colorMode: colorModeMap[settings.localColorMode] || "plugin-colors",
           typographyMode: fontModeMap[settings.localFontMode] || "plugin-fonts",
           textMode: settings.localTextMode,
-          pluginMainColor: config.pluginColors.main,
+          pluginColors: config.pluginColors, // Send full 6-color palette
         }),
       });
 
@@ -93,7 +93,7 @@ export default function Web() {
               frames: data.wireframeData?.frames || [],
               sourceUrl: trimmedUrl,
               localStyles: data.localStyles,
-              pluginMainColor: config.pluginColors.main,
+              pluginColors: data.pluginColors || config.pluginColors, // Full 6-color palette
             },
           },
         },

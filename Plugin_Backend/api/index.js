@@ -19,8 +19,6 @@ const app = express();
 const corsOrigin = process.env.CORS_ORIGIN;
 app.use(
   cors({
-    // If CORS_ORIGIN is "*" or not set, allow all origins
-    // Otherwise, split by comma for specific origins
     origin: !corsOrigin || corsOrigin === "*" ? true : corsOrigin.split(","),
     credentials: true,
   })
@@ -45,7 +43,19 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// POST /api/import-url - Main endpoint to import website and generate wireframe
+/**
+ * POST /api/import-url - Main endpoint to import website and generate wireframe
+ *
+ * Request body:
+ * - userId: string (required)
+ * - sourceUrl: string (required) - URL to import
+ * - viewports: number[] - Viewport widths [1920, 1440, 1024, 768, 375]
+ * - colorMode: "plugin-colors" | "website-colors"
+ * - typographyMode: "plugin-fonts" | "website-fonts"
+ * - textMode: "website" | "lorem" | "semantic"
+ * - pluginColors: object - Custom plugin color overrides
+ * - pluginFont: string - Custom plugin font (e.g., "Montserrat", "Arial")
+ */
 app.post("/api/import-url", async (req, res) => {
   try {
     const {
@@ -54,12 +64,15 @@ app.post("/api/import-url", async (req, res) => {
       viewports = [1440],
       colorMode = "plugin-colors",
       typographyMode = "plugin-fonts",
-      textMode = "website", // NEW: "website" | "lorem" | "semantic"
-      pluginMainColor = "#1f3a5f", // NEW: Color for image/video placeholders
+      textMode = "website",
+      pluginColors = {},
+      pluginFont = "Montserrat",
     } = req.body;
 
+    // Validation
     if (!userId || !sourceUrl) {
       return res.status(400).json({
+        success: false,
         error: "Missing required fields: userId, sourceUrl",
       });
     }
@@ -68,43 +81,65 @@ app.post("/api/import-url", async (req, res) => {
     try {
       new URL(sourceUrl);
     } catch {
-      return res.status(400).json({ error: "Invalid URL format" });
+      return res.status(400).json({
+        success: false,
+        error: "Invalid URL format",
+      });
+    }
+
+    // Validate colorMode
+    const validColorModes = ["plugin-colors", "website-colors"];
+    if (!validColorModes.includes(colorMode)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid colorMode. Must be one of: ${validColorModes.join(", ")}`,
+      });
+    }
+
+    // Validate typographyMode
+    const validTypographyModes = ["plugin-fonts", "website-fonts"];
+    if (!validTypographyModes.includes(typographyMode)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid typographyMode. Must be one of: ${validTypographyModes.join(", ")}`,
+      });
     }
 
     // Validate textMode
     const validTextModes = ["website", "lorem", "semantic"];
     if (!validTextModes.includes(textMode)) {
       return res.status(400).json({
+        success: false,
         error: `Invalid textMode. Must be one of: ${validTextModes.join(", ")}`,
       });
     }
 
-    // Generate wireframe data (works without MongoDB)
-    const frames = await createWireframeData(
-      sourceUrl,
-      viewports,
+    console.log(`[Import] Starting import for ${sourceUrl}`);
+    console.log(`[Import] Options: viewports=${viewports}, colorMode=${colorMode}, textMode=${textMode}`);
+
+    // Merge custom plugin colors with defaults
+    const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
+
+    // Generate wireframe data with nested tree structure
+    const frames = await createWireframeData(sourceUrl, viewports, {
       colorMode,
       textMode,
-      pluginMainColor
-    );
+      typographyMode,
+      pluginColors: finalPluginColors,
+      pluginFont,
+    });
 
-    // Extract colors and fonts from frames for color mode support
-    const extractedColors = extractUniqueColors(frames);
-    const extractedFonts = extractUniqueFonts(frames);
+    if (!frames || frames.length === 0) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to extract wireframe data from URL",
+      });
+    }
 
-    // Get colors based on mode
-    const colorsByMode = getColorByMode(colorMode, extractedColors);
-    const fontsByMode = getFontByMode(typographyMode, extractedFonts);
-
-    // Create local styles based on selected mode
-    const localStyles = createLocalStylesStructure(colorsByMode, fontsByMode);
-
-    // Apply color mode to frame elements
-    const processedFrames = applyColorModeToFrames(
-      frames,
-      colorMode,
-      colorsByMode
-    );
+    // Create local styles structure
+    const localStyles = createLocalStylesStructure(finalPluginColors, {
+      primary: pluginFont,
+    });
 
     // Save to MongoDB if connected (optional)
     let wireframeId = null;
@@ -118,81 +153,149 @@ app.post("/api/import-url", async (req, res) => {
           ),
           colorMode,
           typographyMode,
+          textMode,
           status: "completed",
-          wireframeData: { frames: processedFrames },
-          localStyles: localStyles,
+          wireframeData: { frames },
+          localStyles,
         });
         await wireframe.save();
         wireframeId = wireframe._id;
+        console.log(`[Import] Saved wireframe to database: ${wireframeId}`);
       } catch (dbError) {
-        console.warn("Failed to save wireframe to database:", dbError.message);
+        console.warn("[Import] Failed to save wireframe to database:", dbError.message);
       }
     }
 
+    console.log(`[Import] Successfully generated ${frames.length} frame(s)`);
+
     res.json({
       success: true,
-      wireframeId: wireframeId,
-      sourceUrl: sourceUrl,
-      viewports: viewports,
-      colorMode: colorMode,
-      frames: processedFrames.length,
-      wireframeData: { frames: processedFrames },
-      localStyles: localStyles,
+      wireframeId,
+      sourceUrl,
+      viewports,
+      colorMode,
+      typographyMode,
+      textMode,
+      frameCount: frames.length,
+      wireframeData: { frames },
+      localStyles,
+      pluginColors: finalPluginColors,
     });
   } catch (error) {
-    console.error("Import URL error:", error);
-    res.status(500).json({ error: error.message });
+    console.error("[Import] Error:", error);
+
+    // Detailed error response
+    let errorMessage = error.message;
+    let errorCode = "IMPORT_ERROR";
+
+    if (error.message.includes("timeout")) {
+      errorCode = "TIMEOUT";
+      errorMessage = "Website took too long to load. Please try again or use a different URL.";
+    } else if (error.message.includes("net::ERR")) {
+      errorCode = "NETWORK_ERROR";
+      errorMessage = "Could not reach the website. Please check the URL and try again.";
+    } else if (error.message.includes("Navigation failed")) {
+      errorCode = "NAVIGATION_ERROR";
+      errorMessage = "Could not navigate to the website. It may be blocking automated access.";
+    }
+
+    res.status(500).json({
+      success: false,
+      error: errorMessage,
+      errorCode,
+      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
   }
 });
 
 // GET /api/wireframe/:id - Get wireframe by ID
 app.get("/api/wireframe/:id", async (req, res) => {
   try {
+    if (!mongoConnected) {
+      return res.status(503).json({
+        success: false,
+        error: "Database not available",
+      });
+    }
+
     const wireframe = await Wireframe.findById(req.params.id);
     if (!wireframe) {
-      return res.status(404).json({ error: "Wireframe not found" });
+      return res.status(404).json({
+        success: false,
+        error: "Wireframe not found",
+      });
     }
-    res.json(wireframe);
+    res.json({
+      success: true,
+      wireframe,
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
 // GET /api/wireframe-history/:userId - Get user's wireframe history
 app.get("/api/wireframe-history/:userId", async (req, res) => {
   try {
+    if (!mongoConnected) {
+      return res.status(503).json({
+        success: false,
+        error: "Database not available",
+      });
+    }
+
     const { limit = 10, skip = 0 } = req.query;
     const wireframes = await Wireframe.find({ userId: req.params.userId })
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip(parseInt(skip))
-      .select("_id sourceUrl viewports colorMode status createdAt");
+      .select("_id sourceUrl viewports colorMode typographyMode textMode status createdAt");
 
     const total = await Wireframe.countDocuments({ userId: req.params.userId });
 
     res.json({
+      success: true,
       total,
       limit: parseInt(limit),
       skip: parseInt(skip),
       wireframes,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
 // POST /api/save-settings - Save user settings
 app.post("/api/save-settings", async (req, res) => {
   try {
+    if (!mongoConnected) {
+      return res.status(503).json({
+        success: false,
+        error: "Database not available",
+      });
+    }
+
     const {
       userId,
       defaultColorMode = "plugin-colors",
       defaultViewports = [1440, 375],
       defaultTypographyMode = "plugin-fonts",
+      defaultTextMode = "website",
+      pluginColors = {},
+      pluginFont = "Montserrat",
     } = req.body;
 
     if (!userId) {
-      return res.status(400).json({ error: "Missing userId" });
+      return res.status(400).json({
+        success: false,
+        error: "Missing userId",
+      });
     }
 
     const settings = await UserSettings.findOneAndUpdate(
@@ -202,101 +305,103 @@ app.post("/api/save-settings", async (req, res) => {
         defaultColorMode,
         defaultViewports,
         defaultTypographyMode,
+        defaultTextMode,
+        pluginColors,
+        pluginFont,
       },
       { upsert: true, new: true }
     );
 
-    res.json(settings);
+    res.json({
+      success: true,
+      settings,
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
 // GET /api/settings/:userId - Get user settings
 app.get("/api/settings/:userId", async (req, res) => {
   try {
+    if (!mongoConnected) {
+      // Return default settings if DB not available
+      return res.json({
+        success: true,
+        settings: {
+          userId: req.params.userId,
+          defaultColorMode: "plugin-colors",
+          defaultViewports: [1440, 375],
+          defaultTypographyMode: "plugin-fonts",
+          defaultTextMode: "website",
+          pluginColors: DEFAULT_PLUGIN_COLORS,
+          pluginFont: "Montserrat",
+        },
+      });
+    }
+
     let settings = await UserSettings.findOne({ userId: req.params.userId });
     if (!settings) {
-      settings = new UserSettings({ userId: req.params.userId });
+      settings = new UserSettings({
+        userId: req.params.userId,
+        pluginColors: DEFAULT_PLUGIN_COLORS,
+      });
       await settings.save();
     }
-    res.json(settings);
+
+    res.json({
+      success: true,
+      settings,
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
-// Error handling
+// GET /api/default-colors - Get default plugin colors
+app.get("/api/default-colors", (req, res) => {
+  res.json({
+    success: true,
+    colors: DEFAULT_PLUGIN_COLORS,
+  });
+});
+
+// GET /api/default-fonts - Get default plugin fonts
+app.get("/api/default-fonts", (req, res) => {
+  res.json({
+    success: true,
+    fonts: DEFAULT_PLUGIN_FONTS,
+  });
+});
+
+// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error("Error:", err);
+  console.error("[Error]:", err);
   res.status(500).json({
+    success: false,
     error: "Internal server error",
     message: process.env.NODE_ENV === "development" ? err.message : undefined,
   });
 });
 
-// Helper: Extract unique colors from frames
-function extractUniqueColors(frames) {
-  const colors = new Set();
-  frames.forEach((frame) => {
-    frame.elements.forEach((element) => {
-      if (element.backgroundColor) colors.add(element.backgroundColor);
-      if (element.textColor) colors.add(element.textColor);
-    });
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `Route not found: ${req.method} ${req.path}`,
   });
-  return Array.from(colors).slice(0, 10); // Top 10 colors
-}
-
-// Helper: Extract unique fonts from frames
-function extractUniqueFonts(frames) {
-  const fonts = {};
-  let headingCount = 0;
-  let bodyCount = 0;
-
-  frames.forEach((frame) => {
-    frame.elements.forEach((element) => {
-      if (element.type === "heading" && headingCount === 0) {
-        fonts.heading = {
-          fontFamily: element.fontFamily || "Montserrat",
-          fontSize: element.fontSize || 24,
-          fontWeight: element.fontWeight || 600,
-        };
-        headingCount++;
-      } else if (!fonts.body && bodyCount === 0) {
-        fonts.body = {
-          fontFamily: element.fontFamily || "Open Sans",
-          fontSize: element.fontSize || 14,
-          fontWeight: element.fontWeight || 400,
-        };
-        bodyCount++;
-      }
-    });
-  });
-
-  return fonts;
-}
-
-// Helper: Apply color mode to all frames
-function applyColorModeToFrames(frames, colorMode, colorsByMode) {
-  if (colorMode === "plugin-colors" || colorMode === "figma-styles") {
-    // Use predefined colors
-    return frames.map((frame) => ({
-      ...frame,
-      elements: frame.elements.map((el) => ({
-        ...el,
-        backgroundColor: colorsByMode.background || el.backgroundColor,
-        textColor: colorsByMode.text || el.textColor,
-        borderColor: colorsByMode.border || el.borderColor,
-      })),
-    }));
-  }
-  // For website-colors and create-styles, keep original colors
-  return frames;
-}
+});
 
 const PORT = process.env.API_PORT || 3002;
 app.listen(PORT, () => {
   console.log(`Web2Wireframe API running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
 });
 
 // For Vercel
