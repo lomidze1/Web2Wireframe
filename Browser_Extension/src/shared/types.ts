@@ -165,6 +165,7 @@ export interface CaptureResult {
     width: number;
     height: number;
   };
+  options: CaptureOptions;
   tree: ExtractedElement;
   fonts: ExtractedFont[];
   assets: ExtractedAsset[];
@@ -198,6 +199,22 @@ export interface ExtractedStylesheet {
   isExternal: boolean;
 }
 
+// Capture options (user selections before capture)
+export interface CaptureOptions {
+  viewport: number;
+  colorMode: "plugin" | "website";
+  fontMode: "plugin" | "website";
+  textMode: "semantic" | "lorem" | "website";
+}
+
+// Default capture options
+export const DEFAULT_CAPTURE_OPTIONS: CaptureOptions = {
+  viewport: 1440,
+  colorMode: "plugin",
+  fontMode: "plugin",
+  textMode: "semantic",
+};
+
 // Extension settings
 export interface ExtensionSettings {
   backendUrl: string;
@@ -210,7 +227,7 @@ export interface ExtensionSettings {
 
 // Message types for extension communication
 export type ExtensionMessage =
-  | { type: "CAPTURE_PAGE"; tabId: number }
+  | { type: "CAPTURE_PAGE"; tabId: number; options: CaptureOptions }
   | { type: "CAPTURE_COMPLETE"; data: CaptureResult }
   | { type: "CAPTURE_ERROR"; error: string }
   | { type: "CAPTURE_PROGRESS"; progress: number; status: string }

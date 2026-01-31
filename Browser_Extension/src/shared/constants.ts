@@ -27,11 +27,30 @@ export const DEFAULT_SETTINGS = {
 
 // Viewports
 export const VIEWPORTS = [
-  { label: "Desktop XL", width: 1920 },
-  { label: "Desktop", width: 1440 },
-  { label: "Tablet Landscape", width: 1024 },
-  { label: "Tablet Portrait", width: 768 },
-  { label: "Mobile", width: 375 },
+  { label: "1920", width: 1920 },
+  { label: "1440", width: 1440 },
+  { label: "1024", width: 1024 },
+  { label: "768", width: 768 },
+  { label: "375", width: 375 },
+] as const;
+
+// Color mode options
+export const COLOR_OPTIONS = [
+  { value: "plugin", label: "Plugin Colors" },
+  { value: "website", label: "Website Colors" },
+] as const;
+
+// Font mode options
+export const FONT_OPTIONS = [
+  { value: "plugin", label: "Plugin Fonts" },
+  { value: "website", label: "Website Fonts" },
+] as const;
+
+// Text mode options
+export const TEXT_OPTIONS = [
+  { value: "semantic", label: "Semantic Placeholders" },
+  { value: "lorem", label: "Lorem Ipsum" },
+  { value: "website", label: "Website Text" },
 ] as const;
 
 // Skip these tags during extraction

@@ -7,8 +7,8 @@ import { createCDPClient, CDPClient } from "./cdp/client";
 import { getDocument, getBoxModel, getScrollDimensions } from "./cdp/dom";
 import { getMatchedStylesForNode, getComputedStyleForNode, extractPropertyFromMatchedRules } from "./cdp/css";
 import { extractFonts } from "./cdp/fonts";
-import { extractAssets } from "./cdp/assets";
-import type { ExtractedElement, CaptureResult, ExtensionMessage } from "@/shared/types";
+import type { ExtractedElement, CaptureResult, CaptureOptions, ExtensionMessage } from "@/shared/types";
+import { DEFAULT_CAPTURE_OPTIONS } from "@/shared/types";
 import { SKIP_TAGS, TEXT_TAGS, MEDIA_TAGS, DEFAULT_SETTINGS, STORAGE_KEYS } from "@/shared/constants";
 import { parseColor, isGradient, parseBorderRadius, generateId, getSemanticName } from "@/shared/utils";
 
@@ -21,7 +21,7 @@ let _captureProgress = 0;
  */
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
   if (message.type === "CAPTURE_PAGE") {
-    handleCapturePage(message.tabId)
+    handleCapturePage(message.tabId, message.options)
       .then((result) => sendResponse({ success: true, data: result }))
       .catch((error) => sendResponse({ success: false, error: error.message }));
     return true; // Keep channel open for async response
@@ -55,7 +55,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
 /**
  * Handle page capture request
  */
-async function handleCapturePage(tabId: number): Promise<CaptureResult> {
+async function handleCapturePage(tabId: number, options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS): Promise<CaptureResult> {
   if (isCapturing) {
     throw new Error("Capture already in progress");
   }
@@ -88,15 +88,11 @@ async function handleCapturePage(tabId: number): Promise<CaptureResult> {
     const tree = await extractElementTree(client, bodyNodeId, 0, dimensions.width);
     updateProgress(70, "Extracting fonts...");
 
-    // Extract fonts
-    const fonts = await extractFonts(client);
-    updateProgress(80, "Extracting assets...");
-
-    // Extract assets
-    const assets = await extractAssets(client);
+    // Extract fonts (only if using website fonts)
+    const fonts = options.fontMode === "website" ? await extractFonts(client) : [];
     updateProgress(90, "Finalizing...");
 
-    // Build result
+    // Build result - NO images, just placeholders
     const result: CaptureResult = {
       url: tab.url,
       title: tab.title || "Untitled",
@@ -105,10 +101,11 @@ async function handleCapturePage(tabId: number): Promise<CaptureResult> {
         width: dimensions.width,
         height: dimensions.height,
       },
+      options,
       tree,
       fonts,
-      assets,
-      stylesheets: [], // TODO: Extract stylesheets if needed
+      assets: [], // No images - wireframes use placeholders
+      stylesheets: [],
     };
 
     updateProgress(100, "Complete!");

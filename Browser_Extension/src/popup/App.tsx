@@ -1,5 +1,8 @@
 import { useState, useEffect } from "preact/hooks";
-import type { ExtensionMessage, CaptureResult } from "@/shared/types";
+import { encode } from "@msgpack/msgpack";
+import type { ExtensionMessage, CaptureResult, CaptureOptions } from "@/shared/types";
+import { DEFAULT_CAPTURE_OPTIONS } from "@/shared/types";
+import { VIEWPORTS, COLOR_OPTIONS, FONT_OPTIONS, TEXT_OPTIONS } from "@/shared/constants";
 
 type CaptureStatus = "idle" | "capturing" | "success" | "error";
 
@@ -11,6 +14,34 @@ interface CaptureState {
   error?: string;
 }
 
+/**
+ * Extract domain from URL for filename
+ */
+function getDomainFromUrl(url: string): string {
+  try {
+    const hostname = new URL(url).hostname;
+    // Remove www. prefix and replace dots with underscores
+    return hostname.replace(/^www\./, "").replace(/\./g, "_");
+  } catch {
+    return "website";
+  }
+}
+
+/**
+ * Compress binary data using CompressionStream (gzip)
+ */
+async function compressData(data: Uint8Array): Promise<Blob> {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    },
+  });
+
+  const compressedStream = stream.pipeThrough(new CompressionStream("gzip"));
+  return new Response(compressedStream).blob();
+}
+
 export function App() {
   const [state, setState] = useState<CaptureState>({
     status: "idle",
@@ -18,6 +49,8 @@ export function App() {
     message: "",
   });
   const [currentTab, setCurrentTab] = useState<chrome.tabs.Tab | null>(null);
+  const [options, setOptions] = useState<CaptureOptions>(DEFAULT_CAPTURE_OPTIONS);
+  const [showOptions, setShowOptions] = useState(false);
 
   useEffect(() => {
     // Get current tab
@@ -55,6 +88,7 @@ export function App() {
       const response = await chrome.runtime.sendMessage({
         type: "CAPTURE_PAGE",
         tabId: currentTab.id,
+        options,
       });
 
       if (response.success) {
@@ -107,16 +141,22 @@ export function App() {
     }
   };
 
-  const handleDownload = () => {
-    if (!state.result) return;
+  const handleDownload = async () => {
+    if (!state.result || !currentTab?.url) return;
 
-    const blob = new Blob([JSON.stringify(state.result, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
+    const domain = getDomainFromUrl(currentTab.url);
+    const viewport = options.viewport;
+    const filename = `${domain}_${viewport}_wireframe.w2w`;
+
+    // Encode to MessagePack binary format, then compress with gzip
+    const binaryData = encode(state.result);
+    const compressedBlob = await compressData(binaryData);
+
+    // Download compressed file
+    const url = URL.createObjectURL(compressedBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `wireframe-${Date.now()}.w2w.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -139,6 +179,104 @@ export function App() {
           <span class="page-title">{currentTab?.title || "Loading..."}</span>
           <span class="page-url">{currentTab?.url?.substring(0, 40)}...</span>
         </div>
+
+        {/* Capture Options - Before capture */}
+        {state.status === "idle" && (
+          <>
+            {/* Viewport Selection */}
+            <div class="option-section">
+              <label class="option-label">Viewports</label>
+              <div class="viewport-chips">
+                {VIEWPORTS.map((vp) => (
+                  <button
+                    key={vp.width}
+                    class={`chip ${options.viewport === vp.width ? "chip-active" : ""}`}
+                    onClick={() => setOptions((prev) => ({ ...prev, viewport: vp.width }))}
+                  >
+                    {vp.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* More Options Toggle */}
+            <button
+              class="options-toggle"
+              onClick={() => setShowOptions(!showOptions)}
+            >
+              <span>More Options</span>
+              <span class={`arrow ${showOptions ? "arrow-up" : ""}`}>▼</span>
+            </button>
+
+            {/* Expandable Options */}
+            {showOptions && (
+              <div class="more-options">
+                {/* Colors */}
+                <div class="option-group">
+                  <label class="option-label">Colors</label>
+                  <select
+                    class="option-select"
+                    value={options.colorMode}
+                    onChange={(e) =>
+                      setOptions((prev) => ({
+                        ...prev,
+                        colorMode: (e.target as HTMLSelectElement).value as "plugin" | "website",
+                      }))
+                    }
+                  >
+                    {COLOR_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Fonts */}
+                <div class="option-group">
+                  <label class="option-label">Fonts</label>
+                  <select
+                    class="option-select"
+                    value={options.fontMode}
+                    onChange={(e) =>
+                      setOptions((prev) => ({
+                        ...prev,
+                        fontMode: (e.target as HTMLSelectElement).value as "plugin" | "website",
+                      }))
+                    }
+                  >
+                    {FONT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Text */}
+                <div class="option-group">
+                  <label class="option-label">Text</label>
+                  <select
+                    class="option-select"
+                    value={options.textMode}
+                    onChange={(e) =>
+                      setOptions((prev) => ({
+                        ...prev,
+                        textMode: (e.target as HTMLSelectElement).value as "semantic" | "lorem" | "website",
+                      }))
+                    }
+                  >
+                    {TEXT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Status/Progress */}
         {state.status === "capturing" && (
@@ -167,7 +305,6 @@ export function App() {
             <div class="capture-stats">
               <span>Size: {state.result.viewport.width}x{state.result.viewport.height}</span>
               <span>Fonts: {state.result.fonts.length}</span>
-              <span>Assets: {state.result.assets.length}</span>
             </div>
           </div>
         )}
