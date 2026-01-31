@@ -31,30 +31,32 @@
 
 ## 2. Import Module — URL Import (Core Priority) 🔴
 
-### 2.1 Backend API (Website_Backend)
-- [ ] Create `/api/import/url` endpoint
-- [ ] Integrate Puppeteer for website rendering
-- [ ] Implement HTML/CSS extraction
-- [ ] Parse DOM structure
-- [ ] Extract box model data (width, height, padding, margin)
-- [ ] Extract colors (background, border, text, shadow)
-- [ ] Extract fonts (family, size, weight)
-- [ ] Extract text content
-- [ ] Handle images/videos → placeholder data
-- [ ] Support multi-viewport rendering (1920, 1440, 1024, 768, 375)
-- [ ] Return structured JSON for Figma generation
+### 2.1 Backend API (Plugin_Backend) 🚧
+- [x] Create `/api/import-url` endpoint
+- [x] Integrate Puppeteer for website rendering
+- [x] Implement HTML/CSS extraction
+- [x] Parse DOM structure (nested tree)
+- [x] Extract box model data (width, height, padding, margin)
+- [x] Extract colors (background, border, text)
+- [x] Extract fonts (family, size, weight)
+- [x] Extract text content
+- [x] Handle images/videos → placeholder data
+- [x] Support multi-viewport rendering (1920, 1440, 1024, 768, 375)
+- [x] Return structured JSON for Figma generation
+- [ ] Improve extraction accuracy (scroll, lazy-load)
 
-### 2.2 Plugin Backend (Figma API Integration)
-- [ ] Receive processed data from API
-- [ ] Create Figma Frames for each viewport
-- [ ] Generate layers 1:1 from DOM structure
-- [ ] Apply box model (position, size, spacing)
-- [ ] Apply colors (Plugin Colors vs Website Colors)
-- [ ] Apply fonts (Plugin Fonts vs Website Fonts)
-- [ ] Apply text content (Placeholders/Lorem/Website)
-- [ ] Generate placeholder rectangles + icons for images
-- [ ] Preserve border-radius and rounding
-- [ ] Position frames with 100-200px spacing
+### 2.2 Plugin Backend (Figma API Integration) 🚧
+- [x] Receive processed data from API
+- [x] Create Figma Frames for each viewport
+- [x] Generate layers from DOM tree structure
+- [x] Apply box model (position, size, spacing)
+- [x] Apply colors (Plugin Colors vs Website Colors)
+- [x] Apply fonts (Plugin Fonts vs Website Fonts)
+- [x] Apply text content (Placeholders/Lorem/Website)
+- [x] Generate placeholder rectangles + icons for images
+- [x] Preserve border-radius and rounding
+- [x] Position frames with 100px spacing
+- [ ] Improve layer accuracy (match html.to.design quality)
 
 ### 2.3 Testing & Validation
 - [ ] Test with simple static sites
@@ -97,11 +99,11 @@
 - [ ] Option: Website Text
 - [ ] Preview examples in UI
 
-### 3.5 Config Management
-- [ ] Create config file structure
-- [ ] Default viewports config
-- [ ] Default color palette config (4 colors)
-- [ ] Default font config
+### 3.5 Config Management 🚧
+- [x] Create config file structure (ConfigContext.tsx)
+- [x] Default viewports config
+- [x] Default color palette config (6 colors)
+- [x] Default font config
 - [ ] Admin UI to update config (optional)
 
 ---
@@ -278,9 +280,218 @@
 
 ---
 
+## 🚀 CDP IMPLEMENTATION - Browser Extension Approach
+
+### რატომ CDP?
+Puppeteer-ის `getComputedStyle` vs CDP `getMatchedStylesForNode`:
+- CDP აბრუნებს original CSS rules (gradients, variables, hover states)
+- Puppeteer მხოლოდ computed final values
+- CDP = html.to.design-ის მიდგომა = 1:1 accuracy
+
+### არქიტექტურა
+
+```
+┌─────────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Browser Extension  │────▶│  Plugin_Backend  │────▶│  Figma Plugin   │
+│  (CDP Capture)      │     │  (Processing)    │     │  (Rendering)    │
+└─────────────────────┘     └──────────────────┘     └─────────────────┘
+         │                           │
+         │  Captures:                │  Processes:
+         │  - DOM tree               │  - Normalizes data
+         │  - Matched CSS rules      │  - Extracts fonts
+         │  - Computed styles        │  - Bundles assets
+         │  - Fonts (@font-face)     │  - Creates Figma JSON
+         │  - Assets (images, SVGs)  │
+         └───────────────────────────┘
+```
+
+---
+
+## 11. Browser Extension (CDP Approach) ✅ COMPLETED
+
+### 11.1 Extension Setup ✅
+- [x] Create `Browser_Extension/` folder structure
+- [x] Setup manifest.json (Manifest V3)
+- [x] Configure permissions:
+  - [x] `debugger` - CDP access
+  - [x] `activeTab` - current tab access
+  - [x] `scripting` - inject scripts
+  - [x] `storage` - save settings
+- [x] Setup build system (Vite)
+- [x] TypeScript configuration
+- [x] Watch mode for development
+- [x] Root package.json integration (`npm run dev:extension`, `npm run build:extension`)
+
+### 11.2 CDP Integration - Core ✅
+- [x] Implement CDP connection via `chrome.debugger`
+- [x] `DOM.getDocument` - სრული DOM tree
+- [x] `CSS.getMatchedStylesForNode` - matched CSS rules (არა მხოლოდ computed!)
+- [x] `CSS.getComputedStyleForNode` - computed styles backup
+- [x] `DOM.getBoxModel` - element positioning
+- [x] Scroll dimensions extraction
+
+### 11.3 Style Extraction (Key Difference from Puppeteer) ✅
+- [x] Extract gradients from `background-image` (via matched styles)
+- [x] Extract CSS variables with resolved values
+- [x] Extract `box-shadow` with all parameters
+- [x] Extract `border-radius` (all corners)
+- [x] Extract colors (background, border, text)
+- [ ] Extract hover/focus/active states
+- [ ] Extract media query breakpoints
+- [ ] Extract animations/transitions
+
+### 11.4 Font Extraction ✅
+- [x] Detect `@font-face` declarations
+- [x] Extract font file URLs (woff2, woff, ttf)
+- [x] Map font-family to actual loaded fonts
+- [x] Handle Google Fonts URLs
+- [x] Handle system fonts fallback
+- [x] Extract platform fonts for nodes
+
+### 11.5 Asset Extraction ✅
+- [x] Extract images (src, srcset)
+- [x] Extract SVGs (inline and external)
+- [x] Extract background images
+- [x] Extract favicons/icons
+- [x] Convert to base64 or URL references
+- [ ] Handle lazy-loaded images (partial)
+
+### 11.6 DOM Serialization ✅
+- [x] Serialize DOM with CDP data
+- [x] Recursive tree traversal
+- [x] Handle video elements (poster/placeholder)
+- [x] Preserve element hierarchy
+- [x] Semantic naming (aria-label, id, class patterns)
+- [ ] Handle Shadow DOM penetration
+- [ ] Handle iframes (nested content)
+- [ ] Handle canvas elements (screenshot)
+
+### 11.7 Extension UI ✅
+- [x] Popup UI (capture controls)
+  - [x] "Capture Full Page" button
+  - [x] Viewport selector
+  - [x] Settings link
+  - [ ] "Capture Selection" option (future)
+- [x] Options page
+  - [x] Backend URL configuration
+  - [x] Default settings
+  - [x] Theme (light/dark)
+- [x] Status indicators (capturing, success, error)
+- [x] Progress bar for large pages
+
+### 11.8 Data Transfer ✅
+- [x] Format captured data as JSON
+- [x] Compress data (gzip for large pages)
+- [x] Send to Plugin_Backend API
+- [x] Option: Download as `.w2w` file
+- [ ] Handle timeout for large pages
+- [ ] Retry logic for failed requests
+
+### 11.9 Plugin_Backend Updates
+- [ ] New endpoint: `/api/import-cdp`
+- [ ] Accept CDP-formatted data
+- [ ] Process matched CSS rules (not just computed)
+- [ ] Handle gradient parsing
+- [ ] Handle shadow parsing
+- [ ] Handle font bundling
+- [ ] Return enhanced Figma JSON
+
+### 11.10 Testing
+- [ ] Test with simple static sites
+- [ ] Test with CSS-heavy sites (gradients, shadows)
+- [ ] Test with web fonts (Google Fonts, custom)
+- [ ] Test with SPAs (React, Vue, Angular)
+- [ ] Test with Shadow DOM (web components)
+- [ ] Test with iframes
+- [ ] Test private/logged-in pages
+- [ ] Compare output with html.to.design
+
+---
+
+## Browser Extension File Structure
+
+```
+Browser_Extension/
+├── manifest.json           # Manifest V3
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── src/
+│   ├── background/
+│   │   ├── index.ts        # Service worker
+│   │   └── cdp/
+│   │       ├── client.ts   # CDP client wrapper
+│   │       ├── dom.ts      # DOM extraction
+│   │       ├── css.ts      # CSS extraction
+│   │       ├── fonts.ts    # Font extraction
+│   │       └── assets.ts   # Asset extraction
+│   ├── content/
+│   │   └── index.ts        # Content script (if needed)
+│   ├── popup/
+│   │   ├── index.html
+│   │   ├── main.tsx
+│   │   ├── App.tsx
+│   │   └── components/
+│   ├── options/
+│   │   ├── index.html
+│   │   └── main.tsx
+│   ├── shared/
+│   │   ├── types.ts        # Shared types
+│   │   ├── constants.ts
+│   │   └── utils.ts
+│   └── styles/
+│       └── global.css
+├── public/
+│   └── icons/
+│       ├── icon16.png
+│       ├── icon48.png
+│       └── icon128.png
+└── dist/                   # Build output
+```
+
+---
+
+## CDP vs Puppeteer Comparison
+
+| Feature | Puppeteer (Current) | CDP Extension (New) |
+|---------|--------------------|--------------------|
+| DOM Access | `page.evaluate()` | `DOM.getDocument` |
+| Styles | `getComputedStyle()` only | `getMatchedStylesForNode` + computed |
+| Gradients | ❌ Lost in computation | ✅ Original CSS preserved |
+| CSS Variables | ❌ Only resolved value | ✅ Variable name + resolved |
+| Hover States | ❌ Cannot capture | ✅ Via pseudo-class rules |
+| Shadow DOM | ⚠️ Limited | ✅ Full penetration |
+| Fonts | ⚠️ Family name only | ✅ @font-face + files |
+| Private Pages | ❌ Cannot access | ✅ User's session |
+| Performance | Server-side render | Client-side capture |
+
+---
+
+## Implementation Priority
+
+### Phase 1: MVP Extension (1-2 weeks)
+1. Basic extension setup with CDP
+2. DOM + Computed styles extraction
+3. Send to Plugin_Backend
+4. Basic popup UI
+
+### Phase 2: Enhanced Extraction (1 week)
+1. Matched CSS rules (gradients, shadows)
+2. Font extraction
+3. Asset extraction
+
+### Phase 3: Polish (1 week)
+1. Shadow DOM support
+2. Iframe support
+3. Options page
+4. Error handling
+
+---
+
 ## Notes
 
 - MVP = URL Import + Feature Controls + License
 - Screenshot/HTML/Area Selection = Post-MVP Phase 1
 - AI/Library = Post-MVP Phase 2
+- **NEW: CDP Browser Extension = Critical for quality match with html.to.design**
 - Focus on URL Import accuracy and stability first
