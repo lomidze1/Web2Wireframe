@@ -897,3 +897,75 @@
   max-height: 90vh;
   padding: 16px 20px;
 }
+
+/* Variables Choice Modal */
+.variablesModal {
+  width: 320px;
+  max-width: 95%;
+  height: auto;
+  max-height: none;
+  padding: 16px 18px;
+}
+
+.variablesDescription {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 16px 0;
+  line-height: 1.5;
+}
+
+.variablesOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.variablesOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.15s ease;
+}
+
+.variablesOption:hover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-2px);
+}
+
+.variablesOption:active {
+  transform: translateY(0);
+}
+
+.variablesOptionIcon {
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.variablesOptionContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.variablesOptionContent strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.variablesOptionContent span {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}

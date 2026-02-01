@@ -53,6 +53,12 @@ export const TEXT_OPTIONS = [
   { value: "website", label: "Website Text" },
 ] as const;
 
+// CSS Variable mode options
+export const VARIABLE_OPTIONS = [
+  { value: "resolve", label: "Resolved Values" },
+  { value: "preserve", label: "CSS Variables" },
+] as const;
+
 // Skip these tags during extraction
 export const SKIP_TAGS = [
   "script",

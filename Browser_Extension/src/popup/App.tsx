@@ -1,5 +1,5 @@
 import { useState, useEffect } from "preact/hooks";
-import { encode } from "@msgpack/msgpack";
+// import { encode } from "@msgpack/msgpack"; // DEBUG: Temporarily disabled for JSON export
 import type { ExtensionMessage, CaptureResult, CaptureOptions } from "@/shared/types";
 import { DEFAULT_CAPTURE_OPTIONS } from "@/shared/types";
 import { VIEWPORTS, COLOR_OPTIONS, FONT_OPTIONS, TEXT_OPTIONS } from "@/shared/constants";
@@ -27,20 +27,21 @@ function getDomainFromUrl(url: string): string {
   }
 }
 
-/**
- * Compress binary data using CompressionStream (gzip)
- */
-async function compressData(data: Uint8Array): Promise<Blob> {
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(data);
-      controller.close();
-    },
-  });
-
-  const compressedStream = stream.pipeThrough(new CompressionStream("gzip"));
-  return new Response(compressedStream).blob();
-}
+// DEBUG: Temporarily disabled for JSON export
+// /**
+//  * Compress binary data using CompressionStream (gzip)
+//  */
+// async function compressData(data: Uint8Array): Promise<Blob> {
+//   const stream = new ReadableStream({
+//     start(controller) {
+//       controller.enqueue(data);
+//       controller.close();
+//     },
+//   });
+//
+//   const compressedStream = stream.pipeThrough(new CompressionStream("gzip"));
+//   return new Response(compressedStream).blob();
+// }
 
 export function App() {
   const [state, setState] = useState<CaptureState>({
@@ -146,14 +147,14 @@ export function App() {
 
     const domain = getDomainFromUrl(currentTab.url);
     const viewport = options.viewport;
-    const filename = `${domain}_${viewport}_wireframe.w2w`;
 
-    // Encode to MessagePack binary format, then compress with gzip
-    const binaryData = encode(state.result);
-    const compressedBlob = await compressData(binaryData);
+    // DEBUG MODE: Save as JSON for inspection
+    // TODO: Revert to .w2w (MessagePack + gzip) after debugging
+    const filename = `${domain}_${viewport}_wireframe.json`;
+    const jsonString = JSON.stringify(state.result, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
 
-    // Download compressed file
-    const url = URL.createObjectURL(compressedBlob);
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
@@ -273,6 +274,8 @@ export function App() {
                     ))}
                   </select>
                 </div>
+
+{/* CSS Variables option moved to Figma Plugin import step */}
               </div>
             )}
           </>
@@ -325,7 +328,7 @@ export function App() {
                 Send to Figma
               </button>
               <button class="btn btn-secondary" onClick={handleDownload}>
-                Download .w2w
+                Download .json
               </button>
               <button
                 class="btn btn-text"

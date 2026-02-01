@@ -364,6 +364,73 @@ app.get("/api/settings/:userId", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/import-cdp - Import from Browser Extension (CDP-captured data)
+ *
+ * This endpoint receives pre-extracted data from the Browser Extension
+ * which uses Chrome DevTools Protocol for higher quality extraction.
+ *
+ * Request body:
+ * - captureData: CaptureResult from Browser Extension
+ * - timestamp: number
+ */
+app.post("/api/import-cdp", async (req, res) => {
+  try {
+    const { captureData, timestamp } = req.body;
+
+    if (!captureData) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing captureData from Browser Extension",
+      });
+    }
+
+    console.log(`[CDP Import] Received data from ${captureData.url}`);
+    console.log(`[CDP Import] Viewport: ${captureData.viewport.width}x${captureData.viewport.height}`);
+    console.log(`[CDP Import] Tree depth check: ${captureData.tree?.children?.length || 0} top-level elements`);
+
+    // The CDP data is already in the correct format for Figma plugin
+    // We just need to wrap it appropriately
+    const frames = [{
+      viewportWidth: captureData.viewport.width,
+      viewportHeight: captureData.viewport.height,
+      tree: captureData.tree,
+    }];
+
+    // Create local styles structure based on capture options
+    const localStyles = createLocalStylesStructure(DEFAULT_PLUGIN_COLORS, {
+      primary: "Montserrat",
+    });
+
+    res.json({
+      success: true,
+      sourceUrl: captureData.url,
+      viewports: [captureData.viewport.width],
+      colorMode: captureData.options?.colorMode || "website",
+      typographyMode: captureData.options?.fontMode || "website",
+      textMode: captureData.options?.textMode || "website",
+      frameCount: frames.length,
+      wireframeData: { frames },
+      localStyles,
+      fonts: captureData.fonts || [],
+      // Include CDP-specific metadata
+      cdpMetadata: {
+        captureTimestamp: timestamp,
+        hasMatchedStyles: true,
+        hasGradients: true,
+        hasPseudoStates: true,
+      },
+    });
+  } catch (error) {
+    console.error("[CDP Import] Error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      errorCode: "CDP_IMPORT_ERROR",
+    });
+  }
+});
+
 // GET /api/default-colors - Get default plugin colors
 app.get("/api/default-colors", (req, res) => {
   res.json({

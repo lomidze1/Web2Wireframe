@@ -254,3 +254,112 @@ export function extractPseudoStyles(
 
   return Object.keys(styles).length > 0 ? styles : null;
 }
+
+/**
+ * CSS Variable with both original name and resolved value
+ */
+export interface CSSVariable {
+  name: string;        // --accent
+  value: string;       // #FF6B35 (resolved)
+  rawValue: string;    // Original CSS value (might reference other vars)
+}
+
+/**
+ * Extract all CSS custom properties (variables) from the page
+ * Extracts from :root, html, and body elements
+ */
+export async function extractCSSVariables(
+  client: CDPClient
+): Promise<CSSVariable[]> {
+  const result = await client.send<{ result: { value: CSSVariable[] } }>(
+    "Runtime.evaluate",
+    {
+      expression: `
+        (function() {
+          const variables = [];
+          const seen = new Set();
+
+          // Get computed styles from root elements
+          const rootElements = [document.documentElement, document.body];
+
+          for (const el of rootElements) {
+            if (!el) continue;
+            const computed = getComputedStyle(el);
+
+            // Iterate through all stylesheets to find CSS variable declarations
+            for (const sheet of document.styleSheets) {
+              try {
+                for (const rule of sheet.cssRules || []) {
+                  if (rule.style) {
+                    for (let i = 0; i < rule.style.length; i++) {
+                      const prop = rule.style[i];
+                      if (prop.startsWith('--') && !seen.has(prop)) {
+                        seen.add(prop);
+                        const rawValue = rule.style.getPropertyValue(prop).trim();
+                        // Get resolved value from computed style
+                        const resolvedValue = computed.getPropertyValue(prop).trim();
+                        variables.push({
+                          name: prop,
+                          value: resolvedValue || rawValue,
+                          rawValue: rawValue
+                        });
+                      }
+                    }
+                  }
+                }
+              } catch (e) {
+                // Cross-origin stylesheet, skip
+              }
+            }
+          }
+
+          return variables;
+        })()
+      `,
+      returnByValue: true,
+    }
+  );
+
+  return result.result.value || [];
+}
+
+/**
+ * Resolve CSS value that may contain var() references
+ * Returns both the original and resolved value
+ */
+export async function resolveCSSValue(
+  client: CDPClient,
+  nodeId: number,
+  cssValue: string
+): Promise<{ original: string; resolved: string }> {
+  // If no var() in value, return as-is
+  if (!cssValue.includes("var(")) {
+    return { original: cssValue, resolved: cssValue };
+  }
+
+  try {
+    // Get computed style for this node to resolve variables
+    const computed = await getComputedStyleForNode(client, nodeId);
+
+    // Try to find resolved value from computed styles
+    // For gradients, check background-image
+    if (cssValue.includes("gradient")) {
+      const resolved = computed["background-image"];
+      if (resolved && !resolved.includes("var(")) {
+        return { original: cssValue, resolved };
+      }
+    }
+
+    // For colors, check background-color
+    if (cssValue.startsWith("var(")) {
+      const resolved = computed["background-color"];
+      if (resolved && !resolved.includes("var(")) {
+        return { original: cssValue, resolved };
+      }
+    }
+  } catch {
+    // Fallback to original
+  }
+
+  return { original: cssValue, resolved: cssValue };
+}

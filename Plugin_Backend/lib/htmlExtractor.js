@@ -185,17 +185,54 @@ async function extractDOMTree(page, options) {
       return tags[tag] || "Container";
     };
 
-    // Detect layout
+    // Detect layout - IMPROVED to properly handle grid layouts
     const getLayout = (s) => {
-      if (s.display === "flex" || s.display === "inline-flex") return s.flexDirection === "column" ? "VERTICAL" : "HORIZONTAL";
-      if (s.display === "grid") return "VERTICAL";
+      // Flexbox detection
+      if (s.display === "flex" || s.display === "inline-flex") {
+        return (s.flexDirection === "column" || s.flexDirection === "column-reverse")
+          ? "VERTICAL"
+          : "HORIZONTAL";
+      }
+
+      // Grid detection - THE KEY FIX!
+      if (s.display === "grid" || s.display === "inline-grid") {
+        // Check grid-auto-flow for direction
+        if (s.gridAutoFlow && s.gridAutoFlow.includes("column")) {
+          return "HORIZONTAL";
+        }
+
+        // Check grid-template-columns for multiple columns
+        const columns = s.gridTemplateColumns;
+        if (columns && columns !== "none") {
+          // Count column tracks (simplified - count space-separated values)
+          const normalizedColumns = columns
+            .replace(/repeat\s*\(\s*(\d+)\s*,/g, (_, count) => {
+              return Array(parseInt(count)).fill("1fr").join(" ") + " ";
+            })
+            .trim();
+          const columnCount = normalizedColumns.split(/\s+/).filter(v => v && v !== "none").length;
+          if (columnCount > 1) {
+            return "HORIZONTAL";
+          }
+        }
+
+        // Default grid to vertical
+        return "VERTICAL";
+      }
+
+      // Inline elements are typically horizontal
+      if (s.display === "inline" || s.display === "inline-block") {
+        return "HORIZONTAL";
+      }
+
       return "NONE";
     };
 
-    // Check if media
+    // Check if media - FIXED: removed SVG from media (preserve inline)
     const isMedia = (el) => {
       const tag = el.tagName.toLowerCase();
-      if (["img", "video", "iframe", "picture", "canvas", "svg"].includes(tag)) return true;
+      // SVG removed from media list - we preserve SVG inline content
+      if (["img", "video", "iframe", "picture", "canvas"].includes(tag)) return true;
       const s = window.getComputedStyle(el);
       if (s.backgroundImage && s.backgroundImage !== "none" && s.backgroundImage.includes("url(")) {
         const r = el.getBoundingClientRect();
@@ -204,19 +241,20 @@ async function extractDOMTree(page, options) {
       return false;
     };
 
-    // Get all text content (including nested)
+    // Get all text content (including nested) - FIXED: removed truncation
     const getAllText = (el) => {
       const text = el.textContent?.trim() || "";
-      return text.substring(0, 200);
+      // Normalize whitespace (multiple spaces/newlines to single space)
+      return text.replace(/\s+/g, ' ').trim();
     };
 
-    // Get direct text only (immediate text nodes)
+    // Get direct text only (immediate text nodes) - FIXED: removed truncation
     const getDirectText = (el) => {
       let t = "";
       for (const c of el.childNodes) {
         if (c.nodeType === Node.TEXT_NODE) t += c.textContent.trim() + " ";
       }
-      return t.trim().substring(0, 200);
+      return t.trim();
     };
 
     // Check if element is a structural container that should be kept

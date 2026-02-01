@@ -108,6 +108,7 @@ export interface CDPFontFace {
 // Extracted element data (our processed format)
 export interface ExtractedElement {
   id: string;
+  type: "frame" | "text" | "placeholder";
   tag: string;
   name: string;
   // Position & Size
@@ -152,6 +153,8 @@ export interface ExtractedElement {
   isPlaceholder: boolean;
   // Matched CSS (for advanced processing)
   matchedRules?: CDPCSSRule[];
+  // Hover/Interactive styles (for buttons, links)
+  hoverStyles?: Record<string, string>;
   // Children
   children: ExtractedElement[];
 }
@@ -170,6 +173,7 @@ export interface CaptureResult {
   fonts: ExtractedFont[];
   assets: ExtractedAsset[];
   stylesheets: ExtractedStylesheet[];
+  cssVariables: ExtractedCSSVariable[];  // All CSS variables from the page
 }
 
 // Extracted font info
@@ -199,12 +203,21 @@ export interface ExtractedStylesheet {
   isExternal: boolean;
 }
 
+// CSS Variable extracted from the page
+export interface ExtractedCSSVariable {
+  name: string;        // --accent
+  value: string;       // #FF6B35 (resolved)
+  rawValue: string;    // Original value (might reference other vars)
+  category?: string;   // color, spacing, typography, etc.
+}
+
 // Capture options (user selections before capture)
 export interface CaptureOptions {
   viewport: number;
   colorMode: "plugin" | "website";
   fontMode: "plugin" | "website";
   textMode: "semantic" | "lorem" | "website";
+  variableMode: "preserve" | "resolve";  // preserve = keep var(--name), resolve = inline values
 }
 
 // Default capture options
@@ -213,6 +226,7 @@ export const DEFAULT_CAPTURE_OPTIONS: CaptureOptions = {
   colorMode: "plugin",
   fontMode: "plugin",
   textMode: "semantic",
+  variableMode: "resolve",  // Default to resolved values
 };
 
 // Extension settings

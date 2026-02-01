@@ -5,6 +5,9 @@ import styles from "./Web.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import SettingsPanel from "../../../components/settingsPanel";
+import VariablesChoiceModal, {
+  type VariableMode,
+} from "../../../components/modalPopup/VariablesChoiceModal";
 
 const TAB_ID = "web";
 const STORAGE_KEY = "w2w_settings_expanded_web";
@@ -18,16 +21,72 @@ interface ImportState {
   message: string;
 }
 
+// Pending render data (waiting for variable mode choice)
+interface PendingRenderData {
+  frames: unknown[];
+  sourceUrl: string;
+  localStyles?: unknown;
+  pluginColors: unknown;
+  cssVariables?: unknown[];
+}
+
 export default function Web() {
   const [url, setUrl] = useState("");
   const [importState, setImportState] = useState<ImportState>({
     status: "idle",
     message: "",
   });
+  const [showVariablesModal, setShowVariablesModal] = useState(false);
+  const [pendingRenderData, setPendingRenderData] =
+    useState<PendingRenderData | null>(null);
 
   // Use shared hook for all settings logic
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
+
+  /**
+   * Send render message to Figma
+   */
+  const sendToFigma = (data: PendingRenderData, variableMode: VariableMode) => {
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "render-wireframe",
+          data: {
+            frames: data.frames,
+            sourceUrl: data.sourceUrl,
+            localStyles: data.localStyles,
+            pluginColors: data.pluginColors,
+            cssVariables: data.cssVariables || [],
+            variableMode, // "styles" or "direct"
+          },
+        },
+      },
+      "*"
+    );
+
+    setImportState({
+      status: "success",
+      message: "Wireframe created successfully!",
+    });
+
+    // Reset after success
+    setTimeout(() => {
+      setImportState({ status: "idle", message: "" });
+      setUrl("");
+      setPendingRenderData(null);
+    }, 3000);
+  };
+
+  /**
+   * Handle variable mode choice from modal
+   */
+  const handleVariableChoice = (mode: VariableMode) => {
+    setShowVariablesModal(false);
+    if (pendingRenderData) {
+      sendToFigma(pendingRenderData, mode);
+    }
+  };
 
   const handleImport = async () => {
     const trimmedUrl = url.trim();
@@ -84,32 +143,27 @@ export default function Web() {
 
       const data = await response.json();
 
-      // Send wireframe data to Figma main thread for rendering
-      parent.postMessage(
-        {
-          pluginMessage: {
-            type: "render-wireframe",
-            data: {
-              frames: data.wireframeData?.frames || [],
-              sourceUrl: trimmedUrl,
-              localStyles: data.localStyles,
-              pluginColors: data.pluginColors || config.pluginColors, // Full 6-color palette
-            },
-          },
-        },
-        "*"
-      );
+      // Prepare render data
+      const renderData: PendingRenderData = {
+        frames: data.wireframeData?.frames || [],
+        sourceUrl: trimmedUrl,
+        localStyles: data.localStyles,
+        pluginColors: data.pluginColors || config.pluginColors,
+        cssVariables: data.cssVariables || [],
+      };
 
-      setImportState({
-        status: "success",
-        message: "Wireframe created successfully!",
-      });
+      // Check if CSS variables exist
+      const hasCSSVariables =
+        renderData.cssVariables && renderData.cssVariables.length > 0;
 
-      // Reset after success
-      setTimeout(() => {
-        setImportState({ status: "idle", message: "" });
-        setUrl("");
-      }, 3000);
+      if (hasCSSVariables) {
+        // Show modal for user to choose
+        setPendingRenderData(renderData);
+        setShowVariablesModal(true);
+      } else {
+        // No CSS variables - proceed directly with "direct" mode
+        sendToFigma(renderData, "direct");
+      }
     } catch (error) {
       console.error("Import error:", error);
       setImportState({
@@ -184,6 +238,12 @@ export default function Web() {
       <button class={styles.importBtn} onClick={handleImport} disabled={isDisabled}>
         {importState.status === "loading" ? "Importing..." : "Import"}
       </button>
+
+      {/* CSS Variables Choice Modal */}
+      <VariablesChoiceModal
+        isOpen={showVariablesModal}
+        onChoice={handleVariableChoice}
+      />
     </div>
   );
 }

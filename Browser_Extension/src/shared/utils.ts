@@ -6,26 +6,56 @@
  * Parse color string to hex
  */
 export function parseColor(color: string | null | undefined): string | null {
-  if (!color || color === "rgba(0, 0, 0, 0)" || color === "transparent") {
+  if (!color || color === "transparent") {
+    return null;
+  }
+
+  // Trim whitespace
+  const trimmed = color.trim();
+
+  // Check for fully transparent colors
+  if (trimmed === "rgba(0, 0, 0, 0)" ||
+      trimmed === "rgba(0,0,0,0)" ||
+      trimmed.match(/^rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/)) {
     return null;
   }
 
   // Already hex
-  if (color.startsWith("#")) {
-    return color.toUpperCase();
+  if (trimmed.startsWith("#")) {
+    // Handle shorthand hex (#RGB -> #RRGGBB)
+    if (trimmed.length === 4) {
+      const r = trimmed[1];
+      const g = trimmed[2];
+      const b = trimmed[3];
+      return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+    }
+    return trimmed.toUpperCase();
   }
 
-  // RGB/RGBA
-  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+  // RGB/RGBA - more flexible regex that handles various whitespace patterns
+  const rgbMatch = trimmed.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/i);
   if (rgbMatch) {
     const [, r, g, b, a] = rgbMatch;
     // Skip if fully transparent
     if (a !== undefined && parseFloat(a) === 0) {
       return null;
     }
-    return `#${parseInt(r).toString(16).padStart(2, "0")}${parseInt(g).toString(16).padStart(2, "0")}${parseInt(b).toString(16).padStart(2, "0")}`.toUpperCase();
+    const hex = `#${parseInt(r).toString(16).padStart(2, "0")}${parseInt(g).toString(16).padStart(2, "0")}${parseInt(b).toString(16).padStart(2, "0")}`.toUpperCase();
+    return hex;
   }
 
+  // Try to extract numbers directly as fallback
+  const numbers = trimmed.match(/\d+/g);
+  if (numbers && numbers.length >= 3) {
+    const [r, g, b, a] = numbers.map(n => parseInt(n));
+    // Skip if has alpha and it's 0
+    if (a === 0) {
+      return null;
+    }
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`.toUpperCase();
+  }
+
+  console.warn("[parseColor] Could not parse color:", color);
   return null;
 }
 
