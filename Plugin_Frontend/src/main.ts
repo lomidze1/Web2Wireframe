@@ -2,7 +2,77 @@ import { showUI } from "@create-figma-plugin/utilities";
 import { logger } from "./utils/logger";
 import { errorHandler, ErrorCode } from "./utils/errorHandler";
 
+// ============================================================================
+// FIGMA-READY TYPES (from Browser Extension)
+// ============================================================================
+
+/** RGBA color normalized to 0-1 range (Figma format) */
+interface FigmaColor {
+  r: number;  // 0-1
+  g: number;  // 0-1
+  b: number;  // 0-1
+  a: number;  // 0-1
+}
+
+/** Gradient stop */
+interface FigmaGradientStop {
+  color: FigmaColor;
+  position: number;  // 0-1
+}
+
+/** Radial gradient shape */
+type RadialGradientShape = 'circle' | 'ellipse';
+
+/** Radial gradient size keyword */
+type RadialGradientSize = 'closest-side' | 'farthest-side' | 'closest-corner' | 'farthest-corner';
+
+/** Fill layer - supports solid, gradient, image placeholder */
+interface FigmaFill {
+  type: 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL' | 'GRADIENT_CONIC' | 'IMAGE_PLACEHOLDER';
+  visible: boolean;
+  opacity: number;
+  blendMode?: string;
+  color?: FigmaColor;
+  angle?: number;
+  stops?: FigmaGradientStop[];
+  // Radial/conic gradient specific
+  center?: { x: number; y: number };
+  shape?: RadialGradientShape;        // circle or ellipse (default: ellipse)
+  size?: RadialGradientSize;          // CSS size keyword (default: farthest-corner)
+  // Element dimensions for proper gradient transform calculation
+  elementWidth?: number;
+  elementHeight?: number;
+  isImagePlaceholder?: boolean;
+}
+
+/** Stroke layer - border */
+interface FigmaStroke {
+  color: FigmaColor;
+  weight: number;
+  position: 'INSIDE' | 'CENTER' | 'OUTSIDE';
+  style: 'SOLID' | 'DASHED' | 'DOTTED';
+  sides?: {
+    top: boolean;
+    right: boolean;
+    bottom: boolean;
+    left: boolean;
+  };
+}
+
+/** Effect layer - shadow or blur */
+interface FigmaEffect {
+  type: 'DROP_SHADOW' | 'INNER_SHADOW' | 'LAYER_BLUR' | 'BACKGROUND_BLUR';
+  visible: boolean;
+  color?: FigmaColor;
+  offset?: { x: number; y: number };
+  radius?: number;
+  spread?: number;
+  blurRadius?: number;
+}
+
+// ============================================================================
 // Types for nested wireframe data
+// ============================================================================
 interface WireframeNode {
   id: string;
   name: string;
@@ -18,7 +88,16 @@ interface WireframeNode {
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
 
-  // Style
+  // =========================================================================
+  // NEW: Figma-ready arrays (multiple layers support)
+  // =========================================================================
+  fills?: FigmaFill[];      // Multiple backgrounds: gradients, colors, image placeholders
+  strokes?: FigmaStroke[];  // Borders (with per-side support)
+  effects?: FigmaEffect[];  // Multiple shadows, backdrop-blur
+
+  // =========================================================================
+  // LEGACY: Keep for backward compatibility
+  // =========================================================================
   backgroundColor: string | null;
   backgroundGradient: string | null;
   textColor: string;
@@ -175,6 +254,13 @@ function parseGradient(gradient: string, variableValueMap?: Map<string, string>)
     ? resolveCSSVariables(gradient, variableValueMap)
     : gradient;
 
+  // DEBUG
+  console.log("[DEBUG parseGradient]", {
+    original: gradient,
+    resolved: resolvedGradient,
+    hasVarRemaining: resolvedGradient.includes("var("),
+  });
+
   // Match linear-gradient
   const linearMatch = resolvedGradient.match(/linear-gradient\s*\(\s*(\d+)deg\s*,\s*(.+)\)/i);
   if (linearMatch) {
@@ -183,6 +269,7 @@ function parseGradient(gradient: string, variableValueMap?: Map<string, string>)
 
     // Parse color stops
     const colorStops = parseColorStops(colorStopsStr);
+    console.log("[DEBUG parseGradient] colorStops:", colorStops.length, colorStopsStr);
     if (colorStops.length < 2) return null;
 
     // Convert CSS angle to Figma gradient handles
@@ -269,6 +356,328 @@ function parseColorStops(colorStopsStr: string): ColorStop[] {
   }
 
   return stops;
+}
+
+// ============================================================================
+// NEW: Figma-ready array converters
+// ============================================================================
+
+/**
+ * Calculate radial gradient transform for Figma
+ *
+ * CSS radial gradients have complex positioning and sizing that must be properly converted.
+ * The gradientTransform is a 2x3 affine matrix: [[scaleX, skewX, tx], [skewY, scaleY, ty]]
+ *
+ * Key insight: Figma's radial gradient default center is at (0.5, 0.5) in gradient space.
+ * To position it at CSS "at X% Y%", we need to:
+ * 1. Calculate gradient size based on CSS size keyword (farthest-corner, etc.)
+ * 2. Apply scale to match the calculated size
+ * 3. Translate to position the center correctly (accounting for scale)
+ */
+function calculateRadialGradientTransform(fill: FigmaFill): Transform {
+  const cx = fill.center?.x ?? 0.5;
+  const cy = fill.center?.y ?? 0.5;
+  const shape = fill.shape ?? 'ellipse';
+  const size = fill.size ?? 'farthest-corner';
+  const elementWidth = fill.elementWidth ?? 100;
+  const elementHeight = fill.elementHeight ?? 100;
+
+  // Step 1: Calculate distances from center to edges
+  const distLeft = cx * elementWidth;
+  const distRight = (1 - cx) * elementWidth;
+  const distTop = cy * elementHeight;
+  const distBottom = (1 - cy) * elementHeight;
+
+  // Step 2: Calculate gradient radius based on size keyword
+  let radiusX: number;
+  let radiusY: number;
+
+  switch (size) {
+    case 'closest-side':
+      radiusX = Math.min(distLeft, distRight);
+      radiusY = Math.min(distTop, distBottom);
+      break;
+    case 'farthest-side':
+      radiusX = Math.max(distLeft, distRight);
+      radiusY = Math.max(distTop, distBottom);
+      break;
+    case 'closest-corner': {
+      const closestX = Math.min(distLeft, distRight);
+      const closestY = Math.min(distTop, distBottom);
+      const dist = Math.sqrt(closestX ** 2 + closestY ** 2);
+      radiusX = radiusY = dist;
+      break;
+    }
+    case 'farthest-corner':
+    default: {
+      const farthestX = Math.max(distLeft, distRight);
+      const farthestY = Math.max(distTop, distBottom);
+      const dist = Math.sqrt(farthestX ** 2 + farthestY ** 2);
+      radiusX = radiusY = dist;
+      break;
+    }
+  }
+
+  // Step 3: For circle shape, use equal radii
+  if (shape === 'circle') {
+    // For circle, the radius should be equal in both directions
+    // Use the larger radius to ensure coverage
+    const radius = Math.max(radiusX, radiusY);
+    radiusX = radiusY = radius;
+  }
+
+  // Step 4: Calculate scale factors (gradient size relative to element)
+  // Figma's radial gradient extends from center to edge in unit space
+  // The scale represents how much of the element the gradient covers
+  // NOTE: We do NOT multiply by 2 - Figma's gradient already spans the full diameter
+  const scaleX = radiusX / elementWidth;
+  const scaleY = radiusY / elementHeight;
+
+  // Step 5: Calculate translation
+  // Figma's default gradient center is at (0.5, 0.5) in gradient space
+  // After scaling, we need to position the center at (cx, cy)
+  // Translation formula: tx = cx - scaleX * 0.5, ty = cy - scaleY * 0.5
+  const tx = cx - scaleX * 0.5;
+  const ty = cy - scaleY * 0.5;
+
+  console.log("[DEBUG calculateRadialGradientTransform]", {
+    input: { cx, cy, shape, size, elementWidth, elementHeight },
+    calculated: { radiusX, radiusY, scaleX, scaleY, tx, ty },
+  });
+
+  return [
+    [scaleX, 0, tx],
+    [0, scaleY, ty],
+  ];
+}
+
+/**
+ * Convert FigmaFill[] to Figma Paint[]
+ * Handles: solid colors, linear/radial/conic gradients, image placeholders
+ *
+ * IMPORTANT: CSS backgrounds are top-to-bottom (first = top layer)
+ * Figma fills are bottom-to-top (first = bottom layer)
+ * So we REVERSE the order at the end!
+ */
+function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderContext): Paint[] {
+  if (!fills || fills.length === 0) return [];
+
+  console.log("[DEBUG convertFillsToPaints] Input fills count:", fills.length);
+  console.log("[DEBUG convertFillsToPaints] Fill types:", fills.map(f => f.type));
+
+  const paints: Paint[] = [];
+
+  for (const fill of fills) {
+    if (!fill.visible) {
+      console.log("[DEBUG convertFillsToPaints] Skipping invisible fill:", fill.type);
+      continue;
+    }
+
+    switch (fill.type) {
+      case 'SOLID':
+        if (fill.color) {
+          const solidPaint: SolidPaint = {
+            type: 'SOLID',
+            color: { r: fill.color.r, g: fill.color.g, b: fill.color.b },
+            opacity: fill.opacity * fill.color.a,
+          };
+          paints.push(solidPaint);
+          console.log("[DEBUG convertFillsToPaints] Added SOLID:", solidPaint);
+        }
+        break;
+
+      case 'GRADIENT_LINEAR':
+        if (fill.stops && fill.stops.length >= 2) {
+          const angle = fill.angle || 180;
+          const angleRad = ((angle - 90) * Math.PI) / 180;
+          const cos = Math.cos(angleRad);
+          const sin = Math.sin(angleRad);
+
+          const linearPaint: GradientPaint = {
+            type: 'GRADIENT_LINEAR',
+            gradientStops: fill.stops.map(stop => ({
+              position: stop.position,
+              color: {
+                r: stop.color.r,
+                g: stop.color.g,
+                b: stop.color.b,
+                a: stop.color.a,
+              },
+            })),
+            gradientTransform: [
+              [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
+              [-sin, cos, 0.5 + sin * 0.5 - cos * 0.5],
+            ],
+          };
+          paints.push(linearPaint);
+          console.log("[DEBUG convertFillsToPaints] Added GRADIENT_LINEAR with angle:", angle);
+        }
+        break;
+
+      case 'GRADIENT_RADIAL':
+        if (fill.stops && fill.stops.length >= 2) {
+          const radialTransform = calculateRadialGradientTransform(fill);
+          const radialPaint: GradientPaint = {
+            type: 'GRADIENT_RADIAL',
+            gradientStops: fill.stops.map(stop => ({
+              position: stop.position,
+              color: {
+                r: stop.color.r,
+                g: stop.color.g,
+                b: stop.color.b,
+                a: stop.color.a,
+              },
+            })),
+            gradientTransform: radialTransform,
+          };
+          paints.push(radialPaint);
+          console.log("[DEBUG convertFillsToPaints] Added GRADIENT_RADIAL, transform:", radialTransform, "stops:", fill.stops.length);
+        } else {
+          console.log("[DEBUG convertFillsToPaints] GRADIENT_RADIAL skipped - not enough stops:", fill.stops?.length);
+        }
+        break;
+
+      case 'GRADIENT_CONIC':
+        // Figma doesn't have native conic gradient - approximate with angular
+        if (fill.stops && fill.stops.length >= 2) {
+          const angularPaint: GradientPaint = {
+            type: 'GRADIENT_ANGULAR',
+            gradientStops: fill.stops.map(stop => ({
+              position: stop.position,
+              color: {
+                r: stop.color.r,
+                g: stop.color.g,
+                b: stop.color.b,
+                a: stop.color.a,
+              },
+            })),
+            gradientTransform: [
+              [1, 0, 0],
+              [0, 1, 0],
+            ],
+          };
+          paints.push(angularPaint);
+          console.log("[DEBUG convertFillsToPaints] Added GRADIENT_ANGULAR (from conic)");
+        }
+        break;
+
+      case 'IMAGE_PLACEHOLDER':
+        // Use surface color for placeholder
+        const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);
+        paints.push({
+          type: 'SOLID',
+          color: surfaceRgb,
+          opacity: 0.8,
+        });
+        console.log("[DEBUG convertFillsToPaints] Added IMAGE_PLACEHOLDER as SOLID");
+        break;
+
+      default:
+        console.log("[DEBUG convertFillsToPaints] Unknown fill type:", (fill as FigmaFill).type);
+    }
+  }
+
+  // CRITICAL: Reverse the order!
+  // CSS backgrounds: first = top layer (front)
+  // Figma fills: first = bottom layer (back)
+  const reversedPaints = paints.reverse();
+
+  console.log("[DEBUG convertFillsToPaints] Output paints count:", reversedPaints.length);
+
+  return reversedPaints;
+}
+
+/**
+ * Convert FigmaStroke[] to Figma strokes
+ * Note: Figma doesn't support different colors per side, so we use the first stroke
+ */
+function convertStrokesToFigma(strokes: FigmaStroke[] | undefined): { paints: Paint[], weight: number } {
+  if (!strokes || strokes.length === 0) {
+    return { paints: [], weight: 0 };
+  }
+
+  // Use first stroke for color (Figma limitation)
+  const firstStroke = strokes[0];
+
+  const paints: Paint[] = [{
+    type: 'SOLID',
+    color: { r: firstStroke.color.r, g: firstStroke.color.g, b: firstStroke.color.b },
+    opacity: firstStroke.color.a,
+  }];
+
+  return { paints, weight: firstStroke.weight };
+}
+
+/**
+ * Convert FigmaEffect[] to Figma Effect[]
+ * Handles: drop shadow, inner shadow, background blur
+ */
+function convertEffectsToFigma(effects: FigmaEffect[] | undefined): Effect[] {
+  if (!effects || effects.length === 0) return [];
+
+  const figmaEffects: Effect[] = [];
+
+  for (const effect of effects) {
+    if (!effect.visible) continue;
+
+    switch (effect.type) {
+      case 'DROP_SHADOW':
+        if (effect.color && effect.offset) {
+          figmaEffects.push({
+            type: 'DROP_SHADOW',
+            visible: true,
+            color: {
+              r: effect.color.r,
+              g: effect.color.g,
+              b: effect.color.b,
+              a: effect.color.a,
+            },
+            offset: { x: effect.offset.x, y: effect.offset.y },
+            radius: effect.radius || 0,
+            spread: effect.spread || 0,
+            blendMode: 'NORMAL',
+          });
+        }
+        break;
+
+      case 'INNER_SHADOW':
+        if (effect.color && effect.offset) {
+          figmaEffects.push({
+            type: 'INNER_SHADOW',
+            visible: true,
+            color: {
+              r: effect.color.r,
+              g: effect.color.g,
+              b: effect.color.b,
+              a: effect.color.a,
+            },
+            offset: { x: effect.offset.x, y: effect.offset.y },
+            radius: effect.radius || 0,
+            spread: effect.spread || 0,
+            blendMode: 'NORMAL',
+          });
+        }
+        break;
+
+      case 'BACKGROUND_BLUR':
+        figmaEffects.push({
+          type: 'BACKGROUND_BLUR',
+          visible: true,
+          radius: effect.blurRadius || effect.radius || 10,
+        });
+        break;
+
+      case 'LAYER_BLUR':
+        figmaEffects.push({
+          type: 'LAYER_BLUR',
+          visible: true,
+          radius: effect.blurRadius || effect.radius || 10,
+        });
+        break;
+    }
+  }
+
+  return figmaEffects;
 }
 
 // Create gallery icon for image/video placeholders
@@ -548,6 +957,110 @@ async function createTextNode(
   return textNode;
 }
 
+/**
+ * Create a text element WITH background styling (like buttons, badges)
+ * In Figma, TextNode can't have background fills - we need to wrap it in a Frame
+ *
+ * This creates:
+ * - Frame with background fills, strokes, effects, border radius
+ * - TextNode inside with proper text content and color
+ * - Auto Layout to properly contain the text
+ */
+async function createTextWithBackground(
+  node: WireframeNode,
+  context: RenderContext
+): Promise<FrameNode | null> {
+  // Create the wrapper frame
+  const frame = figma.createFrame();
+  frame.name = node.name || "Button";
+  frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
+
+  // Apply Auto Layout for proper text containment
+  frame.layoutMode = node.layoutMode && node.layoutMode !== "NONE" ? node.layoutMode : "HORIZONTAL";
+  frame.primaryAxisSizingMode = "FIXED";
+  frame.counterAxisSizingMode = "FIXED";
+  frame.primaryAxisAlignItems = "CENTER";
+  frame.counterAxisAlignItems = "CENTER";
+
+  // Apply padding
+  if (node.padding) {
+    frame.paddingTop = node.padding.top || 0;
+    frame.paddingRight = node.padding.right || 0;
+    frame.paddingBottom = node.padding.bottom || 0;
+    frame.paddingLeft = node.padding.left || 0;
+  }
+
+  // Apply item spacing
+  if (node.itemSpacing > 0) {
+    frame.itemSpacing = node.itemSpacing;
+  }
+
+  // =========================================================================
+  // Apply fills (background) to the frame
+  // =========================================================================
+  if (node.fills && node.fills.length > 0) {
+    const paints = convertFillsToPaints(node.fills, context);
+    if (paints.length > 0) {
+      frame.fills = paints;
+    } else {
+      frame.fills = [];
+    }
+  } else {
+    frame.fills = [];
+  }
+
+  // =========================================================================
+  // Apply strokes (border) to the frame
+  // =========================================================================
+  if (node.strokes && node.strokes.length > 0) {
+    const { paints, weight } = convertStrokesToFigma(node.strokes);
+    if (paints.length > 0) {
+      frame.strokes = paints;
+      frame.strokeWeight = weight;
+      frame.strokeAlign = "INSIDE";
+    }
+  }
+
+  // =========================================================================
+  // Apply effects (shadows, blur) to the frame
+  // =========================================================================
+  if (node.effects && node.effects.length > 0) {
+    const figmaEffects = convertEffectsToFigma(node.effects);
+    if (figmaEffects.length > 0) {
+      frame.effects = figmaEffects;
+    }
+  }
+
+  // =========================================================================
+  // Apply border radius to the frame
+  // =========================================================================
+  if (node.borderRadius) {
+    const br = node.borderRadius;
+    if (typeof br === "number") {
+      frame.cornerRadius = br;
+    } else {
+      frame.topLeftRadius = br.topLeft || 0;
+      frame.topRightRadius = br.topRight || 0;
+      frame.bottomRightRadius = br.bottomRight || 0;
+      frame.bottomLeftRadius = br.bottomLeft || 0;
+    }
+  }
+
+  // =========================================================================
+  // Create the text node inside
+  // =========================================================================
+  const textNode = await createTextNode(node, context.fontFamily, context);
+  if (textNode) {
+    frame.appendChild(textNode);
+
+    // Let text auto-size within the frame
+    textNode.layoutSizingHorizontal = "HUG";
+    textNode.layoutSizingVertical = "HUG";
+  }
+
+  return frame;
+}
+
 // Normalize color value for style lookup (lowercase, consistent format)
 function normalizeColorForLookup(color: string): string {
   if (!color) return "";
@@ -648,6 +1161,22 @@ async function createNodeInFigma(
 
   // Handle text nodes (including those with inline children like <a> inside <h2>)
   if (node.type === "text") {
+    // Check if text node has background fills (like buttons)
+    // In Figma, TextNode can't have background - need to wrap in a Frame
+    const hasBackgroundFills = node.fills && node.fills.length > 0;
+    const hasBackgroundStrokes = node.strokes && node.strokes.length > 0;
+    const hasBackgroundEffects = node.effects && node.effects.length > 0;
+    const br = node.borderRadius;
+    const hasBorderRadius = br && typeof br === 'object' && (
+      br.topLeft > 0 || br.topRight > 0 || br.bottomRight > 0 || br.bottomLeft > 0
+    );
+
+    // If text has background styling, wrap in a frame (like a button)
+    if (hasBackgroundFills || hasBackgroundStrokes || hasBackgroundEffects || hasBorderRadius) {
+      return await createTextWithBackground(node, context);
+    }
+
+    // Simple text node without background
     return await createTextNode(node, context.fontFamily, context);
   }
 
@@ -679,14 +1208,23 @@ async function createNodeInFigma(
     }
   }
 
-  // Apply background (gradient takes priority over solid color)
-  if (node.backgroundGradient) {
-    // Resolve CSS variables in gradient
+  // =========================================================================
+  // NEW: Apply fills from Figma-ready array (multiple gradients, colors)
+  // =========================================================================
+  if (node.fills && node.fills.length > 0) {
+    const paints = convertFillsToPaints(node.fills, context);
+    if (paints.length > 0) {
+      frame.fills = paints;
+    } else {
+      frame.fills = [];
+    }
+  }
+  // LEGACY: Fallback to old gradient/backgroundColor fields
+  else if (node.backgroundGradient) {
     const gradientPaint = parseGradient(node.backgroundGradient, context.variableValueMap);
     if (gradientPaint) {
       frame.fills = [gradientPaint];
     } else if (node.backgroundColor) {
-      // Fallback to solid color if gradient parsing fails
       applyFillToFrame(frame, node.backgroundColor, context);
     } else {
       frame.fills = [];
@@ -697,9 +1235,29 @@ async function createNodeInFigma(
     frame.fills = [];
   }
 
-  // Apply border/stroke
-  if (node.borderWidth > 0 && node.borderColor) {
+  // =========================================================================
+  // NEW: Apply strokes from Figma-ready array
+  // =========================================================================
+  if (node.strokes && node.strokes.length > 0) {
+    const { paints, weight } = convertStrokesToFigma(node.strokes);
+    if (paints.length > 0) {
+      frame.strokes = paints;
+      frame.strokeWeight = weight;
+    }
+  }
+  // LEGACY: Fallback to old borderColor/borderWidth fields
+  else if (node.borderWidth > 0 && node.borderColor) {
     applyStrokeToFrame(frame, node.borderColor, node.borderWidth, context);
+  }
+
+  // =========================================================================
+  // NEW: Apply effects from Figma-ready array (shadows, blur)
+  // =========================================================================
+  if (node.effects && node.effects.length > 0) {
+    const figmaEffects = convertEffectsToFigma(node.effects);
+    if (figmaEffects.length > 0) {
+      frame.effects = figmaEffects;
+    }
   }
 
   // Apply border radius
@@ -786,13 +1344,38 @@ async function createWireframeFrame(
     viewport.x - frameData.viewportWidth / 2 + index * (frameData.viewportWidth + 100);
   wireframeFrame.y = viewport.y - 200;
 
-  // Set frame background
-  wireframeFrame.fills = [
-    {
-      type: "SOLID",
-      color: hexToFigmaRGB(pluginColors.background),
-    },
-  ];
+  // Set frame background from tree root (body) fills, or fallback to plugin color
+  console.log("[DEBUG createWireframeFrame] tree exists:", !!frameData.tree);
+  console.log("[DEBUG createWireframeFrame] tree.fills:", frameData.tree?.fills);
+  console.log("[DEBUG createWireframeFrame] tree.fills length:", frameData.tree?.fills?.length);
+
+  if (frameData.tree && frameData.tree.fills && frameData.tree.fills.length > 0) {
+    console.log("[DEBUG createWireframeFrame] Converting tree.fills to Figma paints...");
+    const rootFills = convertFillsToPaints(frameData.tree.fills, context);
+    console.log("[DEBUG createWireframeFrame] Converted rootFills:", rootFills);
+    console.log("[DEBUG createWireframeFrame] rootFills.length:", rootFills.length);
+
+    if (rootFills.length > 0) {
+      wireframeFrame.fills = rootFills;
+      console.log("[DEBUG createWireframeFrame] Applied rootFills to wireframeFrame");
+    } else {
+      console.log("[DEBUG createWireframeFrame] rootFills empty, using fallback color");
+      wireframeFrame.fills = [
+        {
+          type: "SOLID",
+          color: hexToFigmaRGB(pluginColors.background),
+        },
+      ];
+    }
+  } else {
+    console.log("[DEBUG createWireframeFrame] No tree.fills found, using fallback color:", pluginColors.background);
+    wireframeFrame.fills = [
+      {
+        type: "SOLID",
+        color: hexToFigmaRGB(pluginColors.background),
+      },
+    ];
+  }
 
   // Clip contents
   wireframeFrame.clipsContent = true;

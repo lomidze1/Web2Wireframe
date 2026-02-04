@@ -14,6 +14,7 @@ import {
   extractPropertyFromMatchedRules,
   extractPseudoStyles,
   extractCSSVariables,
+  extractBackgroundFromCSS,
 } from "./cdp/css";
 import {
   captureSnapshot,
@@ -44,6 +45,12 @@ import {
   generateId,
   getSemanticName,
 } from "@/shared/utils";
+import {
+  parseBackgroundToFills,
+  parseBoxShadowToEffects,
+  parseBackdropFilterToEffects,
+  parseBordersToStrokes,
+} from "@/shared/style-parsers";
 
 // Media tags that become placeholders
 const MEDIA_TAGS = ["img", "video", "iframe", "picture", "canvas"] as const;
@@ -172,6 +179,23 @@ async function handleCapturePage(
     updateProgress(5, "Connecting to page...");
     client = await createCDPClient(tabId);
 
+    // =========================================================================
+    // SET VIEWPORT EMULATION - Critical for accurate bounds!
+    // This forces the page to reflow to the selected viewport width
+    // =========================================================================
+    const targetViewport = options.viewport || 1440;
+    updateProgress(8, `Setting viewport to ${targetViewport}px...`);
+
+    await client.send("Emulation.setDeviceMetricsOverride", {
+      width: targetViewport,
+      height: 900, // Initial height, actual content height comes from scroll
+      deviceScaleFactor: 1,
+      mobile: targetViewport <= 768, // Mobile mode for small viewports
+    });
+
+    // Small delay for reflow
+    await new Promise(resolve => setTimeout(resolve, 300));
+
     updateProgress(10, "Scrolling for lazy content...");
     await autoScrollPage(client);
 
@@ -182,17 +206,11 @@ async function handleCapturePage(
     // STEP 1: DOMSnapshot.captureSnapshot - ONE call for entire page!
     // =========================================================================
     updateProgress(20, "Capturing page snapshot...");
-    console.log("[Capture] Using DOMSnapshot.captureSnapshot (efficient bulk extraction)");
 
     const snapshot = await captureSnapshot(client);
-    console.log("[Capture] Snapshot captured:", {
-      documents: snapshot.documents.length,
-      strings: snapshot.strings.length,
-    });
 
     updateProgress(35, "Parsing snapshot data...");
     const { nodes, nodesByBackendId } = parseSnapshot(snapshot);
-    console.log("[Capture] Parsed nodes:", nodes.length);
 
     // =========================================================================
     // STEP 2: Find nodes that NEED CSS.getMatchedStylesForNode
@@ -200,13 +218,6 @@ async function handleCapturePage(
     // =========================================================================
     updateProgress(40, "Finding nodes with gradients/variables...");
     const nodesNeedingMatched = findNodesNeedingMatchedStyles(nodes);
-    console.log(
-      "[Capture] Nodes needing matched styles:",
-      nodesNeedingMatched.length,
-      "(out of",
-      nodes.length,
-      ")"
-    );
 
     // =========================================================================
     // STEP 3: Get matched styles ONLY for those specific nodes
@@ -220,7 +231,6 @@ async function handleCapturePage(
     await getDocument(client, -1, true);
 
     const nodeIdMap = await resolveNodeIds(client, backendIds);
-    console.log("[Capture] Resolved nodeIds:", nodeIdMap.size);
 
     // Get matched styles for nodes that need them
     const matchedStylesMap = new Map<number, CDPMatchedStyles>();
@@ -236,32 +246,18 @@ async function handleCapturePage(
         }
       }
     }
-    console.log("[Capture] Got matched styles for:", matchedCount, "nodes");
-
-    updateProgress(60, "Building element tree...");
 
     // =========================================================================
-    // STEP 4: Build element tree from snapshot + matched styles
+    // STEP 4: Extract CSS variables BEFORE building tree (needed for parsing)
     // =========================================================================
-    const tree = buildElementTree(
-      nodes,
-      nodesByBackendId,
-      matchedStylesMap,
-      dimensions.width,
-      options
-    );
-    console.log("[Capture] Tree built:", {
-      tag: tree.tag,
-      children: tree.children.length,
-    });
-
-    updateProgress(75, "Extracting fonts...");
-    const fonts =
-      options.fontMode === "website" ? await extractFonts(client) : [];
-
-    updateProgress(80, "Extracting CSS variables...");
+    updateProgress(60, "Extracting CSS variables...");
     const rawCSSVariables = await extractCSSVariables(client);
-    console.log("[Capture] Extracted CSS variables:", rawCSSVariables.length);
+
+    // Build a Map for variable resolution during tree building
+    const cssVariablesMap = new Map<string, string>();
+    for (const v of rawCSSVariables) {
+      cssVariablesMap.set(v.name, v.value);
+    }
 
     // Convert to ExtractedCSSVariable format and categorize
     const cssVariables = rawCSSVariables.map((v) => ({
@@ -271,13 +267,37 @@ async function handleCapturePage(
       category: categorizeCSSVariable(v.name, v.value),
     }));
 
-    updateProgress(90, "Finalizing...");
+    // =========================================================================
+    // STEP 4.5: Extract ORIGINAL CSS for body element via CSSOM
+    // CDP returns partially computed values, CSSOM gives us the original CSS
+    // This is critical for correct gradient parsing (circle, transparent, etc.)
+    // =========================================================================
+    updateProgress(65, "Extracting original CSS from CSSOM...");
+    const bodyOriginalCSS = await extractBackgroundFromCSS(client, "body");
 
-    // Use selected viewport width, not actual page width (which may have scrollbar offset)
+    updateProgress(70, "Building element tree...");
+
+    // Use selected viewport width for tree building (not scrollWidth which may differ)
     const targetWidth = options.viewport || 1440;
 
-    // Scale tree root to match selected viewport
-    tree.width = targetWidth;
+    // =========================================================================
+    // STEP 5: Build element tree from snapshot + matched styles + CSS variables
+    // =========================================================================
+    const tree = buildElementTree(
+      nodes,
+      nodesByBackendId,
+      matchedStylesMap,
+      targetWidth,  // Use target viewport, not dimensions.width (scrollWidth)
+      options,
+      cssVariablesMap,
+      bodyOriginalCSS  // Pass CSSOM-extracted body background
+    );
+
+    updateProgress(85, "Extracting fonts...");
+    const fonts =
+      options.fontMode === "website" ? await extractFonts(client) : [];
+
+    updateProgress(90, "Finalizing...");
 
     const result: CaptureResult = {
       url: tab.url,
@@ -296,14 +316,71 @@ async function handleCapturePage(
     };
 
     updateProgress(100, "Complete!");
-    console.log("[Capture] Done! Used efficient snapshot approach.");
     return result;
   } finally {
     if (client) {
+      // Clear viewport emulation before destroying
+      try {
+        await client.send("Emulation.clearDeviceMetricsOverride", {});
+      } catch {
+        // Ignore errors during cleanup
+      }
       await client.destroy();
     }
     isCapturing = false;
   }
+}
+
+/**
+ * Collect DIRECT text content from immediate TEXT_NODE children only
+ * This avoids duplication: h2 gets "$0 ", span gets "/forever" separately
+ *
+ * For <h2>$0 <span>/forever</span></h2>:
+ * - h2 collects "$0 " (direct TEXT_NODE only)
+ * - span collects "/forever" (its own TEXT_NODE)
+ */
+function collectDirectText(
+  nodeIndex: number,
+  nodes: ParsedSnapshotNode[],
+  childrenMap: Map<number, number[]>
+): string {
+  const node = nodes[nodeIndex];
+  if (!node) return "";
+
+  const childIndices = childrenMap.get(nodeIndex) || [];
+  const textParts: string[] = [];
+
+  for (const childIdx of childIndices) {
+    const child = nodes[childIdx];
+    // Only collect TEXT_NODEs (nodeType === 3), not element children
+    if (child && child.nodeType === 3 && child.textContent) {
+      textParts.push(child.textContent);
+    }
+  }
+
+  // Join and trim
+  return textParts.join("").trim();
+}
+
+/**
+ * Check if element is a "leaf" text element (has no element children)
+ */
+function isLeafElement(
+  nodeIndex: number,
+  nodes: ParsedSnapshotNode[],
+  childrenMap: Map<number, number[]>
+): boolean {
+  const childIndices = childrenMap.get(nodeIndex) || [];
+
+  for (const childIdx of childIndices) {
+    const child = nodes[childIdx];
+    // If has any ELEMENT_NODE child, it's not a leaf
+    if (child && child.nodeType === 1) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -313,8 +390,10 @@ function buildElementTree(
   nodes: ParsedSnapshotNode[],
   _nodesByBackendId: Map<number, ParsedSnapshotNode>,
   matchedStylesMap: Map<number, CDPMatchedStyles>,
-  _viewportWidth: number,
-  options: CaptureOptions
+  viewportWidth: number,
+  options: CaptureOptions,
+  cssVariablesMap: Map<string, string> = new Map(),
+  bodyOriginalCSS: { background: string | null; backgroundImage: string | null; backgroundColor: string | null; selector: string } | null = null
 ): ExtractedElement {
   // Find body node
   const bodyNode = nodes.find((n) => n.nodeName === "body");
@@ -371,55 +450,82 @@ function buildElementTree(
     // EXTRACT STYLES - Use matched styles for gradients, computed for rest
     // =========================================================================
 
-    // Background - check matched styles for gradients first
+    // Use CSS variables map for resolving var(--name) references
+    const resolvedVariables = cssVariablesMap;
+
+    // Get background values from matched styles (preserves original CSS)
+    let backgroundImage: string | null = null;
+    let backgroundShorthand: string | null = null;
+
+    // SPECIAL CASE: For body element, prefer CSSOM-extracted original CSS
+    // CDP returns partially computed values (circle→50% 50%), CSSOM gives original
+    if (tag === 'body' && bodyOriginalCSS) {
+      backgroundShorthand = bodyOriginalCSS.background;
+      backgroundImage = bodyOriginalCSS.backgroundImage;
+    } else if (matchedStyles) {
+      backgroundImage = extractPropertyFromMatchedRules(matchedStyles, "background-image");
+      backgroundShorthand = extractPropertyFromMatchedRules(matchedStyles, "background");
+    }
+
+    // Get background-color from computed styles
+    const computedBgColor = computedStyles["background-color"];
+    const bgColorForFills = (computedBgColor && computedBgColor !== "transparent" && computedBgColor !== "rgba(0, 0, 0, 0)")
+      ? computedBgColor
+      : null;
+
+    // =========================================================================
+    // NEW: Parse to Figma-ready fills[] (supports multiple backgrounds)
+    // =========================================================================
+    const fills = parseBackgroundToFills(
+      backgroundShorthand || backgroundImage,
+      bgColorForFills,
+      resolvedVariables,
+      { width, height }  // Pass element dimensions for gradient transform calculation
+    );
+
+    // Legacy fields (backward compatibility)
     let backgroundColor: string | null = null;
     let backgroundGradient: string | null = null;
 
-    if (matchedStyles) {
-      // Check background-image for gradients (from matched styles - preserves original!)
-      const bgImage = extractPropertyFromMatchedRules(
-        matchedStyles,
-        "background-image"
-      );
-      if (bgImage && isGradient(bgImage)) {
-        backgroundGradient = bgImage;
-      }
-
-      // Check shorthand 'background'
-      const bgShorthand = extractPropertyFromMatchedRules(
-        matchedStyles,
-        "background"
-      );
-      if (bgShorthand && isGradient(bgShorthand)) {
-        backgroundGradient = bgShorthand;
-      }
+    if (backgroundImage && isGradient(backgroundImage)) {
+      backgroundGradient = backgroundImage;
+    } else if (backgroundShorthand && isGradient(backgroundShorthand)) {
+      backgroundGradient = backgroundShorthand;
     }
-
-    // Fallback to computed styles for solid colors
-    if (!backgroundColor && !backgroundGradient) {
-      const computedBg = computedStyles["background-color"];
-      if (computedBg && computedBg !== "transparent" && computedBg !== "rgba(0, 0, 0, 0)") {
-        backgroundColor = parseColor(computedBg);
-      }
+    if (!backgroundGradient && bgColorForFills) {
+      backgroundColor = parseColor(bgColorForFills);
     }
 
     // Text color
     const textColor = parseColor(computedStyles["color"]);
 
-    // Border
+    // =========================================================================
+    // NEW: Parse borders to Figma-ready strokes[]
+    // =========================================================================
+    const strokes = parseBordersToStrokes(
+      computedStyles["border-width"],
+      computedStyles["border-color"],
+      computedStyles["border-style"],
+      computedStyles["border-top"],
+      computedStyles["border-right"],
+      computedStyles["border-bottom"],
+      computedStyles["border-left"],
+      resolvedVariables
+    );
+
+    // Legacy border fields
     const borderColor = parseColor(computedStyles["border-color"]);
     const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
     const borderRadius = parseBorderRadius(
       computedStyles["border-radius"] || "0"
     );
 
-    // Box shadow - prefer matched styles
+    // =========================================================================
+    // NEW: Parse box-shadow + backdrop-filter to Figma-ready effects[]
+    // =========================================================================
     let boxShadow: string | null = null;
     if (matchedStyles) {
-      const matchedShadow = extractPropertyFromMatchedRules(
-        matchedStyles,
-        "box-shadow"
-      );
+      const matchedShadow = extractPropertyFromMatchedRules(matchedStyles, "box-shadow");
       if (matchedShadow && matchedShadow !== "none") {
         boxShadow = matchedShadow;
       }
@@ -427,6 +533,22 @@ function buildElementTree(
     if (!boxShadow && computedStyles["box-shadow"] !== "none") {
       boxShadow = computedStyles["box-shadow"] || null;
     }
+
+    const shadowEffects = parseBoxShadowToEffects(boxShadow);
+
+    // Backdrop filter (glassmorphism)
+    let backdropFilter: string | null = null;
+    if (matchedStyles) {
+      backdropFilter = extractPropertyFromMatchedRules(matchedStyles, "backdrop-filter");
+    }
+    if (!backdropFilter) {
+      backdropFilter = computedStyles["backdrop-filter"] || null;
+    }
+
+    const blurEffects = parseBackdropFilterToEffects(backdropFilter);
+
+    // Combine all effects
+    const effects = [...shadowEffects, ...blurEffects];
 
     // Typography
     const fontFamily = (computedStyles["font-family"] || "Inter")
@@ -454,6 +576,12 @@ function buildElementTree(
 
     const opacity = parseFloat(computedStyles.opacity || "1") || 1;
 
+    // CSS Positioning (for sticky headers, fixed elements, etc.)
+    const cssPosition = computedStyles["position"] as ExtractedElement["position"];
+    const position = (cssPosition && cssPosition !== "static") ? cssPosition : undefined;
+    const zIndexStr = computedStyles["z-index"];
+    const zIndex = zIndexStr && zIndexStr !== "auto" ? parseInt(zIndexStr) : undefined;
+
     // Extract hover styles for interactive elements
     let hoverStyles: Record<string, string> | null = null;
     if (
@@ -464,37 +592,27 @@ function buildElementTree(
     }
 
     // =========================================================================
-    // AGGREGATE TEXT FROM CHILD TEXT_NODEs
+    // AGGREGATE TEXT - collect direct TEXT_NODE children only (avoid duplication)
     // =========================================================================
     let aggregatedText = node.textContent || "";
 
-    // If this element doesn't have direct text, collect from child TEXT_NODEs
-    if (!aggregatedText && isText) {
-      const childIndices = childrenMap.get(node.index) || [];
-      const textParts: string[] = [];
-
-      for (const childIdx of childIndices) {
-        const childNode = nodes[childIdx];
-        // TEXT_NODE has nodeType === 3
-        if (childNode && childNode.nodeType === 3 && childNode.textContent) {
-          const trimmed = childNode.textContent.trim();
-          if (trimmed) {
-            textParts.push(trimmed);
-          }
-        }
-      }
-
-      if (textParts.length > 0) {
-        aggregatedText = textParts.join(" ");
-      }
+    // If no direct text, collect from immediate TEXT_NODE children
+    // This works for ALL elements, not just TEXT_TAGS (fixes div.badge "Free" issue)
+    if (!aggregatedText) {
+      aggregatedText = collectDirectText(node.index, nodes, childrenMap);
     }
+
+    // Determine if this element should be treated as a text element
+    // Either: in TEXT_TAGS OR is a leaf element (no element children) with text
+    const isLeaf = isLeafElement(node.index, nodes, childrenMap);
+    const shouldBeText = isText || (isLeaf && aggregatedText);
 
     // =========================================================================
     // APPLY TEXT MODE TRANSFORMATION
     // =========================================================================
     let finalText = aggregatedText;
 
-    if (aggregatedText && isText) {
+    if (aggregatedText && shouldBeText) {
       switch (options.textMode) {
         case "website":
           // Keep original text as-is
@@ -520,7 +638,7 @@ function buildElementTree(
     let elementType: "frame" | "text" | "placeholder" = "frame";
     if (isMedia) {
       elementType = "placeholder";
-    } else if (isText && finalText) {
+    } else if (shouldBeText && finalText) {
       elementType = "text";
     }
 
@@ -534,9 +652,16 @@ function buildElementTree(
       y: Math.round(y - parentY),
       width: Math.round(width),
       height: Math.round(height),
+      position,
+      zIndex,
       layoutMode: getLayoutMode(computedStyles),
       itemSpacing,
       padding,
+      // NEW: Figma-ready arrays (multiple layers)
+      fills,
+      strokes,
+      effects,
+      // Legacy fields (backward compatibility)
       backgroundColor,
       backgroundGradient,
       textColor,
@@ -562,8 +687,17 @@ function buildElementTree(
     for (const childIdx of childIndices) {
       const childNode = nodes[childIdx];
       if (childNode) {
+        // Skip children that are completely outside viewport (horizontal overflow)
+        if (childNode.bounds && childNode.bounds.x >= viewportWidth) {
+          continue;
+        }
+
         const childElement = buildNode(childNode, x, y, depth + 1);
         if (childElement && childElement.width > 3 && childElement.height > 3) {
+          // Clip child width if it extends beyond viewport
+          if (childElement.x + childElement.width > viewportWidth) {
+            childElement.width = Math.max(0, viewportWidth - childElement.x);
+          }
           element.children.push(childElement);
         }
       }
@@ -576,6 +710,9 @@ function buildElementTree(
   if (!tree) {
     throw new Error("Failed to build element tree");
   }
+
+  // Override body width to viewport width (fixes scrollWidth being larger)
+  tree.width = viewportWidth;
 
   return tree;
 }
@@ -605,16 +742,23 @@ function getLayoutMode(
 
     const gridColumns = computedStyles["grid-template-columns"];
     if (gridColumns && gridColumns !== "none") {
-      // Check if multiple columns
+      // auto-fit/auto-fill grids are responsive - treat as HORIZONTAL (wrap)
+      if (gridColumns.includes("auto-fit") || gridColumns.includes("auto-fill")) {
+        return "HORIZONTAL";
+      }
+
+      // Check if multiple columns by counting column values
+      // Handle repeat(N, ...) - expand to count
       const normalizedColumns = gridColumns
         .replace(/repeat\s*\(\s*(\d+)\s*,/g, (_, count) => {
           return Array(parseInt(count)).fill("1fr").join(" ") + " ";
         })
         .trim();
 
+      // Count distinct column definitions (px, fr, %, auto values)
       const columnCount = normalizedColumns
         .split(/\s+/)
-        .filter((v) => v && v !== "none").length;
+        .filter((v) => v && v !== "none" && !v.includes("(")).length;
 
       if (columnCount > 1) {
         return "HORIZONTAL";
@@ -844,5 +988,4 @@ async function updateSettings(settings: object) {
   });
 }
 
-// Log extension startup
-console.log("Web2Wireframe Extension loaded (using efficient DOMSnapshot approach)");
+// Extension loaded

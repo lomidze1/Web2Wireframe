@@ -8,6 +8,65 @@ import VariablesChoiceModal, {
   type VariableMode,
 } from "../../../components/modalPopup/VariablesChoiceModal";
 
+// ============================================================================
+// FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
+// ============================================================================
+
+/** RGBA color normalized to 0-1 range (Figma format) */
+interface FigmaColor {
+  r: number;  // 0-1
+  g: number;  // 0-1
+  b: number;  // 0-1
+  a: number;  // 0-1
+}
+
+/** Gradient stop */
+interface FigmaGradientStop {
+  color: FigmaColor;
+  position: number;  // 0-1
+}
+
+/** Fill layer - supports solid, gradient, image placeholder */
+interface FigmaFill {
+  type: 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL' | 'GRADIENT_CONIC' | 'IMAGE_PLACEHOLDER';
+  visible: boolean;
+  opacity: number;
+  blendMode?: string;
+  // SOLID
+  color?: FigmaColor;
+  // GRADIENT_*
+  angle?: number;  // degrees (0-360)
+  stops?: FigmaGradientStop[];
+  center?: { x: number; y: number };  // 0-1 (radial/conic)
+  // IMAGE → placeholder
+  isImagePlaceholder?: boolean;
+}
+
+/** Stroke layer - border */
+interface FigmaStroke {
+  color: FigmaColor;
+  weight: number;
+  position: 'INSIDE' | 'CENTER' | 'OUTSIDE';
+  style: 'SOLID' | 'DASHED' | 'DOTTED';
+  sides?: {
+    top: boolean;
+    right: boolean;
+    bottom: boolean;
+    left: boolean;
+  };
+}
+
+/** Effect layer - shadow or blur */
+interface FigmaEffect {
+  type: 'DROP_SHADOW' | 'INNER_SHADOW' | 'LAYER_BLUR' | 'BACKGROUND_BLUR';
+  visible: boolean;
+  color?: FigmaColor;
+  offset?: { x: number; y: number };
+  radius?: number;
+  spread?: number;
+  blurRadius?: number;
+}
+
 // Types matching Browser_Extension's CaptureResult
 interface ExtractedElement {
   id: string;
@@ -21,6 +80,11 @@ interface ExtractedElement {
   layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
+  // NEW: Figma-ready arrays (multiple layers support)
+  fills?: FigmaFill[];
+  strokes?: FigmaStroke[];
+  effects?: FigmaEffect[];
+  // LEGACY: Keep for backward compatibility
   backgroundColor: string | null;
   backgroundGradient: string | null;
   textColor: string | null;
@@ -85,6 +149,11 @@ interface WireframeNode {
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
+  // NEW: Figma-ready arrays (multiple layers support)
+  fills?: FigmaFill[];
+  strokes?: FigmaStroke[];
+  effects?: FigmaEffect[];
+  // LEGACY: Keep for backward compatibility
   backgroundColor: string | null;
   backgroundGradient: string | null;
   textColor: string;
@@ -195,6 +264,11 @@ function convertToWireframeNode(
     layoutMode: element.layoutMode,
     itemSpacing: element.itemSpacing || 0,
     padding: element.padding || { top: 0, right: 0, bottom: 0, left: 0 },
+    // NEW: Figma-ready arrays (pass through from Extension)
+    fills: element.fills,
+    strokes: element.strokes,
+    effects: element.effects,
+    // LEGACY: Keep for backward compatibility
     backgroundColor: element.backgroundColor,
     backgroundGradient: element.backgroundGradient,
     textColor: element.textColor || pluginColors.text,

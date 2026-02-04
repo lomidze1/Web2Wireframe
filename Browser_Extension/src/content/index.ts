@@ -33,5 +33,4 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-// Notify that content script is ready
-console.log("Web2Wireframe content script loaded");
+// Content script loaded and ready

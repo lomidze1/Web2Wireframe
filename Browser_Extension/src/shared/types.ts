@@ -116,6 +116,9 @@ export interface ExtractedElement {
   y: number;
   width: number;
   height: number;
+  // CSS Positioning (for sticky headers, fixed elements, etc.)
+  position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
+  zIndex?: number;
   // Layout
   layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL";
   itemSpacing: number;
@@ -125,12 +128,21 @@ export interface ExtractedElement {
     bottom: number;
     left: number;
   };
-  // Colors (with original CSS values preserved)
+
+  // =========================================================================
+  // NEW: Figma-ready arrays (multiple layers support)
+  // =========================================================================
+  fills: FigmaFill[];      // Multiple backgrounds: gradients, colors, image placeholders
+  strokes: FigmaStroke[];  // Borders (with per-side support)
+  effects: FigmaEffect[];  // Multiple shadows, backdrop-blur
+
+  // =========================================================================
+  // LEGACY: Keep for backward compatibility (will be removed later)
+  // =========================================================================
   backgroundColor: string | null;
-  backgroundGradient: string | null; // Original gradient string
+  backgroundGradient: string | null;
   textColor: string | null;
   borderColor: string | null;
-  // Borders
   borderWidth: number;
   borderRadius: {
     topLeft: number;
@@ -138,8 +150,8 @@ export interface ExtractedElement {
     bottomRight: number;
     bottomLeft: number;
   };
-  // Shadow
   boxShadow: string | null;
+
   // Typography
   fontFamily: string;
   fontSize: number;
@@ -209,6 +221,87 @@ export interface ExtractedCSSVariable {
   value: string;       // #FF6B35 (resolved)
   rawValue: string;    // Original value (might reference other vars)
   category?: string;   // color, spacing, typography, etc.
+}
+
+// ============================================================================
+// FIGMA-READY TYPES - for 1:1 visual fidelity
+// ============================================================================
+
+/** RGBA color normalized to 0-1 range (Figma format) */
+export interface FigmaColor {
+  r: number;  // 0-1
+  g: number;  // 0-1
+  b: number;  // 0-1
+  a: number;  // 0-1
+}
+
+/** Gradient stop */
+export interface FigmaGradientStop {
+  color: FigmaColor;
+  position: number;  // 0-1
+}
+
+/** Radial gradient shape */
+export type RadialGradientShape = 'circle' | 'ellipse';
+
+/** Radial gradient size keyword */
+export type RadialGradientSize = 'closest-side' | 'farthest-side' | 'closest-corner' | 'farthest-corner';
+
+/** Fill layer - supports solid, gradient, image placeholder */
+export interface FigmaFill {
+  type: 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL' | 'GRADIENT_CONIC' | 'IMAGE_PLACEHOLDER';
+  visible: boolean;
+  opacity: number;
+  blendMode?: string;
+
+  // SOLID
+  color?: FigmaColor;
+
+  // GRADIENT_*
+  angle?: number;  // degrees (0-360)
+  stops?: FigmaGradientStop[];
+
+  // RADIAL/CONIC specific
+  center?: { x: number; y: number };  // 0-1 normalized position
+  shape?: RadialGradientShape;        // circle or ellipse (default: ellipse)
+  size?: RadialGradientSize;          // CSS size keyword (default: farthest-corner)
+
+  // Element dimensions (needed for proper radial gradient transform calculation)
+  elementWidth?: number;
+  elementHeight?: number;
+
+  // IMAGE → placeholder
+  isImagePlaceholder?: boolean;
+}
+
+/** Stroke layer - border */
+export interface FigmaStroke {
+  color: FigmaColor;
+  weight: number;
+  position: 'INSIDE' | 'CENTER' | 'OUTSIDE';
+  style: 'SOLID' | 'DASHED' | 'DOTTED';
+  // Per-side (Figma limitation: can't have different colors per side)
+  sides?: {
+    top: boolean;
+    right: boolean;
+    bottom: boolean;
+    left: boolean;
+  };
+}
+
+/** Effect layer - shadow or blur */
+export interface FigmaEffect {
+  type: 'DROP_SHADOW' | 'INNER_SHADOW' | 'LAYER_BLUR' | 'BACKGROUND_BLUR';
+  visible: boolean;
+
+  // Shadow properties
+  color?: FigmaColor;
+  offset?: { x: number; y: number };
+  radius?: number;   // blur radius
+  spread?: number;   // shadow spread
+
+  // Blur properties
+  blurRadius?: number;
 }
 
 // Capture options (user selections before capture)

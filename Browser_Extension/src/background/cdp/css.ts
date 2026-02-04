@@ -185,6 +185,13 @@ export async function getFontFaceRules(
 /**
  * Extract specific CSS property from matched rules
  * Finds the most specific rule that sets this property
+ *
+ * CDP returns matchedCSSRules in ORDER OF INCREASING SPECIFICITY:
+ * - User agent rules first (least specific)
+ * - Author rules in document order
+ * - More specific selectors LATER in the array
+ *
+ * So we need to return the LAST match, not the first!
  */
 export function extractPropertyFromMatchedRules(
   matchedStyles: CDPMatchedStyles,
@@ -200,19 +207,27 @@ export function extractPropertyFromMatchedRules(
     }
   }
 
-  // Then check matched rules (in order of specificity)
+  // Then check matched rules - iterate through ALL and keep the LAST match
+  // because CDP returns rules in order of increasing specificity
+  let result: string | null = null;
+
   if (matchedStyles.matchedCSSRules) {
     for (const match of matchedStyles.matchedCSSRules) {
+      // Skip user-agent rules for author-defined properties
+      if (match.rule.origin === 'user-agent') continue;
+
       const prop = match.rule.style.cssProperties.find(
         (p) => p.name === propertyName
       );
       if (prop && prop.value && prop.value !== "initial") {
-        return prop.value;
+        result = prop.value;  // Keep updating - last one wins (most specific)
       }
     }
   }
 
-  // Check inherited styles
+  if (result) return result;
+
+  // Check inherited styles (only for inheritable properties)
   if (matchedStyles.inherited) {
     for (const inherited of matchedStyles.inherited) {
       if (inherited.inlineStyle?.cssProperties) {
@@ -362,4 +377,119 @@ export async function resolveCSSValue(
   }
 
   return { original: cssValue, resolved: cssValue };
+}
+
+/**
+ * Extract background properties directly from CSSOM for an element
+ * This gets ORIGINAL CSS values (preserves 'circle', 'transparent', etc.)
+ *
+ * CDP CSS.getMatchedStylesForNode returns partially computed values,
+ * so we need this alternative approach for accurate extraction.
+ */
+export interface CSSOMBackground {
+  background: string | null;
+  backgroundImage: string | null;
+  backgroundColor: string | null;
+  selector: string;
+}
+
+export async function extractBackgroundFromCSS(
+  client: CDPClient,
+  selector: string
+): Promise<CSSOMBackground | null> {
+  try {
+    const result = await client.send<{ result: { value: CSSOMBackground | null } }>(
+      "Runtime.evaluate",
+      {
+        expression: `
+          (function() {
+            const el = document.querySelector('${selector.replace(/'/g, "\\'")}');
+            if (!el) return null;
+
+            // Get computed style for fallback
+            const computed = getComputedStyle(el);
+
+            // Find matching CSS rules from stylesheets
+            let background = null;
+            let backgroundImage = null;
+            let backgroundColor = null;
+            let matchedSelector = '';
+            let highestSpecificity = -1;
+
+            // Helper: calculate selector specificity (simplified)
+            function getSpecificity(selectorText) {
+              let spec = 0;
+              if (selectorText.includes('#')) spec += 100;
+              const classes = (selectorText.match(/\\./g) || []).length;
+              spec += classes * 10;
+              const elements = (selectorText.match(/[a-z]+/gi) || []).length;
+              spec += elements;
+              return spec;
+            }
+
+            // Iterate through all stylesheets
+            for (const sheet of document.styleSheets) {
+              try {
+                for (const rule of sheet.cssRules || []) {
+                  if (!(rule instanceof CSSStyleRule)) continue;
+
+                  // Check if this rule matches our element
+                  try {
+                    if (!el.matches(rule.selectorText)) continue;
+                  } catch { continue; }
+
+                  const spec = getSpecificity(rule.selectorText);
+
+                  // Check for background properties in this rule
+                  const style = rule.style;
+
+                  if (style.background && spec >= highestSpecificity) {
+                    background = style.background;
+                    matchedSelector = rule.selectorText;
+                    highestSpecificity = spec;
+                  }
+                  if (style.backgroundImage && spec >= highestSpecificity) {
+                    backgroundImage = style.backgroundImage;
+                    matchedSelector = rule.selectorText;
+                    highestSpecificity = spec;
+                  }
+                  if (style.backgroundColor && spec >= highestSpecificity) {
+                    backgroundColor = style.backgroundColor;
+                  }
+                }
+              } catch (e) {
+                // Cross-origin stylesheet, skip
+              }
+            }
+
+            // Check inline style (highest priority)
+            if (el.style.background) {
+              background = el.style.background;
+              matchedSelector = 'inline';
+            }
+            if (el.style.backgroundImage) {
+              backgroundImage = el.style.backgroundImage;
+              matchedSelector = 'inline';
+            }
+            if (el.style.backgroundColor) {
+              backgroundColor = el.style.backgroundColor;
+            }
+
+            return {
+              background,
+              backgroundImage,
+              backgroundColor: backgroundColor || computed.backgroundColor,
+              selector: matchedSelector
+            };
+          })()
+        `,
+        returnByValue: true,
+      }
+    );
+
+    return result.result.value;
+  } catch (e) {
+    console.warn('[extractBackgroundFromCSS] Error:', e);
+    return null;
+  }
 }

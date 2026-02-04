@@ -87,6 +87,10 @@ export const SNAPSHOT_COMPUTED_STYLES = [
   "box-shadow",
   "z-index",
   "transform",
+
+  // Effects
+  "backdrop-filter",
+  "filter",
 ];
 
 /**
@@ -345,7 +349,7 @@ export function buildTreeFromSnapshot(
 
 /**
  * Find nodes that need CSS.getMatchedStylesForNode
- * (nodes with gradients, CSS variables, hover states)
+ * (nodes with gradients, CSS variables, hover states, glassmorphism)
  */
 export function findNodesNeedingMatchedStyles(
   nodes: ParsedSnapshotNode[]
@@ -373,6 +377,19 @@ export function findNodesNeedingMatchedStyles(
     // Check for box-shadow with CSS variable
     const boxShadow = node.computedStyles["box-shadow"] || "";
     if (boxShadow.includes("var(")) return true;
+
+    // Check for backdrop-filter (glassmorphism effects)
+    const backdropFilter = node.computedStyles["backdrop-filter"] || "";
+    if (backdropFilter && backdropFilter !== "none") return true;
+
+    // Check for semi-transparent backgrounds (might be glassmorphism)
+    if (bgColor.includes("rgba") && !bgColor.includes("rgba(0, 0, 0, 0)")) {
+      // Check if it's semi-transparent (alpha < 1)
+      const alphaMatch = bgColor.match(/rgba\([^)]+,\s*([\d.]+)\)/);
+      if (alphaMatch && parseFloat(alphaMatch[1]) < 1) {
+        return true;
+      }
+    }
 
     return false;
   });
