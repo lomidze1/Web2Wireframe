@@ -197,13 +197,34 @@ export function extractPropertyFromMatchedRules(
   matchedStyles: CDPMatchedStyles,
   propertyName: string
 ): string | null {
+  // Helper to get original value from prop (prefer text over value)
+  const getOriginalValue = (prop: { value: string; text?: string }): string | null => {
+    // prop.text contains the ORIGINAL CSS as written (e.g., "1px")
+    // prop.value might contain computed/resolved value (e.g., "1.11111px")
+    if (prop.text) {
+      // text format is "property-name: value" or just "value"
+      const textValue = prop.text.includes(':')
+        ? prop.text.split(':')[1]?.trim().replace(/;$/, '').trim()
+        : prop.text.trim();
+      if (textValue && textValue !== "initial") {
+        return textValue;
+      }
+    }
+    // Fall back to value if text not available
+    if (prop.value && prop.value !== "initial") {
+      return prop.value;
+    }
+    return null;
+  };
+
   // Check inline style first (highest priority)
   if (matchedStyles.inlineStyle?.cssProperties) {
     const prop = matchedStyles.inlineStyle.cssProperties.find(
       (p) => p.name === propertyName
     );
-    if (prop && prop.value && prop.value !== "initial") {
-      return prop.value;
+    if (prop) {
+      const value = getOriginalValue(prop);
+      if (value) return value;
     }
   }
 
@@ -219,8 +240,11 @@ export function extractPropertyFromMatchedRules(
       const prop = match.rule.style.cssProperties.find(
         (p) => p.name === propertyName
       );
-      if (prop && prop.value && prop.value !== "initial") {
-        result = prop.value;  // Keep updating - last one wins (most specific)
+      if (prop) {
+        const value = getOriginalValue(prop);
+        if (value) {
+          result = value;  // Keep updating - last one wins (most specific)
+        }
       }
     }
   }
@@ -234,14 +258,144 @@ export function extractPropertyFromMatchedRules(
         const prop = inherited.inlineStyle.cssProperties.find(
           (p) => p.name === propertyName
         );
-        if (prop && prop.value && prop.value !== "initial") {
-          return prop.value;
+        if (prop) {
+          const value = getOriginalValue(prop);
+          if (value) return value;
         }
       }
     }
   }
 
   return null;
+}
+
+/**
+ * Extract border width from matched rules, handling both shorthand and longhand
+ * CSS border shorthand: "1px solid red" -> extract "1px"
+ * CSS border-width: "1px" -> return directly
+ */
+export function extractBorderWidthFromMatchedRules(
+  matchedStyles: CDPMatchedStyles
+): string | null {
+  // First try to get border-width directly
+  const borderWidth = extractPropertyFromMatchedRules(matchedStyles, "border-width");
+  if (borderWidth) return borderWidth;
+
+  // Check border shorthand
+  const borderShorthand = extractPropertyFromMatchedRules(matchedStyles, "border");
+  if (borderShorthand) {
+    // Parse width from shorthand: "1px solid red" -> "1px"
+    // Match patterns like "1px", "0.5em", "2rem", "thin", "medium", "thick"
+    const widthMatch = borderShorthand.match(/^(\d+(?:\.\d+)?)(px|em|rem|%|pt)?/i);
+    if (widthMatch) {
+      return widthMatch[1] + (widthMatch[2] || "px");
+    }
+    // Handle keyword values
+    if (/^(thin|medium|thick)\b/i.test(borderShorthand)) {
+      const keyword = borderShorthand.match(/^(thin|medium|thick)/i)?.[1];
+      if (keyword) return keyword.toLowerCase();
+    }
+  }
+
+  // Try individual side widths
+  const sides = ["border-top-width", "border-right-width", "border-bottom-width", "border-left-width"];
+  for (const side of sides) {
+    const sideWidth = extractPropertyFromMatchedRules(matchedStyles, side);
+    if (sideWidth) return sideWidth;
+  }
+
+  // Check shorthandEntries in matched rules
+  if (matchedStyles.matchedCSSRules) {
+    for (const match of matchedStyles.matchedCSSRules) {
+      if (match.rule.origin === 'user-agent') continue;
+
+      const shorthandEntries = match.rule.style.shorthandEntries;
+      if (shorthandEntries) {
+        const borderEntry = shorthandEntries.find(e => e.name === "border");
+        if (borderEntry?.value) {
+          const widthMatch = borderEntry.value.match(/^(\d+(?:\.\d+)?)(px|em|rem|%|pt)?/i);
+          if (widthMatch) {
+            return widthMatch[1] + (widthMatch[2] || "px");
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract individual border sides from matched rules
+ * Returns original CSS values like "1px solid red" instead of computed "1.11111px solid rgb(..."
+ * Falls back to computedStyles if not found in matched rules
+ */
+export function extractBorderSidesFromMatchedRules(
+  matchedStyles: CDPMatchedStyles | null,
+  computedStyles: Record<string, string>
+): {
+  borderTop: string | null;
+  borderRight: string | null;
+  borderBottom: string | null;
+  borderLeft: string | null;
+} {
+  const result = {
+    borderTop: computedStyles["border-top"] || null,
+    borderRight: computedStyles["border-right"] || null,
+    borderBottom: computedStyles["border-bottom"] || null,
+    borderLeft: computedStyles["border-left"] || null,
+  };
+
+  if (!matchedStyles) return result;
+
+  // Try to get original values from matched rules
+  const matchedTop = extractPropertyFromMatchedRules(matchedStyles, "border-top");
+  const matchedRight = extractPropertyFromMatchedRules(matchedStyles, "border-right");
+  const matchedBottom = extractPropertyFromMatchedRules(matchedStyles, "border-bottom");
+  const matchedLeft = extractPropertyFromMatchedRules(matchedStyles, "border-left");
+
+  if (matchedTop) result.borderTop = matchedTop;
+  if (matchedRight) result.borderRight = matchedRight;
+  if (matchedBottom) result.borderBottom = matchedBottom;
+  if (matchedLeft) result.borderLeft = matchedLeft;
+
+  return result;
+}
+
+/**
+ * Extract width from matched rules
+ * Returns original CSS value like "fit-content", "auto", "100%", "200px"
+ * Falls back to computedStyle if not found in matched rules
+ */
+export function extractWidthFromMatchedRules(
+  matchedStyles: CDPMatchedStyles | null,
+  computedWidth?: string
+): string | null {
+  if (!matchedStyles) return computedWidth || null;
+
+  // Try direct width property from matched CSS rules
+  const width = extractPropertyFromMatchedRules(matchedStyles, "width");
+
+  // Return found width, or fall back to computed width
+  return width || computedWidth || null;
+}
+
+/**
+ * Extract height from matched rules
+ * Returns original CSS value like "fit-content", "auto", "100%", "200px"
+ * Falls back to computedStyle if not found in matched rules
+ */
+export function extractHeightFromMatchedRules(
+  matchedStyles: CDPMatchedStyles | null,
+  computedHeight?: string
+): string | null {
+  if (!matchedStyles) return computedHeight || null;
+
+  // Try direct height property from matched CSS rules
+  const height = extractPropertyFromMatchedRules(matchedStyles, "height");
+
+  // Return found height, or fall back to computed height
+  return height || computedHeight || null;
 }
 
 /**

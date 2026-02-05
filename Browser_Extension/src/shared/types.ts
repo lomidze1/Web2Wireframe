@@ -173,6 +173,8 @@ export interface ExtractedElement {
   // States
   opacity: number;
   isPlaceholder: boolean;
+  // Overflow (for clipsContent in Figma)
+  overflow?: "visible" | "hidden" | "scroll" | "auto";
   // Matched CSS (for advanced processing)
   matchedRules?: CDPCSSRule[];
   // Hover/Interactive styles (for buttons, links)

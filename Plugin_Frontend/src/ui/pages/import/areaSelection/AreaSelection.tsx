@@ -186,6 +186,8 @@ interface WireframeNode {
   fontWeight: number;
   fontFamily: string;
   textAlign: string;
+  lineHeight: number | string;
+  letterSpacing: number;
   isPlaceholder: boolean;
   children: WireframeNode[];
 }
@@ -311,6 +313,8 @@ function convertToWireframeNode(
     fontWeight: element.fontWeight || 400,
     fontFamily: element.fontFamily || "Inter",
     textAlign: element.textAlign || "left",
+    lineHeight: element.lineHeight || "normal",
+    letterSpacing: element.letterSpacing || 0,
     isPlaceholder: element.isPlaceholder,
     children,
   };

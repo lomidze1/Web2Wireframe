@@ -115,6 +115,8 @@ interface WireframeNode {
   borderWidth: number;
   borderRadius: number | { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number };
   opacity: number;
+  // Overflow (for clipsContent)
+  overflow?: "visible" | "hidden" | "scroll" | "auto";
 
   // Text
   textContent: string;
@@ -122,6 +124,8 @@ interface WireframeNode {
   fontWeight: number;
   fontFamily: string;
   textAlign: string;
+  lineHeight: number | string;
+  letterSpacing: number;
 
   // Media
   isPlaceholder: boolean;
@@ -1016,9 +1020,57 @@ async function createTextNode(
   };
   textNode.textAlignHorizontal = alignMap[node.textAlign] || "LEFT";
 
-  // Set text box size
-  textNode.resize(Math.max(node.width, 1), Math.max(node.height, 1));
-  textNode.textAutoResize = "HEIGHT";
+  // Line height
+  if (node.lineHeight && node.lineHeight !== "normal") {
+    if (typeof node.lineHeight === "number") {
+      textNode.lineHeight = { value: node.lineHeight, unit: "PIXELS" };
+    } else if (typeof node.lineHeight === "string") {
+      if (node.lineHeight.endsWith("%")) {
+        const percentValue = parseFloat(node.lineHeight);
+        if (!isNaN(percentValue)) {
+          textNode.lineHeight = { value: percentValue, unit: "PERCENT" };
+        }
+      } else if (node.lineHeight.endsWith("px")) {
+        const pxValue = parseFloat(node.lineHeight);
+        if (!isNaN(pxValue)) {
+          textNode.lineHeight = { value: pxValue, unit: "PIXELS" };
+        }
+      } else {
+        // Try parsing as number (unitless multiplier or raw pixel value)
+        const numValue = parseFloat(node.lineHeight);
+        if (!isNaN(numValue)) {
+          // If it's a small value like 1.5, treat as multiplier (convert to percent)
+          if (numValue < 10) {
+            textNode.lineHeight = { value: numValue * 100, unit: "PERCENT" };
+          } else {
+            textNode.lineHeight = { value: numValue, unit: "PIXELS" };
+          }
+        }
+      }
+    }
+  }
+
+  // Letter spacing
+  if (node.letterSpacing && node.letterSpacing !== 0) {
+    textNode.letterSpacing = { value: node.letterSpacing, unit: "PIXELS" };
+  }
+
+  // Set text box size and auto-resize behavior
+  // textAutoResize options:
+  // - "NONE": Fixed width and height
+  // - "HEIGHT": Fixed width, auto height (default for most text)
+  // - "WIDTH_AND_HEIGHT": Auto width and height (for fit-content)
+  // - "TRUNCATE": Fixed width and height with truncation
+
+  if (node.layoutSizingHorizontal === "HUG") {
+    // width: fit-content, max-content, min-content - let Figma auto-size width
+    textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+    // Note: We don't call resize() here because Figma will auto-size
+  } else {
+    // Fixed width, auto height (default behavior)
+    textNode.resize(Math.max(node.width, 1), Math.max(node.height, 1));
+    textNode.textAutoResize = "HEIGHT";
+  }
 
   return textNode;
 }
@@ -1257,7 +1309,9 @@ async function createNodeInFigma(
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
   // Apply Auto Layout if detected
+  console.log(`[DEBUG createNodeInFigma] node="${node.name}" layoutMode="${node.layoutMode}" itemSpacing=${node.itemSpacing}`);
   if (node.layoutMode && node.layoutMode !== "NONE") {
+    console.log(`[DEBUG] Applying auto layout to "${node.name}": ${node.layoutMode}`);
     frame.layoutMode = node.layoutMode;
 
     // Apply sizing mode for this Auto Layout frame (as a parent)
@@ -1362,8 +1416,10 @@ async function createNodeInFigma(
     frame.opacity = node.opacity;
   }
 
-  // Clips content
-  frame.clipsContent = true;
+  // Clips content - based on CSS overflow
+  // overflow: hidden, scroll, auto = clipsContent true
+  // overflow: visible = clipsContent false (default)
+  frame.clipsContent = node.overflow === "hidden" || node.overflow === "scroll" || node.overflow === "auto";
 
   // Recursively create children
   if (node.children && node.children.length > 0) {
@@ -1431,18 +1487,32 @@ async function createNodeInFigma(
               const isHorizontalLayout = node.layoutMode === "HORIZONTAL";
 
               if (isHorizontalLayout) {
+                // Primary axis (horizontal)
                 if (child.layoutSizingHorizontal === "FILL") {
                   textChild.layoutSizingHorizontal = "FILL";
+                  textChild.textAutoResize = "HEIGHT"; // Fixed width, auto height
+                } else if (child.layoutSizingHorizontal === "HUG") {
+                  textChild.layoutSizingHorizontal = "HUG";
+                  textChild.textAutoResize = "WIDTH_AND_HEIGHT"; // Auto width and height
                 }
+                // Counter axis (vertical)
                 if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
                   textChild.layoutSizingVertical = "FILL";
                 }
               } else {
+                // Primary axis (vertical)
                 if (child.layoutSizingVertical === "FILL") {
                   textChild.layoutSizingVertical = "FILL";
+                } else if (child.layoutSizingVertical === "HUG") {
+                  textChild.layoutSizingVertical = "HUG";
                 }
+                // Counter axis (horizontal)
                 if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL") {
                   textChild.layoutSizingHorizontal = "FILL";
+                  textChild.textAutoResize = "HEIGHT"; // Fixed width, auto height
+                } else if (child.layoutSizingHorizontal === "HUG") {
+                  textChild.layoutSizingHorizontal = "HUG";
+                  textChild.textAutoResize = "WIDTH_AND_HEIGHT"; // Auto width and height
                 }
               }
             }
@@ -1462,6 +1532,7 @@ async function createNodeInFigma(
     }
   }
 
+  console.log(`[DEBUG createNodeInFigma] FINAL frame="${frame.name}" layoutMode="${frame.layoutMode}" itemSpacing=${frame.itemSpacing}`);
   return frame;
 }
 
@@ -1542,8 +1613,9 @@ async function createWireframeFrame(
     ];
   }
 
-  // Clip contents
-  wireframeFrame.clipsContent = true;
+  // Clip contents - based on root element's overflow
+  const rootOverflow = frameData.tree?.overflow;
+  wireframeFrame.clipsContent = rootOverflow === "hidden" || rootOverflow === "scroll" || rootOverflow === "auto";
 
   // Create nested structure from tree
   if (frameData.tree && frameData.tree.children) {

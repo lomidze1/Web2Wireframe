@@ -391,6 +391,16 @@ export function findNodesNeedingMatchedStyles(
       }
     }
 
+    // Check for borders (to get exact border-width from matched rules)
+    // The computed border-width often has subpixel values (e.g., 1.11111px instead of 1px)
+    const borderWidth = node.computedStyles["border-width"] || "";
+    const borderTop = node.computedStyles["border-top-width"] || "";
+    if (borderWidth || borderTop) {
+      // Check if there's a non-zero border
+      const width = parseFloat(borderWidth) || parseFloat(borderTop);
+      if (width > 0) return true;
+    }
+
     return false;
   });
 }

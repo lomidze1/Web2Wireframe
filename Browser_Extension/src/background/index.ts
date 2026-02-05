@@ -12,6 +12,10 @@ import { getDocument, getScrollDimensions } from "./cdp/dom";
 import {
   getMatchedStylesForNode,
   extractPropertyFromMatchedRules,
+  extractBorderWidthFromMatchedRules,
+  extractBorderSidesFromMatchedRules,
+  extractWidthFromMatchedRules,
+  extractHeightFromMatchedRules,
   extractPseudoStyles,
   extractCSSVariables,
   extractBackgroundFromCSS,
@@ -525,14 +529,27 @@ function buildElementTree(
     // =========================================================================
     // NEW: Parse borders to Figma-ready strokes[]
     // =========================================================================
+    // Prefer matchedStyles for border values to get original CSS (e.g., "1px")
+    // instead of computed subpixel values (e.g., "1.11111px")
+    let borderWidthValue = computedStyles["border-width"];
+    if (matchedStyles) {
+      const matchedBorderWidth = extractBorderWidthFromMatchedRules(matchedStyles);
+      if (matchedBorderWidth) {
+        borderWidthValue = matchedBorderWidth;
+      }
+    }
+
+    // Extract border sides from matched rules (gets original "1px solid red" instead of computed)
+    const borderSides = extractBorderSidesFromMatchedRules(matchedStyles, computedStyles);
+
     const strokes = parseBordersToStrokes(
-      computedStyles["border-width"],
+      borderWidthValue,
       computedStyles["border-color"],
       computedStyles["border-style"],
-      computedStyles["border-top"],
-      computedStyles["border-right"],
-      computedStyles["border-bottom"],
-      computedStyles["border-left"],
+      borderSides.borderTop,
+      borderSides.borderRight,
+      borderSides.borderBottom,
+      borderSides.borderLeft,
       resolvedVariables
     );
 
@@ -610,10 +627,24 @@ function buildElementTree(
     const layoutAlign: "STRETCH" | "INHERIT" | undefined =
       alignSelf === "stretch" ? "STRETCH" : undefined;
 
+    // Extract ORIGINAL width/height from matched styles (not computed)
+    // This is critical for detecting fit-content, max-content, min-content
+    const originalWidth = extractWidthFromMatchedRules(matchedStyles, computedStyles.width);
+    const originalHeight = extractHeightFromMatchedRules(matchedStyles, computedStyles.height);
+
     // Sizing mode extraction (for Figma layoutSizingHorizontal/Vertical)
-    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf);
+    // Pass isText so that text elements without explicit width use HUG (auto-size)
+    const isInlineElement = computedStyles.display === "inline" || computedStyles.display === "inline-block";
+    const isTextLikeElement = isText || isInlineElement || tag === "a" || tag === "button";
+    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf, originalWidth, originalHeight, isTextLikeElement);
 
     const opacity = parseFloat(computedStyles.opacity || "1") || 1;
+
+    // Overflow (for clipsContent in Figma)
+    const overflowRaw = computedStyles["overflow"] || "visible";
+    const overflow = (overflowRaw === "hidden" || overflowRaw === "scroll" || overflowRaw === "auto")
+      ? overflowRaw as "hidden" | "scroll" | "auto"
+      : undefined;
 
     // CSS Positioning (for sticky headers, fixed elements, etc.)
     const cssPosition = computedStyles["position"] as ExtractedElement["position"];
@@ -726,9 +757,30 @@ function buildElementTree(
       textContent: finalText,
       opacity,
       isPlaceholder: isMedia,
+      overflow,
       children: [],
       hoverStyles: hoverStyles || undefined,
     };
+
+    // DEBUG: Log footer element (class contains _footer)
+    const className = node.attributes?.class || "";
+    if (className.includes("_footer")) {
+      console.log("[DEBUG footer]", {
+        class: className,
+        tag,
+        // Computed styles
+        computedBorderTop: computedStyles["border-top"],
+        computedBorderWidth: computedStyles["border-width"],
+        computedMarginTop: computedStyles["margin-top"],
+        // Matched styles (original CSS)
+        matchedBorderTop: matchedStyles ? extractPropertyFromMatchedRules(matchedStyles, "border-top") : null,
+        matchedBorderWidth: matchedStyles ? extractPropertyFromMatchedRules(matchedStyles, "border-width") : null,
+        matchedMarginTop: matchedStyles ? extractPropertyFromMatchedRules(matchedStyles, "margin-top") : null,
+        // Final strokes
+        strokes: element.strokes,
+        y: element.y,
+      });
+    }
 
     // Process children
     const childIndices = childrenMap.get(node.index) || [];
@@ -838,12 +890,23 @@ function getLayoutMode(
 function getLayoutSizing(
   computedStyles: Record<string, string>,
   flexGrow: number,
-  alignSelf: string | undefined
+  alignSelf: string | undefined,
+  originalWidth?: string | null,
+  originalHeight?: string | null,
+  isTextElement?: boolean
 ): { horizontal: "FIXED" | "HUG" | "FILL" | undefined; vertical: "FIXED" | "HUG" | "FILL" | undefined } {
   const display = computedStyles.display;
   const flexDirection = computedStyles["flex-direction"];
-  const width = computedStyles.width;
-  const height = computedStyles.height;
+
+  // CRITICAL: Check if width was explicitly set in CSS
+  // If originalWidth is null, it means no width was specified in CSS rules
+  const hasExplicitWidth = originalWidth !== null && originalWidth !== undefined;
+  const hasExplicitHeight = originalHeight !== null && originalHeight !== undefined;
+
+  // Use ORIGINAL CSS values if available (to detect fit-content, max-content, etc.)
+  // Fall back to computed values only if explicit
+  const width = originalWidth || computedStyles.width;
+  const height = originalHeight || computedStyles.height;
 
   let horizontal: "FIXED" | "HUG" | "FILL" | undefined = undefined;
   let vertical: "FIXED" | "HUG" | "FILL" | undefined = undefined;
@@ -876,31 +939,50 @@ function getLayoutSizing(
 
   // Check explicit width
   if (!horizontal) {
-    if (width === "auto" || width === "fit-content" || width === "max-content" || width === "min-content") {
-      // Auto width with auto-layout parent would be HUG
-      // But only if this element itself has auto-layout (to have children to hug)
+    if (width === "fit-content" || width === "max-content" || width === "min-content") {
+      // fit-content, max-content, min-content = HUG in Figma (content determines size)
+      // This applies to ALL elements, not just flex/grid
+      horizontal = "HUG";
+    } else if (width === "auto") {
+      // Auto width behavior depends on display type
       if (display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid") {
         horizontal = "HUG";
+      } else if (display === "inline" || display === "inline-block") {
+        // Inline elements size to content
+        horizontal = "HUG";
       }
+      // display: block with width: auto = FILL parent (default in Figma)
     } else if (width === "100%" || width?.includes("fill-available")) {
       if (isFlexChild) {
         horizontal = "FILL";
       }
+    } else if (!hasExplicitWidth && isTextElement) {
+      // NO explicit width in CSS + text element = HUG (auto-size to content)
+      // This prevents text from being cut off when browser computed a pixel width
+      horizontal = "HUG";
     }
     // explicit px value = FIXED (default, no need to set)
   }
 
   // Check explicit height
   if (!vertical) {
-    if (height === "auto" || height === "fit-content" || height === "max-content" || height === "min-content") {
-      // Auto height typically means HUG content
+    if (height === "fit-content" || height === "max-content" || height === "min-content") {
+      // fit-content, max-content, min-content = HUG in Figma
+      vertical = "HUG";
+    } else if (height === "auto") {
+      // Auto height typically means HUG content for flex/grid
       if (display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid") {
         vertical = "HUG";
       }
+      // For block elements, auto height also means HUG (height fits content)
+      // But this is the default behavior, so we might not need to set it
     } else if (height === "100%" || height?.includes("fill-available")) {
       if (isFlexChild) {
         vertical = "FILL";
       }
+    } else if (!hasExplicitHeight && isTextElement) {
+      // NO explicit height in CSS + text element = HUG (auto-size to content)
+      vertical = "HUG";
     }
     // explicit px value = FIXED (default, no need to set)
   }
