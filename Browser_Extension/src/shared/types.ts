@@ -128,6 +128,16 @@ export interface ExtractedElement {
     bottom: number;
     left: number;
   };
+  // Layout Alignment (for Auto Layout)
+  justifyContent?: string;  // CSS justify-content value
+  alignItems?: string;      // CSS align-items value
+  flexWrap?: string;        // CSS flex-wrap value
+  // Child-level flex properties
+  layoutGrow?: 0 | 1;       // flex-grow: 0 = fixed, 1 = fill (Figma only supports 0 or 1)
+  layoutAlign?: "STRETCH" | "INHERIT";  // align-self: stretch
+  // Sizing mode (how element sizes itself)
+  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";  // width behavior
+  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";    // height behavior
 
   // =========================================================================
   // NEW: Figma-ready arrays (multiple layers support)

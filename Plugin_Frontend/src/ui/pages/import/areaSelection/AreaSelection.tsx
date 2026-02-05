@@ -80,6 +80,16 @@ interface ExtractedElement {
   layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
+  // Layout Alignment (for Auto Layout) - CSS values
+  justifyContent?: string;  // CSS justify-content value
+  alignItems?: string;      // CSS align-items value
+  flexWrap?: string;        // CSS flex-wrap value
+  // Child-level flex properties
+  layoutGrow?: 0 | 1;       // flex-grow: 0 = fixed, 1 = fill
+  layoutAlign?: "STRETCH" | "INHERIT";  // align-self: stretch
+  // Sizing mode (how element sizes itself)
+  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
+  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
   // NEW: Figma-ready arrays (multiple layers support)
   fills?: FigmaFill[];
   strokes?: FigmaStroke[];
@@ -149,6 +159,16 @@ interface WireframeNode {
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
+  // Layout Alignment (for Auto Layout) - CSS values
+  justifyContent?: string;  // CSS justify-content value
+  alignItems?: string;      // CSS align-items value
+  flexWrap?: string;        // CSS flex-wrap value
+  // Child-level flex properties
+  layoutGrow?: 0 | 1;       // flex-grow: 0 = fixed, 1 = fill
+  layoutAlign?: "STRETCH" | "INHERIT";  // align-self: stretch
+  // Sizing mode (how element sizes itself)
+  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
+  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
   // NEW: Figma-ready arrays (multiple layers support)
   fills?: FigmaFill[];
   strokes?: FigmaStroke[];
@@ -264,6 +284,16 @@ function convertToWireframeNode(
     layoutMode: element.layoutMode,
     itemSpacing: element.itemSpacing || 0,
     padding: element.padding || { top: 0, right: 0, bottom: 0, left: 0 },
+    // Layout Alignment (for Auto Layout) - pass through from Extension
+    justifyContent: element.justifyContent,
+    alignItems: element.alignItems,
+    flexWrap: element.flexWrap,
+    // Child-level flex properties
+    layoutGrow: element.layoutGrow,
+    layoutAlign: element.layoutAlign,
+    // Sizing mode
+    layoutSizingHorizontal: element.layoutSizingHorizontal,
+    layoutSizingVertical: element.layoutSizingVertical,
     // NEW: Figma-ready arrays (pass through from Extension)
     fills: element.fills,
     strokes: element.strokes,

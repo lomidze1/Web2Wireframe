@@ -87,6 +87,16 @@ interface WireframeNode {
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
+  // Layout Alignment (for Auto Layout)
+  justifyContent?: string;  // CSS justify-content value
+  alignItems?: string;      // CSS align-items value
+  flexWrap?: string;        // CSS flex-wrap value
+  // Child-level flex properties
+  layoutGrow?: 0 | 1;       // flex-grow: 0 = fixed, 1 = fill (Figma only supports 0 or 1)
+  layoutAlign?: "STRETCH" | "INHERIT";  // align-self: stretch
+  // Sizing mode (how element sizes itself)
+  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";  // width behavior
+  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";    // height behavior
 
   // =========================================================================
   // NEW: Figma-ready arrays (multiple layers support)
@@ -168,6 +178,62 @@ function getBorderRadius(value: number | { topLeft: number; topRight: number; bo
   if (typeof value === "number") return value;
   // Return the maximum corner radius for uniform appearance
   return Math.max(value.topLeft || 0, value.topRight || 0, value.bottomRight || 0, value.bottomLeft || 0);
+}
+
+// ============================================================================
+// CSS → Figma Auto Layout Mapping
+// ============================================================================
+
+/**
+ * Convert CSS justify-content to Figma primaryAxisAlignItems
+ */
+function cssJustifyToFigma(justify: string | undefined): "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN" {
+  if (!justify) return "MIN";
+  const map: Record<string, "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN"> = {
+    "flex-start": "MIN",
+    "start": "MIN",
+    "left": "MIN",
+    "flex-end": "MAX",
+    "end": "MAX",
+    "right": "MAX",
+    "center": "CENTER",
+    "space-between": "SPACE_BETWEEN",
+    "space-around": "SPACE_BETWEEN",  // Figma approximation
+    "space-evenly": "SPACE_BETWEEN",  // Figma approximation
+    "normal": "MIN",
+  };
+  return map[justify] || "MIN";
+}
+
+/**
+ * Convert CSS align-items to Figma counterAxisAlignItems
+ */
+function cssAlignToFigma(align: string | undefined): "MIN" | "CENTER" | "MAX" | "BASELINE" {
+  // DEBUG: Log raw input
+  console.log(`[cssAlignToFigma] Input: "${align}" (type: ${typeof align})`);
+
+  if (!align) {
+    console.log(`[cssAlignToFigma] Returning MIN (no align)`);
+    return "MIN";
+  }
+
+  const map: Record<string, "MIN" | "CENTER" | "MAX" | "BASELINE"> = {
+    "flex-start": "MIN",
+    "start": "MIN",
+    "self-start": "MIN",
+    "flex-end": "MAX",
+    "end": "MAX",
+    "self-end": "MAX",
+    "center": "CENTER",
+    "stretch": "MIN",  // Stretch is handled via child's layoutAlign
+    "baseline": "BASELINE",
+    "normal": "MIN",
+  };
+
+  const result = map[align];
+  console.log(`[cssAlignToFigma] Map lookup "${align}" => "${result}", falling back: ${!result}`);
+
+  return result || "MIN";
 }
 
 // Convert hex color to Figma RGB (0-1 range)
@@ -1193,8 +1259,31 @@ async function createNodeInFigma(
   // Apply Auto Layout if detected
   if (node.layoutMode && node.layoutMode !== "NONE") {
     frame.layoutMode = node.layoutMode;
-    frame.primaryAxisSizingMode = "FIXED";
-    frame.counterAxisSizingMode = "FIXED";
+
+    // Apply sizing mode for this Auto Layout frame (as a parent)
+    // Parent frames can be FIXED or HUG (not FILL - that's for children)
+    if (node.layoutSizingHorizontal === "HUG") {
+      frame.layoutSizingHorizontal = "HUG";
+    } else {
+      frame.layoutSizingHorizontal = "FIXED";
+    }
+    if (node.layoutSizingVertical === "HUG") {
+      frame.layoutSizingVertical = "HUG";
+    } else {
+      frame.layoutSizingVertical = "FIXED";
+    }
+
+    // Apply alignment from CSS justify-content and align-items
+    const primaryResult = cssJustifyToFigma(node.justifyContent);
+    const counterResult = cssAlignToFigma(node.alignItems);
+
+    frame.primaryAxisAlignItems = primaryResult;
+    frame.counterAxisAlignItems = counterResult;
+
+    // Apply flex-wrap
+    if (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") {
+      frame.layoutWrap = "WRAP";
+    }
 
     if (node.itemSpacing > 0) {
       frame.itemSpacing = node.itemSpacing;
@@ -1278,15 +1367,91 @@ async function createNodeInFigma(
 
   // Recursively create children
   if (node.children && node.children.length > 0) {
+    const parentHasAutoLayout = node.layoutMode && node.layoutMode !== "NONE";
+
     for (const child of node.children) {
       try {
         const childNode = await createNodeInFigma(child, context, depth + 1);
 
         if (childNode) {
-          // Position child relative to parent
-          childNode.x = child.x;
-          childNode.y = child.y;
+          // Append child first (required for Auto Layout properties)
           frame.appendChild(childNode);
+
+          if (parentHasAutoLayout) {
+            // Auto Layout parent: apply child-level properties
+            // These properties work on most node types
+            if (childNode.type === "FRAME" || childNode.type === "COMPONENT" || childNode.type === "INSTANCE") {
+              const frameChild = childNode as FrameNode;
+
+              // Apply layoutGrow (flex-grow equivalent)
+              if (child.layoutGrow === 1) {
+                frameChild.layoutGrow = 1;
+              }
+
+              // Apply layoutAlign (align-self: stretch)
+              if (child.layoutAlign === "STRETCH") {
+                frameChild.layoutAlign = "STRETCH";
+              }
+
+              // Apply sizing mode for children inside Auto Layout
+              // Children can be FIXED or FILL (HUG only if they have their own auto-layout)
+              const isHorizontalLayout = node.layoutMode === "HORIZONTAL";
+
+              // Primary axis sizing (along the layout direction)
+              if (isHorizontalLayout) {
+                // Horizontal layout: width is primary axis
+                if (child.layoutSizingHorizontal === "FILL" || child.layoutGrow === 1) {
+                  frameChild.layoutSizingHorizontal = "FILL";
+                } else if (child.layoutSizingHorizontal === "HUG" && frameChild.layoutMode !== "NONE") {
+                  frameChild.layoutSizingHorizontal = "HUG";
+                }
+                // Counter axis (vertical): FILL if stretching
+                if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
+                  frameChild.layoutSizingVertical = "FILL";
+                } else if (child.layoutSizingVertical === "HUG" && frameChild.layoutMode !== "NONE") {
+                  frameChild.layoutSizingVertical = "HUG";
+                }
+              } else {
+                // Vertical layout: height is primary axis
+                if (child.layoutSizingVertical === "FILL" || child.layoutGrow === 1) {
+                  frameChild.layoutSizingVertical = "FILL";
+                } else if (child.layoutSizingVertical === "HUG" && frameChild.layoutMode !== "NONE") {
+                  frameChild.layoutSizingVertical = "HUG";
+                }
+                // Counter axis (horizontal): FILL if stretching
+                if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL") {
+                  frameChild.layoutSizingHorizontal = "FILL";
+                } else if (child.layoutSizingHorizontal === "HUG" && frameChild.layoutMode !== "NONE") {
+                  frameChild.layoutSizingHorizontal = "HUG";
+                }
+              }
+            } else if (childNode.type === "TEXT") {
+              // Text nodes can also have sizing in auto-layout
+              const textChild = childNode as TextNode;
+              const isHorizontalLayout = node.layoutMode === "HORIZONTAL";
+
+              if (isHorizontalLayout) {
+                if (child.layoutSizingHorizontal === "FILL") {
+                  textChild.layoutSizingHorizontal = "FILL";
+                }
+                if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
+                  textChild.layoutSizingVertical = "FILL";
+                }
+              } else {
+                if (child.layoutSizingVertical === "FILL") {
+                  textChild.layoutSizingVertical = "FILL";
+                }
+                if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL") {
+                  textChild.layoutSizingHorizontal = "FILL";
+                }
+              }
+            }
+            // Don't set x/y - Auto Layout controls positioning
+          } else {
+            // Non-Auto Layout parent: use absolute positioning
+            childNode.x = child.x;
+            childNode.y = child.y;
+          }
         }
       } catch (err) {
         logger.error("Error creating child node", err, {

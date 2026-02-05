@@ -146,7 +146,7 @@ async function autoScrollPage(client: CDPClient): Promise<void> {
       timeout: maxScrollTime + 5000,
     });
   } catch (e) {
-    console.warn("Auto-scroll failed:", e);
+    // Auto-scroll failed, scroll to top
     await client
       .send("Runtime.evaluate", { expression: "window.scrollTo(0, 0)" })
       .catch(() => {});
@@ -181,20 +181,32 @@ async function handleCapturePage(
 
     // =========================================================================
     // SET VIEWPORT EMULATION - Critical for accurate bounds!
-    // This forces the page to reflow to the selected viewport width
+    // This forces DevTools responsive mode with exact dimensions
     // =========================================================================
     const targetViewport = options.viewport || 1440;
+    const targetHeight = 900;
     updateProgress(8, `Setting viewport to ${targetViewport}px...`);
 
+    // Full device metrics override - simulates DevTools Device Mode
     await client.send("Emulation.setDeviceMetricsOverride", {
       width: targetViewport,
-      height: 900, // Initial height, actual content height comes from scroll
+      height: targetHeight,
       deviceScaleFactor: 1,
-      mobile: targetViewport <= 768, // Mobile mode for small viewports
+      mobile: targetViewport <= 768,
+      // Screen dimensions - critical for accurate bounds!
+      screenWidth: targetViewport,
+      screenHeight: targetHeight,
+      positionX: 0,
+      positionY: 0,
+      screenOrientation: { angle: 0, type: "landscapePrimary" },
     });
 
-    // Small delay for reflow
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // Force page reload to apply viewport changes properly
+    updateProgress(9, "Reloading page with new viewport...");
+    await client.send("Page.reload", { ignoreCache: false });
+
+    // Wait for page load
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     updateProgress(10, "Scrolling for lazy content...");
     await autoScrollPage(client);
@@ -434,8 +446,19 @@ function buildElementTree(
     if (!node.bounds || node.bounds.width < 1 || node.bounds.height < 1)
       return null;
 
-    const { x, y, width, height } = node.bounds;
+    // Position from BOUNDS (absolute document coordinates)
+    const { x, y } = node.bounds;
     const computedStyles = node.computedStyles;
+
+    // =========================================================================
+    // USE CSS COMPUTED STYLES FOR DIMENSIONS (not BOUNDS!)
+    // BOUNDS can be ~90% of actual CSS dimensions (visual vs layout bounds)
+    // CSS computed styles give us the real CSS pixel values
+    // =========================================================================
+    const cssWidth = parseFloat(computedStyles["width"]) || node.bounds.width;
+    const cssHeight = parseFloat(computedStyles["height"]) || node.bounds.height;
+    const width = cssWidth;
+    const height = cssHeight;
     const matchedStyles = matchedStylesMap.get(node.backendNodeId) || null;
 
     // Determine element type
@@ -574,6 +597,22 @@ function buildElementTree(
     const gapStr = computedStyles["gap"] || computedStyles["row-gap"] || "0";
     const itemSpacing = parseInt(gapStr) || 0;
 
+    // Layout Alignment (for Auto Layout)
+    const justifyContent = computedStyles["justify-content"] || undefined;
+    const alignItems = computedStyles["align-items"] || undefined;
+    const flexWrap = computedStyles["flex-wrap"] || undefined;
+
+    // Child-level flex properties
+    // Figma only supports 0 or 1 for layoutGrow
+    const flexGrowValue = parseFloat(computedStyles["flex-grow"] || "0") || 0;
+    const layoutGrow: 0 | 1 | undefined = flexGrowValue > 0 ? 1 : undefined;
+    const alignSelf = computedStyles["align-self"];
+    const layoutAlign: "STRETCH" | "INHERIT" | undefined =
+      alignSelf === "stretch" ? "STRETCH" : undefined;
+
+    // Sizing mode extraction (for Figma layoutSizingHorizontal/Vertical)
+    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf);
+
     const opacity = parseFloat(computedStyles.opacity || "1") || 1;
 
     // CSS Positioning (for sticky headers, fixed elements, etc.)
@@ -657,6 +696,15 @@ function buildElementTree(
       layoutMode: getLayoutMode(computedStyles),
       itemSpacing,
       padding,
+      // Layout Alignment (for Auto Layout)
+      justifyContent,
+      alignItems,
+      flexWrap,
+      // Child-level flex properties
+      layoutGrow,
+      layoutAlign,
+      layoutSizingHorizontal: layoutSizing.horizontal,
+      layoutSizingVertical: layoutSizing.vertical,
       // NEW: Figma-ready arrays (multiple layers)
       fills,
       strokes,
@@ -774,6 +822,90 @@ function getLayoutMode(
   }
 
   return "NONE";
+}
+
+/**
+ * Determine Figma sizing mode from CSS properties
+ * Returns { horizontal, vertical } with values: FIXED | HUG | FILL
+ *
+ * Rules:
+ * - flex-grow > 0 on primary axis → FILL
+ * - align-self: stretch on counter axis → FILL (stretch)
+ * - width/height: auto with content → HUG
+ * - width/height: 100% or fill-available → FILL
+ * - explicit px value → FIXED
+ */
+function getLayoutSizing(
+  computedStyles: Record<string, string>,
+  flexGrow: number,
+  alignSelf: string | undefined
+): { horizontal: "FIXED" | "HUG" | "FILL" | undefined; vertical: "FIXED" | "HUG" | "FILL" | undefined } {
+  const display = computedStyles.display;
+  const flexDirection = computedStyles["flex-direction"];
+  const width = computedStyles.width;
+  const height = computedStyles.height;
+
+  let horizontal: "FIXED" | "HUG" | "FILL" | undefined = undefined;
+  let vertical: "FIXED" | "HUG" | "FILL" | undefined = undefined;
+
+  // Determine if this is a flex/grid child (would support FILL)
+  // We can't directly know parent's display, but flex-grow > 0 implies flex child
+  const isFlexChild = flexGrow > 0 || alignSelf;
+
+  // Check flex-grow for primary axis FILL
+  if (flexGrow > 0) {
+    // Determine which axis flex-grow applies to based on parent's flex-direction
+    // If we're a flex child with flex-grow, we fill the primary axis
+    // Default flex-direction is row, so horizontal is primary axis
+    if (flexDirection === "column" || flexDirection === "column-reverse") {
+      vertical = "FILL";
+    } else {
+      horizontal = "FILL";
+    }
+  }
+
+  // Check align-self: stretch for counter axis FILL
+  if (alignSelf === "stretch") {
+    // Stretch applies to counter axis
+    if (flexDirection === "column" || flexDirection === "column-reverse") {
+      if (!horizontal) horizontal = "FILL";
+    } else {
+      if (!vertical) vertical = "FILL";
+    }
+  }
+
+  // Check explicit width
+  if (!horizontal) {
+    if (width === "auto" || width === "fit-content" || width === "max-content" || width === "min-content") {
+      // Auto width with auto-layout parent would be HUG
+      // But only if this element itself has auto-layout (to have children to hug)
+      if (display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid") {
+        horizontal = "HUG";
+      }
+    } else if (width === "100%" || width?.includes("fill-available")) {
+      if (isFlexChild) {
+        horizontal = "FILL";
+      }
+    }
+    // explicit px value = FIXED (default, no need to set)
+  }
+
+  // Check explicit height
+  if (!vertical) {
+    if (height === "auto" || height === "fit-content" || height === "max-content" || height === "min-content") {
+      // Auto height typically means HUG content
+      if (display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid") {
+        vertical = "HUG";
+      }
+    } else if (height === "100%" || height?.includes("fill-available")) {
+      if (isFlexChild) {
+        vertical = "FILL";
+      }
+    }
+    // explicit px value = FIXED (default, no need to set)
+  }
+
+  return { horizontal, vertical };
 }
 
 /**

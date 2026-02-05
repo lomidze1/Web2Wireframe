@@ -385,10 +385,6 @@ app.post("/api/import-cdp", async (req, res) => {
       });
     }
 
-    console.log(`[CDP Import] Received data from ${captureData.url}`);
-    console.log(`[CDP Import] Viewport: ${captureData.viewport.width}x${captureData.viewport.height}`);
-    console.log(`[CDP Import] Tree depth check: ${captureData.tree?.children?.length || 0} top-level elements`);
-
     // The CDP data is already in the correct format for Figma plugin
     // We just need to wrap it appropriately
     const frames = [{
