@@ -76,10 +76,27 @@ export const SKIP_TAGS = [
 // Text tags that should extract content
 // NOTE: "li" is NOT included - list items are handled as frames with bullet + text children
 export const TEXT_TAGS = [
-  "h1", "h2", "h3", "h4", "h5", "h6",
-  "p", "span", "a", "label",
-  "td", "th", "button", "strong", "em",
-  "b", "i", "small", "mark", "sub", "sup",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "p",
+  "span",
+  "a",
+  "label",
+  "td",
+  "th",
+  "button",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "small",
+  "mark",
+  "sub",
+  "sup",
 ] as const;
 
 // List-related tags that need special handling
@@ -88,7 +105,12 @@ export const LIST_CONTAINER_TAGS = ["ul", "ol"] as const;
 
 // Media tags (become placeholders)
 export const MEDIA_TAGS = [
-  "img", "video", "iframe", "picture", "canvas", "svg",
+  "img",
+  "video",
+  "iframe",
+  "picture",
+  "canvas",
+  "svg",
 ] as const;
 
 // CDP Domains we use

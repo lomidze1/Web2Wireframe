@@ -68,7 +68,7 @@ chrome.runtime.onMessage.addListener(
       handleCapturePage(message.tabId, message.options)
         .then((result) => sendResponse({ success: true, data: result }))
         .catch((error) =>
-          sendResponse({ success: false, error: error.message })
+          sendResponse({ success: false, error: error.message }),
         );
       return true; // Keep channel open for async response
     }
@@ -77,7 +77,7 @@ chrome.runtime.onMessage.addListener(
       sendToBackend(message.data)
         .then((result) => sendResponse({ success: true, data: result }))
         .catch((error) =>
-          sendResponse({ success: false, error: error.message })
+          sendResponse({ success: false, error: error.message }),
         );
       return true;
     }
@@ -89,7 +89,7 @@ chrome.runtime.onMessage.addListener(
 
     if (message.type === "UPDATE_SETTINGS") {
       updateSettings(message.settings).then(() =>
-        sendResponse({ success: true })
+        sendResponse({ success: true }),
       );
       return true;
     }
@@ -100,7 +100,7 @@ chrome.runtime.onMessage.addListener(
     }
 
     return false;
-  }
+  },
 );
 
 /**
@@ -162,7 +162,7 @@ async function autoScrollPage(client: CDPClient): Promise<void> {
  */
 async function handleCapturePage(
   tabId: number,
-  options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS
+  options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS,
 ): Promise<CaptureResult> {
   if (isCapturing) {
     throw new Error("Capture already in progress");
@@ -187,11 +187,22 @@ async function handleCapturePage(
     const targetHeight = 900;
     updateProgress(8, `Setting viewport to ${targetViewport}px...`);
 
+    // Get current devicePixelRatio (browser zoom level)
+    const dprResult = await client.send<{ result: { value: number } }>(
+      "Runtime.evaluate",
+      {
+        expression: "window.devicePixelRatio",
+        returnByValue: true,
+      },
+    );
+    const browserDpr = dprResult.result.value || 1;
+
     // Full device metrics override - simulates DevTools Device Mode
+    // We set deviceScaleFactor to compensate for browser zoom
     await client.send("Emulation.setDeviceMetricsOverride", {
       width: targetViewport,
       height: targetHeight,
-      deviceScaleFactor: 1,
+      deviceScaleFactor: 1 / browserDpr, // Compensate for browser zoom
       mobile: targetViewport <= 768,
       // Screen dimensions - critical for accurate bounds!
       screenWidth: targetViewport,
@@ -206,7 +217,7 @@ async function handleCapturePage(
     await client.send("Page.reload", { ignoreCache: false });
 
     // Wait for page load
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     updateProgress(10, "Scrolling for lazy content...");
     await autoScrollPage(client);
@@ -234,7 +245,10 @@ async function handleCapturePage(
     // =========================================================================
     // STEP 3: Get matched styles ONLY for those specific nodes
     // =========================================================================
-    updateProgress(45, `Getting matched styles for ${nodesNeedingMatched.length} nodes...`);
+    updateProgress(
+      45,
+      `Getting matched styles for ${nodesNeedingMatched.length} nodes...`,
+    );
 
     // Resolve backendNodeIds to nodeIds
     const backendIds = nodesNeedingMatched.map((n) => n.backendNodeId);
@@ -299,10 +313,11 @@ async function handleCapturePage(
       nodes,
       nodesByBackendId,
       matchedStylesMap,
-      targetWidth,  // Use target viewport, not dimensions.width (scrollWidth)
+      targetWidth, // Use target viewport, not dimensions.width (scrollWidth)
       options,
       cssVariablesMap,
-      bodyOriginalCSS  // Pass CSSOM-extracted body background
+      bodyOriginalCSS, // Pass CSSOM-extracted body background
+      browserDpr, // Pass devicePixelRatio for bounds scaling
     );
 
     updateProgress(85, "Extracting fonts...");
@@ -354,7 +369,7 @@ async function handleCapturePage(
 function collectDirectText(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
-  childrenMap: Map<number, number[]>
+  childrenMap: Map<number, number[]>,
 ): string {
   const node = nodes[nodeIndex];
   if (!node) return "";
@@ -401,7 +416,7 @@ function collectDirectText(
 function collectAllInlineText(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
-  childrenMap: Map<number, number[]>
+  childrenMap: Map<number, number[]>,
 ): string {
   const node = nodes[nodeIndex];
   if (!node) return "";
@@ -423,7 +438,10 @@ function collectAllInlineText(
   }
 
   let result = textParts.join(" ");
-  result = result.replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim();
+  result = result
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/ {2,}/g, " ")
+    .trim();
   return result;
 }
 
@@ -433,7 +451,7 @@ function collectAllInlineText(
 function isLeafElement(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
-  childrenMap: Map<number, number[]>
+  childrenMap: Map<number, number[]>,
 ): boolean {
   const childIndices = childrenMap.get(nodeIndex) || [];
 
@@ -458,7 +476,13 @@ function buildElementTree(
   viewportWidth: number,
   options: CaptureOptions,
   cssVariablesMap: Map<string, string> = new Map(),
-  bodyOriginalCSS: { background: string | null; backgroundImage: string | null; backgroundColor: string | null; selector: string } | null = null
+  bodyOriginalCSS: {
+    background: string | null;
+    backgroundImage: string | null;
+    backgroundColor: string | null;
+    selector: string;
+  } | null = null,
+  browserDpr: number = 1, // Browser devicePixelRatio for scaling bounds to CSS pixels
 ): ExtractedElement {
   // Find body node
   const bodyNode = nodes.find((n) => n.nodeName === "body");
@@ -482,7 +506,7 @@ function buildElementTree(
     node: ParsedSnapshotNode,
     parentX: number,
     parentY: number,
-    depth: number
+    depth: number,
   ): ExtractedElement | null {
     const MAX_DEPTH = 15;
     if (depth > MAX_DEPTH) return null;
@@ -499,27 +523,29 @@ function buildElementTree(
     if (!node.bounds || node.bounds.width < 1 || node.bounds.height < 1)
       return null;
 
-    // Position from BOUNDS (absolute document coordinates)
-    const { x, y } = node.bounds;
+    // =========================================================================
+    // SCALE BOUNDS BY devicePixelRatio to convert to CSS pixels
+    // Browser zoom affects bounds (e.g., 90% zoom = bounds * 0.9)
+    // We divide by browserDpr to get actual CSS pixel values
+    // =========================================================================
+    const scaledBounds = {
+      x: node.bounds.x / browserDpr,
+      y: node.bounds.y / browserDpr,
+      width: node.bounds.width / browserDpr,
+      height: node.bounds.height / browserDpr,
+    };
+
+    const { x, y } = scaledBounds;
     const computedStyles = node.computedStyles;
 
-    // =========================================================================
-    // USE CSS COMPUTED STYLES FOR DIMENSIONS (not BOUNDS!)
-    // BOUNDS can be ~90% of actual CSS dimensions (visual vs layout bounds)
-    // CSS computed styles give us the real CSS pixel values
-    // =========================================================================
-    const cssWidth = parseFloat(computedStyles["width"]) || node.bounds.width;
-    const cssHeight = parseFloat(computedStyles["height"]) || node.bounds.height;
-    const width = cssWidth;
-    const height = cssHeight;
+    const width = scaledBounds.width;
+    const height = scaledBounds.height;
     const matchedStyles = matchedStylesMap.get(node.backendNodeId) || null;
 
     // Determine element type
     const isMedia =
       MEDIA_TAGS.includes(tag as (typeof MEDIA_TAGS)[number]) ||
-      Boolean(
-        computedStyles["background-image"]?.includes("url(")
-      );
+      Boolean(computedStyles["background-image"]?.includes("url("));
     const isText = TEXT_TAGS.includes(tag as (typeof TEXT_TAGS)[number]);
 
     // =========================================================================
@@ -535,19 +561,28 @@ function buildElementTree(
 
     // SPECIAL CASE: For body element, prefer CSSOM-extracted original CSS
     // CDP returns partially computed values (circle→50% 50%), CSSOM gives original
-    if (tag === 'body' && bodyOriginalCSS) {
+    if (tag === "body" && bodyOriginalCSS) {
       backgroundShorthand = bodyOriginalCSS.background;
       backgroundImage = bodyOriginalCSS.backgroundImage;
     } else if (matchedStyles) {
-      backgroundImage = extractPropertyFromMatchedRules(matchedStyles, "background-image");
-      backgroundShorthand = extractPropertyFromMatchedRules(matchedStyles, "background");
+      backgroundImage = extractPropertyFromMatchedRules(
+        matchedStyles,
+        "background-image",
+      );
+      backgroundShorthand = extractPropertyFromMatchedRules(
+        matchedStyles,
+        "background",
+      );
     }
 
     // Get background-color from computed styles
     const computedBgColor = computedStyles["background-color"];
-    const bgColorForFills = (computedBgColor && computedBgColor !== "transparent" && computedBgColor !== "rgba(0, 0, 0, 0)")
-      ? computedBgColor
-      : null;
+    const bgColorForFills =
+      computedBgColor &&
+      computedBgColor !== "transparent" &&
+      computedBgColor !== "rgba(0, 0, 0, 0)"
+        ? computedBgColor
+        : null;
 
     // =========================================================================
     // NEW: Parse to Figma-ready fills[] (supports multiple backgrounds)
@@ -556,7 +591,7 @@ function buildElementTree(
       backgroundShorthand || backgroundImage,
       bgColorForFills,
       resolvedVariables,
-      { width, height }  // Pass element dimensions for gradient transform calculation
+      { width, height }, // Pass element dimensions for gradient transform calculation
     );
 
     // Legacy fields (backward compatibility)
@@ -586,14 +621,14 @@ function buildElementTree(
       computedStyles["border-right"],
       computedStyles["border-bottom"],
       computedStyles["border-left"],
-      resolvedVariables
+      resolvedVariables,
     );
 
     // Legacy border fields
     const borderColor = parseColor(computedStyles["border-color"]);
     const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
     const borderRadius = parseBorderRadius(
-      computedStyles["border-radius"] || "0"
+      computedStyles["border-radius"] || "0",
     );
 
     // =========================================================================
@@ -601,7 +636,10 @@ function buildElementTree(
     // =========================================================================
     let boxShadow: string | null = null;
     if (matchedStyles) {
-      const matchedShadow = extractPropertyFromMatchedRules(matchedStyles, "box-shadow");
+      const matchedShadow = extractPropertyFromMatchedRules(
+        matchedStyles,
+        "box-shadow",
+      );
       if (matchedShadow && matchedShadow !== "none") {
         boxShadow = matchedShadow;
       }
@@ -615,7 +653,10 @@ function buildElementTree(
     // Backdrop filter (glassmorphism)
     let backdropFilter: string | null = null;
     if (matchedStyles) {
-      backdropFilter = extractPropertyFromMatchedRules(matchedStyles, "backdrop-filter");
+      backdropFilter = extractPropertyFromMatchedRules(
+        matchedStyles,
+        "backdrop-filter",
+      );
     }
     if (!backdropFilter) {
       backdropFilter = computedStyles["backdrop-filter"] || null;
@@ -632,8 +673,7 @@ function buildElementTree(
       ?.replace(/['"]/g, "")
       .trim();
     const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
-    const fontWeight =
-      parseInt(computedStyles["font-weight"] || "400") || 400;
+    const fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
     const lineHeight = computedStyles["line-height"] || "normal";
     const letterSpacing =
       parseFloat(computedStyles["letter-spacing"] || "0") || 0;
@@ -664,15 +704,23 @@ function buildElementTree(
       alignSelf === "stretch" ? "STRETCH" : undefined;
 
     // Sizing mode extraction (for Figma layoutSizingHorizontal/Vertical)
-    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf);
+    const layoutSizing = getLayoutSizing(
+      computedStyles,
+      flexGrowValue,
+      alignSelf,
+    );
 
     const opacity = parseFloat(computedStyles.opacity || "1") || 1;
 
     // CSS Positioning (for sticky headers, fixed elements, etc.)
-    const cssPosition = computedStyles["position"] as ExtractedElement["position"];
-    const position = (cssPosition && cssPosition !== "static") ? cssPosition : undefined;
+    const cssPosition = computedStyles[
+      "position"
+    ] as ExtractedElement["position"];
+    const position =
+      cssPosition && cssPosition !== "static" ? cssPosition : undefined;
     const zIndexStr = computedStyles["z-index"];
-    const zIndex = zIndexStr && zIndexStr !== "auto" ? parseInt(zIndexStr) : undefined;
+    const zIndex =
+      zIndexStr && zIndexStr !== "auto" ? parseInt(zIndexStr) : undefined;
 
     // Extract hover styles for interactive elements
     let hoverStyles: Record<string, string> | null = null;
@@ -700,48 +748,19 @@ function buildElementTree(
       }
     }
 
-    // DEBUG: Log <li> element processing
-    if (tag === "li") {
-      const childIndices = childrenMap.get(node.index) || [];
-      console.log(`[DEBUG LI] Processing <li>`, {
-        nodeIndex: node.index,
-        textContent: node.textContent,
-        aggregatedText,
-        childCount: childIndices.length,
-        children: childIndices.map(idx => {
-          const child = nodes[idx];
-          return {
-            index: idx,
-            nodeType: child?.nodeType,
-            nodeName: child?.nodeName,
-            textContent: child?.textContent?.substring(0, 50)
-          };
-        })
-      });
-    }
-
     // Determine if this element should be treated as a text element
     // Either: in TEXT_TAGS OR is a leaf element (no element children) with text
+    // NOTE: <a> tags are excluded - they remain frames with centered text children
     const isLeaf = isLeafElement(node.index, nodes, childrenMap);
-    const shouldBeText = isText || (isLeaf && aggregatedText);
-
-    // DEBUG: Log text determination for <li> children
-    if (tag === "li" || (node.parentIndex >= 0 && nodes[node.parentIndex]?.nodeName === "li")) {
-      console.log(`[DEBUG LI-TEXT] Element: <${tag}>`, {
-        isText,
-        isLeaf,
-        aggregatedText: aggregatedText?.substring(0, 50),
-        shouldBeText,
-        TEXT_TAGS_includes: TEXT_TAGS.includes(tag as typeof TEXT_TAGS[number])
-      });
-    }
+    const shouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
 
     // =========================================================================
     // APPLY TEXT MODE TRANSFORMATION
     // =========================================================================
     // Li elements need text processing but remain frames (they have bullet children)
     // So we use shouldProcessText for transformation, but shouldBeText for type determination
-    const shouldProcessText = shouldBeText || (tag === "li" && !!aggregatedText);
+    const shouldProcessText =
+      shouldBeText || (tag === "li" && !!aggregatedText);
 
     let finalText = aggregatedText;
 
@@ -773,16 +792,6 @@ function buildElementTree(
       elementType = "placeholder";
     } else if (shouldBeText && finalText) {
       elementType = "text";
-    }
-
-    // DEBUG: Log final element type for <li> and its children
-    if (tag === "li" || (node.parentIndex >= 0 && nodes[node.parentIndex]?.nodeName === "li")) {
-      console.log(`[DEBUG LI-RESULT] <${tag}> → type="${elementType}"`, {
-        shouldBeText,
-        finalText: finalText?.substring(0, 50),
-        isMedia,
-        parentTag: node.parentIndex >= 0 ? nodes[node.parentIndex]?.nodeName : null
-      });
     }
 
     // For <li> elements with text content, we'll create a synthetic text child
@@ -840,25 +849,17 @@ function buildElementTree(
       hoverStyles: hoverStyles || undefined,
     };
 
-    // DEBUG: Log element dimensions for testing
-    const className = node.attributes["class"] || "";
-    if (
-      className.includes("brandText") ||
-      className.includes("columns") ||
-      tag === "h4" ||
-      (tag === "a" && finalText) ||
-      (tag === "strong" && finalText)
-    ) {
-      console.log(`[DEBUG] ${tag}.${className}: "${finalText?.substring(0, 20) || ""}" | w: ${width} h: ${height} | x: ${x - parentX} y: ${y - parentY}`);
-    }
-
     // Process children
     const childIndices = childrenMap.get(node.index) || [];
     for (const childIdx of childIndices) {
       const childNode = nodes[childIdx];
       if (childNode) {
         // Skip children that are completely outside viewport (horizontal overflow)
-        if (childNode.bounds && childNode.bounds.x >= viewportWidth) {
+        // Scale bounds.x by browserDpr before comparing with viewportWidth (CSS pixels)
+        if (
+          childNode.bounds &&
+          childNode.bounds.x / browserDpr >= viewportWidth
+        ) {
           continue;
         }
 
@@ -904,7 +905,12 @@ function buildElementTree(
         textColor,
         borderColor: null,
         borderWidth: 0,
-        borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+        borderRadius: {
+          topLeft: 0,
+          topRight: 0,
+          bottomRight: 0,
+          bottomLeft: 0,
+        },
         boxShadow: null,
         fontFamily,
         fontSize,
@@ -919,12 +925,6 @@ function buildElementTree(
       };
 
       element.children.push(syntheticTextChild);
-
-      console.log(`[DEBUG LI-SYNTHETIC] Created synthetic text child for <li>`, {
-        parentId: element.id,
-        textContent: finalText,
-        childCount: element.children.length
-      });
     }
 
     return element;
@@ -947,7 +947,7 @@ function buildElementTree(
  */
 function getLayoutMode(
   computedStyles: Record<string, string>,
-  tag?: string
+  tag?: string,
 ): "NONE" | "HORIZONTAL" | "VERTICAL" {
   const display = computedStyles.display;
 
@@ -969,7 +969,10 @@ function getLayoutMode(
     const gridColumns = computedStyles["grid-template-columns"];
     if (gridColumns && gridColumns !== "none") {
       // auto-fit/auto-fill grids are responsive - treat as HORIZONTAL (wrap)
-      if (gridColumns.includes("auto-fit") || gridColumns.includes("auto-fill")) {
+      if (
+        gridColumns.includes("auto-fit") ||
+        gridColumns.includes("auto-fill")
+      ) {
         return "HORIZONTAL";
       }
 
@@ -1026,8 +1029,11 @@ function getLayoutMode(
 function getLayoutSizing(
   computedStyles: Record<string, string>,
   flexGrow: number,
-  alignSelf: string | undefined
-): { horizontal: "FIXED" | "HUG" | "FILL" | undefined; vertical: "FIXED" | "HUG" | "FILL" | undefined } {
+  alignSelf: string | undefined,
+): {
+  horizontal: "FIXED" | "HUG" | "FILL" | undefined;
+  vertical: "FIXED" | "HUG" | "FILL" | undefined;
+} {
   const display = computedStyles.display;
   const flexDirection = computedStyles["flex-direction"];
   const width = computedStyles.width;
@@ -1064,10 +1070,20 @@ function getLayoutSizing(
 
   // Check explicit width
   if (!horizontal) {
-    if (width === "auto" || width === "fit-content" || width === "max-content" || width === "min-content") {
+    if (
+      width === "auto" ||
+      width === "fit-content" ||
+      width === "max-content" ||
+      width === "min-content"
+    ) {
       // Auto width with auto-layout parent would be HUG
       // But only if this element itself has auto-layout (to have children to hug)
-      if (display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid") {
+      if (
+        display === "flex" ||
+        display === "inline-flex" ||
+        display === "grid" ||
+        display === "inline-grid"
+      ) {
         horizontal = "HUG";
       }
     } else if (width === "100%" || width?.includes("fill-available")) {
@@ -1080,9 +1096,19 @@ function getLayoutSizing(
 
   // Check explicit height
   if (!vertical) {
-    if (height === "auto" || height === "fit-content" || height === "max-content" || height === "min-content") {
+    if (
+      height === "auto" ||
+      height === "fit-content" ||
+      height === "max-content" ||
+      height === "min-content"
+    ) {
       // Auto height typically means HUG content
-      if (display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid") {
+      if (
+        display === "flex" ||
+        display === "inline-flex" ||
+        display === "grid" ||
+        display === "inline-grid"
+      ) {
         vertical = "HUG";
       }
     } else if (height === "100%" || height?.includes("fill-available")) {
@@ -1107,9 +1133,29 @@ function generateLoremIpsum(originalText: string): string {
     2: ["ut", "et", "ad", "ex", "ea", "id", "in", "do"],
     3: ["sed", "sit", "qui", "non", "est"],
     4: ["amet", "enim", "quis", "duis", "aute", "sunt", "esse", "anim", "nisi"],
-    5: ["lorem", "ipsum", "dolor", "magna", "minim", "irure", "velit", "culpa", "nulla"],
+    5: [
+      "lorem",
+      "ipsum",
+      "dolor",
+      "magna",
+      "minim",
+      "irure",
+      "velit",
+      "culpa",
+      "nulla",
+    ],
     6: ["tempor", "labore", "dolore", "veniam", "fugiat", "mollit", "commodo"],
-    7: ["aliqua", "nostrud", "laboris", "aliquip", "ullamco", "officia", "laborum", "cillum", "sint"],
+    7: [
+      "aliqua",
+      "nostrud",
+      "laboris",
+      "aliquip",
+      "ullamco",
+      "officia",
+      "laborum",
+      "cillum",
+      "sint",
+    ],
     8: ["eiusmod", "proident", "pariatur", "deserunt", "occaecat"],
     9: ["adipiscing", "excepteur", "cupidatat", "consequat"],
     10: ["consectetur", "incididunt", "voluptate"],
@@ -1118,12 +1164,30 @@ function generateLoremIpsum(originalText: string): string {
 
   // Fallback words for any length
   const fallbackWords = [
-    "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit",
-    "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et", "dolore"
+    "lorem",
+    "ipsum",
+    "dolor",
+    "sit",
+    "amet",
+    "consectetur",
+    "adipiscing",
+    "elit",
+    "sed",
+    "do",
+    "eiusmod",
+    "tempor",
+    "incididunt",
+    "ut",
+    "labore",
+    "et",
+    "dolore",
   ];
 
   // Split original text into words
-  const originalWords = originalText.trim().split(/\s+/).filter(w => w.length > 0);
+  const originalWords = originalText
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 0);
 
   if (originalWords.length === 0) {
     return "";
@@ -1142,7 +1206,9 @@ function generateLoremIpsum(originalText: string): string {
     // If no exact match, try nearby lengths
     if (!candidates || candidates.length === 0) {
       for (let diff = 1; diff <= 3; diff++) {
-        candidates = loremByLength[targetLength - diff] || loremByLength[targetLength + diff];
+        candidates =
+          loremByLength[targetLength - diff] ||
+          loremByLength[targetLength + diff];
         if (candidates && candidates.length > 0) break;
       }
     }
@@ -1160,7 +1226,8 @@ function generateLoremIpsum(originalText: string): string {
 
   // Capitalize first letter
   if (resultWords.length > 0) {
-    resultWords[0] = resultWords[0].charAt(0).toUpperCase() + resultWords[0].slice(1);
+    resultWords[0] =
+      resultWords[0].charAt(0).toUpperCase() + resultWords[0].slice(1);
   }
 
   return resultWords.join(" ");
@@ -1217,13 +1284,26 @@ function categorizeCSSVariable(name: string, value: string): string {
   const nameLower = name.toLowerCase();
 
   // Check name patterns first
-  if (nameLower.includes("color") || nameLower.includes("bg") || nameLower.includes("text")) {
+  if (
+    nameLower.includes("color") ||
+    nameLower.includes("bg") ||
+    nameLower.includes("text")
+  ) {
     return "color";
   }
-  if (nameLower.includes("font") || nameLower.includes("text-size") || nameLower.includes("line-height")) {
+  if (
+    nameLower.includes("font") ||
+    nameLower.includes("text-size") ||
+    nameLower.includes("line-height")
+  ) {
     return "typography";
   }
-  if (nameLower.includes("spacing") || nameLower.includes("gap") || nameLower.includes("padding") || nameLower.includes("margin")) {
+  if (
+    nameLower.includes("spacing") ||
+    nameLower.includes("gap") ||
+    nameLower.includes("padding") ||
+    nameLower.includes("margin")
+  ) {
     return "spacing";
   }
   if (nameLower.includes("radius") || nameLower.includes("rounded")) {
@@ -1238,10 +1318,18 @@ function categorizeCSSVariable(name: string, value: string): string {
 
   // Check value patterns
   const valueLower = value.toLowerCase();
-  if (valueLower.startsWith("#") || valueLower.startsWith("rgb") || valueLower.startsWith("hsl")) {
+  if (
+    valueLower.startsWith("#") ||
+    valueLower.startsWith("rgb") ||
+    valueLower.startsWith("hsl")
+  ) {
     return "color";
   }
-  if (valueLower.includes("px") || valueLower.includes("rem") || valueLower.includes("em")) {
+  if (
+    valueLower.includes("px") ||
+    valueLower.includes("rem") ||
+    valueLower.includes("em")
+  ) {
     // Could be spacing or typography
     if (nameLower.includes("size")) {
       return "typography";
