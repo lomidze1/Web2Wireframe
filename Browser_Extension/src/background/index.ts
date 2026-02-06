@@ -12,10 +12,6 @@ import { getDocument, getScrollDimensions } from "./cdp/dom";
 import {
   getMatchedStylesForNode,
   extractPropertyFromMatchedRules,
-  extractBorderWidthFromMatchedRules,
-  extractBorderSidesFromMatchedRules,
-  extractWidthFromMatchedRules,
-  extractHeightFromMatchedRules,
   extractPseudoStyles,
   extractCSSVariables,
   extractBackgroundFromCSS,
@@ -352,7 +348,7 @@ async function handleCapturePage(
  * This avoids duplication: h2 gets "$0 ", span gets "/forever" separately
  *
  * For <h2>$0 <span>/forever</span></h2>:
- * - h2 collects "$0 " (direct TEXT_NODE only)
+ * - h2 collects "$0 " (direct TEXT_NODE only, preserving trailing space)
  * - span collects "/forever" (its own TEXT_NODE)
  */
 function collectDirectText(
@@ -365,6 +361,7 @@ function collectDirectText(
 
   const childIndices = childrenMap.get(nodeIndex) || [];
   const textParts: string[] = [];
+  let hasElementChildren = false;
 
   for (const childIdx of childIndices) {
     const child = nodes[childIdx];
@@ -372,10 +369,62 @@ function collectDirectText(
     if (child && child.nodeType === 3 && child.textContent) {
       textParts.push(child.textContent);
     }
+    // Track if there are element children (for whitespace preservation)
+    if (child && child.nodeType === 1) {
+      hasElementChildren = true;
+    }
   }
 
-  // Join and trim
-  return textParts.join("").trim();
+  // Join text parts
+  let result = textParts.join("");
+
+  // Normalize: collapse multiple whitespace to single space, convert newlines
+  result = result.replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ");
+
+  // If there are element children (inline elements), preserve boundary whitespace
+  // This keeps "$0 " as "$0 " when followed by <span>/forever</span>
+  if (hasElementChildren) {
+    // Only trim leading whitespace, keep trailing for inline element flow
+    result = result.replace(/^\s+/, "");
+  } else {
+    // No element children - safe to trim both ends
+    result = result.trim();
+  }
+
+  return result;
+}
+
+/**
+ * Recursively collect ALL text from inline elements
+ * Used for <li> elements that may have nested inline content (span, strong, em, etc.)
+ */
+function collectAllInlineText(
+  nodeIndex: number,
+  nodes: ParsedSnapshotNode[],
+  childrenMap: Map<number, number[]>
+): string {
+  const node = nodes[nodeIndex];
+  if (!node) return "";
+
+  // TEXT_NODE - return its content
+  if (node.nodeType === 3) {
+    return node.textContent || "";
+  }
+
+  // ELEMENT_NODE - collect from children recursively
+  const childIndices = childrenMap.get(nodeIndex) || [];
+  const textParts: string[] = [];
+
+  for (const childIdx of childIndices) {
+    const childText = collectAllInlineText(childIdx, nodes, childrenMap);
+    if (childText) {
+      textParts.push(childText);
+    }
+  }
+
+  let result = textParts.join(" ");
+  result = result.replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim();
+  return result;
 }
 
 /**
@@ -529,27 +578,14 @@ function buildElementTree(
     // =========================================================================
     // NEW: Parse borders to Figma-ready strokes[]
     // =========================================================================
-    // Prefer matchedStyles for border values to get original CSS (e.g., "1px")
-    // instead of computed subpixel values (e.g., "1.11111px")
-    let borderWidthValue = computedStyles["border-width"];
-    if (matchedStyles) {
-      const matchedBorderWidth = extractBorderWidthFromMatchedRules(matchedStyles);
-      if (matchedBorderWidth) {
-        borderWidthValue = matchedBorderWidth;
-      }
-    }
-
-    // Extract border sides from matched rules (gets original "1px solid red" instead of computed)
-    const borderSides = extractBorderSidesFromMatchedRules(matchedStyles, computedStyles);
-
     const strokes = parseBordersToStrokes(
-      borderWidthValue,
+      computedStyles["border-width"],
       computedStyles["border-color"],
       computedStyles["border-style"],
-      borderSides.borderTop,
-      borderSides.borderRight,
-      borderSides.borderBottom,
-      borderSides.borderLeft,
+      computedStyles["border-top"],
+      computedStyles["border-right"],
+      computedStyles["border-bottom"],
+      computedStyles["border-left"],
       resolvedVariables
     );
 
@@ -627,24 +663,10 @@ function buildElementTree(
     const layoutAlign: "STRETCH" | "INHERIT" | undefined =
       alignSelf === "stretch" ? "STRETCH" : undefined;
 
-    // Extract ORIGINAL width/height from matched styles (not computed)
-    // This is critical for detecting fit-content, max-content, min-content
-    const originalWidth = extractWidthFromMatchedRules(matchedStyles, computedStyles.width);
-    const originalHeight = extractHeightFromMatchedRules(matchedStyles, computedStyles.height);
-
     // Sizing mode extraction (for Figma layoutSizingHorizontal/Vertical)
-    // Pass isText so that text elements without explicit width use HUG (auto-size)
-    const isInlineElement = computedStyles.display === "inline" || computedStyles.display === "inline-block";
-    const isTextLikeElement = isText || isInlineElement || tag === "a" || tag === "button";
-    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf, originalWidth, originalHeight, isTextLikeElement);
+    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf);
 
     const opacity = parseFloat(computedStyles.opacity || "1") || 1;
-
-    // Overflow (for clipsContent in Figma)
-    const overflowRaw = computedStyles["overflow"] || "visible";
-    const overflow = (overflowRaw === "hidden" || overflowRaw === "scroll" || overflowRaw === "auto")
-      ? overflowRaw as "hidden" | "scroll" | "auto"
-      : undefined;
 
     // CSS Positioning (for sticky headers, fixed elements, etc.)
     const cssPosition = computedStyles["position"] as ExtractedElement["position"];
@@ -666,10 +688,36 @@ function buildElementTree(
     // =========================================================================
     let aggregatedText = node.textContent || "";
 
-    // If no direct text, collect from immediate TEXT_NODE children
-    // This works for ALL elements, not just TEXT_TAGS (fixes div.badge "Free" issue)
+    // If no direct text, collect from children
     if (!aggregatedText) {
-      aggregatedText = collectDirectText(node.index, nodes, childrenMap);
+      // For <li> elements, collect ALL text including nested inline elements
+      // This fixes the issue where <li>Some <strong>bold</strong> text</li> loses text
+      if (tag === "li") {
+        aggregatedText = collectAllInlineText(node.index, nodes, childrenMap);
+      } else {
+        // For other elements, only collect immediate TEXT_NODE children (avoid duplication)
+        aggregatedText = collectDirectText(node.index, nodes, childrenMap);
+      }
+    }
+
+    // DEBUG: Log <li> element processing
+    if (tag === "li") {
+      const childIndices = childrenMap.get(node.index) || [];
+      console.log(`[DEBUG LI] Processing <li>`, {
+        nodeIndex: node.index,
+        textContent: node.textContent,
+        aggregatedText,
+        childCount: childIndices.length,
+        children: childIndices.map(idx => {
+          const child = nodes[idx];
+          return {
+            index: idx,
+            nodeType: child?.nodeType,
+            nodeName: child?.nodeName,
+            textContent: child?.textContent?.substring(0, 50)
+          };
+        })
+      });
     }
 
     // Determine if this element should be treated as a text element
@@ -677,12 +725,27 @@ function buildElementTree(
     const isLeaf = isLeafElement(node.index, nodes, childrenMap);
     const shouldBeText = isText || (isLeaf && aggregatedText);
 
+    // DEBUG: Log text determination for <li> children
+    if (tag === "li" || (node.parentIndex >= 0 && nodes[node.parentIndex]?.nodeName === "li")) {
+      console.log(`[DEBUG LI-TEXT] Element: <${tag}>`, {
+        isText,
+        isLeaf,
+        aggregatedText: aggregatedText?.substring(0, 50),
+        shouldBeText,
+        TEXT_TAGS_includes: TEXT_TAGS.includes(tag as typeof TEXT_TAGS[number])
+      });
+    }
+
     // =========================================================================
     // APPLY TEXT MODE TRANSFORMATION
     // =========================================================================
+    // Li elements need text processing but remain frames (they have bullet children)
+    // So we use shouldProcessText for transformation, but shouldBeText for type determination
+    const shouldProcessText = shouldBeText || (tag === "li" && !!aggregatedText);
+
     let finalText = aggregatedText;
 
-    if (aggregatedText && shouldBeText) {
+    if (aggregatedText && shouldProcessText) {
       switch (options.textMode) {
         case "website":
           // Keep original text as-is
@@ -712,11 +775,27 @@ function buildElementTree(
       elementType = "text";
     }
 
+    // DEBUG: Log final element type for <li> and its children
+    if (tag === "li" || (node.parentIndex >= 0 && nodes[node.parentIndex]?.nodeName === "li")) {
+      console.log(`[DEBUG LI-RESULT] <${tag}> → type="${elementType}"`, {
+        shouldBeText,
+        finalText: finalText?.substring(0, 50),
+        isMedia,
+        parentTag: node.parentIndex >= 0 ? nodes[node.parentIndex]?.nodeName : null
+      });
+    }
+
+    // For <li> elements with text content, we'll create a synthetic text child
+    // instead of putting textContent on the frame itself
+    const isListItemWithText = tag === "li" && !!finalText;
+    const frameTextContent = isListItemWithText ? "" : finalText;
+
     // Build element
     const element: ExtractedElement = {
       id: generateId(),
       type: elementType,
       tag,
+      className: node.attributes["class"] || undefined,
       name: getSemanticName(tag, node.attributes),
       x: Math.round(x - parentX),
       y: Math.round(y - parentY),
@@ -724,7 +803,7 @@ function buildElementTree(
       height: Math.round(height),
       position,
       zIndex,
-      layoutMode: getLayoutMode(computedStyles),
+      layoutMode: getLayoutMode(computedStyles, tag),
       itemSpacing,
       padding,
       // Layout Alignment (for Auto Layout)
@@ -754,33 +833,12 @@ function buildElementTree(
       lineHeight,
       letterSpacing,
       textAlign,
-      textContent: finalText,
+      textContent: frameTextContent,
       opacity,
       isPlaceholder: isMedia,
-      overflow,
       children: [],
       hoverStyles: hoverStyles || undefined,
     };
-
-    // DEBUG: Log footer element (class contains _footer)
-    const className = node.attributes?.class || "";
-    if (className.includes("_footer")) {
-      console.log("[DEBUG footer]", {
-        class: className,
-        tag,
-        // Computed styles
-        computedBorderTop: computedStyles["border-top"],
-        computedBorderWidth: computedStyles["border-width"],
-        computedMarginTop: computedStyles["margin-top"],
-        // Matched styles (original CSS)
-        matchedBorderTop: matchedStyles ? extractPropertyFromMatchedRules(matchedStyles, "border-top") : null,
-        matchedBorderWidth: matchedStyles ? extractPropertyFromMatchedRules(matchedStyles, "border-width") : null,
-        matchedMarginTop: matchedStyles ? extractPropertyFromMatchedRules(matchedStyles, "margin-top") : null,
-        // Final strokes
-        strokes: element.strokes,
-        y: element.y,
-      });
-    }
 
     // Process children
     const childIndices = childrenMap.get(node.index) || [];
@@ -803,6 +861,60 @@ function buildElementTree(
       }
     }
 
+    // For <li> elements: add synthetic text child for the text content
+    // This creates the structure: <li>(frame) -> [::before(text "•"), #text(text "actual content")]
+    if (isListItemWithText && finalText) {
+      // Calculate text position - after the bullet (::before pseudo-element)
+      // The bullet is typically positioned at the left with padding
+      const bulletWidth = padding.left || 16; // Bullet area
+
+      const syntheticTextChild: ExtractedElement = {
+        id: generateId(),
+        type: "text",
+        tag: "#text",
+        name: "Text",
+        x: bulletWidth,
+        y: 0,
+        width: Math.max(10, width - bulletWidth - padding.right),
+        height: height,
+        position: "relative",
+        layoutMode: "NONE",
+        itemSpacing: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        justifyContent: "normal",
+        alignItems: "normal",
+        flexWrap: "nowrap",
+        fills: [],
+        strokes: [],
+        effects: [],
+        backgroundColor: null,
+        backgroundGradient: null,
+        textColor,
+        borderColor: null,
+        borderWidth: 0,
+        borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+        boxShadow: null,
+        fontFamily,
+        fontSize,
+        fontWeight,
+        lineHeight,
+        letterSpacing,
+        textAlign,
+        textContent: finalText,
+        opacity: 1,
+        isPlaceholder: false,
+        children: [],
+      };
+
+      element.children.push(syntheticTextChild);
+
+      console.log(`[DEBUG LI-SYNTHETIC] Created synthetic text child for <li>`, {
+        parentId: element.id,
+        textContent: finalText,
+        childCount: element.children.length
+      });
+    }
+
     return element;
   }
 
@@ -819,9 +931,11 @@ function buildElementTree(
 
 /**
  * Get layout mode from computed styles
+ * @param tag - HTML tag name for special handling (ul, ol, li)
  */
 function getLayoutMode(
-  computedStyles: Record<string, string>
+  computedStyles: Record<string, string>,
+  tag?: string
 ): "NONE" | "HORIZONTAL" | "VERTICAL" {
   const display = computedStyles.display;
 
@@ -873,6 +987,16 @@ function getLayoutMode(
     return "HORIZONTAL";
   }
 
+  // List containers should use VERTICAL auto layout
+  if (tag === "ul" || tag === "ol") {
+    return "VERTICAL";
+  }
+
+  // List items with default display should use HORIZONTAL for inline content
+  if (display === "list-item") {
+    return "HORIZONTAL";
+  }
+
   return "NONE";
 }
 
@@ -890,23 +1014,12 @@ function getLayoutMode(
 function getLayoutSizing(
   computedStyles: Record<string, string>,
   flexGrow: number,
-  alignSelf: string | undefined,
-  originalWidth?: string | null,
-  originalHeight?: string | null,
-  isTextElement?: boolean
+  alignSelf: string | undefined
 ): { horizontal: "FIXED" | "HUG" | "FILL" | undefined; vertical: "FIXED" | "HUG" | "FILL" | undefined } {
   const display = computedStyles.display;
   const flexDirection = computedStyles["flex-direction"];
-
-  // CRITICAL: Check if width was explicitly set in CSS
-  // If originalWidth is null, it means no width was specified in CSS rules
-  const hasExplicitWidth = originalWidth !== null && originalWidth !== undefined;
-  const hasExplicitHeight = originalHeight !== null && originalHeight !== undefined;
-
-  // Use ORIGINAL CSS values if available (to detect fit-content, max-content, etc.)
-  // Fall back to computed values only if explicit
-  const width = originalWidth || computedStyles.width;
-  const height = originalHeight || computedStyles.height;
+  const width = computedStyles.width;
+  const height = computedStyles.height;
 
   let horizontal: "FIXED" | "HUG" | "FILL" | undefined = undefined;
   let vertical: "FIXED" | "HUG" | "FILL" | undefined = undefined;
@@ -939,50 +1052,31 @@ function getLayoutSizing(
 
   // Check explicit width
   if (!horizontal) {
-    if (width === "fit-content" || width === "max-content" || width === "min-content") {
-      // fit-content, max-content, min-content = HUG in Figma (content determines size)
-      // This applies to ALL elements, not just flex/grid
-      horizontal = "HUG";
-    } else if (width === "auto") {
-      // Auto width behavior depends on display type
+    if (width === "auto" || width === "fit-content" || width === "max-content" || width === "min-content") {
+      // Auto width with auto-layout parent would be HUG
+      // But only if this element itself has auto-layout (to have children to hug)
       if (display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid") {
         horizontal = "HUG";
-      } else if (display === "inline" || display === "inline-block") {
-        // Inline elements size to content
-        horizontal = "HUG";
       }
-      // display: block with width: auto = FILL parent (default in Figma)
     } else if (width === "100%" || width?.includes("fill-available")) {
       if (isFlexChild) {
         horizontal = "FILL";
       }
-    } else if (!hasExplicitWidth && isTextElement) {
-      // NO explicit width in CSS + text element = HUG (auto-size to content)
-      // This prevents text from being cut off when browser computed a pixel width
-      horizontal = "HUG";
     }
     // explicit px value = FIXED (default, no need to set)
   }
 
   // Check explicit height
   if (!vertical) {
-    if (height === "fit-content" || height === "max-content" || height === "min-content") {
-      // fit-content, max-content, min-content = HUG in Figma
-      vertical = "HUG";
-    } else if (height === "auto") {
-      // Auto height typically means HUG content for flex/grid
+    if (height === "auto" || height === "fit-content" || height === "max-content" || height === "min-content") {
+      // Auto height typically means HUG content
       if (display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid") {
         vertical = "HUG";
       }
-      // For block elements, auto height also means HUG (height fits content)
-      // But this is the default behavior, so we might not need to set it
     } else if (height === "100%" || height?.includes("fill-available")) {
       if (isFlexChild) {
         vertical = "FILL";
       }
-    } else if (!hasExplicitHeight && isTextElement) {
-      // NO explicit height in CSS + text element = HUG (auto-size to content)
-      vertical = "HUG";
     }
     // explicit px value = FIXED (default, no need to set)
   }

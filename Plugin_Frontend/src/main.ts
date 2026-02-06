@@ -78,10 +78,14 @@ interface WireframeNode {
   name: string;
   type: "frame" | "text" | "placeholder";
   tag: string;
+  className?: string;  // CSS class name(s) from the element
   x: number;
   y: number;
   width: number;
   height: number;
+
+  // CSS Positioning (for absolute elements like ::before/::after)
+  position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
 
   // Layout
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
@@ -162,6 +166,7 @@ interface RenderWireframeData {
   };
   cssVariables?: ExtractedCSSVariable[];
   variableMode?: "styles" | "direct";
+  layoutMode?: "autoLayout" | "absolute";  // autoLayout = responsive, absolute = pixel-perfect
 }
 
 // Context passed to render functions for style linking
@@ -169,6 +174,7 @@ interface RenderContext {
   pluginColors: RenderWireframeData["pluginColors"];
   fontFamily: string;
   variableMode: "styles" | "direct";
+  layoutMode: "autoLayout" | "absolute";  // autoLayout = use Auto Layout, absolute = use x,y positioning
   cssVariables: ExtractedCSSVariable[];
   // Map from resolved color value → PaintStyle (for linking)
   colorStyleMap: Map<string, PaintStyle>;
@@ -901,11 +907,13 @@ async function createTextNode(
     else fontsToLoad.add("Regular");
   }
 
-  let usedFontFamily = fontFamily;
+  // Prefer node's fontFamily, then context fontFamily, then Inter as fallback
+  const targetFont = node.fontFamily || fontFamily;
+  let usedFontFamily = targetFont;
   const fontStyles = Array.from(fontsToLoad);
   try {
     for (const style of fontStyles) {
-      await figma.loadFontAsync({ family: fontFamily, style });
+      await figma.loadFontAsync({ family: targetFont, style });
     }
   } catch {
     try {
@@ -1062,8 +1070,13 @@ async function createTextNode(
   // - "WIDTH_AND_HEIGHT": Auto width and height (for fit-content)
   // - "TRUNCATE": Fixed width and height with truncation
 
-  if (node.layoutSizingHorizontal === "HUG") {
-    // width: fit-content, max-content, min-content - let Figma auto-size width
+  // Check if this is a single character or very small text (like bullet points)
+  // These need auto-sizing because CSS width might be too narrow
+  const isSingleChar = fullText.length <= 2;
+  const isVeryNarrow = node.width < (node.fontSize || 14) * 1.5;
+
+  if (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow) {
+    // width: fit-content, max-content, min-content, or single char - let Figma auto-size width
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
     // Note: We don't call resize() here because Figma will auto-size
   } else {
@@ -1308,9 +1321,13 @@ async function createNodeInFigma(
   frame.name = node.name || "Container";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
-  // Apply Auto Layout if detected
-  console.log(`[DEBUG createNodeInFigma] node="${node.name}" layoutMode="${node.layoutMode}" itemSpacing=${node.itemSpacing}`);
-  if (node.layoutMode && node.layoutMode !== "NONE") {
+  // Apply Auto Layout ONLY if context.layoutMode is "autoLayout"
+  // When context.layoutMode is "absolute", skip Auto Layout and use x/y positioning
+  const useAutoLayout = context.layoutMode === "autoLayout";
+
+  console.log(`[DEBUG createNodeInFigma] node="${node.name}" nodeLayoutMode="${node.layoutMode}" contextLayoutMode="${context.layoutMode}" useAutoLayout=${useAutoLayout}`);
+
+  if (useAutoLayout && node.layoutMode && node.layoutMode !== "NONE") {
     console.log(`[DEBUG] Applying auto layout to "${node.name}": ${node.layoutMode}`);
     frame.layoutMode = node.layoutMode;
 
@@ -1423,7 +1440,10 @@ async function createNodeInFigma(
 
   // Recursively create children
   if (node.children && node.children.length > 0) {
-    const parentHasAutoLayout = node.layoutMode && node.layoutMode !== "NONE";
+    // Only apply auto layout child properties if BOTH:
+    // 1. context.layoutMode is "autoLayout" (user chose auto layout mode)
+    // 2. This parent node has auto layout (node.layoutMode !== "NONE")
+    const parentHasAutoLayout = useAutoLayout && node.layoutMode && node.layoutMode !== "NONE";
 
     for (const child of node.children) {
       try {
@@ -1433,7 +1453,17 @@ async function createNodeInFigma(
           // Append child first (required for Auto Layout properties)
           frame.appendChild(childNode);
 
-          if (parentHasAutoLayout) {
+          // Check if child has absolute/fixed positioning (like ::before/::after pseudo elements)
+          // These should be positioned absolutely in Figma, not controlled by Auto Layout
+          if (child.position === "absolute" || child.position === "fixed") {
+            // For nodes that support layoutPositioning (frames, text, etc.)
+            if ("layoutPositioning" in childNode) {
+              (childNode as FrameNode | TextNode).layoutPositioning = "ABSOLUTE";
+            }
+            // Set x/y coordinates for absolute positioning
+            childNode.x = child.x;
+            childNode.y = child.y;
+          } else if (parentHasAutoLayout) {
             // Auto Layout parent: apply child-level properties
             // These properties work on most node types
             if (childNode.type === "FRAME" || childNode.type === "COMPONENT" || childNode.type === "INSTANCE") {
@@ -1518,7 +1548,8 @@ async function createNodeInFigma(
             }
             // Don't set x/y - Auto Layout controls positioning
           } else {
-            // Non-Auto Layout parent: use absolute positioning
+            // Absolute mode OR non-Auto Layout parent: use absolute positioning
+            // Position is relative to parent frame
             childNode.x = child.x;
             childNode.y = child.y;
           }
@@ -1532,7 +1563,97 @@ async function createNodeInFigma(
     }
   }
 
-  console.log(`[DEBUG createNodeInFigma] FINAL frame="${frame.name}" layoutMode="${frame.layoutMode}" itemSpacing=${frame.itemSpacing}`);
+  // =========================================================================
+  // Create text node for frame's textContent (like li elements with text)
+  // This is for frames that have textContent but type="frame" (containers)
+  // =========================================================================
+
+  // DEBUG: Log ALL frames with textContent (not just li)
+  if (node.textContent && node.textContent.trim()) {
+    console.log("=== FRAME WITH TEXTCONTENT ===", {
+      tag: node.tag,
+      type: node.type,
+      name: node.name,
+      textContent: node.textContent?.substring(0, 50),
+      childrenCount: node.children?.length || 0,
+      willCreateTextNode: node.type === "frame",
+    });
+  }
+
+  if (node.textContent && node.textContent.trim() && node.type === "frame") {
+    console.log(">>> CREATING TEXT NODE FOR:", node.tag, node.textContent?.substring(0, 30));
+    try {
+      // Create a text node for the frame's text content
+      const textNode = figma.createText();
+      await figma.loadFontAsync({ family: context.fontFamily, style: "Regular" });
+
+      textNode.characters = node.textContent;
+      textNode.name = node.textContent.substring(0, 20);
+
+      // Apply text styling from the frame node
+      textNode.fontSize = node.fontSize || 16;
+      textNode.fontName = { family: context.fontFamily, style: "Regular" };
+
+      // Apply text color
+      if (node.textColor) {
+        const colorResult = cssColorToFigmaRGB(node.textColor);
+        if (colorResult) {
+          textNode.fills = [{ type: 'SOLID', color: colorResult.color, opacity: colorResult.opacity }];
+        }
+      } else {
+        const colorResult = cssColorToFigmaRGB(context.pluginColors.text);
+        if (colorResult) {
+          textNode.fills = [{ type: 'SOLID', color: colorResult.color, opacity: colorResult.opacity }];
+        }
+      }
+
+      // Apply line height
+      if (node.lineHeight) {
+        const lineHeightValue = typeof node.lineHeight === 'string'
+          ? parseFloat(node.lineHeight)
+          : node.lineHeight;
+        if (!isNaN(lineHeightValue) && lineHeightValue > 0) {
+          textNode.lineHeight = { value: lineHeightValue, unit: 'PIXELS' };
+        }
+      }
+
+      // Apply letter spacing
+      if (node.letterSpacing && node.letterSpacing !== 0) {
+        textNode.letterSpacing = { value: node.letterSpacing, unit: 'PIXELS' };
+      }
+
+      // Apply text align
+      if (node.textAlign) {
+        const alignMap: Record<string, TextNode["textAlignHorizontal"]> = {
+          'left': 'LEFT',
+          'start': 'LEFT',
+          'center': 'CENTER',
+          'right': 'RIGHT',
+          'end': 'RIGHT',
+          'justify': 'JUSTIFIED'
+        };
+        textNode.textAlignHorizontal = alignMap[node.textAlign] || 'LEFT';
+      }
+
+      // Position the text - account for padding (text starts after padding.left)
+      const textX = node.padding?.left || 0;
+      const textY = 0;
+
+      frame.appendChild(textNode);
+      textNode.x = textX;
+      textNode.y = textY;
+
+      console.log(`[DEBUG] Created text node for frame "${node.name}" with content "${node.textContent.substring(0, 30)}..."`);
+    } catch (err) {
+      logger.error("Error creating text node for frame", err, {
+        nodeId: node.id,
+        nodeName: node.name,
+        textContent: node.textContent?.substring(0, 50)
+      });
+    }
+  }
+
+  console.log(`[DEBUG createNodeInFigma] FINAL frame="${frame.name}" figmaLayoutMode="${frame.layoutMode}" contextMode="${context.layoutMode}"`);
   return frame;
 }
 
@@ -1756,6 +1877,7 @@ export default function () {
         pluginColors,
         cssVariables,
         variableMode,
+        layoutMode,
       } = data;
 
       // Default colors if not provided
@@ -1768,8 +1890,8 @@ export default function () {
         background: "#ffffff",
       };
 
-      // Default font
-      const fontFamily = "Montserrat";
+      // Use font from wireframe data if available, fallback to Inter
+      const fontFamily = frames[0]?.tree?.fontFamily || "Inter";
 
       if (!frames || frames.length === 0) {
         errorHandler.handle({
@@ -1783,6 +1905,7 @@ export default function () {
         frameCount: frames.length,
         sourceUrl,
         variableMode: variableMode || "direct",
+        layoutMode: layoutMode || "autoLayout",
         cssVariablesCount: cssVariables?.length || 0,
       });
       figma.notify("Creating wireframe...", { timeout: 2000 });
@@ -1823,6 +1946,7 @@ export default function () {
         pluginColors: colors,
         fontFamily,
         variableMode: variableMode || "direct",
+        layoutMode: layoutMode || "autoLayout",  // Default to auto layout
         cssVariables: cssVariables || [],
         colorStyleMap,
         variableValueMap,
