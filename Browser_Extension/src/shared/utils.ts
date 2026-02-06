@@ -192,12 +192,20 @@ export function getSemanticName(tag: string, attributes: Record<string, string>)
     form: "Form",
     ul: "List",
     ol: "List",
+    li: "List Item",
     h1: "Heading 1",
     h2: "Heading 2",
     h3: "Heading 3",
+    h4: "Heading 4",
+    h5: "Heading 5",
+    h6: "Heading 6",
     p: "Paragraph",
+    span: "Text",
+    a: "Link",
+    button: "Button",
     img: "Image",
     video: "Video",
+    div: "Container",
   };
 
   return tagNames[tag] || "Container";

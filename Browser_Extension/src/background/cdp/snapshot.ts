@@ -20,6 +20,10 @@ export const SNAPSHOT_COMPUTED_STYLES = [
   "flex-wrap",
   "justify-content",
   "align-items",
+  "align-self",
+  "flex-grow",
+  "flex-shrink",
+  "flex-basis",
   "grid-template-columns",
   "grid-template-rows",
   "grid-auto-flow",
@@ -79,6 +83,10 @@ export const SNAPSHOT_COMPUTED_STYLES = [
   "text-decoration",
   "text-transform",
   "color",
+
+  // List styling
+  "list-style-type",
+  "list-style-position",
 
   // Visual
   "opacity",

@@ -7,6 +7,9 @@ import { useConfig } from "../../../shared/ConfigContext";
 import VariablesChoiceModal, {
   type VariableMode,
 } from "../../../components/modalPopup/VariablesChoiceModal";
+import LayoutChoiceModal, {
+  type LayoutMode,
+} from "../../../components/modalPopup/LayoutChoiceModal";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -77,6 +80,8 @@ interface ExtractedElement {
   y: number;
   width: number;
   height: number;
+  // CSS Positioning
+  position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
   layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
@@ -156,6 +161,8 @@ interface WireframeNode {
   y: number;
   width: number;
   height: number;
+  // CSS Positioning (for absolute elements like ::before/::after)
+  position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
@@ -283,6 +290,8 @@ function convertToWireframeNode(
     y: element.y,
     width: element.width,
     height: element.height,
+    // CSS Positioning (for absolute elements like ::before/::after)
+    position: element.position,
     layoutMode: element.layoutMode,
     itemSpacing: element.itemSpacing || 0,
     padding: element.padding || { top: 0, right: 0, bottom: 0, left: 0 },
@@ -327,8 +336,11 @@ export default function AreaSelection() {
     message: "",
   });
   const [showVariablesModal, setShowVariablesModal] = useState(false);
+  const [showLayoutModal, setShowLayoutModal] = useState(false);
   const [pendingCaptureResult, setPendingCaptureResult] =
     useState<CaptureResult | null>(null);
+  const [pendingVariableMode, setPendingVariableMode] =
+    useState<VariableMode>("direct");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDataRef = useRef<File | null>(null);
   const { config } = useConfig();
@@ -354,7 +366,8 @@ export default function AreaSelection() {
    */
   const processAndRender = (
     captureResult: CaptureResult,
-    variableMode: VariableMode
+    variableMode: VariableMode,
+    layoutMode: LayoutMode
   ) => {
     setImportState({ status: "loading", message: "Creating wireframe..." });
 
@@ -370,7 +383,7 @@ export default function AreaSelection() {
       tree: wireframeTree,
     };
 
-    // Send to Figma main thread with variable mode
+    // Send to Figma main thread with variable mode and layout mode
     parent.postMessage(
       {
         pluginMessage: {
@@ -381,6 +394,7 @@ export default function AreaSelection() {
             pluginColors: config.pluginColors,
             cssVariables: captureResult.cssVariables || [],
             variableMode, // "styles" or "direct"
+            layoutMode,   // "autoLayout" or "absolute"
           },
         },
       },
@@ -398,6 +412,7 @@ export default function AreaSelection() {
       setFileName(null);
       fileDataRef.current = null;
       setPendingCaptureResult(null);
+      setPendingVariableMode("direct");
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -405,12 +420,22 @@ export default function AreaSelection() {
   };
 
   /**
-   * Handle variable mode choice from modal
+   * Handle variable mode choice from modal - then show layout modal
    */
   const handleVariableChoice = (mode: VariableMode) => {
     setShowVariablesModal(false);
+    setPendingVariableMode(mode);
+    // Show layout choice modal next
+    setShowLayoutModal(true);
+  };
+
+  /**
+   * Handle layout mode choice from modal - then render
+   */
+  const handleLayoutChoice = (mode: LayoutMode) => {
+    setShowLayoutModal(false);
     if (pendingCaptureResult) {
-      processAndRender(pendingCaptureResult, mode);
+      processAndRender(pendingCaptureResult, pendingVariableMode, mode);
     }
   };
 
@@ -454,12 +479,14 @@ export default function AreaSelection() {
         captureResult.cssVariables && captureResult.cssVariables.length > 0;
 
       if (hasCSSVariables) {
-        // Show modal for user to choose
+        // Show CSS variables modal first, then layout modal
         setPendingCaptureResult(captureResult);
         setShowVariablesModal(true);
       } else {
-        // No CSS variables - proceed directly with "direct" mode
-        processAndRender(captureResult, "direct");
+        // No CSS variables - skip to layout modal
+        setPendingCaptureResult(captureResult);
+        setPendingVariableMode("direct");
+        setShowLayoutModal(true);
       }
     } catch (error) {
       console.error("Import error:", error);
@@ -561,6 +588,12 @@ export default function AreaSelection() {
       <VariablesChoiceModal
         isOpen={showVariablesModal}
         onChoice={handleVariableChoice}
+      />
+
+      {/* Layout Mode Choice Modal */}
+      <LayoutChoiceModal
+        isOpen={showLayoutModal}
+        onChoice={handleLayoutChoice}
       />
     </div>
   );

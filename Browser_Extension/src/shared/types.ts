@@ -110,6 +110,7 @@ export interface ExtractedElement {
   id: string;
   type: "frame" | "text" | "placeholder";
   tag: string;
+  className?: string;  // CSS class name(s) from the element
   name: string;
   // Position & Size
   x: number;
