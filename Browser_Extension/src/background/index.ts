@@ -797,10 +797,10 @@ function buildElementTree(
       tag,
       className: node.attributes["class"] || undefined,
       name: getSemanticName(tag, node.attributes),
-      x: Math.round(x - parentX),
-      y: Math.round(y - parentY),
-      width: Math.round(width),
-      height: Math.round(height),
+      x: x - parentX,
+      y: y - parentY,
+      width: Math.ceil(width),
+      height: Math.ceil(height),
       position,
       zIndex,
       layoutMode: getLayoutMode(computedStyles, tag),
@@ -839,6 +839,18 @@ function buildElementTree(
       children: [],
       hoverStyles: hoverStyles || undefined,
     };
+
+    // DEBUG: Log element dimensions for testing
+    const className = node.attributes["class"] || "";
+    if (
+      className.includes("brandText") ||
+      className.includes("columns") ||
+      tag === "h4" ||
+      (tag === "a" && finalText) ||
+      (tag === "strong" && finalText)
+    ) {
+      console.log(`[DEBUG] ${tag}.${className}: "${finalText?.substring(0, 20) || ""}" | w: ${width} h: ${height} | x: ${x - parentX} y: ${y - parentY}`);
+    }
 
     // Process children
     const childIndices = childrenMap.get(node.index) || [];
