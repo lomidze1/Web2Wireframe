@@ -2,7 +2,7 @@ import { useState, useEffect } from "preact/hooks";
 // import { encode } from "@msgpack/msgpack"; // DEBUG: Temporarily disabled for JSON export
 import type { ExtensionMessage, CaptureResult, CaptureOptions } from "@/shared/types";
 import { DEFAULT_CAPTURE_OPTIONS } from "@/shared/types";
-import { VIEWPORTS, COLOR_OPTIONS, FONT_OPTIONS, TEXT_OPTIONS } from "@/shared/constants";
+import { VIEWPORTS } from "@/shared/constants";
 
 type CaptureStatus = "idle" | "capturing" | "success" | "error";
 
@@ -51,7 +51,6 @@ export function App() {
   });
   const [currentTab, setCurrentTab] = useState<chrome.tabs.Tab | null>(null);
   const [options, setOptions] = useState<CaptureOptions>(DEFAULT_CAPTURE_OPTIONS);
-  const [showOptions, setShowOptions] = useState(false);
 
   useEffect(() => {
     // Get current tab
@@ -146,11 +145,11 @@ export function App() {
     if (!state.result || !currentTab?.url) return;
 
     const domain = getDomainFromUrl(currentTab.url);
-    const viewport = options.viewport;
+    const viewportLabel = options.viewports.join("_");
 
     // DEBUG MODE: Save as JSON for inspection
     // TODO: Revert to .w2w (MessagePack + gzip) after debugging
-    const filename = `${domain}_${viewport}_wireframe.json`;
+    const filename = `${domain}_${viewportLabel}_wireframe.json`;
     const jsonString = JSON.stringify(state.result, null, 2);
     const blob = new Blob([jsonString], { type: "application/json" });
 
@@ -183,102 +182,46 @@ export function App() {
 
         {/* Capture Options - Before capture */}
         {state.status === "idle" && (
-          <>
-            {/* Viewport Selection */}
-            <div class="option-section">
-              <label class="option-label">Viewports</label>
-              <div class="viewport-chips">
-                {VIEWPORTS.map((vp) => (
+          <div class="option-section">
+            <label class="option-label">Viewports (select multiple)</label>
+            <div class="viewport-chips">
+              {VIEWPORTS.map((vp) => {
+                const isSelected = options.viewports.includes(vp.width);
+                return (
                   <button
                     key={vp.width}
-                    class={`chip ${options.viewport === vp.width ? "chip-active" : ""}`}
-                    onClick={() => setOptions((prev) => ({ ...prev, viewport: vp.width }))}
+                    class={`chip ${isSelected ? "chip-active" : ""}`}
+                    onClick={() => {
+                      setOptions((prev) => {
+                        const currentViewports = prev.viewports;
+                        if (isSelected) {
+                          // Remove - but keep at least one selected
+                          if (currentViewports.length > 1) {
+                            return {
+                              ...prev,
+                              viewports: currentViewports.filter((v) => v !== vp.width),
+                            };
+                          }
+                          return prev; // Can't deselect the last one
+                        } else {
+                          // Add
+                          return {
+                            ...prev,
+                            viewports: [...currentViewports, vp.width].sort((a, b) => b - a),
+                          };
+                        }
+                      });
+                    }}
                   >
                     {vp.label}
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-
-            {/* More Options Toggle */}
-            <button
-              class="options-toggle"
-              onClick={() => setShowOptions(!showOptions)}
-            >
-              <span>More Options</span>
-              <span class={`arrow ${showOptions ? "arrow-up" : ""}`}>▼</span>
-            </button>
-
-            {/* Expandable Options */}
-            {showOptions && (
-              <div class="more-options">
-                {/* Colors */}
-                <div class="option-group">
-                  <label class="option-label">Colors</label>
-                  <select
-                    class="option-select"
-                    value={options.colorMode}
-                    onChange={(e) =>
-                      setOptions((prev) => ({
-                        ...prev,
-                        colorMode: (e.target as HTMLSelectElement).value as "plugin" | "website",
-                      }))
-                    }
-                  >
-                    {COLOR_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Fonts */}
-                <div class="option-group">
-                  <label class="option-label">Fonts</label>
-                  <select
-                    class="option-select"
-                    value={options.fontMode}
-                    onChange={(e) =>
-                      setOptions((prev) => ({
-                        ...prev,
-                        fontMode: (e.target as HTMLSelectElement).value as "plugin" | "website",
-                      }))
-                    }
-                  >
-                    {FONT_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Text */}
-                <div class="option-group">
-                  <label class="option-label">Text</label>
-                  <select
-                    class="option-select"
-                    value={options.textMode}
-                    onChange={(e) =>
-                      setOptions((prev) => ({
-                        ...prev,
-                        textMode: (e.target as HTMLSelectElement).value as "semantic" | "lorem" | "website",
-                      }))
-                    }
-                  >
-                    {TEXT_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-{/* CSS Variables option moved to Figma Plugin import step */}
-              </div>
-            )}
-          </>
+            <p class="option-hint">
+              Colors, fonts, and text options available in Figma plugin during import
+            </p>
+          </div>
         )}
 
         {/* Status/Progress */}
@@ -306,7 +249,9 @@ export function App() {
           <div class="success-section">
             <div class="success-message">Page captured successfully!</div>
             <div class="capture-stats">
-              <span>Size: {state.result.viewport.width}x{state.result.viewport.height}</span>
+              <span>
+                Viewports: {state.result.frames.map((f) => f.viewport.width).join(", ")}px
+              </span>
               <span>Fonts: {state.result.fonts.length}</span>
             </div>
           </div>

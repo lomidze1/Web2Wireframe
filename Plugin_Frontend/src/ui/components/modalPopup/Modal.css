@@ -969,3 +969,137 @@
   color: var(--muted);
   line-height: 1.4;
 }
+
+/* ============================================================================
+   Import Options Modal (Browser Extension)
+   ============================================================================ */
+
+.importOptionsModal {
+  width: 360px;
+  max-width: 95%;
+  max-height: 90vh;
+}
+
+.importOptionsUrl {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: rgba(var(--bg-rgb), 0.5);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.importOptionsUrl strong {
+  color: var(--text);
+}
+
+.importOptionsSection {
+  margin-bottom: 16px;
+}
+
+.importOptionsSection:last-of-type {
+  margin-bottom: 0;
+}
+
+.importOptionsLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.importOptionsButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.importOptionsBtn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px;
+  background: rgba(var(--bg-rgb), 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.importOptionsBtn:hover {
+  background: rgba(var(--bg-rgb), 0.8);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.importOptionsBtnActive {
+  background: rgba(var(--accent-rgb), 0.15);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.importOptionsBtnActive:hover {
+  background: rgba(var(--accent-rgb), 0.2);
+  border-color: var(--accent);
+}
+
+.importOptionsBtnIcon {
+  font-size: 18px;
+}
+
+.importOptionsHint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.importOptionsFooter {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.importOptionsCancelBtn {
+  flex: 1;
+  padding: 10px 16px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.importOptionsCancelBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.importOptionsConfirmBtn {
+  flex: 1;
+  padding: 10px 16px;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.importOptionsConfirmBtn:hover {
+  filter: brightness(1.1);
+}

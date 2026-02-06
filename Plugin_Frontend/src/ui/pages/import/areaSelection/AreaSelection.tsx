@@ -1,6 +1,6 @@
 /** @jsx h */
 import { h } from "preact";
-import { useState, useRef } from "preact/hooks";
+import { useState, useRef, useEffect } from "preact/hooks";
 import { decode } from "@msgpack/msgpack";
 import styles from "./AreaSelection.css";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -10,6 +10,9 @@ import VariablesChoiceModal, {
 import LayoutChoiceModal, {
   type LayoutMode,
 } from "../../../components/modalPopup/LayoutChoiceModal";
+import RenderingLoader, {
+  type RenderingProgress,
+} from "../../../components/renderingLoader/RenderingLoader";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -132,7 +135,20 @@ interface ExtractedCSSVariable {
   category?: string; // color, spacing, typography, etc.
 }
 
-interface CaptureResult {
+// NEW multi-frame format from Browser Extension
+interface MultiFrameCaptureResult {
+  url: string;
+  title: string;
+  timestamp: number;
+  frames: Array<{ viewport: { width: number; height: number }; tree: ExtractedElement }>;
+  fonts: unknown[];
+  assets: unknown[];
+  stylesheets: unknown[];
+  cssVariables?: ExtractedCSSVariable[];
+}
+
+// LEGACY single-viewport format (Area Selection)
+interface SingleViewportCaptureResult {
   url: string;
   title: string;
   timestamp: number;
@@ -149,6 +165,58 @@ interface CaptureResult {
   assets: unknown[];
   stylesheets: unknown[];
   cssVariables?: ExtractedCSSVariable[];
+}
+
+// Unified type that supports both single and multi-frame data
+interface UnifiedCaptureResult {
+  url: string;
+  title: string;
+  timestamp: number;
+  frames: Array<{ viewport: { width: number; height: number }; tree: ExtractedElement }>;
+  fonts: unknown[];
+  assets: unknown[];
+  stylesheets: unknown[];
+  cssVariables?: ExtractedCSSVariable[];
+}
+
+/**
+ * Convert any capture format to unified multi-frame format
+ * Handles both new multi-frame format and legacy single-viewport format
+ */
+function toUnifiedFormat(data: MultiFrameCaptureResult | SingleViewportCaptureResult): UnifiedCaptureResult | null {
+  // Check for new multi-frame format
+  if ('frames' in data && Array.isArray(data.frames) && data.frames.length > 0) {
+    return {
+      url: data.url,
+      title: data.title,
+      timestamp: data.timestamp,
+      frames: data.frames,
+      fonts: data.fonts,
+      assets: data.assets,
+      stylesheets: data.stylesheets,
+      cssVariables: data.cssVariables,
+    };
+  }
+
+  // Check for legacy single-viewport format - convert to unified format
+  if ('tree' in data && 'viewport' in data) {
+    const singleViewport = data as SingleViewportCaptureResult;
+    return {
+      url: singleViewport.url,
+      title: singleViewport.title,
+      timestamp: singleViewport.timestamp,
+      frames: [{
+        viewport: singleViewport.viewport,
+        tree: singleViewport.tree,
+      }],
+      fonts: singleViewport.fonts,
+      assets: singleViewport.assets,
+      stylesheets: singleViewport.stylesheets,
+      cssVariables: singleViewport.cssVariables,
+    };
+  }
+
+  return null;
 }
 
 // WireframeNode format expected by main.ts
@@ -338,12 +406,60 @@ export default function AreaSelection() {
   const [showVariablesModal, setShowVariablesModal] = useState(false);
   const [showLayoutModal, setShowLayoutModal] = useState(false);
   const [pendingCaptureResult, setPendingCaptureResult] =
-    useState<CaptureResult | null>(null);
+    useState<UnifiedCaptureResult | null>(null);
   const [pendingVariableMode, setPendingVariableMode] =
     useState<VariableMode>("direct");
+  // Rendering loader state
+  const [showRenderingLoader, setShowRenderingLoader] = useState(false);
+  const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDataRef = useRef<File | null>(null);
   const { config } = useConfig();
+
+  // Listen for messages from Figma plugin main thread
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === "render-progress") {
+        const { step, percent, isComplete } = msg.data;
+        setRenderingProgress({ step, percent, isComplete });
+
+        // When complete, show success state then close
+        if (isComplete) {
+          setTimeout(() => {
+            setShowRenderingLoader(false);
+            setRenderingProgress(undefined);
+            setImportState({ status: "idle", message: "" });
+            setFileName(null);
+            fileDataRef.current = null;
+            setPendingCaptureResult(null);
+            setPendingVariableMode("direct");
+            if (fileInputRef.current) {
+              fileInputRef.current.value = "";
+            }
+          }, 10000); // Show success state for 10 seconds
+        }
+      }
+
+      if (msg.type === "wireframe-created") {
+        // Handled by render-progress with isComplete
+      }
+
+      if (msg.type === "wireframe-error") {
+        setShowRenderingLoader(false);
+        setRenderingProgress(undefined);
+        setImportState({
+          status: "error",
+          message: msg.data.error || "Failed to create wireframe",
+        });
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
   const handleFileUpload = (e: Event) => {
     const target = e.target as HTMLInputElement;
@@ -362,26 +478,35 @@ export default function AreaSelection() {
   };
 
   /**
-   * Process file and render wireframe
+   * Process file and render wireframe(s)
+   * Handles both single and multi-frame files
    */
   const processAndRender = (
-    captureResult: CaptureResult,
+    captureResult: UnifiedCaptureResult,
     variableMode: VariableMode,
     layoutMode: LayoutMode
   ) => {
-    setImportState({ status: "loading", message: "Creating wireframe..." });
-
-    const wireframeTree = convertToWireframeNode(captureResult.tree, {
-      text: config.pluginColors.text,
-      surface: config.pluginColors.surface,
+    // Show the rendering loader
+    setShowRenderingLoader(true);
+    setRenderingProgress({
+      step: "Preparing wireframe data...",
+      percent: 0,
     });
+    setImportState({ status: "loading", message: "" });
 
-    // Build frame data
-    const frameData = {
-      viewportWidth: captureResult.viewport.width,
-      viewportHeight: captureResult.viewport.height,
-      tree: wireframeTree,
-    };
+    // Convert all frames to wireframe format
+    const framesData = captureResult.frames.map((frame) => {
+      const wireframeTree = convertToWireframeNode(frame.tree, {
+        text: config.pluginColors.text,
+        surface: config.pluginColors.surface,
+      });
+
+      return {
+        viewportWidth: frame.viewport.width,
+        viewportHeight: frame.viewport.height,
+        tree: wireframeTree,
+      };
+    });
 
     // Send to Figma main thread with variable mode and layout mode
     parent.postMessage(
@@ -389,7 +514,7 @@ export default function AreaSelection() {
         pluginMessage: {
           type: "render-wireframe",
           data: {
-            frames: [frameData],
+            frames: framesData,
             sourceUrl: captureResult.url,
             pluginColors: config.pluginColors,
             cssVariables: captureResult.cssVariables || [],
@@ -400,23 +525,7 @@ export default function AreaSelection() {
       },
       "*"
     );
-
-    setImportState({
-      status: "success",
-      message: "Wireframe created successfully!",
-    });
-
-    // Reset after success
-    setTimeout(() => {
-      setImportState({ status: "idle", message: "" });
-      setFileName(null);
-      fileDataRef.current = null;
-      setPendingCaptureResult(null);
-      setPendingVariableMode("direct");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }, 3000);
+    // Progress updates and completion are handled by the message listener
   };
 
   /**
@@ -451,40 +560,42 @@ export default function AreaSelection() {
       // 1. Read file as ArrayBuffer
       const arrayBuffer = await fileDataRef.current.arrayBuffer();
 
-      let captureResult: CaptureResult;
-
       // Check file extension
       const fileName = fileDataRef.current.name.toLowerCase();
+
+      let rawData: MultiFrameCaptureResult | SingleViewportCaptureResult;
 
       if (fileName.endsWith(".json")) {
         // JSON file - parse directly
         setImportState({ status: "loading", message: "Parsing JSON..." });
         const text = new TextDecoder().decode(arrayBuffer);
-        captureResult = JSON.parse(text) as CaptureResult;
+        rawData = JSON.parse(text);
       } else {
         // .w2w file - decompress and decode MessagePack
         setImportState({ status: "loading", message: "Decompressing..." });
         const decompressedData = await decompressGzip(arrayBuffer);
 
         setImportState({ status: "loading", message: "Decoding data..." });
-        captureResult = decode(decompressedData) as CaptureResult;
+        rawData = decode(decompressedData) as MultiFrameCaptureResult | SingleViewportCaptureResult;
       }
 
-      if (!captureResult || !captureResult.tree) {
-        throw new Error("Invalid file format");
+      // Convert to unified multi-frame format (handles both old single-viewport and new multi-frame format)
+      const unifiedResult = toUnifiedFormat(rawData);
+      if (!unifiedResult) {
+        throw new Error("Invalid file format - expected wireframe data with tree structure");
       }
 
       // Check if CSS variables exist
       const hasCSSVariables =
-        captureResult.cssVariables && captureResult.cssVariables.length > 0;
+        unifiedResult.cssVariables && unifiedResult.cssVariables.length > 0;
 
       if (hasCSSVariables) {
         // Show CSS variables modal first, then layout modal
-        setPendingCaptureResult(captureResult);
+        setPendingCaptureResult(unifiedResult);
         setShowVariablesModal(true);
       } else {
         // No CSS variables - skip to layout modal
-        setPendingCaptureResult(captureResult);
+        setPendingCaptureResult(unifiedResult);
         setPendingVariableMode("direct");
         setShowLayoutModal(true);
       }
@@ -594,6 +705,24 @@ export default function AreaSelection() {
       <LayoutChoiceModal
         isOpen={showLayoutModal}
         onChoice={handleLayoutChoice}
+      />
+
+      {/* Rendering Loader Overlay */}
+      <RenderingLoader
+        isVisible={showRenderingLoader}
+        progress={renderingProgress}
+        onClose={() => {
+          setShowRenderingLoader(false);
+          setRenderingProgress(undefined);
+          setImportState({ status: "idle", message: "" });
+          setFileName(null);
+          fileDataRef.current = null;
+          setPendingCaptureResult(null);
+          setPendingVariableMode("direct");
+          if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+          }
+        }}
       />
     </div>
   );

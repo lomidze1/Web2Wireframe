@@ -38,6 +38,20 @@ mongoose
     mongoConnected = false;
   });
 
+// In-memory storage for pending CDP imports from Browser Extension
+// Key: unique import ID, Value: { data, timestamp, expires }
+const pendingCDPImports = new Map();
+
+// Cleanup expired imports every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of pendingCDPImports.entries()) {
+    if (now > entry.expires) {
+      pendingCDPImports.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -369,6 +383,7 @@ app.get("/api/settings/:userId", async (req, res) => {
  *
  * This endpoint receives pre-extracted data from the Browser Extension
  * which uses Chrome DevTools Protocol for higher quality extraction.
+ * Stores data in memory for Plugin to fetch via GET /api/pending-import.
  *
  * Request body:
  * - captureData: CaptureResult from Browser Extension
@@ -385,37 +400,56 @@ app.post("/api/import-cdp", async (req, res) => {
       });
     }
 
-    // The CDP data is already in the correct format for Figma plugin
-    // We just need to wrap it appropriately
-    const frames = [{
-      viewportWidth: captureData.viewport.width,
-      viewportHeight: captureData.viewport.height,
-      tree: captureData.tree,
-    }];
+    // CDP data now contains frames array (multi-viewport support)
+    // Each frame has { viewport: { width, height }, tree: ExtractedElement }
+    const frames = (captureData.frames || []).map(frame => ({
+      viewportWidth: frame.viewport.width,
+      viewportHeight: frame.viewport.height,
+      tree: frame.tree,
+    }));
 
-    // Create local styles structure based on capture options
+    // Extract viewport widths for response
+    const viewports = frames.map(f => f.viewportWidth);
+
+    // Create local styles structure
     const localStyles = createLocalStylesStructure(DEFAULT_PLUGIN_COLORS, {
       primary: "Montserrat",
     });
 
-    res.json({
+    // Generate unique import ID
+    const importId = `cdp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Store in pending imports (expires in 10 minutes)
+    const importData = {
       success: true,
+      importId,
       sourceUrl: captureData.url,
-      viewports: [captureData.viewport.width],
-      colorMode: captureData.options?.colorMode || "website",
-      typographyMode: captureData.options?.fontMode || "website",
-      textMode: captureData.options?.textMode || "website",
+      title: captureData.title,
+      viewports,
       frameCount: frames.length,
       wireframeData: { frames },
       localStyles,
       fonts: captureData.fonts || [],
-      // Include CDP-specific metadata
+      cssVariables: captureData.cssVariables || [],
       cdpMetadata: {
         captureTimestamp: timestamp,
         hasMatchedStyles: true,
         hasGradients: true,
-        hasPseudoStates: true,
       },
+    };
+
+    pendingCDPImports.set(importId, {
+      data: importData,
+      timestamp: Date.now(),
+      expires: Date.now() + 10 * 60 * 1000, // 10 minutes
+    });
+
+    console.log(`[CDP Import] Stored pending import: ${importId} from ${captureData.url}`);
+
+    res.json({
+      success: true,
+      importId,
+      message: "Data received. Open Figma plugin to import.",
     });
   } catch (error) {
     console.error("[CDP Import] Error:", error);
@@ -425,6 +459,54 @@ app.post("/api/import-cdp", async (req, res) => {
       errorCode: "CDP_IMPORT_ERROR",
     });
   }
+});
+
+/**
+ * GET /api/pending-import - Check for pending CDP imports
+ * Returns the most recent pending import and removes it from storage.
+ */
+app.get("/api/pending-import", (req, res) => {
+  // Find the most recent pending import
+  let latestEntry = null;
+  let latestId = null;
+
+  for (const [id, entry] of pendingCDPImports.entries()) {
+    if (!latestEntry || entry.timestamp > latestEntry.timestamp) {
+      latestEntry = entry;
+      latestId = id;
+    }
+  }
+
+  if (!latestEntry) {
+    return res.json({
+      success: true,
+      hasPending: false,
+      message: "No pending imports from Browser Extension",
+    });
+  }
+
+  // Remove from pending (one-time fetch)
+  pendingCDPImports.delete(latestId);
+
+  console.log(`[CDP Import] Delivered pending import: ${latestId}`);
+
+  res.json({
+    success: true,
+    hasPending: true,
+    ...latestEntry.data,
+  });
+});
+
+/**
+ * DELETE /api/pending-import - Clear all pending imports
+ */
+app.delete("/api/pending-import", (req, res) => {
+  const count = pendingCDPImports.size;
+  pendingCDPImports.clear();
+  res.json({
+    success: true,
+    message: `Cleared ${count} pending import(s)`,
+  });
 });
 
 // GET /api/default-colors - Get default plugin colors

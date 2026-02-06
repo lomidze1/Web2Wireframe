@@ -34,30 +34,8 @@ export const VIEWPORTS = [
   { label: "375", width: 375 },
 ] as const;
 
-// Color mode options
-export const COLOR_OPTIONS = [
-  { value: "plugin", label: "Plugin Colors" },
-  { value: "website", label: "Website Colors" },
-] as const;
-
-// Font mode options
-export const FONT_OPTIONS = [
-  { value: "plugin", label: "Plugin Fonts" },
-  { value: "website", label: "Website Fonts" },
-] as const;
-
-// Text mode options
-export const TEXT_OPTIONS = [
-  { value: "semantic", label: "Semantic Placeholders" },
-  { value: "lorem", label: "Lorem Ipsum" },
-  { value: "website", label: "Website Text" },
-] as const;
-
-// CSS Variable mode options
-export const VARIABLE_OPTIONS = [
-  { value: "resolve", label: "Resolved Values" },
-  { value: "preserve", label: "CSS Variables" },
-] as const;
+// NOTE: Color, Font, Text, Variable options moved to Plugin_Frontend
+// (Import-time transformation instead of capture-time)
 
 // Skip these tags during extraction
 export const SKIP_TAGS = [

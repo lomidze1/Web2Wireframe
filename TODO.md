@@ -336,9 +336,55 @@ Puppeteer-ის `getComputedStyle` vs CDP `getMatchedStylesForNode`:
 - [x] Extract `box-shadow` with all parameters
 - [x] Extract `border-radius` (all corners)
 - [x] Extract colors (background, border, text)
-- [ ] Extract hover/focus/active states
+- [ ] Extract hover/focus/active states (via `CSS.forcePseudoState`) 🟡
 - [ ] Extract media query breakpoints
 - [ ] Extract animations/transitions
+
+### 11.3.1 CDP Enhancements (html.to.design Analysis) 🟡
+Based on html.to.design reverse engineering - features to implement post-core:
+
+#### Multi-Viewport Capture (CRITICAL for viewport feature) 🔴
+- [ ] Implement `Emulation.setDeviceMetricsOverride` for viewport simulation
+- [ ] Sequential capture: set viewport → wait reflow → capture → next
+- [ ] Support viewports: 1920, 1440, 1024, 768, 375
+- [ ] Mobile emulation for 375px (`mobile: true`, touch events)
+- [ ] `Emulation.clearDeviceMetricsOverride` to restore original
+- [ ] Progress indicator for multi-viewport capture
+
+```typescript
+// გეგმა:
+await client.send("Emulation.setDeviceMetricsOverride", {
+  width: 1440,
+  height: 900,
+  deviceScaleFactor: 1,
+  mobile: false
+});
+// → wait for reflow
+// → DOMSnapshot.captureSnapshot()
+// → next viewport...
+```
+
+#### Hover/Focus State Capture 🟡
+- [ ] Implement `CSS.forcePseudoState` for hover states
+- [ ] Capture button hover styles
+- [ ] Capture link hover styles
+- [ ] Capture focus states for inputs
+- [ ] Store as separate style variant in output
+
+```typescript
+// გეგმა:
+await client.send("CSS.forcePseudoState", {
+  nodeId: buttonNodeId,
+  forcedPseudoClasses: ["hover"]
+});
+// → capture hover styles
+// → restore normal state
+```
+
+#### Font CSS Direct Access 🟢
+- [ ] Use `Page.getResourceContent` for Google Fonts CSS
+- [ ] Parse @font-face rules directly from stylesheet content
+- [ ] Better font weight/style detection
 
 ### 11.4 Font Extraction ✅
 - [x] Detect `@font-face` declarations
@@ -495,3 +541,18 @@ Browser_Extension/
 - AI/Library = Post-MVP Phase 2
 - **NEW: CDP Browser Extension = Critical for quality match with html.to.design**
 - Focus on URL Import accuracy and stability first
+
+---
+
+## CDP Enhancements Priority (html.to.design Analysis)
+
+| Feature | Priority | Why |
+|---------|----------|-----|
+| `Emulation.setDeviceMetricsOverride` | 🔴 Critical | Multi-viewport capture - **ამის გარეშე viewport feature ვერ იმუშავებს** |
+| `CSS.forcePseudoState` | 🟡 Medium | Hover states - buttons/links-ის hover სტილები |
+| `Page.getResourceContent` | 🟢 Low | Fonts - უკვე გვაქვს Runtime.evaluate-ით |
+
+### ჩვენი უპირატესობა html.to.design-თან შედარებით:
+- ✅ `DOMSnapshot.captureSnapshot` - 1 CDP call vs მათი მრავალი call
+- ✅ `CSS.getMatchedStylesForNode` - original CSS values (gradients, variables)
+- ✅ უკეთესი performance არქიტექტურით

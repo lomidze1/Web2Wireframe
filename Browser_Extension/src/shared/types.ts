@@ -184,17 +184,21 @@ export interface ExtractedElement {
   children: ExtractedElement[];
 }
 
-// Full page capture result
-export interface CaptureResult {
-  url: string;
-  title: string;
-  timestamp: number;
+// Single viewport frame capture
+export interface CapturedFrame {
   viewport: {
     width: number;
     height: number;
   };
-  options: CaptureOptions;
   tree: ExtractedElement;
+}
+
+// Full page capture result (multi-viewport support)
+export interface CaptureResult {
+  url: string;
+  title: string;
+  timestamp: number;
+  frames: CapturedFrame[];  // Multiple viewport captures
   fonts: ExtractedFont[];
   assets: ExtractedAsset[];
   stylesheets: ExtractedStylesheet[];
@@ -318,21 +322,14 @@ export interface FigmaEffect {
 }
 
 // Capture options (user selections before capture)
+// NOTE: Colors, Fonts, Text transformation options moved to Plugin (import-time)
 export interface CaptureOptions {
-  viewport: number;
-  colorMode: "plugin" | "website";
-  fontMode: "plugin" | "website";
-  textMode: "semantic" | "lorem" | "website";
-  variableMode: "preserve" | "resolve";  // preserve = keep var(--name), resolve = inline values
+  viewports: number[];  // Multi-viewport support
 }
 
 // Default capture options
 export const DEFAULT_CAPTURE_OPTIONS: CaptureOptions = {
-  viewport: 1440,
-  colorMode: "plugin",
-  fontMode: "plugin",
-  textMode: "semantic",
-  variableMode: "resolve",  // Default to resolved values
+  viewports: [1440],  // Default to 1440px
 };
 
 // Extension settings

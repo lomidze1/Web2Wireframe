@@ -1910,6 +1910,15 @@ export default function () {
       });
       figma.notify("Creating wireframe...", { timeout: 2000 });
 
+      // Send initial progress to UI (0-100 percent scale)
+      figma.ui.postMessage({
+        type: "render-progress",
+        data: {
+          step: "Initializing wireframe...",
+          percent: 5,
+        },
+      });
+
       // Build context for rendering
       const colorStyleMap = new Map<string, PaintStyle>();
       const variableValueMap = new Map<string, string>();
@@ -1924,6 +1933,13 @@ export default function () {
       // Create color styles from CSS variables if mode is "styles"
       if (variableMode === "styles" && cssVariables && cssVariables.length > 0) {
         figma.notify("Creating color styles from CSS variables...", { timeout: 1500 });
+        figma.ui.postMessage({
+          type: "render-progress",
+          data: {
+            step: "Processing CSS variables...",
+            percent: 15,
+          },
+        });
         try {
           const styleMap = await createColorStylesFromVariables(cssVariables, sourceUrl);
           logger.info("Created color styles", { styleCount: styleMap.size });
@@ -1952,12 +1968,36 @@ export default function () {
         variableValueMap,
       };
 
+      // Send "analyzing structure" progress
+      figma.ui.postMessage({
+        type: "render-progress",
+        data: {
+          step: "Analyzing page structure...",
+          percent: 20,
+        },
+      });
+
       try {
         const createdFrames: FrameNode[] = [];
 
         for (let i = 0; i < frames.length; i++) {
+          const viewportWidth = frames[i].viewportWidth;
           figma.notify(`Processing viewport ${i + 1}/${frames.length}...`, {
             timeout: 1000,
+          });
+
+          // Calculate progress: frames take 25-85% of total progress
+          // First show "building elements" then "creating wireframe"
+          const frameStartProgress = 25 + ((i) / frames.length) * 60;
+          const frameEndProgress = 25 + ((i + 1) / frames.length) * 60;
+
+          // Show building elements step
+          figma.ui.postMessage({
+            type: "render-progress",
+            data: {
+              step: `Building elements for ${viewportWidth}px...`,
+              percent: Math.round(frameStartProgress + 5),
+            },
           });
 
           const wireframeFrame = await createWireframeFrame(
@@ -1967,19 +2007,112 @@ export default function () {
             i
           );
           createdFrames.push(wireframeFrame);
+
+          // Show completion of this frame
+          figma.ui.postMessage({
+            type: "render-progress",
+            data: {
+              step: frames.length > 1
+                ? `Viewport ${i + 1} of ${frames.length} complete...`
+                : "Applying styles and colors...",
+              percent: Math.round(frameEndProgress),
+            },
+          });
         }
 
-        // Select all created frames
-        figma.currentPage.selection = createdFrames;
+        // If multiple frames, wrap in a Section (like html.to.design)
+        let selectionTarget: SceneNode[] = createdFrames;
 
-        // Zoom to fit created frames
-        figma.viewport.scrollAndZoomIntoView(createdFrames);
+        if (createdFrames.length > 1) {
+          figma.notify("Grouping frames in Section...", { timeout: 1000 });
+
+          // Send progress to UI
+          figma.ui.postMessage({
+            type: "render-progress",
+            data: {
+              step: "Organizing frames...",
+              percent: 90,
+            },
+          });
+
+          // Create Section
+          const section = figma.createSection();
+
+          // Extract hostname for naming
+          let hostname = "website";
+          try {
+            hostname = new URL(sourceUrl).hostname.replace("www.", "");
+          } catch {
+            // Use default
+          }
+
+          // Get viewport widths for section name
+          const viewportWidths = frames.map(f => f.viewportWidth).join(" + ");
+          const timestamp = new Date().toLocaleString();
+          section.name = `${hostname} (${viewportWidths}) - Web2Wireframe - ${timestamp}`;
+
+          // Position frames inside section with 100px gap
+          const sectionPadding = 100;
+          let currentX = sectionPadding;
+          let maxHeight = 0;
+
+          for (const frame of createdFrames) {
+            section.appendChild(frame);
+            frame.x = currentX;
+            frame.y = sectionPadding;
+            currentX += frame.width + sectionPadding;
+            maxHeight = Math.max(maxHeight, frame.height);
+          }
+
+          // Resize section to fit all frames
+          section.resizeWithoutConstraints(
+            currentX,
+            maxHeight + sectionPadding * 2
+          );
+
+          // Position section at viewport center
+          const viewport = figma.viewport.center;
+          section.x = viewport.x - section.width / 2;
+          section.y = viewport.y - section.height / 2;
+
+          selectionTarget = [section];
+
+          logger.info("Created Section with frames", {
+            frameCount: createdFrames.length,
+            sectionName: section.name,
+          });
+        }
+
+        // Send finalizing progress
+        figma.ui.postMessage({
+          type: "render-progress",
+          data: {
+            step: "Finalizing wireframe...",
+            percent: 95,
+          },
+        });
+
+        // Select created node(s)
+        figma.currentPage.selection = selectionTarget;
+
+        // Zoom to fit
+        figma.viewport.scrollAndZoomIntoView(selectionTarget);
 
         logger.info("Wireframe created successfully", {
           frameCount: createdFrames.length,
         });
-        figma.notify(`Created ${createdFrames.length} wireframe frame(s)!`, {
+        figma.notify(`Created ${createdFrames.length} wireframe frame(s)${createdFrames.length > 1 ? " in Section" : ""}!`, {
           timeout: 3000,
+        });
+
+        // Send completion progress to UI
+        figma.ui.postMessage({
+          type: "render-progress",
+          data: {
+            step: "Wireframe created successfully!",
+            percent: 100,
+            isComplete: true,
+          },
         });
 
         // Send success message back to UI

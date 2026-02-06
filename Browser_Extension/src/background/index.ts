@@ -27,6 +27,7 @@ import { extractFonts } from "./cdp/fonts";
 import type {
   ExtractedElement,
   CaptureResult,
+  CapturedFrame,
   CaptureOptions,
   ExtensionMessage,
   CDPMatchedStyles,
@@ -156,9 +157,10 @@ async function autoScrollPage(client: CDPClient): Promise<void> {
 /**
  * Handle page capture request
  *
- * NEW APPROACH:
- * 1. DOMSnapshot.captureSnapshot - bulk extraction (ONE call)
- * 2. CSS.getMatchedStylesForNode - only for gradient/variable nodes
+ * MULTI-VIEWPORT APPROACH:
+ * 1. Loop through each viewport in options.viewports
+ * 2. For each: set viewport → reload → scroll → capture
+ * 3. Return frames array with all captures
  */
 async function handleCapturePage(
   tabId: number,
@@ -179,14 +181,6 @@ async function handleCapturePage(
     updateProgress(5, "Connecting to page...");
     client = await createCDPClient(tabId);
 
-    // =========================================================================
-    // SET VIEWPORT EMULATION - Critical for accurate bounds!
-    // This forces DevTools responsive mode with exact dimensions
-    // =========================================================================
-    const targetViewport = options.viewport || 1440;
-    const targetHeight = 900;
-    updateProgress(8, `Setting viewport to ${targetViewport}px...`);
-
     // Get current devicePixelRatio (browser zoom level)
     const dprResult = await client.send<{ result: { value: number } }>(
       "Runtime.evaluate",
@@ -197,95 +191,117 @@ async function handleCapturePage(
     );
     const browserDpr = dprResult.result.value || 1;
 
-    // Full device metrics override - simulates DevTools Device Mode
-    // We set deviceScaleFactor to compensate for browser zoom
-    await client.send("Emulation.setDeviceMetricsOverride", {
-      width: targetViewport,
-      height: targetHeight,
-      deviceScaleFactor: 1 / browserDpr, // Compensate for browser zoom
-      mobile: targetViewport <= 768,
-      // Screen dimensions - critical for accurate bounds!
-      screenWidth: targetViewport,
-      screenHeight: targetHeight,
-      positionX: 0,
-      positionY: 0,
-      screenOrientation: { angle: 0, type: "landscapePrimary" },
-    });
+    const viewports = options.viewports.length > 0 ? options.viewports : [1440];
+    const frames: CapturedFrame[] = [];
 
-    // Force page reload to apply viewport changes properly
-    updateProgress(9, "Reloading page with new viewport...");
-    await client.send("Page.reload", { ignoreCache: false });
+    // Calculate progress step per viewport
+    const progressPerViewport = 70 / viewports.length;
 
-    // Wait for page load
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    updateProgress(10, "Scrolling for lazy content...");
-    await autoScrollPage(client);
-
-    updateProgress(15, "Getting dimensions...");
-    const dimensions = await getScrollDimensions(client);
+    // CSS Variables map - extracted once on first viewport, reused across all viewports
+    let sharedCssVariablesMap = new Map<string, string>();
 
     // =========================================================================
-    // STEP 1: DOMSnapshot.captureSnapshot - ONE call for entire page!
+    // CAPTURE EACH VIEWPORT SEQUENTIALLY
     // =========================================================================
-    updateProgress(20, "Capturing page snapshot...");
+    for (let i = 0; i < viewports.length; i++) {
+      const targetViewport = viewports[i];
+      const baseProgress = 10 + i * progressPerViewport;
 
-    const snapshot = await captureSnapshot(client);
+      updateProgress(
+        baseProgress,
+        `Capturing viewport ${targetViewport}px (${i + 1}/${viewports.length})...`,
+      );
 
-    updateProgress(35, "Parsing snapshot data...");
-    const { nodes, nodesByBackendId } = parseSnapshot(snapshot);
+      // Set viewport emulation
+      const targetHeight = 900;
+      await client.send("Emulation.setDeviceMetricsOverride", {
+        width: targetViewport,
+        height: targetHeight,
+        deviceScaleFactor: 1 / browserDpr,
+        mobile: targetViewport <= 768,
+        screenWidth: targetViewport,
+        screenHeight: targetHeight,
+        positionX: 0,
+        positionY: 0,
+        screenOrientation: { angle: 0, type: "landscapePrimary" },
+      });
 
-    // =========================================================================
-    // STEP 2: Find nodes that NEED CSS.getMatchedStylesForNode
-    // (only gradients, CSS variables, hover states - not all nodes!)
-    // =========================================================================
-    updateProgress(40, "Finding nodes with gradients/variables...");
-    const nodesNeedingMatched = findNodesNeedingMatchedStyles(nodes);
+      // Reload page to apply viewport changes
+      await client.send("Page.reload", { ignoreCache: false });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    // =========================================================================
-    // STEP 3: Get matched styles ONLY for those specific nodes
-    // =========================================================================
-    updateProgress(
-      45,
-      `Getting matched styles for ${nodesNeedingMatched.length} nodes...`,
-    );
+      // Scroll for lazy content
+      await autoScrollPage(client);
 
-    // Resolve backendNodeIds to nodeIds
-    const backendIds = nodesNeedingMatched.map((n) => n.backendNodeId);
+      // Get dimensions
+      const dimensions = await getScrollDimensions(client);
 
-    // First, we need to get the DOM document to have nodeIds available
-    await getDocument(client, -1, true);
+      // Capture snapshot
+      updateProgress(baseProgress + progressPerViewport * 0.3, "Capturing snapshot...");
+      const snapshot = await captureSnapshot(client);
+      const { nodes, nodesByBackendId } = parseSnapshot(snapshot);
 
-    const nodeIdMap = await resolveNodeIds(client, backendIds);
+      // Find nodes needing matched styles
+      const nodesNeedingMatched = findNodesNeedingMatchedStyles(nodes);
+      const backendIds = nodesNeedingMatched.map((n) => n.backendNodeId);
 
-    // Get matched styles for nodes that need them
-    const matchedStylesMap = new Map<number, CDPMatchedStyles>();
-    let matchedCount = 0;
+      // Get DOM document
+      await getDocument(client, -1, true);
+      const nodeIdMap = await resolveNodeIds(client, backendIds);
 
-    for (const node of nodesNeedingMatched) {
-      const nodeId = nodeIdMap.get(node.backendNodeId);
-      if (nodeId) {
-        const matched = await getMatchedStylesForNode(client, nodeId);
-        if (matched) {
-          matchedStylesMap.set(node.backendNodeId, matched);
-          matchedCount++;
+      // Get matched styles
+      const matchedStylesMap = new Map<number, CDPMatchedStyles>();
+      for (const node of nodesNeedingMatched) {
+        const nodeId = nodeIdMap.get(node.backendNodeId);
+        if (nodeId) {
+          const matched = await getMatchedStylesForNode(client, nodeId);
+          if (matched) {
+            matchedStylesMap.set(node.backendNodeId, matched);
+          }
         }
       }
+
+      // Extract CSS variables (only on first viewport - reused across all viewports)
+      if (i === 0) {
+        const rawCSSVariables = await extractCSSVariables(client);
+        for (const v of rawCSSVariables) {
+          sharedCssVariablesMap.set(v.name, v.value);
+        }
+      }
+      // Use shared CSS variables map for all viewports
+      const cssVariablesMap = sharedCssVariablesMap;
+
+      // Extract body original CSS
+      const bodyOriginalCSS = await extractBackgroundFromCSS(client, "body");
+
+      // Build element tree
+      updateProgress(baseProgress + progressPerViewport * 0.7, "Building tree...");
+      const tree = buildElementTree(
+        nodes,
+        nodesByBackendId,
+        matchedStylesMap,
+        targetViewport,
+        cssVariablesMap,
+        bodyOriginalCSS,
+        browserDpr,
+      );
+
+      frames.push({
+        viewport: {
+          width: targetViewport,
+          height: dimensions.height,
+        },
+        tree,
+      });
     }
 
-    // =========================================================================
-    // STEP 4: Extract CSS variables BEFORE building tree (needed for parsing)
-    // =========================================================================
-    updateProgress(60, "Extracting CSS variables...");
+    // Extract fonts (once, after all viewports)
+    updateProgress(85, "Extracting fonts...");
+    const fonts = await extractFonts(client);
+
+    // Extract CSS variables for result
+    updateProgress(90, "Extracting CSS variables...");
     const rawCSSVariables = await extractCSSVariables(client);
-
-    // Build a Map for variable resolution during tree building
-    const cssVariablesMap = new Map<string, string>();
-    for (const v of rawCSSVariables) {
-      cssVariablesMap.set(v.name, v.value);
-    }
-
-    // Convert to ExtractedCSSVariable format and categorize
     const cssVariables = rawCSSVariables.map((v) => ({
       name: v.name,
       value: v.value,
@@ -293,49 +309,13 @@ async function handleCapturePage(
       category: categorizeCSSVariable(v.name, v.value),
     }));
 
-    // =========================================================================
-    // STEP 4.5: Extract ORIGINAL CSS for body element via CSSOM
-    // CDP returns partially computed values, CSSOM gives us the original CSS
-    // This is critical for correct gradient parsing (circle, transparent, etc.)
-    // =========================================================================
-    updateProgress(65, "Extracting original CSS from CSSOM...");
-    const bodyOriginalCSS = await extractBackgroundFromCSS(client, "body");
-
-    updateProgress(70, "Building element tree...");
-
-    // Use selected viewport width for tree building (not scrollWidth which may differ)
-    const targetWidth = options.viewport || 1440;
-
-    // =========================================================================
-    // STEP 5: Build element tree from snapshot + matched styles + CSS variables
-    // =========================================================================
-    const tree = buildElementTree(
-      nodes,
-      nodesByBackendId,
-      matchedStylesMap,
-      targetWidth, // Use target viewport, not dimensions.width (scrollWidth)
-      options,
-      cssVariablesMap,
-      bodyOriginalCSS, // Pass CSSOM-extracted body background
-      browserDpr, // Pass devicePixelRatio for bounds scaling
-    );
-
-    updateProgress(85, "Extracting fonts...");
-    const fonts =
-      options.fontMode === "website" ? await extractFonts(client) : [];
-
-    updateProgress(90, "Finalizing...");
+    updateProgress(95, "Finalizing...");
 
     const result: CaptureResult = {
       url: tab.url,
       title: tab.title || "Untitled",
       timestamp: Date.now(),
-      viewport: {
-        width: targetWidth,
-        height: dimensions.height,
-      },
-      options,
-      tree,
+      frames,
       fonts,
       assets: [],
       stylesheets: [],
@@ -346,7 +326,6 @@ async function handleCapturePage(
     return result;
   } finally {
     if (client) {
-      // Clear viewport emulation before destroying
       try {
         await client.send("Emulation.clearDeviceMetricsOverride", {});
       } catch {
@@ -468,13 +447,13 @@ function isLeafElement(
 
 /**
  * Build element tree from snapshot nodes
+ * NOTE: Text/color/font transformation moved to Plugin (import-time)
  */
 function buildElementTree(
   nodes: ParsedSnapshotNode[],
   _nodesByBackendId: Map<number, ParsedSnapshotNode>,
   matchedStylesMap: Map<number, CDPMatchedStyles>,
   viewportWidth: number,
-  options: CaptureOptions,
   cssVariablesMap: Map<string, string> = new Map(),
   bodyOriginalCSS: {
     background: string | null;
@@ -754,37 +733,9 @@ function buildElementTree(
     const isLeaf = isLeafElement(node.index, nodes, childrenMap);
     const shouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
 
-    // =========================================================================
-    // APPLY TEXT MODE TRANSFORMATION
-    // =========================================================================
-    // Li elements need text processing but remain frames (they have bullet children)
-    // So we use shouldProcessText for transformation, but shouldBeText for type determination
-    const shouldProcessText =
-      shouldBeText || (tag === "li" && !!aggregatedText);
-
-    let finalText = aggregatedText;
-
-    if (aggregatedText && shouldProcessText) {
-      switch (options.textMode) {
-        case "website":
-          // Keep original text as-is
-          finalText = aggregatedText;
-          break;
-
-        case "lorem":
-          // Generate lorem ipsum with same word count
-          finalText = generateLoremIpsum(aggregatedText);
-          break;
-
-        case "semantic":
-          // Generate semantic placeholder based on tag
-          finalText = getSemanticPlaceholder(tag, aggregatedText.length);
-          break;
-
-        default:
-          finalText = aggregatedText;
-      }
-    }
+    // Text transformation moved to Plugin (import-time)
+    // Here we always capture original text
+    const finalText = aggregatedText;
 
     // Determine element type for Figma
     let elementType: "frame" | "text" | "placeholder" = "frame";
@@ -1122,160 +1073,8 @@ function getLayoutSizing(
   return { horizontal, vertical };
 }
 
-/**
- * Generate lorem ipsum text with the same number of words as original
- * Also tries to match word lengths for better visual fidelity
- */
-function generateLoremIpsum(originalText: string): string {
-  // Lorem ipsum words grouped by length
-  const loremByLength: Record<number, string[]> = {
-    1: ["a", "e", "i", "o", "u"],
-    2: ["ut", "et", "ad", "ex", "ea", "id", "in", "do"],
-    3: ["sed", "sit", "qui", "non", "est"],
-    4: ["amet", "enim", "quis", "duis", "aute", "sunt", "esse", "anim", "nisi"],
-    5: [
-      "lorem",
-      "ipsum",
-      "dolor",
-      "magna",
-      "minim",
-      "irure",
-      "velit",
-      "culpa",
-      "nulla",
-    ],
-    6: ["tempor", "labore", "dolore", "veniam", "fugiat", "mollit", "commodo"],
-    7: [
-      "aliqua",
-      "nostrud",
-      "laboris",
-      "aliquip",
-      "ullamco",
-      "officia",
-      "laborum",
-      "cillum",
-      "sint",
-    ],
-    8: ["eiusmod", "proident", "pariatur", "deserunt", "occaecat"],
-    9: ["adipiscing", "excepteur", "cupidatat", "consequat"],
-    10: ["consectetur", "incididunt", "voluptate"],
-    11: ["reprehenderit", "exercitation"],
-  };
-
-  // Fallback words for any length
-  const fallbackWords = [
-    "lorem",
-    "ipsum",
-    "dolor",
-    "sit",
-    "amet",
-    "consectetur",
-    "adipiscing",
-    "elit",
-    "sed",
-    "do",
-    "eiusmod",
-    "tempor",
-    "incididunt",
-    "ut",
-    "labore",
-    "et",
-    "dolore",
-  ];
-
-  // Split original text into words
-  const originalWords = originalText
-    .trim()
-    .split(/\s+/)
-    .filter((w) => w.length > 0);
-
-  if (originalWords.length === 0) {
-    return "";
-  }
-
-  // Generate lorem ipsum with same word count, trying to match lengths
-  const resultWords: string[] = [];
-  let fallbackIndex = 0;
-
-  for (let i = 0; i < originalWords.length; i++) {
-    const targetLength = originalWords[i].length;
-
-    // Find words of matching length, or closest available
-    let candidates = loremByLength[targetLength];
-
-    // If no exact match, try nearby lengths
-    if (!candidates || candidates.length === 0) {
-      for (let diff = 1; diff <= 3; diff++) {
-        candidates =
-          loremByLength[targetLength - diff] ||
-          loremByLength[targetLength + diff];
-        if (candidates && candidates.length > 0) break;
-      }
-    }
-
-    // If still no match, use fallback
-    if (!candidates || candidates.length === 0) {
-      candidates = fallbackWords;
-    }
-
-    // Pick a word (cycle through to add variety)
-    const word = candidates[(i + fallbackIndex) % candidates.length];
-    resultWords.push(word);
-    fallbackIndex++;
-  }
-
-  // Capitalize first letter
-  if (resultWords.length > 0) {
-    resultWords[0] =
-      resultWords[0].charAt(0).toUpperCase() + resultWords[0].slice(1);
-  }
-
-  return resultWords.join(" ");
-}
-
-/**
- * Get semantic placeholder text based on HTML tag
- */
-function getSemanticPlaceholder(tag: string, _charCount: number): string {
-  const semanticNames: Record<string, string> = {
-    // Headings
-    h1: "Heading 1",
-    h2: "Heading 2",
-    h3: "Heading 3",
-    h4: "Heading 4",
-    h5: "Heading 5",
-    h6: "Heading 6",
-    // Text elements
-    p: "Paragraph",
-    span: "Text",
-    // Links
-    a: "Link",
-    // Lists
-    li: "List Item",
-    // Labels & Buttons
-    label: "Label",
-    button: "Button",
-    // Table
-    td: "Table Cell",
-    th: "Table Header",
-    // Emphasis
-    strong: "Bold Text",
-    b: "Bold Text",
-    em: "Italic Text",
-    i: "Italic Text",
-    small: "Small Text",
-    mark: "Highlighted",
-    sub: "Subscript",
-    sup: "Superscript",
-    // Form elements
-    input: "Input",
-    textarea: "Text Area",
-    select: "Select",
-    option: "Option",
-  };
-
-  return semanticNames[tag.toLowerCase()] || "Text";
-}
+// NOTE: generateLoremIpsum and getSemanticPlaceholder moved to Plugin_Frontend
+// (Import-time transformation instead of capture-time)
 
 /**
  * Categorize a CSS variable based on its name and value
