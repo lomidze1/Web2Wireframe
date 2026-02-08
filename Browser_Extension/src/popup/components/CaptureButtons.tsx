@@ -1,17 +1,17 @@
-import { DocumentIcon, TargetIcon, SelectionIcon } from "./Icons";
+import { DocumentIcon, SelectionIcon } from "./Icons";
 
 interface CaptureButtonsProps {
   isCapturing: boolean;
   canCapture: boolean;
   onCapturePage: () => void;
-  onCaptureArea: (mode: "select" | "pick") => void;
+  onSelectArea: () => void;
 }
 
 export function CaptureButtons({
   isCapturing,
   canCapture,
   onCapturePage,
-  onCaptureArea,
+  onSelectArea,
 }: CaptureButtonsProps) {
   return (
     <div class="capture-buttons">
@@ -28,36 +28,19 @@ export function CaptureButtons({
         <span>{isCapturing ? "Capturing..." : "Capture Page"}</span>
       </button>
 
-      {/* Capture Area Options */}
-      <div class="capture-area-section">
-        <span class="capture-area-label">Capture Area</span>
-        <div class="capture-area-buttons">
-          <button
-            class="btn btn-secondary btn-area"
-            onClick={() => onCaptureArea("select")}
-            disabled={!canCapture || isCapturing}
-            type="button"
-            title="Draw a rectangle to select area"
-          >
-            <span class="btn-icon">
-              <SelectionIcon />
-            </span>
-            <span>Select Area</span>
-          </button>
-          <button
-            class="btn btn-secondary btn-area"
-            onClick={() => onCaptureArea("pick")}
-            disabled={!canCapture || isCapturing}
-            type="button"
-            title="Click on an element to capture"
-          >
-            <span class="btn-icon">
-              <TargetIcon />
-            </span>
-            <span>Pick Element</span>
-          </button>
-        </div>
-      </div>
+      {/* Select Area Button */}
+      <button
+        class="btn btn-secondary btn-capture"
+        onClick={onSelectArea}
+        disabled={!canCapture || isCapturing}
+        type="button"
+        title="Click on an element to capture it"
+      >
+        <span class="btn-icon">
+          <SelectionIcon />
+        </span>
+        <span>Select Area</span>
+      </button>
     </div>
   );
 }

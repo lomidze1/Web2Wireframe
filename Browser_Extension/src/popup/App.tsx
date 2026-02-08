@@ -112,27 +112,35 @@ export function App() {
     }
   };
 
-  const handleCaptureArea = async (mode: "select" | "pick") => {
+  const handleSelectArea = async () => {
     if (!currentTab?.id) return;
 
-    // Close popup and inject content script for area selection
     try {
-      await chrome.tabs.sendMessage(currentTab.id, {
-        type: mode === "select" ? "START_AREA_SELECT" : "START_ELEMENT_PICK",
+      // Store save option for auto-download after capture
+      await chrome.storage.session.set({
+        pendingSaveOption: saveOption,
       });
-      // Close popup - the content script will handle the selection
+
+      // Send message to background script to start CDP Inspect Mode
+      const response = await chrome.runtime.sendMessage({
+        type: "START_SELECTION",
+        tabId: currentTab.id,
+        options: { viewports },
+      });
+
+      if (!response?.success) {
+        throw new Error(response?.error || "Failed to start selection");
+      }
+
+      // Close popup - the background script handles the selection via CDP
       window.close();
     } catch (error) {
-      // Content script not injected, inject it first
-      await chrome.scripting.executeScript({
-        target: { tabId: currentTab.id },
-        files: [mode === "select" ? "content/areaSelector.js" : "content/elementPicker.js"],
+      setState({
+        status: "error",
+        progress: 0,
+        message: "",
+        error: error instanceof Error ? error.message : "Could not start selection. Please try again.",
       });
-      // Try again
-      await chrome.tabs.sendMessage(currentTab.id, {
-        type: mode === "select" ? "START_AREA_SELECT" : "START_ELEMENT_PICK",
-      });
-      window.close();
     }
   };
 
@@ -193,7 +201,7 @@ export function App() {
               isCapturing={isCapturing}
               canCapture={!!canCapture}
               onCapturePage={handleCapturePage}
-              onCaptureArea={handleCaptureArea}
+              onSelectArea={handleSelectArea}
             />
           </>
         )}

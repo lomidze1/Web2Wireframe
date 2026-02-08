@@ -321,6 +321,14 @@ export interface FigmaEffect {
   blurRadius?: number;
 }
 
+// Selection bounds (absolute page coordinates)
+export interface SelectionBounds {
+  x: number;      // absolute page X (includes scroll)
+  y: number;      // absolute page Y (includes scroll)
+  width: number;
+  height: number;
+}
+
 // Capture options (user selections before capture)
 // NOTE: Colors, Fonts, Text transformation options moved to Plugin (import-time)
 export interface CaptureOptions {
@@ -352,7 +360,15 @@ export type ExtensionMessage =
   | { type: "DOWNLOAD_FILE"; data: CaptureResult; filename: string }
   | { type: "GET_SETTINGS" }
   | { type: "UPDATE_SETTINGS"; settings: Partial<ExtensionSettings> }
-  | { type: "GET_CAPTURE_STATUS" };
+  | { type: "GET_CAPTURE_STATUS" }
+  // CDP Inspect Mode selection (background script)
+  | { type: "START_SELECTION"; tabId: number; options: CaptureOptions }
+  | { type: "CANCEL_SELECTION" }
+  // Content script UI messages
+  | { type: "SHOW_SELECTION_UI" }
+  | { type: "HIDE_SELECTION_UI" }
+  // Legacy (kept for compatibility)
+  | { type: "ELEMENT_PICKED"; selector: string; bounds: SelectionBounds; tabId: number; options: CaptureOptions };
 
 // Backend API response
 export interface BackendResponse {

@@ -32,6 +32,7 @@ function copyManifestPlugin() {
 export default defineConfig({
   plugins: [preact(), copyManifestPlugin()],
   publicDir: "public",
+  base: "./", // Use relative paths for Chrome extension compatibility
   build: {
     outDir: "dist",
     emptyOutDir: true,
