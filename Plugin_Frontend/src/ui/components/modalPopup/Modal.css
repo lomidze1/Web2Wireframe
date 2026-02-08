@@ -551,10 +551,21 @@
   background: rgba(42, 157, 143, 0.08);
 }
 
+.colorPickerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.colorPickerHeader:hover {
+  color: var(--accent);
+}
+
 .colorPickerSubtitle {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
-  margin-bottom: 12px;
   line-height: 1.4;
 }
 
@@ -1064,7 +1075,7 @@
 .importOptionsFooter {
   display: flex;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: 10px;
   padding-top: 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -1102,4 +1113,314 @@
 
 .importOptionsConfirmBtn:hover {
   filter: brightness(1.1);
+}
+
+/* ============================================================================
+   Unified Import Options Modal
+   ============================================================================ */
+
+.unifiedImportModal {
+  width: 380px;
+  max-width: 95%;
+  height: auto;
+  max-height: 90vh;
+  padding: 16px 20px;
+}
+
+.unifiedOptionsScroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.unifiedOptionRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.unifiedOptionLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.unifiedDropdown {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: rgba(var(--bg-rgb), 0.6);
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: "Montserrat", sans-serif;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+  appearance: none;
+  padding-right: 36px;
+}
+
+.unifiedDropdown:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background-color: rgba(var(--bg-rgb), 0.8);
+}
+
+.unifiedDropdown:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.unifiedDropdown option {
+  background: var(--bg);
+  color: var(--text);
+  padding: 8px;
+}
+
+.unifiedDontShowAgain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.unifiedDontShowAgain:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.unifiedDontShowAgain input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.unifiedDontShowAgain span {
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* Don't show again - compact toggle version */
+.dontShowAgainCompact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dontShowAgainLabel {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.dontShowAgainToggle {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.dontShowAgainToggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.dontShowAgainSlider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.12);
+  transition: 0.2s;
+  border-radius: 18px;
+}
+
+.dontShowAgainSlider::before {
+  position: absolute;
+  content: "";
+  height: 12px;
+  width: 12px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--muted);
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+.dontShowAgainToggle input:checked + .dontShowAgainSlider {
+  background-color: rgba(46, 204, 113, 0.3);
+}
+
+.dontShowAgainToggle input:checked + .dontShowAgainSlider::before {
+  transform: translateX(14px);
+  background-color: #2ecc71;
+}
+
+/* ============================================================================
+   Collapsible Config Sections
+   ============================================================================ */
+
+.configTitleCollapsible {
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 2px 0;
+  user-select: none;
+}
+
+.configTitleCollapsible:hover {
+  color: var(--accent);
+}
+
+.collapseArrow {
+  font-size: 12px;
+  color: var(--muted);
+  transition: transform 0.2s ease;
+  transform: rotate(-90deg);
+}
+
+.collapseArrowOpen {
+  transform: rotate(0deg);
+}
+
+/* Active state for expanded sections */
+.configSectionActive {
+  border-left: 2px solid var(--accent);
+  background: rgba(244, 162, 97, 0.04);
+}
+
+/* ============================================================================
+   Import Options Toggle Row (Config panel top)
+   ============================================================================ */
+
+.importOptionsToggleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: border-color 0.2s ease;
+}
+
+/* Enabled state - green border accent */
+.importOptionsToggleRow.toggleEnabled {
+  border-color: rgba(46, 204, 113, 0.2);
+}
+
+.importOptionsToggleIcon {
+  font-size: 14px;
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  transition: color 0.2s ease;
+}
+
+/* Enabled state - green icon */
+.toggleEnabled .importOptionsToggleIcon {
+  color: #2ecc71;
+}
+
+/* Eye Icon Animation */
+.eyeIcon {
+  position: absolute;
+  transition: opacity 0.2s ease;
+}
+
+.eyeIconVisible {
+  opacity: 1;
+}
+
+.eyeIconHidden {
+  opacity: 0;
+}
+
+.importOptionsToggleText {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+/* Enabled state - green text */
+.toggleEnabled .importOptionsToggleText {
+  color: #2ecc71;
+}
+
+.importOptionsToggleSwitch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+}
+
+.importOptionsToggleSwitch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.importOptionsToggleSlider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.12);
+  transition: 0.2s;
+  border-radius: 20px;
+}
+
+.importOptionsToggleSlider::before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--muted);
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+.importOptionsToggleSwitch input:checked + .importOptionsToggleSlider {
+  background-color: rgba(46, 204, 113, 0.3);
+}
+
+.importOptionsToggleSwitch input:checked + .importOptionsToggleSlider::before {
+  transform: translateX(16px);
+  background-color: #2ecc71;
 }

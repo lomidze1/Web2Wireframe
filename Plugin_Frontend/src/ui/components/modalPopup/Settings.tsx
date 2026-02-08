@@ -1,5 +1,5 @@
 /** @jsx h */
-import { h } from "preact";
+import { h, Fragment } from "preact";
 import { useState, useEffect } from "preact/hooks";
 import styles from "./Modal.css";
 import {
@@ -17,6 +17,48 @@ interface SettingsProps {
 type Panel = "terminology" | "config" | "tutorials";
 type TerminologyTab = "viewports" | "colors" | "fonts" | "text";
 
+// Collapsible section states
+interface CollapsibleState {
+  viewports: boolean;
+  colors: boolean;
+  pluginColors: boolean;
+  fonts: boolean;
+  text: boolean;
+}
+
+// localStorage key for collapsed states
+const COLLAPSED_STORAGE_KEY = "w2w_settings_collapsed";
+
+// Default collapsed state (all collapsed)
+const DEFAULT_COLLAPSED: CollapsibleState = {
+  viewports: true,
+  colors: true,
+  pluginColors: true,
+  fonts: true,
+  text: true,
+};
+
+// Safe localStorage helpers
+const safeGetCollapsed = (): CollapsibleState => {
+  try {
+    const saved = localStorage.getItem(COLLAPSED_STORAGE_KEY);
+    if (saved) {
+      return { ...DEFAULT_COLLAPSED, ...JSON.parse(saved) };
+    }
+  } catch {
+    // localStorage not available
+  }
+  return DEFAULT_COLLAPSED;
+};
+
+const safeSaveCollapsed = (state: CollapsibleState): void => {
+  try {
+    localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage not available
+  }
+};
+
 export default function Settings({
   isOpen,
   onClose,
@@ -26,6 +68,16 @@ export default function Settings({
   const [activeTermTab, setActiveTermTab] =
     useState<TerminologyTab>("viewports");
   const { config, updateConfig } = useConfig();
+  const [collapsed, setCollapsed] =
+    useState<CollapsibleState>(safeGetCollapsed);
+
+  const toggleCollapse = (section: keyof CollapsibleState) => {
+    setCollapsed((prev) => {
+      const newState = { ...prev, [section]: !prev[section] };
+      safeSaveCollapsed(newState);
+      return newState;
+    });
+  };
 
   // Set active panel based on initialPanel prop
   useEffect(() => {
@@ -134,6 +186,61 @@ export default function Settings({
               >
                 Text
               </button>
+            </div>
+          )}
+
+          {/* Import Options Toggle - Outside scroll area for Config panel */}
+          {activePanel === "config" && (
+            <div class={`${styles.importOptionsToggleRow} ${config.showImportOptions ? styles.toggleEnabled : ""}`}>
+              <span class={styles.importOptionsToggleIcon}>
+                {/* Eye Open SVG */}
+                <svg
+                  class={`${styles.eyeIcon} ${config.showImportOptions ? styles.eyeIconVisible : styles.eyeIconHidden}`}
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                {/* Eye Closed SVG */}
+                <svg
+                  class={`${styles.eyeIcon} ${config.showImportOptions ? styles.eyeIconHidden : styles.eyeIconVisible}`}
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              </span>
+              <span class={styles.importOptionsToggleText}>
+                Import options popup is{" "}
+                {config.showImportOptions ? "enabled" : "disabled"} for W2W
+                files.
+              </span>
+              <label class={styles.importOptionsToggleSwitch}>
+                <input
+                  type="checkbox"
+                  checked={config.showImportOptions}
+                  onChange={(e) =>
+                    updateConfig({
+                      showImportOptions: (e.target as HTMLInputElement).checked,
+                    })
+                  }
+                />
+                <span class={styles.importOptionsToggleSlider}></span>
+              </label>
             </div>
           )}
 
@@ -246,484 +353,585 @@ export default function Settings({
             {/* CONFIGURATION PANEL */}
             {activePanel === "config" && (
               <div class={styles.configStack}>
-                <div class={styles.configSection}>
-                  <div class={styles.configTitle}>Viewports</div>
-                  <div class={styles.configSubtitle}>
-                    Select default viewport sizes for wireframe generation. You
-                    can choose multiple sizes.
+                {/* Viewports - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.viewports ? styles.configSectionActive : ""}`}
+                >
+                  <div
+                    class={styles.configTitleCollapsible}
+                    onClick={() => toggleCollapse("viewports")}
+                  >
+                    <span>Viewports</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.viewports ? "" : styles.collapseArrowOpen}`}
+                    >
+                      ▾
+                    </span>
                   </div>
-                  <div class={styles.checkboxGrid}>
-                    {VIEWPORT_OPTIONS.map((opt) => (
-                      <label
-                        key={opt.value}
-                        class={`${styles.checkboxItem} ${
-                          config.viewports.includes(opt.value)
-                            ? styles.checked
-                            : ""
-                        }`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          toggleViewport(opt.value);
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={config.viewports.includes(opt.value)}
-                          readOnly
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
+                  {!collapsed.viewports && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Select default viewport sizes for wireframe generation.
+                        You can choose multiple sizes.
+                      </div>
+                      <div class={styles.checkboxGrid}>
+                        {VIEWPORT_OPTIONS.map((opt) => (
+                          <label
+                            key={opt.value}
+                            class={`${styles.checkboxItem} ${
+                              config.viewports.includes(opt.value)
+                                ? styles.checked
+                                : ""
+                            }`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              toggleViewport(opt.value);
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={config.viewports.includes(opt.value)}
+                              readOnly
+                            />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    </Fragment>
+                  )}
                 </div>
 
-                <div class={styles.configSection}>
-                  <div class={styles.configTitle}>Colors</div>
-                  <div class={styles.configSubtitle}>
-                    Choose the color source for generated wireframes.
-                  </div>
-                  <div class={styles.configOptions}>
-                    <label
-                      class={`${styles.radioItem} ${
-                        config.colorMode === "plugin"
-                          ? styles.radioItemActive
-                          : ""
-                      }`}
+                {/* Colors - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.colors ? styles.configSectionActive : ""}`}
+                >
+                  <div
+                    class={styles.configTitleCollapsible}
+                    onClick={() => toggleCollapse("colors")}
+                  >
+                    <span>Colors</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.colors ? "" : styles.collapseArrowOpen}`}
                     >
-                      <input
-                        type="radio"
-                        name="config-color-mode"
-                        value="plugin"
-                        checked={config.colorMode === "plugin"}
-                        onChange={() => updateConfig({ colorMode: "plugin" })}
-                      />
-                      <div class={styles.radioLabel}>
-                        <strong>Plugin Colors</strong>
-                        <span>Use plugin's default color palette.</span>
-                      </div>
-                    </label>
-
-                    {/* Color Picker Grid - shown when Plugin Colors is selected */}
-                    {config.colorMode === "plugin" && (
-                      <div class={styles.colorPickerSection}>
-                        <div class={styles.colorPickerSubtitle}>
-                          Replace default plugin colors. Drag or type your
-                          values to match branding or stay fast with defaults.
-                        </div>
-                        <div class={styles.colorGrid}>
-                          {/* Main Color */}
-                          <div class={styles.colorCard}>
-                            <div class={styles.colorSwatch}>
-                              <input
-                                type="color"
-                                value={
-                                  config.pluginColors?.main ||
-                                  DEFAULT_PLUGIN_COLORS.main
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      main: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                            <div class={styles.colorBody}>
-                              <div class={styles.colorLabel}>
-                                Plugin variable: main
-                              </div>
-                              <input
-                                type="text"
-                                class={styles.colorInput}
-                                value={
-                                  config.pluginColors?.main ||
-                                  DEFAULT_PLUGIN_COLORS.main
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      main: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          {/* Text Color */}
-                          <div class={styles.colorCard}>
-                            <div class={styles.colorSwatch}>
-                              <input
-                                type="color"
-                                value={
-                                  config.pluginColors?.text ||
-                                  DEFAULT_PLUGIN_COLORS.text
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      text: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                            <div class={styles.colorBody}>
-                              <div class={styles.colorLabel}>
-                                Plugin variable: text
-                              </div>
-                              <input
-                                type="text"
-                                class={styles.colorInput}
-                                value={
-                                  config.pluginColors?.text ||
-                                  DEFAULT_PLUGIN_COLORS.text
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      text: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          {/* Accent Color */}
-                          <div class={styles.colorCard}>
-                            <div class={styles.colorSwatch}>
-                              <input
-                                type="color"
-                                value={
-                                  config.pluginColors?.accent ||
-                                  DEFAULT_PLUGIN_COLORS.accent
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      accent: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                            <div class={styles.colorBody}>
-                              <div class={styles.colorLabel}>
-                                Plugin variable: accent
-                              </div>
-                              <input
-                                type="text"
-                                class={styles.colorInput}
-                                value={
-                                  config.pluginColors?.accent ||
-                                  DEFAULT_PLUGIN_COLORS.accent
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      accent: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          {/* Surface Color */}
-                          <div class={styles.colorCard}>
-                            <div class={styles.colorSwatch}>
-                              <input
-                                type="color"
-                                value={
-                                  config.pluginColors?.surface ||
-                                  DEFAULT_PLUGIN_COLORS.surface
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      surface: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                            <div class={styles.colorBody}>
-                              <div class={styles.colorLabel}>
-                                Plugin variable: surface
-                              </div>
-                              <input
-                                type="text"
-                                class={styles.colorInput}
-                                value={
-                                  config.pluginColors?.surface ||
-                                  DEFAULT_PLUGIN_COLORS.surface
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      surface: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          {/* Border Color */}
-                          <div class={styles.colorCard}>
-                            <div class={styles.colorSwatch}>
-                              <input
-                                type="color"
-                                value={
-                                  config.pluginColors?.border ||
-                                  DEFAULT_PLUGIN_COLORS.border
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      border: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                            <div class={styles.colorBody}>
-                              <div class={styles.colorLabel}>
-                                Plugin variable: border
-                              </div>
-                              <input
-                                type="text"
-                                class={styles.colorInput}
-                                value={
-                                  config.pluginColors?.border ||
-                                  DEFAULT_PLUGIN_COLORS.border
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      border: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          {/* Background Color */}
-                          <div class={styles.colorCard}>
-                            <div class={styles.colorSwatch}>
-                              <input
-                                type="color"
-                                value={
-                                  config.pluginColors?.background ||
-                                  DEFAULT_PLUGIN_COLORS.background
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      background: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                            <div class={styles.colorBody}>
-                              <div class={styles.colorLabel}>
-                                Plugin variable: background
-                              </div>
-                              <input
-                                type="text"
-                                class={styles.colorInput}
-                                value={
-                                  config.pluginColors?.background ||
-                                  DEFAULT_PLUGIN_COLORS.background
-                                }
-                                onChange={(e) =>
-                                  updateConfig({
-                                    pluginColors: {
-                                      ...config.pluginColors,
-                                      background: (e.target as HTMLInputElement)
-                                        .value,
-                                    },
-                                  })
-                                }
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <label
-                      class={`${styles.radioItem} ${
-                        config.colorMode === "website"
-                          ? styles.radioItemActive
-                          : ""
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="config-color-mode"
-                        value="website"
-                        checked={config.colorMode === "website"}
-                        onChange={() => updateConfig({ colorMode: "website" })}
-                      />
-                      <div class={styles.radioLabel}>
-                        <strong>Website Colors</strong>
-                        <span>
-                          Use colors detected from the imported website.
-                        </span>
-                      </div>
-                    </label>
+                      ▾
+                    </span>
                   </div>
+                  {!collapsed.colors && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Choose the color source for generated wireframes.
+                      </div>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.colorMode === "plugin"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-color-mode"
+                            value="plugin"
+                            checked={config.colorMode === "plugin"}
+                            onChange={() =>
+                              updateConfig({ colorMode: "plugin" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Plugin Colors</strong>
+                            <span>Use plugin's default color palette.</span>
+                          </div>
+                        </label>
+
+                        {/* Color Picker Grid - shown when Plugin Colors is selected */}
+                        {config.colorMode === "plugin" && (
+                          <div class={styles.colorPickerSection}>
+                            <div
+                              class={styles.colorPickerHeader}
+                              onClick={() => toggleCollapse("pluginColors")}
+                            >
+                              <span class={styles.colorPickerSubtitle}>
+                                Replace default plugin colors. Drag or type your
+                                values to match branding or stay fast with
+                                defaults.
+                              </span>
+                              <span
+                                class={`${styles.collapseArrow} ${collapsed.pluginColors ? "" : styles.collapseArrowOpen}`}
+                              >
+                                ▾
+                              </span>
+                            </div>
+                            {!collapsed.pluginColors && (
+                              <div class={styles.colorGrid}>
+                                {/* Main Color */}
+                                <div class={styles.colorCard}>
+                                  <div class={styles.colorSwatch}>
+                                    <input
+                                      type="color"
+                                      value={
+                                        config.pluginColors?.main ||
+                                        DEFAULT_PLUGIN_COLORS.main
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            main: (e.target as HTMLInputElement)
+                                              .value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div class={styles.colorBody}>
+                                    <div class={styles.colorLabel}>
+                                      Plugin variable: main
+                                    </div>
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.main ||
+                                        DEFAULT_PLUGIN_COLORS.main
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            main: (e.target as HTMLInputElement)
+                                              .value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Text Color */}
+                                <div class={styles.colorCard}>
+                                  <div class={styles.colorSwatch}>
+                                    <input
+                                      type="color"
+                                      value={
+                                        config.pluginColors?.text ||
+                                        DEFAULT_PLUGIN_COLORS.text
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            text: (e.target as HTMLInputElement)
+                                              .value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div class={styles.colorBody}>
+                                    <div class={styles.colorLabel}>
+                                      Plugin variable: text
+                                    </div>
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.text ||
+                                        DEFAULT_PLUGIN_COLORS.text
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            text: (e.target as HTMLInputElement)
+                                              .value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Accent Color */}
+                                <div class={styles.colorCard}>
+                                  <div class={styles.colorSwatch}>
+                                    <input
+                                      type="color"
+                                      value={
+                                        config.pluginColors?.accent ||
+                                        DEFAULT_PLUGIN_COLORS.accent
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            accent: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div class={styles.colorBody}>
+                                    <div class={styles.colorLabel}>
+                                      Plugin variable: accent
+                                    </div>
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.accent ||
+                                        DEFAULT_PLUGIN_COLORS.accent
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            accent: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Surface Color */}
+                                <div class={styles.colorCard}>
+                                  <div class={styles.colorSwatch}>
+                                    <input
+                                      type="color"
+                                      value={
+                                        config.pluginColors?.surface ||
+                                        DEFAULT_PLUGIN_COLORS.surface
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            surface: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div class={styles.colorBody}>
+                                    <div class={styles.colorLabel}>
+                                      Plugin variable: surface
+                                    </div>
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.surface ||
+                                        DEFAULT_PLUGIN_COLORS.surface
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            surface: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Border Color */}
+                                <div class={styles.colorCard}>
+                                  <div class={styles.colorSwatch}>
+                                    <input
+                                      type="color"
+                                      value={
+                                        config.pluginColors?.border ||
+                                        DEFAULT_PLUGIN_COLORS.border
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            border: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div class={styles.colorBody}>
+                                    <div class={styles.colorLabel}>
+                                      Plugin variable: border
+                                    </div>
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.border ||
+                                        DEFAULT_PLUGIN_COLORS.border
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            border: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Background Color */}
+                                <div class={styles.colorCard}>
+                                  <div class={styles.colorSwatch}>
+                                    <input
+                                      type="color"
+                                      value={
+                                        config.pluginColors?.background ||
+                                        DEFAULT_PLUGIN_COLORS.background
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            background: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div class={styles.colorBody}>
+                                    <div class={styles.colorLabel}>
+                                      Plugin variable: background
+                                    </div>
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.background ||
+                                        DEFAULT_PLUGIN_COLORS.background
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            background: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.colorMode === "website"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-color-mode"
+                            value="website"
+                            checked={config.colorMode === "website"}
+                            onChange={() =>
+                              updateConfig({ colorMode: "website" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Website Colors</strong>
+                            <span>
+                              Use colors detected from the imported website.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </Fragment>
+                  )}
                 </div>
 
-                <div class={styles.configSection}>
-                  <div class={styles.configTitle}>Fonts</div>
-                  <div class={styles.configSubtitle}>
-                    Choose the font source for generated text.
-                  </div>
-                  <div class={styles.configOptions}>
-                    <label
-                      class={`${styles.radioItem} ${
-                        config.fontMode === "plugin"
-                          ? styles.radioItemActive
-                          : ""
-                      }`}
+                {/* Fonts - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.fonts ? styles.configSectionActive : ""}`}
+                >
+                  <div
+                    class={styles.configTitleCollapsible}
+                    onClick={() => toggleCollapse("fonts")}
+                  >
+                    <span>Fonts</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.fonts ? "" : styles.collapseArrowOpen}`}
                     >
-                      <input
-                        type="radio"
-                        name="config-font-mode"
-                        value="plugin"
-                        checked={config.fontMode === "plugin"}
-                        onChange={() => updateConfig({ fontMode: "plugin" })}
-                      />
-                      <div class={styles.radioLabel}>
-                        <strong>Plugin Fonts</strong>
-                        <span>Use plugin's default fonts.</span>
-                      </div>
-                    </label>
-                    <label
-                      class={`${styles.radioItem} ${
-                        config.fontMode === "website"
-                          ? styles.radioItemActive
-                          : ""
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="config-font-mode"
-                        value="website"
-                        checked={config.fontMode === "website"}
-                        onChange={() => updateConfig({ fontMode: "website" })}
-                      />
-                      <div class={styles.radioLabel}>
-                        <strong>Website Fonts</strong>
-                        <span>
-                          Use fonts detected from the imported website.
-                        </span>
-                      </div>
-                    </label>
+                      ▾
+                    </span>
                   </div>
+                  {!collapsed.fonts && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Choose the font source for generated text.
+                      </div>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.fontMode === "plugin"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-font-mode"
+                            value="plugin"
+                            checked={config.fontMode === "plugin"}
+                            onChange={() =>
+                              updateConfig({ fontMode: "plugin" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Plugin Fonts</strong>
+                            <span>Use plugin's default fonts.</span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.fontMode === "website"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-font-mode"
+                            value="website"
+                            checked={config.fontMode === "website"}
+                            onChange={() =>
+                              updateConfig({ fontMode: "website" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Website Fonts</strong>
+                            <span>
+                              Use fonts detected from the imported website.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </Fragment>
+                  )}
                 </div>
 
-                <div class={styles.configSection}>
-                  <div class={styles.configTitle}>Text</div>
-                  <div class={styles.configSubtitle}>
-                    Control how copy is generated during import.
+                {/* Text - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.text ? styles.configSectionActive : ""}`}
+                >
+                  <div
+                    class={styles.configTitleCollapsible}
+                    onClick={() => toggleCollapse("text")}
+                  >
+                    <span>Text</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.text ? "" : styles.collapseArrowOpen}`}
+                    >
+                      ▾
+                    </span>
                   </div>
-                  <div class={styles.configOptions}>
-                    <label
-                      class={`${styles.radioItem} ${
-                        config.textMode === "semantic"
-                          ? styles.radioItemActive
-                          : ""
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="config-text-mode"
-                        value="semantic"
-                        checked={config.textMode === "semantic"}
-                        onChange={() => updateConfig({ textMode: "semantic" })}
-                      />
-                      <div class={styles.radioLabel}>
-                        <strong>Semantic Placeholders</strong>
-                        <span>
-                          Use labels like "Heading 1", "Paragraph", and "List
-                          item" instead of real copy.
-                        </span>
+                  {!collapsed.text && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Control how copy is generated during import.
                       </div>
-                    </label>
-                    <label
-                      class={`${styles.radioItem} ${
-                        config.textMode === "lorem"
-                          ? styles.radioItemActive
-                          : ""
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="config-text-mode"
-                        value="lorem"
-                        checked={config.textMode === "lorem"}
-                        onChange={() => updateConfig({ textMode: "lorem" })}
-                      />
-                      <div class={styles.radioLabel}>
-                        <strong>Lorem Ipsum</strong>
-                        <span>
-                          Keep lengths matched to the original website text
-                          while swapping to Lorem Ipsum.
-                        </span>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.textMode === "semantic"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-text-mode"
+                            value="semantic"
+                            checked={config.textMode === "semantic"}
+                            onChange={() =>
+                              updateConfig({ textMode: "semantic" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Semantic Placeholders</strong>
+                            <span>
+                              Use labels like "Heading 1", "Paragraph", and
+                              "List item" instead of real copy.
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.textMode === "lorem"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-text-mode"
+                            value="lorem"
+                            checked={config.textMode === "lorem"}
+                            onChange={() => updateConfig({ textMode: "lorem" })}
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Lorem Ipsum</strong>
+                            <span>
+                              Keep lengths matched to the original website text
+                              while swapping to Lorem Ipsum.
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.textMode === "website"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-text-mode"
+                            value="website"
+                            checked={config.textMode === "website"}
+                            onChange={() =>
+                              updateConfig({ textMode: "website" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Website Text</strong>
+                            <span>
+                              Keep the website's original text with its original
+                              size/length.
+                            </span>
+                          </div>
+                        </label>
                       </div>
-                    </label>
-                    <label
-                      class={`${styles.radioItem} ${
-                        config.textMode === "website"
-                          ? styles.radioItemActive
-                          : ""
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="config-text-mode"
-                        value="website"
-                        checked={config.textMode === "website"}
-                        onChange={() => updateConfig({ textMode: "website" })}
-                      />
-                      <div class={styles.radioLabel}>
-                        <strong>Website Text</strong>
-                        <span>
-                          Keep the website's original text with its original
-                          size/length.
-                        </span>
-                      </div>
-                    </label>
-                  </div>
+                    </Fragment>
+                  )}
                 </div>
               </div>
             )}

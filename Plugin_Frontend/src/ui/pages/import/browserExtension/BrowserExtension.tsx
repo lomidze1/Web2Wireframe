@@ -3,13 +3,10 @@ import { h } from "preact";
 import { useState, useEffect, useRef } from "preact/hooks";
 import styles from "./BrowserExtension.css";
 import ImportOptionsModal, {
-  type ImportOptions,
+  type UnifiedImportOptions,
 } from "../../../components/modalPopup/ImportOptionsModal";
 import { transformFramesData } from "../../../shared/transformData";
 import { useConfig } from "../../../shared/ConfigContext";
-import VariablesChoiceModal, {
-  type VariableMode,
-} from "../../../components/modalPopup/VariablesChoiceModal";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -22,7 +19,7 @@ const POLL_INTERVAL = 2000;
 
 // Import state type
 interface ImportState {
-  status: "idle" | "waiting" | "options" | "variables" | "importing" | "success" | "error";
+  status: "idle" | "waiting" | "options" | "importing" | "success" | "error";
   message: string;
 }
 
@@ -46,8 +43,7 @@ export default function BrowserExtension() {
   });
   const [pendingData, setPendingData] = useState<PendingData | null>(null);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
-  const [showVariablesModal, setShowVariablesModal] = useState(false);
-  const [selectedOptions, setSelectedOptions] = useState<ImportOptions | null>(null);
+  const [hasCssVariables, setHasCssVariables] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
@@ -66,7 +62,7 @@ export default function BrowserExtension() {
 
       if (data.success && data.hasPending) {
         // Found pending data!
-        setPendingData({
+        const newPendingData = {
           importId: data.importId,
           sourceUrl: data.sourceUrl,
           title: data.title,
@@ -76,15 +72,42 @@ export default function BrowserExtension() {
           localStyles: data.localStyles,
           fonts: data.fonts,
           cssVariables: data.cssVariables,
-        });
+        };
+        setPendingData(newPendingData);
 
-        // Stop polling and show options modal
+        // Check for CSS variables
+        const hasCSSVars = Boolean(data.cssVariables && data.cssVariables.length > 0);
+        setHasCssVariables(hasCSSVars);
+
+        // Stop polling
         stopPolling();
-        setImportState({
-          status: "options",
-          message: `Received: ${data.title || data.sourceUrl}`,
-        });
-        setShowOptionsModal(true);
+
+        // Check if we should show import options modal
+        if (config.showImportOptions) {
+          setImportState({
+            status: "options",
+            message: `Received: ${data.title || data.sourceUrl}`,
+          });
+          setShowOptionsModal(true);
+        } else {
+          // Use defaults from config without showing modal
+          setImportState({ status: "importing", message: "Creating wireframe..." });
+          const transformedFrames = transformFramesData(
+            newPendingData.wireframeData.frames as Parameters<typeof transformFramesData>[0],
+            {
+              colorMode: config.colorMode,
+              fontMode: config.fontMode,
+              textMode: config.textMode,
+            }
+          );
+          sendToFigmaWithOptions(transformedFrames, newPendingData, {
+            colorMode: config.colorMode,
+            fontMode: config.fontMode,
+            textMode: config.textMode,
+            cssVariablesMode: config.cssVariablesDefault,
+            layoutMode: config.layoutModeDefault,
+          });
+        }
       }
     } catch (error) {
       console.error("Error checking for pending import:", error);
@@ -148,7 +171,7 @@ export default function BrowserExtension() {
             setRenderingProgress(undefined);
             setImportState({ status: "idle", message: "" });
             setPendingData(null);
-            setSelectedOptions(null);
+            setHasCssVariables(false);
           }, 10000); // Show success state for 10 seconds
         }
       }
@@ -172,14 +195,13 @@ export default function BrowserExtension() {
   }, []);
 
   /**
-   * Send wireframe data to Figma
+   * Send wireframe data to Figma with unified options
    */
-  const sendToFigma = (
+  const sendToFigmaWithOptions = (
     frames: unknown[],
-    variableMode: VariableMode
+    data: PendingData,
+    options: UnifiedImportOptions
   ) => {
-    if (!pendingData) return;
-
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({
@@ -193,11 +215,15 @@ export default function BrowserExtension() {
           type: "render-wireframe",
           data: {
             frames,
-            sourceUrl: pendingData.sourceUrl,
-            localStyles: pendingData.localStyles,
+            sourceUrl: data.sourceUrl,
+            localStyles: data.localStyles,
             pluginColors: config.pluginColors,
-            cssVariables: pendingData.cssVariables || [],
-            variableMode,
+            cssVariables: data.cssVariables || [],
+            variableMode: options.cssVariablesMode,
+            layoutMode: options.layoutMode,
+            colorMode: options.colorMode,
+            fontMode: options.fontMode,
+            textMode: options.textMode,
           },
         },
       },
@@ -209,38 +235,24 @@ export default function BrowserExtension() {
   /**
    * Handle import options confirmation
    */
-  const handleOptionsConfirm = (options: ImportOptions) => {
+  const handleOptionsConfirm = (options: UnifiedImportOptions) => {
     setShowOptionsModal(false);
-    setSelectedOptions(options);
 
     if (!pendingData) return;
 
     // Transform data based on options
     const transformedFrames = transformFramesData(
       pendingData.wireframeData.frames as Parameters<typeof transformFramesData>[0],
-      options
+      {
+        colorMode: options.colorMode,
+        fontMode: options.fontMode,
+        textMode: options.textMode,
+      }
     );
 
-    // Check if CSS variables exist
-    const hasCSSVariables =
-      pendingData.cssVariables && pendingData.cssVariables.length > 0;
-
-    if (hasCSSVariables) {
-      // Show variables modal
-      setImportState({
-        status: "variables",
-        message: "Choose how to handle CSS variables...",
-      });
-      setShowVariablesModal(true);
-      // Store transformed frames for later
-      setPendingData((prev) =>
-        prev ? { ...prev, wireframeData: { frames: transformedFrames } } : null
-      );
-    } else {
-      // No CSS variables - proceed directly
-      setImportState({ status: "importing", message: "Creating wireframe..." });
-      sendToFigma(transformedFrames, "direct");
-    }
+    // Proceed directly with all options
+    setImportState({ status: "importing", message: "Creating wireframe..." });
+    sendToFigmaWithOptions(transformedFrames, pendingData, options);
   };
 
   /**
@@ -249,18 +261,8 @@ export default function BrowserExtension() {
   const handleOptionsCancel = () => {
     setShowOptionsModal(false);
     setPendingData(null);
+    setHasCssVariables(false);
     setImportState({ status: "idle", message: "" });
-  };
-
-  /**
-   * Handle variables choice
-   */
-  const handleVariablesChoice = (mode: VariableMode) => {
-    setShowVariablesModal(false);
-    if (pendingData) {
-      setImportState({ status: "importing", message: "Creating wireframe..." });
-      sendToFigma(pendingData.wireframeData.frames, mode);
-    }
   };
 
   /**
@@ -357,18 +359,13 @@ export default function BrowserExtension() {
         </button>
       </div>
 
-      {/* Import Options Modal */}
+      {/* Unified Import Options Modal */}
       <ImportOptionsModal
         isOpen={showOptionsModal}
         onConfirm={handleOptionsConfirm}
         onCancel={handleOptionsCancel}
         sourceUrl={pendingData?.sourceUrl}
-      />
-
-      {/* CSS Variables Choice Modal */}
-      <VariablesChoiceModal
-        isOpen={showVariablesModal}
-        onChoice={handleVariablesChoice}
+        hasCssVariables={hasCssVariables}
       />
 
       {/* Rendering Loader Overlay */}
@@ -380,7 +377,7 @@ export default function BrowserExtension() {
           setRenderingProgress(undefined);
           setImportState({ status: "idle", message: "" });
           setPendingData(null);
-          setSelectedOptions(null);
+          setHasCssVariables(false);
         }}
       />
     </div>

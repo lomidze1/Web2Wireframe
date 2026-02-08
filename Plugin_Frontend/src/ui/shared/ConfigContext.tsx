@@ -18,6 +18,10 @@ export interface PluginConfig {
   fontMode: "plugin" | "website";
   textMode: "semantic" | "lorem" | "website";
   pluginColors: PluginColors;
+  // Import options settings
+  showImportOptions: boolean;
+  cssVariablesDefault: "styles" | "direct";
+  layoutModeDefault: "autoLayout" | "absolute";
 }
 
 // Default plugin colors - 6 color palette for wireframes
@@ -37,6 +41,10 @@ export const DEFAULT_CONFIG: PluginConfig = {
   fontMode: "plugin",
   textMode: "semantic",
   pluginColors: { ...DEFAULT_PLUGIN_COLORS },
+  // Import options defaults
+  showImportOptions: true,
+  cssVariablesDefault: "direct",
+  layoutModeDefault: "autoLayout",
 };
 
 // Available viewport options

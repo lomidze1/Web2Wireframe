@@ -4,12 +4,9 @@ import { useState, useRef, useEffect } from "preact/hooks";
 import { decode } from "@msgpack/msgpack";
 import styles from "./AreaSelection.css";
 import { useConfig } from "../../../shared/ConfigContext";
-import VariablesChoiceModal, {
-  type VariableMode,
-} from "../../../components/modalPopup/VariablesChoiceModal";
-import LayoutChoiceModal, {
-  type LayoutMode,
-} from "../../../components/modalPopup/LayoutChoiceModal";
+import ImportOptionsModal, {
+  type UnifiedImportOptions,
+} from "../../../components/modalPopup/ImportOptionsModal";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -403,12 +400,10 @@ export default function AreaSelection() {
     status: "idle",
     message: "",
   });
-  const [showVariablesModal, setShowVariablesModal] = useState(false);
-  const [showLayoutModal, setShowLayoutModal] = useState(false);
+  const [showImportOptionsModal, setShowImportOptionsModal] = useState(false);
+  const [hasCssVariables, setHasCssVariables] = useState(false);
   const [pendingCaptureResult, setPendingCaptureResult] =
     useState<UnifiedCaptureResult | null>(null);
-  const [pendingVariableMode, setPendingVariableMode] =
-    useState<VariableMode>("direct");
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
@@ -435,7 +430,7 @@ export default function AreaSelection() {
             setFileName(null);
             fileDataRef.current = null;
             setPendingCaptureResult(null);
-            setPendingVariableMode("direct");
+            setHasCssVariables(false);
             if (fileInputRef.current) {
               fileInputRef.current.value = "";
             }
@@ -483,8 +478,7 @@ export default function AreaSelection() {
    */
   const processAndRender = (
     captureResult: UnifiedCaptureResult,
-    variableMode: VariableMode,
-    layoutMode: LayoutMode
+    options: UnifiedImportOptions
   ) => {
     // Show the rendering loader
     setShowRenderingLoader(true);
@@ -508,7 +502,7 @@ export default function AreaSelection() {
       };
     });
 
-    // Send to Figma main thread with variable mode and layout mode
+    // Send to Figma main thread with all options
     parent.postMessage(
       {
         pluginMessage: {
@@ -518,8 +512,12 @@ export default function AreaSelection() {
             sourceUrl: captureResult.url,
             pluginColors: config.pluginColors,
             cssVariables: captureResult.cssVariables || [],
-            variableMode, // "styles" or "direct"
-            layoutMode,   // "autoLayout" or "absolute"
+            variableMode: options.cssVariablesMode,
+            layoutMode: options.layoutMode,
+            // Pass additional options for future use
+            colorMode: options.colorMode,
+            fontMode: options.fontMode,
+            textMode: options.textMode,
           },
         },
       },
@@ -529,23 +527,23 @@ export default function AreaSelection() {
   };
 
   /**
-   * Handle variable mode choice from modal - then show layout modal
+   * Handle import options confirm from unified modal
    */
-  const handleVariableChoice = (mode: VariableMode) => {
-    setShowVariablesModal(false);
-    setPendingVariableMode(mode);
-    // Show layout choice modal next
-    setShowLayoutModal(true);
+  const handleImportOptionsConfirm = (options: UnifiedImportOptions) => {
+    setShowImportOptionsModal(false);
+    if (pendingCaptureResult) {
+      processAndRender(pendingCaptureResult, options);
+    }
   };
 
   /**
-   * Handle layout mode choice from modal - then render
+   * Handle import options cancel
    */
-  const handleLayoutChoice = (mode: LayoutMode) => {
-    setShowLayoutModal(false);
-    if (pendingCaptureResult) {
-      processAndRender(pendingCaptureResult, pendingVariableMode, mode);
-    }
+  const handleImportOptionsCancel = () => {
+    setShowImportOptionsModal(false);
+    setPendingCaptureResult(null);
+    setHasCssVariables(false);
+    setImportState({ status: "idle", message: "" });
   };
 
   const handleGenerate = async () => {
@@ -586,18 +584,27 @@ export default function AreaSelection() {
       }
 
       // Check if CSS variables exist
-      const hasCSSVariables =
-        unifiedResult.cssVariables && unifiedResult.cssVariables.length > 0;
+      const hasCSSVars = Boolean(
+        unifiedResult.cssVariables && unifiedResult.cssVariables.length > 0
+      );
+      setHasCssVariables(hasCSSVars);
 
-      if (hasCSSVariables) {
-        // Show CSS variables modal first, then layout modal
-        setPendingCaptureResult(unifiedResult);
-        setShowVariablesModal(true);
+      // Store result for processing
+      setPendingCaptureResult(unifiedResult);
+
+      // Check if we should show import options modal
+      if (config.showImportOptions) {
+        // Show unified import options modal
+        setShowImportOptionsModal(true);
       } else {
-        // No CSS variables - skip to layout modal
-        setPendingCaptureResult(unifiedResult);
-        setPendingVariableMode("direct");
-        setShowLayoutModal(true);
+        // Use defaults from config without showing modal
+        processAndRender(unifiedResult, {
+          colorMode: config.colorMode,
+          fontMode: config.fontMode,
+          textMode: config.textMode,
+          cssVariablesMode: config.cssVariablesDefault,
+          layoutMode: config.layoutModeDefault,
+        });
       }
     } catch (error) {
       console.error("Import error:", error);
@@ -695,16 +702,13 @@ export default function AreaSelection() {
           : "Generate Wireframe"}
       </button>
 
-      {/* CSS Variables Choice Modal */}
-      <VariablesChoiceModal
-        isOpen={showVariablesModal}
-        onChoice={handleVariableChoice}
-      />
-
-      {/* Layout Mode Choice Modal */}
-      <LayoutChoiceModal
-        isOpen={showLayoutModal}
-        onChoice={handleLayoutChoice}
+      {/* Unified Import Options Modal */}
+      <ImportOptionsModal
+        isOpen={showImportOptionsModal}
+        onConfirm={handleImportOptionsConfirm}
+        onCancel={handleImportOptionsCancel}
+        sourceUrl={pendingCaptureResult?.url}
+        hasCssVariables={hasCssVariables}
       />
 
       {/* Rendering Loader Overlay */}
@@ -718,7 +722,7 @@ export default function AreaSelection() {
           setFileName(null);
           fileDataRef.current = null;
           setPendingCaptureResult(null);
-          setPendingVariableMode("direct");
+          setHasCssVariables(false);
           if (fileInputRef.current) {
             fileInputRef.current.value = "";
           }

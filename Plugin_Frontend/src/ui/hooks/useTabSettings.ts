@@ -29,12 +29,16 @@ export interface TabSettingsResult {
   localColorMode: "plugin" | "website";
   localFontMode: "plugin" | "website";
   localTextMode: "semantic" | "lorem" | "website";
+  localCssVariablesMode: "styles" | "direct";
+  localLayoutMode: "autoLayout" | "absolute";
 
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => boolean;
   setColorMode: (mode: "plugin" | "website") => void;
   setFontMode: (mode: "plugin" | "website") => void;
   setTextMode: (mode: "semantic" | "lorem" | "website") => void;
+  setCssVariablesMode: (mode: "styles" | "direct") => void;
+  setLayoutMode: (mode: "autoLayout" | "absolute") => void;
   handleReset: () => void;
 
   // State flags
@@ -89,6 +93,12 @@ export function useTabSettings(
   const [localTextMode, setLocalTextMode] = useState<
     "semantic" | "lorem" | "website"
   >(effectiveConfig.textMode);
+  const [localCssVariablesMode, setLocalCssVariablesMode] = useState<
+    "styles" | "direct"
+  >(effectiveConfig.cssVariablesDefault);
+  const [localLayoutMode, setLocalLayoutMode] = useState<
+    "autoLayout" | "absolute"
+  >(effectiveConfig.layoutModeDefault);
 
   // Check if there are any session overrides for this tab
   const hasOverrides = !!sessionOverrides[tabId];
@@ -112,6 +122,8 @@ export function useTabSettings(
       setLocalColorMode(effective.colorMode);
       setLocalFontMode(effective.fontMode);
       setLocalTextMode(effective.textMode);
+      setLocalCssVariablesMode(effective.cssVariablesDefault);
+      setLocalLayoutMode(effective.layoutModeDefault);
     }
   }, [
     // Use config values as dependencies since getEffectiveConfig returns config when no overrides
@@ -119,6 +131,8 @@ export function useTabSettings(
     config.colorMode,
     config.fontMode,
     config.textMode,
+    config.cssVariablesDefault,
+    config.layoutModeDefault,
     hasOverrides,
     tabId,
     getEffectiveConfig,
@@ -156,6 +170,24 @@ export function useTabSettings(
     (mode: "semantic" | "lorem" | "website") => {
       setLocalTextMode(mode);
       setSessionOverride(tabId, { textMode: mode });
+    },
+    [tabId, setSessionOverride]
+  );
+
+  // Update session override when CSS variables mode changes
+  const setCssVariablesModeHandler = useCallback(
+    (mode: "styles" | "direct") => {
+      setLocalCssVariablesMode(mode);
+      setSessionOverride(tabId, { cssVariablesDefault: mode });
+    },
+    [tabId, setSessionOverride]
+  );
+
+  // Update session override when layout mode changes
+  const setLayoutModeHandler = useCallback(
+    (mode: "autoLayout" | "absolute") => {
+      setLocalLayoutMode(mode);
+      setSessionOverride(tabId, { layoutModeDefault: mode });
     },
     [tabId, setSessionOverride]
   );
@@ -202,6 +234,8 @@ export function useTabSettings(
     setLocalColorMode(config.colorMode);
     setLocalFontMode(config.fontMode);
     setLocalTextMode(config.textMode);
+    setLocalCssVariablesMode(config.cssVariablesDefault);
+    setLocalLayoutMode(config.layoutModeDefault);
   }, [tabId, resetToConfig, config]);
 
   // Toggle expanded state and save to localStorage
@@ -220,10 +254,14 @@ export function useTabSettings(
     localColorMode,
     localFontMode,
     localTextMode,
+    localCssVariablesMode,
+    localLayoutMode,
     toggleViewport,
     setColorMode: setColorModeHandler,
     setFontMode: setFontModeHandler,
     setTextMode: setTextModeHandler,
+    setCssVariablesMode: setCssVariablesModeHandler,
+    setLayoutMode: setLayoutModeHandler,
     handleReset,
     hasOverrides,
     openSettings,

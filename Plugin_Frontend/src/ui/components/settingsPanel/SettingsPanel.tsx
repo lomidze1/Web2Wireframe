@@ -34,12 +34,16 @@ export interface SettingsPanelProps {
   localColorMode: "plugin" | "website";
   localFontMode: "plugin" | "website";
   localTextMode: "semantic" | "lorem" | "website";
+  localCssVariablesMode?: "styles" | "direct";
+  localLayoutMode?: "autoLayout" | "absolute";
 
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => void;
   setColorMode: (mode: "plugin" | "website") => void;
   setFontMode: (mode: "plugin" | "website") => void;
   setTextMode: (mode: "semantic" | "lorem" | "website") => void;
+  setCssVariablesMode?: (mode: "styles" | "direct") => void;
+  setLayoutMode?: (mode: "autoLayout" | "absolute") => void;
   handleReset: () => void;
 
   // State flags
@@ -68,10 +72,14 @@ export default function SettingsPanel({
   localColorMode,
   localFontMode,
   localTextMode,
+  localCssVariablesMode,
+  localLayoutMode,
   toggleViewport,
   setColorMode,
   setFontMode,
   setTextMode,
+  setCssVariablesMode,
+  setLayoutMode,
   handleReset,
   hasOverrides,
   openSettings,
@@ -191,6 +199,52 @@ export default function SettingsPanel({
               <option value="website">Website Text</option>
             </select>
           </div>
+
+          {/* CSS Variables */}
+          {setCssVariablesMode && (
+            <div class={styles.settingRow}>
+              <div class={styles.settingLabel}>
+                <span>🎯</span>
+                <span>CSS Variables</span>
+              </div>
+              <select
+                class={styles.dropdown}
+                value={localCssVariablesMode || "direct"}
+                onChange={(e) =>
+                  setCssVariablesMode(
+                    (e.target as HTMLSelectElement).value as "styles" | "direct"
+                  )
+                }
+              >
+                <option value="direct">Direct Colors</option>
+                <option value="styles">Create Figma Styles</option>
+              </select>
+            </div>
+          )}
+
+          {/* Layout Mode */}
+          {setLayoutMode && (
+            <div class={styles.settingRow}>
+              <div class={styles.settingLabel}>
+                <span>📐</span>
+                <span>Layout Mode</span>
+              </div>
+              <select
+                class={styles.dropdown}
+                value={localLayoutMode || "autoLayout"}
+                onChange={(e) =>
+                  setLayoutMode(
+                    (e.target as HTMLSelectElement).value as
+                      | "autoLayout"
+                      | "absolute"
+                  )
+                }
+              >
+                <option value="autoLayout">Auto Layout (Editable)</option>
+                <option value="absolute">Absolute (Pixel-perfect)</option>
+              </select>
+            </div>
+          )}
 
           {/* Footer with Reset and Configure buttons */}
           <div class={styles.settingsFooter}>

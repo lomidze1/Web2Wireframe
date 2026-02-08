@@ -1,55 +1,108 @@
 /** @jsx h */
 import { h } from "preact";
-import { useState } from "preact/hooks";
+import { useState, useEffect } from "preact/hooks";
 import styles from "./Modal.css";
+import { useConfig } from "../../shared/ConfigContext";
 
+// Type exports for consumers
 export type ColorMode = "plugin" | "website";
 export type FontMode = "plugin" | "website";
 export type TextMode = "lorem" | "semantic" | "website";
+export type CssVariablesMode = "styles" | "direct";
+export type LayoutMode = "autoLayout" | "absolute";
 
+export interface UnifiedImportOptions {
+  colorMode: ColorMode;
+  fontMode: FontMode;
+  textMode: TextMode;
+  cssVariablesMode: CssVariablesMode;
+  layoutMode: LayoutMode;
+}
+
+// Legacy interface for backward compatibility
 export interface ImportOptions {
   colorMode: ColorMode;
   fontMode: FontMode;
   textMode: TextMode;
 }
 
-interface ImportOptionsModalProps {
+interface UnifiedImportOptionsModalProps {
   isOpen: boolean;
-  onConfirm: (options: ImportOptions) => void;
+  onConfirm: (options: UnifiedImportOptions) => void;
   onCancel: () => void;
   sourceUrl?: string;
+  hasCssVariables?: boolean;
 }
-
-const DEFAULT_OPTIONS: ImportOptions = {
-  colorMode: "website",
-  fontMode: "website",
-  textMode: "website",
-};
 
 export default function ImportOptionsModal({
   isOpen,
   onConfirm,
   onCancel,
   sourceUrl,
-}: ImportOptionsModalProps) {
-  const [options, setOptions] = useState<ImportOptions>(DEFAULT_OPTIONS);
+  hasCssVariables = false,
+}: UnifiedImportOptionsModalProps) {
+  const { config, updateConfig } = useConfig();
+
+  // Initialize from Settings defaults
+  const [options, setOptions] = useState<UnifiedImportOptions>({
+    colorMode: config.colorMode,
+    fontMode: config.fontMode,
+    textMode: config.textMode,
+    cssVariablesMode: config.cssVariablesDefault,
+    layoutMode: config.layoutModeDefault,
+  });
+
+  const [dontShowAgain, setDontShowAgain] = useState(false);
+
+  // Sync with config when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setOptions({
+        colorMode: config.colorMode,
+        fontMode: config.fontMode,
+        textMode: config.textMode,
+        cssVariablesMode: config.cssVariablesDefault,
+        layoutMode: config.layoutModeDefault,
+      });
+      setDontShowAgain(false);
+    }
+  }, [isOpen, config]);
 
   if (!isOpen) return null;
 
   const handleConfirm = () => {
+    // If "Don't show again" is checked, update settings
+    if (dontShowAgain) {
+      updateConfig({
+        showImportOptions: false,
+        colorMode: options.colorMode,
+        fontMode: options.fontMode,
+        textMode: options.textMode,
+        cssVariablesDefault: options.cssVariablesMode,
+        layoutModeDefault: options.layoutMode,
+      });
+    }
     onConfirm(options);
-    // Reset to defaults for next time
-    setOptions(DEFAULT_OPTIONS);
   };
 
   const handleCancel = () => {
     onCancel();
-    setOptions(DEFAULT_OPTIONS);
+  };
+
+  // Get display URL (full path without protocol)
+  const getDisplayUrl = (url: string): string => {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname + parsed.pathname + parsed.search;
+    } catch {
+      return url;
+    }
   };
 
   return (
     <div class={styles.modalOverlay}>
-      <div class={`${styles.modal} ${styles.importOptionsModal}`}>
+      <div class={`${styles.modal} ${styles.unifiedImportModal}`}>
+        {/* Header */}
         <div class={styles.modalHeader}>
           <span>Import Options</span>
           <button class={styles.modalClose} onClick={handleCancel}>
@@ -58,105 +111,137 @@ export default function ImportOptionsModal({
         </div>
 
         <div class={styles.modalContent}>
+          {/* Source URL display */}
           {sourceUrl && (
             <p class={styles.importOptionsUrl}>
-              Importing: <strong>{new URL(sourceUrl).hostname}</strong>
+              Importing: <strong>{getDisplayUrl(sourceUrl)}</strong>
             </p>
           )}
 
-          {/* Color Mode */}
-          <div class={styles.importOptionsSection}>
-            <label class={styles.importOptionsLabel}>Colors</label>
-            <div class={styles.importOptionsButtons}>
-              <button
-                class={`${styles.importOptionsBtn} ${options.colorMode === "website" ? styles.importOptionsBtnActive : ""}`}
-                onClick={() => setOptions((prev) => ({ ...prev, colorMode: "website" }))}
+          {/* Scrollable options area */}
+          <div class={styles.unifiedOptionsScroll}>
+            {/* Colors Dropdown */}
+            <div class={styles.unifiedOptionRow}>
+              <label class={styles.unifiedOptionLabel}>Colors</label>
+              <select
+                class={styles.unifiedDropdown}
+                value={options.colorMode}
+                onChange={(e) =>
+                  setOptions((prev) => ({
+                    ...prev,
+                    colorMode: (e.target as HTMLSelectElement)
+                      .value as ColorMode,
+                  }))
+                }
               >
-                <span class={styles.importOptionsBtnIcon}>🌐</span>
-                <span>Website</span>
-              </button>
-              <button
-                class={`${styles.importOptionsBtn} ${options.colorMode === "plugin" ? styles.importOptionsBtnActive : ""}`}
-                onClick={() => setOptions((prev) => ({ ...prev, colorMode: "plugin" }))}
-              >
-                <span class={styles.importOptionsBtnIcon}>🎨</span>
-                <span>Plugin</span>
-              </button>
+                <option value="website">Website Colors</option>
+                <option value="plugin">Plugin Colors</option>
+              </select>
             </div>
-            <p class={styles.importOptionsHint}>
-              {options.colorMode === "website"
-                ? "Use original colors from the website"
-                : "Replace with your plugin color palette"}
-            </p>
+
+            {/* Fonts Dropdown */}
+            <div class={styles.unifiedOptionRow}>
+              <label class={styles.unifiedOptionLabel}>Fonts</label>
+              <select
+                class={styles.unifiedDropdown}
+                value={options.fontMode}
+                onChange={(e) =>
+                  setOptions((prev) => ({
+                    ...prev,
+                    fontMode: (e.target as HTMLSelectElement).value as FontMode,
+                  }))
+                }
+              >
+                <option value="website">Website Fonts</option>
+                <option value="plugin">Plugin Fonts</option>
+              </select>
+            </div>
+
+            {/* Text Content Dropdown */}
+            <div class={styles.unifiedOptionRow}>
+              <label class={styles.unifiedOptionLabel}>Text Content</label>
+              <select
+                class={styles.unifiedDropdown}
+                value={options.textMode}
+                onChange={(e) =>
+                  setOptions((prev) => ({
+                    ...prev,
+                    textMode: (e.target as HTMLSelectElement).value as TextMode,
+                  }))
+                }
+              >
+                <option value="website">Website Text</option>
+                <option value="lorem">Lorem Ipsum</option>
+                <option value="semantic">Semantic Placeholders</option>
+              </select>
+            </div>
+
+            {/* CSS Variables Dropdown - Only show if hasCssVariables */}
+            {hasCssVariables && (
+              <div class={styles.unifiedOptionRow}>
+                <label class={styles.unifiedOptionLabel}>CSS Variables</label>
+                <select
+                  class={styles.unifiedDropdown}
+                  value={options.cssVariablesMode}
+                  onChange={(e) =>
+                    setOptions((prev) => ({
+                      ...prev,
+                      cssVariablesMode: (e.target as HTMLSelectElement)
+                        .value as CssVariablesMode,
+                    }))
+                  }
+                >
+                  <option value="direct">Direct Colors</option>
+                  <option value="styles">Create Figma Styles</option>
+                </select>
+              </div>
+            )}
+
+            {/* Layout Mode Dropdown */}
+            <div class={styles.unifiedOptionRow}>
+              <label class={styles.unifiedOptionLabel}>Layout Mode</label>
+              <select
+                class={styles.unifiedDropdown}
+                value={options.layoutMode}
+                onChange={(e) =>
+                  setOptions((prev) => ({
+                    ...prev,
+                    layoutMode: (e.target as HTMLSelectElement)
+                      .value as LayoutMode,
+                  }))
+                }
+              >
+                <option value="autoLayout">Auto Layout (Editable)</option>
+                <option value="absolute">Absolute (Pixel-perfect)</option>
+              </select>
+            </div>
           </div>
 
-          {/* Font Mode */}
-          <div class={styles.importOptionsSection}>
-            <label class={styles.importOptionsLabel}>Fonts</label>
-            <div class={styles.importOptionsButtons}>
-              <button
-                class={`${styles.importOptionsBtn} ${options.fontMode === "website" ? styles.importOptionsBtnActive : ""}`}
-                onClick={() => setOptions((prev) => ({ ...prev, fontMode: "website" }))}
-              >
-                <span class={styles.importOptionsBtnIcon}>🌐</span>
-                <span>Website</span>
-              </button>
-              <button
-                class={`${styles.importOptionsBtn} ${options.fontMode === "plugin" ? styles.importOptionsBtnActive : ""}`}
-                onClick={() => setOptions((prev) => ({ ...prev, fontMode: "plugin" }))}
-              >
-                <span class={styles.importOptionsBtnIcon}>📝</span>
-                <span>Plugin</span>
-              </button>
-            </div>
-            <p class={styles.importOptionsHint}>
-              {options.fontMode === "website"
-                ? "Keep original fonts from the website"
-                : "Replace with your plugin font (Montserrat)"}
-            </p>
-          </div>
-
-          {/* Text Mode */}
-          <div class={styles.importOptionsSection}>
-            <label class={styles.importOptionsLabel}>Text Content</label>
-            <div class={styles.importOptionsButtons}>
-              <button
-                class={`${styles.importOptionsBtn} ${options.textMode === "website" ? styles.importOptionsBtnActive : ""}`}
-                onClick={() => setOptions((prev) => ({ ...prev, textMode: "website" }))}
-              >
-                <span class={styles.importOptionsBtnIcon}>🌐</span>
-                <span>Website</span>
-              </button>
-              <button
-                class={`${styles.importOptionsBtn} ${options.textMode === "lorem" ? styles.importOptionsBtnActive : ""}`}
-                onClick={() => setOptions((prev) => ({ ...prev, textMode: "lorem" }))}
-              >
-                <span class={styles.importOptionsBtnIcon}>📄</span>
-                <span>Lorem</span>
-              </button>
-              <button
-                class={`${styles.importOptionsBtn} ${options.textMode === "semantic" ? styles.importOptionsBtnActive : ""}`}
-                onClick={() => setOptions((prev) => ({ ...prev, textMode: "semantic" }))}
-              >
-                <span class={styles.importOptionsBtnIcon}>📋</span>
-                <span>Semantic</span>
-              </button>
-            </div>
-            <p class={styles.importOptionsHint}>
-              {options.textMode === "website"
-                ? "Keep original text content"
-                : options.textMode === "lorem"
-                  ? "Replace with lorem ipsum placeholder"
-                  : "Replace with semantic placeholders (e.g., 'Heading', 'Body')"}
-            </p>
+          {/* Don't show again - compact toggle */}
+          <div class={styles.dontShowAgainCompact}>
+            <span class={styles.dontShowAgainLabel}>Don't show this again</span>
+            <label class={styles.dontShowAgainToggle}>
+              <input
+                type="checkbox"
+                checked={dontShowAgain}
+                onChange={(e) =>
+                  setDontShowAgain((e.target as HTMLInputElement).checked)
+                }
+              />
+              <span class={styles.dontShowAgainSlider}></span>
+            </label>
           </div>
         </div>
 
+        {/* Footer buttons */}
         <div class={styles.importOptionsFooter}>
           <button class={styles.importOptionsCancelBtn} onClick={handleCancel}>
             Cancel
           </button>
-          <button class={styles.importOptionsConfirmBtn} onClick={handleConfirm}>
+          <button
+            class={styles.importOptionsConfirmBtn}
+            onClick={handleConfirm}
+          >
             Import
           </button>
         </div>

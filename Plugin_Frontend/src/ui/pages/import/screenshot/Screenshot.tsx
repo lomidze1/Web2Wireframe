@@ -100,10 +100,14 @@ export default function Screenshot() {
         localColorMode={settings.localColorMode}
         localFontMode={settings.localFontMode}
         localTextMode={settings.localTextMode}
+        localCssVariablesMode={settings.localCssVariablesMode}
+        localLayoutMode={settings.localLayoutMode}
         toggleViewport={settings.toggleViewport}
         setColorMode={settings.setColorMode}
         setFontMode={settings.setFontMode}
         setTextMode={settings.setTextMode}
+        setCssVariablesMode={settings.setCssVariablesMode}
+        setLayoutMode={settings.setLayoutMode}
         handleReset={settings.handleReset}
         hasOverrides={settings.hasOverrides}
         openSettings={settings.openSettings}
