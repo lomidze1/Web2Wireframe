@@ -7,19 +7,19 @@ interface PlanModalProps {
 
 interface PlanFeature {
   name: string;
-  free: boolean;
-  pro: boolean;
+  plus: string | boolean;
+  pro: string | boolean;
 }
 
 const PLAN_FEATURES: PlanFeature[] = [
-  { name: "Capture full page", free: true, pro: true },
-  { name: "Capture area selection", free: true, pro: true },
-  { name: "5 viewports", free: true, pro: true },
-  { name: "Download as JSON", free: true, pro: true },
-  { name: "Send to Figma directly", free: false, pro: true },
-  { name: "Priority support", free: false, pro: true },
-  { name: "Custom fonts export", free: false, pro: true },
-  { name: "Batch capture", free: false, pro: true },
+  { name: "Imports per month", plus: "Unlimited", pro: "Unlimited" },
+  { name: "Viewports", plus: "All", pro: "All" },
+  { name: "Full color & fonts", plus: true, pro: true },
+  { name: "Real text content", plus: true, pro: true },
+  { name: "Styles & assets", plus: true, pro: true },
+  { name: "AI generation", plus: false, pro: true },
+  { name: "Component library", plus: false, pro: true },
+  { name: "Priority support", plus: false, pro: true },
 ];
 
 export function PlanModal({ isOpen, onClose }: PlanModalProps) {
@@ -31,8 +31,8 @@ export function PlanModal({ isOpen, onClose }: PlanModalProps) {
     }
   };
 
-  const handleUpgrade = () => {
-    window.open("https://web2wireframe.com/pricing", "_blank");
+  const openLink = (url: string) => {
+    chrome.tabs.create({ url, active: false });
   };
 
   return (
@@ -55,25 +55,41 @@ export function PlanModal({ isOpen, onClose }: PlanModalProps) {
           <div class="plan-features">
             <div class="plan-features-header">
               <span></span>
-              <span class="plan-column">Free</span>
+              <span class="plan-column plan-column-plus">Plus</span>
               <span class="plan-column plan-column-pro">Pro</span>
             </div>
             {PLAN_FEATURES.map((feature) => (
               <div class="plan-feature-row" key={feature.name}>
                 <span class="feature-name">{feature.name}</span>
                 <span class="feature-check">
-                  {feature.free ? <CheckIcon /> : <XIcon />}
+                  {typeof feature.plus === "string" ? (
+                    <span class="feature-text">{feature.plus}</span>
+                  ) : feature.plus ? (
+                    <CheckIcon />
+                  ) : (
+                    <XIcon />
+                  )}
                 </span>
                 <span class="feature-check">
-                  {feature.pro ? <CheckIcon /> : <XIcon />}
+                  {typeof feature.pro === "string" ? (
+                    <span class="feature-text">{feature.pro}</span>
+                  ) : feature.pro ? (
+                    <CheckIcon />
+                  ) : (
+                    <XIcon />
+                  )}
                 </span>
               </div>
             ))}
           </div>
 
           {/* Upgrade Button */}
-          <button class="btn btn-primary btn-upgrade" onClick={handleUpgrade} type="button">
-            Upgrade to Pro
+          <button
+            class="btn btn-primary btn-upgrade"
+            onClick={() => openLink("https://web2wireframe.design/pricing")}
+            type="button"
+          >
+            View Plans
           </button>
         </div>
       </div>

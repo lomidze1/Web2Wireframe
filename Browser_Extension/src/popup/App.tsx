@@ -223,19 +223,16 @@ export function App() {
               <span>
                 Viewports: {state.result.frames.map((f) => f.viewport.width).join(", ")}px
               </span>
-              <span>Fonts: {state.result.fonts.length}</span>
             </div>
-            <div class="actions" style={{ marginTop: "12px" }}>
-              <button class="btn btn-primary" onClick={() => handleDownload()}>
-                Download .json
-              </button>
-              <button
-                class="btn btn-text"
-                onClick={() => setState({ status: "idle", progress: 0, message: "" })}
-              >
-                Capture Again
-              </button>
+            <div class="thanks-message">
+              Thanks for using Web2Wireframe!
             </div>
+            <button
+              class="btn btn-secondary"
+              onClick={() => setState({ status: "idle", progress: 0, message: "" })}
+            >
+              Back to Main
+            </button>
           </div>
         )}
 

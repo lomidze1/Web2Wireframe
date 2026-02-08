@@ -10,6 +10,11 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
   const [email, setEmail] = useState("");
   const [subscribeStatus, setSubscribeStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
 
+  const openLink = (url: string) => (e: Event) => {
+    e.preventDefault();
+    chrome.tabs.create({ url, active: false });
+  };
+
   if (!isOpen) return null;
 
   const handleSubscribe = async (e: Event) => {
@@ -46,9 +51,8 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
           {/* Links */}
           <div class="help-links">
             <a
-              href="https://web2wireframe.com/docs"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="https://web2wireframe.design/docs"
+              onClick={openLink("https://web2wireframe.design/docs")}
               class="help-link"
             >
               <span class="help-link-icon"><DocsIcon /></span>
@@ -56,9 +60,8 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
             </a>
 
             <a
-              href="https://web2wireframe.com/contact"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="https://www.web2wireframe.design/support"
+              onClick={openLink("https://www.web2wireframe.design/support")}
               class="help-link"
             >
               <span class="help-link-icon"><ContactIcon /></span>
@@ -67,8 +70,7 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
             <a
               href="https://www.figma.com/community/plugin/web2wireframe"
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={openLink("https://www.figma.com/community/plugin/web2wireframe")}
               class="help-link"
             >
               <span class="help-link-icon"><PluginIcon /></span>
@@ -76,9 +78,8 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
             </a>
 
             <a
-              href="https://web2wireframe.com/pricing"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="https://web2wireframe.design/pricing"
+              onClick={openLink("https://web2wireframe.design/pricing")}
               class="help-link"
             >
               <span class="help-link-icon"><PricingIcon /></span>
