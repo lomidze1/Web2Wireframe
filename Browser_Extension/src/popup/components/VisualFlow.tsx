@@ -11,7 +11,7 @@ export function VisualFlow() {
       <ArrowIcon className="flow-arrow" />
 
       <div class="flow-item flow-item-logo">
-        <img src="/icons/W2W-Logo.svg" alt="Web2Wireframe" class="logo-image" />
+        <img src="/icons/icon48.png" alt="Web2Wireframe" class="logo-image" />
       </div>
 
       <ArrowIcon className="flow-arrow" />
