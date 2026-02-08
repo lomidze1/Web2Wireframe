@@ -1,8 +1,14 @@
 import { useState, useEffect } from "preact/hooks";
-// import { encode } from "@msgpack/msgpack"; // DEBUG: Temporarily disabled for JSON export
 import type { ExtensionMessage, CaptureResult, CaptureOptions } from "@/shared/types";
-import { DEFAULT_CAPTURE_OPTIONS } from "@/shared/types";
-import { VIEWPORTS } from "@/shared/constants";
+import {
+  VisualFlow,
+  ViewportsSection,
+  SaveOptions,
+  CaptureButtons,
+  Footer,
+  HelpModal,
+  PlanModal,
+} from "./components";
 
 type CaptureStatus = "idle" | "capturing" | "success" | "error";
 
@@ -14,34 +20,20 @@ interface CaptureState {
   error?: string;
 }
 
+// Default selected viewport (only 1440 selected by default)
+const DEFAULT_VIEWPORTS = [1440];
+
 /**
  * Extract domain from URL for filename
  */
 function getDomainFromUrl(url: string): string {
   try {
     const hostname = new URL(url).hostname;
-    // Remove www. prefix and replace dots with underscores
     return hostname.replace(/^www\./, "").replace(/\./g, "_");
   } catch {
     return "website";
   }
 }
-
-// DEBUG: Temporarily disabled for JSON export
-// /**
-//  * Compress binary data using CompressionStream (gzip)
-//  */
-// async function compressData(data: Uint8Array): Promise<Blob> {
-//   const stream = new ReadableStream({
-//     start(controller) {
-//       controller.enqueue(data);
-//       controller.close();
-//     },
-//   });
-//
-//   const compressedStream = stream.pipeThrough(new CompressionStream("gzip"));
-//   return new Response(compressedStream).blob();
-// }
 
 export function App() {
   const [state, setState] = useState<CaptureState>({
@@ -50,7 +42,10 @@ export function App() {
     message: "",
   });
   const [currentTab, setCurrentTab] = useState<chrome.tabs.Tab | null>(null);
-  const [options, setOptions] = useState<CaptureOptions>(DEFAULT_CAPTURE_OPTIONS);
+  const [viewports, setViewports] = useState<number[]>(DEFAULT_VIEWPORTS);
+  const [saveOption, setSaveOption] = useState<"local" | "figma">("local");
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
 
   useEffect(() => {
     // Get current tab
@@ -75,7 +70,7 @@ export function App() {
     return () => chrome.runtime.onMessage.removeListener(handleMessage);
   }, []);
 
-  const handleCapture = async () => {
+  const handleCapturePage = async () => {
     if (!currentTab?.id) return;
 
     setState({
@@ -85,6 +80,7 @@ export function App() {
     });
 
     try {
+      const options: CaptureOptions = { viewports };
       const response = await chrome.runtime.sendMessage({
         type: "CAPTURE_PAGE",
         tabId: currentTab.id,
@@ -98,6 +94,11 @@ export function App() {
           message: "Capture complete!",
           result: response.data,
         });
+
+        // Auto-download if save locally is selected
+        if (saveOption === "local" && response.data) {
+          handleDownload(response.data);
+        }
       } else {
         throw new Error(response.error || "Capture failed");
       }
@@ -111,46 +112,38 @@ export function App() {
     }
   };
 
-  const handleSendToFigma = async () => {
-    if (!state.result) return;
+  const handleCaptureArea = async (mode: "select" | "pick") => {
+    if (!currentTab?.id) return;
 
-    setState((prev) => ({
-      ...prev,
-      message: "Sending to Figma plugin...",
-    }));
-
+    // Close popup and inject content script for area selection
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: "SEND_TO_BACKEND",
-        data: state.result,
+      await chrome.tabs.sendMessage(currentTab.id, {
+        type: mode === "select" ? "START_AREA_SELECT" : "START_ELEMENT_PICK",
       });
-
-      if (response.success) {
-        setState((prev) => ({
-          ...prev,
-          message: "Sent to Figma! Open the plugin to import.",
-        }));
-      } else {
-        throw new Error(response.error);
-      }
+      // Close popup - the content script will handle the selection
+      window.close();
     } catch (error) {
-      setState((prev) => ({
-        ...prev,
-        error: error instanceof Error ? error.message : "Failed to send",
-      }));
+      // Content script not injected, inject it first
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTab.id },
+        files: [mode === "select" ? "content/areaSelector.js" : "content/elementPicker.js"],
+      });
+      // Try again
+      await chrome.tabs.sendMessage(currentTab.id, {
+        type: mode === "select" ? "START_AREA_SELECT" : "START_ELEMENT_PICK",
+      });
+      window.close();
     }
   };
 
-  const handleDownload = async () => {
-    if (!state.result || !currentTab?.url) return;
+  const handleDownload = (data?: CaptureResult) => {
+    const result = data || state.result;
+    if (!result || !currentTab?.url) return;
 
     const domain = getDomainFromUrl(currentTab.url);
-    const viewportLabel = options.viewports.join("_");
-
-    // DEBUG MODE: Save as JSON for inspection
-    // TODO: Revert to .w2w (MessagePack + gzip) after debugging
+    const viewportLabel = viewports.join("_");
     const filename = `${domain}_${viewportLabel}_wireframe.json`;
-    const jsonString = JSON.stringify(state.result, null, 2);
+    const jsonString = JSON.stringify(result, null, 2);
     const blob = new Blob([jsonString], { type: "application/json" });
 
     const url = URL.createObjectURL(blob);
@@ -166,72 +159,50 @@ export function App() {
     !currentTab.url.startsWith("chrome://") &&
     !currentTab.url.startsWith("chrome-extension://");
 
+  const isCapturing = state.status === "capturing";
+
   return (
     <div class="popup">
       <header class="popup-header">
-        <img src="../icons/icon48.png" alt="W2W" class="logo" />
+        <img src="../../icons/icon48.png" alt="W2W" class="logo" />
         <h1>Web2Wireframe</h1>
       </header>
 
       <main class="popup-content">
-        {/* Current Page Info */}
-        <div class="page-info">
-          <span class="page-title">{currentTab?.title || "Loading..."}</span>
-          <span class="page-url">{currentTab?.url?.substring(0, 40)}...</span>
-        </div>
+        {/* Visual Flow: Page → Logo → Wireframe */}
+        <VisualFlow />
 
-        {/* Capture Options - Before capture */}
-        {state.status === "idle" && (
-          <div class="option-section">
-            <label class="option-label">Viewports (select multiple)</label>
-            <div class="viewport-chips">
-              {VIEWPORTS.map((vp) => {
-                const isSelected = options.viewports.includes(vp.width);
-                return (
-                  <button
-                    key={vp.width}
-                    class={`chip ${isSelected ? "chip-active" : ""}`}
-                    onClick={() => {
-                      setOptions((prev) => {
-                        const currentViewports = prev.viewports;
-                        if (isSelected) {
-                          // Remove - but keep at least one selected
-                          if (currentViewports.length > 1) {
-                            return {
-                              ...prev,
-                              viewports: currentViewports.filter((v) => v !== vp.width),
-                            };
-                          }
-                          return prev; // Can't deselect the last one
-                        } else {
-                          // Add
-                          return {
-                            ...prev,
-                            viewports: [...currentViewports, vp.width].sort((a, b) => b - a),
-                          };
-                        }
-                      });
-                    }}
-                  >
-                    {vp.label}
-                  </button>
-                );
-              })}
-            </div>
-            <p class="option-hint">
-              Colors, fonts, and text options available in Figma plugin during import
-            </p>
-          </div>
+        {/* Viewports Section */}
+        {state.status !== "success" && (
+          <>
+            <ViewportsSection
+              viewports={viewports}
+              onChange={setViewports}
+              disabled={isCapturing}
+            />
+
+            {/* Save Options */}
+            <SaveOptions
+              saveOption={saveOption}
+              onChange={setSaveOption}
+              disabled={isCapturing}
+            />
+
+            {/* Capture Buttons */}
+            <CaptureButtons
+              isCapturing={isCapturing}
+              canCapture={!!canCapture}
+              onCapturePage={handleCapturePage}
+              onCaptureArea={handleCaptureArea}
+            />
+          </>
         )}
 
-        {/* Status/Progress */}
+        {/* Progress */}
         {state.status === "capturing" && (
           <div class="progress-section">
             <div class="progress-bar">
-              <div
-                class="progress-fill"
-                style={{ width: `${state.progress}%` }}
-              />
+              <div class="progress-fill" style={{ width: `${state.progress}%` }} />
             </div>
             <span class="progress-text">{state.message}</span>
           </div>
@@ -254,25 +225,8 @@ export function App() {
               </span>
               <span>Fonts: {state.result.fonts.length}</span>
             </div>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div class="actions">
-          {state.status !== "success" ? (
-            <button
-              class="btn btn-primary"
-              onClick={handleCapture}
-              disabled={!canCapture || state.status === "capturing"}
-            >
-              {state.status === "capturing" ? "Capturing..." : "Capture Page"}
-            </button>
-          ) : (
-            <>
-              <button class="btn btn-primary" onClick={handleSendToFigma}>
-                Send to Figma
-              </button>
-              <button class="btn btn-secondary" onClick={handleDownload}>
+            <div class="actions" style={{ marginTop: "12px" }}>
+              <button class="btn btn-primary" onClick={() => handleDownload()}>
                 Download .json
               </button>
               <button
@@ -281,23 +235,27 @@ export function App() {
               >
                 Capture Again
               </button>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
 
-        {!canCapture && (
+        {/* Warning for non-capturable pages */}
+        {!canCapture && state.status === "idle" && (
           <div class="warning-message">
             Cannot capture this page. Try a regular website.
           </div>
         )}
       </main>
 
-      <footer class="popup-footer">
-        <a href="#" onClick={() => chrome.runtime.openOptionsPage()}>
-          Settings
-        </a>
-        <span class="version">v1.0.0</span>
-      </footer>
+      {/* Footer with Plan and Help icons only */}
+      <Footer
+        onPlanClick={() => setShowPlanModal(true)}
+        onHelpClick={() => setShowHelpModal(true)}
+      />
+
+      {/* Modals */}
+      <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
+      <PlanModal isOpen={showPlanModal} onClose={() => setShowPlanModal(false)} />
     </div>
   );
 }
