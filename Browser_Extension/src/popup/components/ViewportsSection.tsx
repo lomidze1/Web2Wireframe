@@ -8,7 +8,7 @@ interface ViewportsSectionProps {
 }
 
 // All available viewports - always visible
-const ALL_VIEWPORTS = [1920, 1440, 1024, 768, 390];
+const ALL_VIEWPORTS = [1920, 1440, 1024, 768, 375];
 
 export function ViewportsSection({ viewports, onChange, disabled }: ViewportsSectionProps) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);

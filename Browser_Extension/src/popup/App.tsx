@@ -164,7 +164,7 @@ export function App() {
   return (
     <div class="popup">
       <header class="popup-header">
-        <img src="../../icons/icon48.png" alt="W2W" class="logo" />
+        <img src="/icons/icon128.png" alt="W2W" class="logo" />
         <h1>Web2Wireframe</h1>
       </header>
 

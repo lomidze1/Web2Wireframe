@@ -1,4 +1,4 @@
-import { PageMockupIcon, LogoIcon, WireframeMockupIcon, ArrowIcon } from "./Icons";
+import { PageMockupIcon, WireframeMockupIcon, ArrowIcon } from "./Icons";
 
 export function VisualFlow() {
   return (
@@ -11,7 +11,7 @@ export function VisualFlow() {
       <ArrowIcon className="flow-arrow" />
 
       <div class="flow-item flow-item-logo">
-        <LogoIcon />
+        <img src="/icons/W2W-Logo.svg" alt="Web2Wireframe" class="logo-image" />
       </div>
 
       <ArrowIcon className="flow-arrow" />
