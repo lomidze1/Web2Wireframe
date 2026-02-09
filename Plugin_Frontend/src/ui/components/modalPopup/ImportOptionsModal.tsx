@@ -2,7 +2,7 @@
 import { h } from "preact";
 import { useState, useEffect } from "preact/hooks";
 import styles from "./Modal.css";
-import { useConfig } from "../../shared/ConfigContext";
+import { useConfig, type PluginColors } from "../../shared/ConfigContext";
 
 // Type exports for consumers
 export type ColorMode = "plugin" | "website";
@@ -26,12 +26,29 @@ export interface ImportOptions {
   textMode: TextMode;
 }
 
+// Detected colors from website capture
+export interface DetectedColors {
+  background: string;
+  text: string;
+  accent: string;
+  surface: string;
+  border: string;
+  main: string;
+  source: {
+    totalElements: number;
+    backgroundSamples: number;
+    textSamples: number;
+    accentSamples: number;
+  };
+}
+
 interface UnifiedImportOptionsModalProps {
   isOpen: boolean;
   onConfirm: (options: UnifiedImportOptions) => void;
   onCancel: () => void;
   sourceUrl?: string;
   hasCssVariables?: boolean;
+  detectedColors?: DetectedColors;
 }
 
 export default function ImportOptionsModal({
@@ -40,6 +57,7 @@ export default function ImportOptionsModal({
   onCancel,
   sourceUrl,
   hasCssVariables = false,
+  detectedColors,
 }: UnifiedImportOptionsModalProps) {
   const { config, updateConfig } = useConfig();
 
@@ -53,6 +71,7 @@ export default function ImportOptionsModal({
   });
 
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const [colorsApplied, setColorsApplied] = useState(false);
 
   // Sync with config when modal opens
   useEffect(() => {
@@ -65,8 +84,27 @@ export default function ImportOptionsModal({
         layoutMode: config.layoutModeDefault,
       });
       setDontShowAgain(false);
+      setColorsApplied(false);
     }
   }, [isOpen, config]);
+
+  // Apply detected colors to plugin colors config
+  const applyDetectedColors = () => {
+    if (!detectedColors) return;
+
+    // Map detected colors to 5 plugin colors
+    const newPluginColors: PluginColors = {
+      text: detectedColors.text,             // Dark - primary text
+      background: detectedColors.background, // Light - page background
+      secondary: detectedColors.border,      // Medium - borders, secondary text
+      surface: detectedColors.surface,       // Light blue - cards, containers
+      accent: detectedColors.accent,         // Lighter blue - buttons, links
+    };
+
+    updateConfig({ pluginColors: newPluginColors });
+    setOptions((prev) => ({ ...prev, colorMode: "plugin" }));
+    setColorsApplied(true);
+  };
 
   if (!isOpen) return null;
 
@@ -138,6 +176,56 @@ export default function ImportOptionsModal({
                 <option value="plugin">Plugin Colors</option>
               </select>
             </div>
+
+            {/* Detected Colors Preview - shown when available */}
+            {detectedColors && (
+              <div class={styles.detectedColorsSection}>
+                <div class={styles.detectedColorsHeader}>
+                  <span class={styles.detectedColorsTitle}>
+                    Detected Website Palette
+                  </span>
+                  <button
+                    class={`${styles.applyColorsBtn} ${colorsApplied ? styles.applyColorsBtnDone : ""}`}
+                    onClick={applyDetectedColors}
+                    disabled={colorsApplied}
+                  >
+                    {colorsApplied ? "Applied!" : "Apply to Plugin"}
+                  </button>
+                </div>
+                <div class={styles.detectedColorsPreview}>
+                  <div
+                    class={styles.colorSwatch}
+                    style={{ backgroundColor: detectedColors.main }}
+                    title={`Main: ${detectedColors.main}`}
+                  />
+                  <div
+                    class={styles.colorSwatch}
+                    style={{ backgroundColor: detectedColors.text }}
+                    title={`Text: ${detectedColors.text}`}
+                  />
+                  <div
+                    class={styles.colorSwatch}
+                    style={{ backgroundColor: detectedColors.accent }}
+                    title={`Accent: ${detectedColors.accent}`}
+                  />
+                  <div
+                    class={styles.colorSwatch}
+                    style={{ backgroundColor: detectedColors.surface }}
+                    title={`Surface: ${detectedColors.surface}`}
+                  />
+                  <div
+                    class={styles.colorSwatch}
+                    style={{ backgroundColor: detectedColors.border }}
+                    title={`Border: ${detectedColors.border}`}
+                  />
+                  <div
+                    class={styles.colorSwatch}
+                    style={{ backgroundColor: detectedColors.background }}
+                    title={`Background: ${detectedColors.background}`}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Fonts Dropdown */}
             <div class={styles.unifiedOptionRow}>

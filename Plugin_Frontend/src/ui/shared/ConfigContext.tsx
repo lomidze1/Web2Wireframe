@@ -3,13 +3,19 @@ import { h, createContext } from "preact";
 import { useState, useEffect, useContext } from "preact/hooks";
 
 // Configuration types
+// 5-color minimalist wireframe palette
+// Designed for clean, professional wireframes with WCAG AA contrast compliance
 export interface PluginColors {
-  main: string;
-  text: string;
-  accent: string;
-  surface: string;
-  border: string;
-  background: string;
+  // RULE: text color is ONLY for text content and placeholder icons - NEVER for backgrounds!
+  text: string;         // #11151A - ALL text (headings, buttons, links, paragraphs) + placeholder icon
+  // Light background colors
+  background: string;   // #F1F2F0 - Page background, section backgrounds
+  // Border/stroke color
+  secondary: string;    // #BDC1B2 - Borders, strokes, muted elements
+  // Surface color for containers
+  surface: string;      // #AAB5C3 - Cards, containers, frames (blue-gray)
+  // Accent color for interactive elements
+  accent: string;       // #AFC6DC - Buttons, links, CTAs (light blue)
 }
 
 export interface PluginConfig {
@@ -18,21 +24,40 @@ export interface PluginConfig {
   fontMode: "plugin" | "website";
   textMode: "semantic" | "lorem" | "website";
   pluginColors: PluginColors;
+  pluginFont: string;
   // Import options settings
   showImportOptions: boolean;
   cssVariablesDefault: "styles" | "direct";
   layoutModeDefault: "autoLayout" | "absolute";
 }
 
-// Default plugin colors - 6 color palette for wireframes
+// Default plugin colors - Minimalist 5-color wireframe palette
+// Optimized for: readability, visual hierarchy, WCAG AA contrast compliance
+// RULE: text color (#11151A) is ONLY for text content and placeholder icons - never for backgrounds!
 export const DEFAULT_PLUGIN_COLORS: PluginColors = {
-  main: "#1f3a5f",       // Brand color, primary elements
-  text: "#333333",       // All text colors
-  accent: "#3b82f6",     // Buttons, links, CTAs
-  surface: "#f5f5f5",    // Cards, containers, placeholders
-  border: "#e0e0e0",     // Borders, dividers
-  background: "#ffffff", // Page background
+  text: "#11151A",         // Primary text ONLY (dark) - never use for backgrounds/fills
+  background: "#F1F2F0",   // Page background, section backgrounds (light)
+  secondary: "#CED7E4",    // Borders, strokes, highlighted/active cards
+  surface: "#AAB5C3",      // Cards, containers, sections (blue-gray)
+  accent: "#AFC6DC",       // Buttons, links, CTAs (light blue)
 };
+
+// Default plugin font
+export const DEFAULT_PLUGIN_FONT = "Montserrat";
+
+// Available font options for plugin fonts
+export const PLUGIN_FONT_OPTIONS = [
+  { value: "Montserrat", label: "Montserrat" },
+  { value: "Inter", label: "Inter" },
+  { value: "Roboto", label: "Roboto" },
+  { value: "Open Sans", label: "Open Sans" },
+  { value: "Lato", label: "Lato" },
+  { value: "Poppins", label: "Poppins" },
+  { value: "Source Sans Pro", label: "Source Sans Pro" },
+  { value: "Nunito", label: "Nunito" },
+  { value: "Arial", label: "Arial" },
+  { value: "Helvetica", label: "Helvetica" },
+];
 
 // Default configuration
 export const DEFAULT_CONFIG: PluginConfig = {
@@ -41,6 +66,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   fontMode: "plugin",
   textMode: "semantic",
   pluginColors: { ...DEFAULT_PLUGIN_COLORS },
+  pluginFont: DEFAULT_PLUGIN_FONT,
   // Import options defaults
   showImportOptions: true,
   cssVariablesDefault: "direct",
@@ -56,9 +82,6 @@ export const VIEWPORT_OPTIONS = [
   { value: "375", label: "375" },
 ];
 
-// Storage key for persistent config
-const CONFIG_STORAGE_KEY = "w2w_plugin_config";
-
 // Settings panel type
 export type SettingsPanel = "terminology" | "configuration" | "tutorials";
 
@@ -73,88 +96,52 @@ interface ConfigContextType {
   resetToConfig: (tabId: string) => void;
   openSettings?: (panel: SettingsPanel) => void;
   setOpenSettingsCallback?: (callback: (panel: SettingsPanel) => void) => void;
+  isConfigLoaded: boolean;
 }
 
 // Create context
 const ConfigContext = createContext<ConfigContextType | null>(null);
 
-// Cache localStorage availability - test only once
-let cachedLocalStorageAvailability: boolean | null = null;
+// Deep merge for nested objects like pluginColors
+function deepMergeConfig(defaults: PluginConfig, saved: Partial<PluginConfig>): PluginConfig {
+  const merged = { ...defaults };
 
-// Check if localStorage is available (not available in Figma plugin iframe)
-function isLocalStorageAvailable(): boolean {
-  // Return cached result if already tested
-  if (cachedLocalStorageAvailability !== null) {
-    return cachedLocalStorageAvailability;
+  for (const key of Object.keys(saved) as (keyof PluginConfig)[]) {
+    const savedValue = saved[key];
+    if (savedValue === undefined) continue;
+
+    // Special handling for pluginColors - deep merge
+    if (key === "pluginColors" && typeof savedValue === "object") {
+      merged.pluginColors = {
+        ...defaults.pluginColors,
+        ...(savedValue as Partial<PluginColors>),
+      };
+    } else {
+      // Direct assignment for other properties
+      (merged as Record<string, unknown>)[key] = savedValue;
+    }
   }
 
-  try {
-    const testKey = "__storage_test__";
-    window.localStorage.setItem(testKey, testKey);
-    window.localStorage.removeItem(testKey);
-    cachedLocalStorageAvailability = true;
-  } catch (e) {
-    cachedLocalStorageAvailability = false;
-  }
-  return cachedLocalStorageAvailability;
+  return merged;
 }
-
-// In-memory storage fallback for Figma plugin environment
-let inMemoryConfig: PluginConfig | null = null;
 
 // Debounce timer for saving config
 let saveTimer: number | null = null;
 
-// Load config from storage
-function loadConfig(): PluginConfig {
-  // Return in-memory config if already loaded
-  if (inMemoryConfig !== null) {
-    return inMemoryConfig;
-  }
-
-  // Try localStorage if available
-  if (isLocalStorageAvailable()) {
-    try {
-      const stored = localStorage.getItem(CONFIG_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        const config = { ...DEFAULT_CONFIG, ...parsed };
-        inMemoryConfig = config;
-        return config;
-      }
-    } catch (e) {
-      console.warn("Failed to load config from localStorage:", e);
-    }
-  }
-
-  const config = { ...DEFAULT_CONFIG };
-  inMemoryConfig = config;
-  return config;
-}
-
-// Save config to storage (debounced)
-function saveConfig(config: PluginConfig): void {
-  // Always update in-memory config immediately
-  inMemoryConfig = config;
-
-  // Skip localStorage if not available
-  if (!isLocalStorageAvailable()) {
-    return;
-  }
-
-  // Debounce localStorage writes to prevent rapid successive calls
+// Send message to Figma backend to save config (debounced)
+function saveConfigToBackend(config: PluginConfig): void {
+  // Debounce to prevent rapid successive saves
   if (saveTimer !== null) {
     window.clearTimeout(saveTimer);
   }
 
   saveTimer = window.setTimeout(() => {
-    try {
-      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
-    } catch (e) {
-      console.warn("Failed to save config to localStorage:", e);
-    }
+    parent.postMessage(
+      { pluginMessage: { type: "save-config", data: { config } } },
+      "*"
+    );
     saveTimer = null;
-  }, 250) as unknown as number;
+  }, 300) as unknown as number;
 }
 
 // Provider component
@@ -163,7 +150,8 @@ export function ConfigProvider({
 }: {
   children: preact.ComponentChildren;
 }) {
-  const [config, setConfig] = useState<PluginConfig>(loadConfig);
+  const [config, setConfig] = useState<PluginConfig>({ ...DEFAULT_CONFIG });
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const [sessionOverrides, setSessionOverrides] = useState<
     Record<string, Partial<PluginConfig>>
   >({});
@@ -171,14 +159,59 @@ export function ConfigProvider({
     ((panel: SettingsPanel) => void) | null
   >(null);
 
-  // Save config when it changes
+  // Load config from Figma backend on mount
   useEffect(() => {
-    saveConfig(config);
-  }, [config]);
+    // Request config from Figma backend
+    parent.postMessage(
+      { pluginMessage: { type: "load-config" } },
+      "*"
+    );
+
+    // Listen for config-loaded response from backend
+    const handleMessage = (event: MessageEvent) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === "config-loaded") {
+        const savedConfig = msg.data?.config;
+        if (savedConfig) {
+          // Deep merge saved config with defaults
+          const mergedConfig = deepMergeConfig(DEFAULT_CONFIG, savedConfig);
+          setConfig(mergedConfig);
+        }
+        setIsConfigLoaded(true);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  // Save config to Figma backend when it changes (after initial load)
+  useEffect(() => {
+    if (isConfigLoaded) {
+      saveConfigToBackend(config);
+    }
+  }, [config, isConfigLoaded]);
 
   // Update persistent config
   const updateConfig = (updates: Partial<PluginConfig>) => {
-    setConfig((prev) => ({ ...prev, ...updates }));
+    setConfig((prev) => {
+      const updated = { ...prev };
+
+      // Handle pluginColors specially to deep merge
+      if (updates.pluginColors) {
+        updated.pluginColors = {
+          ...prev.pluginColors,
+          ...updates.pluginColors,
+        };
+        // Remove pluginColors from updates to avoid double assignment
+        const { pluginColors: _, ...otherUpdates } = updates;
+        return { ...updated, ...otherUpdates };
+      }
+
+      return { ...updated, ...updates };
+    });
   };
 
   // Set session override for a specific tab
@@ -241,6 +274,7 @@ export function ConfigProvider({
         resetToConfig,
         openSettings,
         setOpenSettingsCallback,
+        isConfigLoaded,
       }}
     >
       {children}

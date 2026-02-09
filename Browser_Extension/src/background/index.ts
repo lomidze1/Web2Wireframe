@@ -47,6 +47,7 @@ import {
   parseBorderRadius,
   generateId,
   getSemanticName,
+  analyzeColorsFromTree,
 } from "@/shared/utils";
 import {
   parseBackgroundToFills,
@@ -555,6 +556,13 @@ async function handleCapturePage(
       category: categorizeCSSVariable(v.name, v.value),
     }));
 
+    updateProgress(92, "Analyzing colors...");
+
+    // Analyze colors from the first frame's tree
+    const detectedColors = frames.length > 0
+      ? analyzeColorsFromTree(frames[0].tree as Parameters<typeof analyzeColorsFromTree>[0])
+      : undefined;
+
     updateProgress(95, "Finalizing...");
 
     const result: CaptureResult = {
@@ -566,6 +574,7 @@ async function handleCapturePage(
       assets: [],
       stylesheets: [],
       cssVariables,
+      detectedColors,
     };
 
     updateProgress(100, "Complete!");
@@ -701,6 +710,11 @@ async function handleCaptureElement(
       category: categorizeCSSVariable(v.name, v.value),
     }));
 
+    updateProgress(92, "Analyzing colors...");
+
+    // Analyze colors from the tree
+    const detectedColors = analyzeColorsFromTree(tree as Parameters<typeof analyzeColorsFromTree>[0]);
+
     updateProgress(95, "Finalizing...");
 
     const result: CaptureResult = {
@@ -720,6 +734,7 @@ async function handleCaptureElement(
       assets: [],
       stylesheets: [],
       cssVariables,
+      detectedColors,
     };
 
     updateProgress(100, "Complete!");
@@ -853,6 +868,11 @@ async function handleCaptureElementByBackendId(
       category: categorizeCSSVariable(v.name, v.value),
     }));
 
+    updateProgress(92, "Analyzing colors...");
+
+    // Analyze colors from the tree
+    const detectedColors = analyzeColorsFromTree(tree as Parameters<typeof analyzeColorsFromTree>[0]);
+
     updateProgress(95, "Finalizing...");
 
     const result: CaptureResult = {
@@ -872,6 +892,7 @@ async function handleCaptureElementByBackendId(
       assets: [],
       stylesheets: [],
       cssVariables,
+      detectedColors,
     };
 
     updateProgress(100, "Complete!");
@@ -1144,6 +1165,24 @@ function buildElementTreeFromBounds(
     const cssPosition = computedStyles["position"] as ExtractedElement["position"];
     const position = cssPosition && cssPosition !== "static" ? cssPosition : undefined;
 
+    // Detect horizontal centering (margin: 0 auto)
+    // Check original CSS rules for "auto" margin values
+    let horizontallyCentered = false;
+    if (matchedStyles) {
+      const marginLeft = extractPropertyFromMatchedRules(matchedStyles, "margin-left");
+      const marginRight = extractPropertyFromMatchedRules(matchedStyles, "margin-right");
+      const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
+
+      // Check if margin shorthand contains "auto" (e.g., "0 auto", "0px auto", "auto")
+      if (marginShorthand && /\bauto\b/i.test(marginShorthand)) {
+        horizontallyCentered = true;
+      }
+      // Or check individual margin-left/right for "auto"
+      else if (marginLeft === "auto" || marginRight === "auto") {
+        horizontallyCentered = true;
+      }
+    }
+
     // Collect text
     let aggregatedText = node.textContent || "";
     if (!aggregatedText) {
@@ -1209,6 +1248,7 @@ function buildElementTreeFromBounds(
       textContent: frameTextContent,
       opacity,
       isPlaceholder: isMedia,
+      horizontallyCentered: horizontallyCentered || undefined,
       children: [],
     };
 
@@ -1777,6 +1817,20 @@ function buildElementTree(
     const zIndex =
       zIndexStr && zIndexStr !== "auto" ? parseInt(zIndexStr) : undefined;
 
+    // Detect horizontal centering (margin: 0 auto)
+    let horizontallyCentered = false;
+    if (matchedStyles) {
+      const marginLeft = extractPropertyFromMatchedRules(matchedStyles, "margin-left");
+      const marginRight = extractPropertyFromMatchedRules(matchedStyles, "margin-right");
+      const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
+
+      if (marginShorthand && /\bauto\b/i.test(marginShorthand)) {
+        horizontallyCentered = true;
+      } else if (marginLeft === "auto" || marginRight === "auto") {
+        horizontallyCentered = true;
+      }
+    }
+
     // Extract hover styles for interactive elements
     let hoverStyles: Record<string, string> | null = null;
     if (
@@ -1872,6 +1926,7 @@ function buildElementTree(
       textContent: frameTextContent,
       opacity,
       isPlaceholder: isMedia,
+      horizontallyCentered: horizontallyCentered || undefined,
       children: [],
       hoverStyles: hoverStyles || undefined,
     };

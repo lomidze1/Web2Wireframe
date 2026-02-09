@@ -176,6 +176,8 @@ export interface ExtractedElement {
   isPlaceholder: boolean;
   // Overflow (for clipsContent in Figma)
   overflow?: "visible" | "hidden" | "scroll" | "auto";
+  // Centering (margin: 0 auto detected from original CSS)
+  horizontallyCentered?: boolean;
   // Matched CSS (for advanced processing)
   matchedRules?: CDPCSSRule[];
   // Hover/Interactive styles (for buttons, links)
@@ -193,6 +195,23 @@ export interface CapturedFrame {
   tree: ExtractedElement;
 }
 
+// Detected colors from the page (for smart color palette)
+export interface DetectedColors {
+  background: string;    // Most common page background (white, dark, etc.)
+  text: string;          // Most common text color
+  accent: string;        // Buttons, links, CTAs
+  surface: string;       // Cards, containers background
+  border: string;        // Most common border color
+  main: string;          // Brand/hero background color
+  // Source info for transparency
+  source: {
+    totalElements: number;
+    backgroundSamples: number;
+    textSamples: number;
+    accentSamples: number;
+  };
+}
+
 // Full page capture result (multi-viewport support)
 export interface CaptureResult {
   url: string;
@@ -203,6 +222,7 @@ export interface CaptureResult {
   assets: ExtractedAsset[];
   stylesheets: ExtractedStylesheet[];
   cssVariables: ExtractedCSSVariable[];  // All CSS variables from the page
+  detectedColors?: DetectedColors;       // Auto-detected color palette from page
 }
 
 // Extracted font info

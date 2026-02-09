@@ -627,6 +627,82 @@
   border-color: var(--accent);
 }
 
+/* Reset Colors Button */
+.resetColorsBtn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: "Montserrat", sans-serif;
+  color: var(--muted, #94A3B8);
+  background: transparent;
+  border: 1px dashed var(--border, #E2E8F0);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.resetColorsBtn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.05);
+}
+
+/* Font Picker */
+.fontPickerContent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fontSelect {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: rgba(var(--bg-rgb), 0.6);
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: "Montserrat", sans-serif;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+  appearance: none;
+  padding-right: 36px;
+}
+
+.fontSelect:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background-color: rgba(var(--bg-rgb), 0.8);
+}
+
+.fontSelect:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.fontSelect option {
+  background: var(--bg);
+  color: var(--text);
+  padding: 8px;
+}
+
+.fontPreview {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
 /* Dropdown */
 .dropdown {
   width: 100%;
@@ -1423,4 +1499,126 @@
 .importOptionsToggleSwitch input:checked + .importOptionsToggleSlider::before {
   transform: translateX(16px);
   background-color: #2ecc71;
+}
+
+/* Detected Colors Section */
+.detectedColorsSection {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  border-radius: 8px;
+}
+
+.detectedColorsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.detectedColorsTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.applyColorsBtn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.applyColorsBtn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.applyColorsBtn:disabled {
+  cursor: default;
+}
+
+.applyColorsBtnDone {
+  background: #2ecc71;
+}
+
+.applyColorsBtnDone:hover {
+  background: #27ae60;
+}
+
+.detectedColorsPreview {
+  display: flex;
+  gap: 6px;
+}
+
+.colorSwatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  cursor: help;
+  transition: transform 0.15s ease;
+}
+
+.colorSwatch:hover {
+  transform: scale(1.1);
+}
+
+/* Color Reference Table in Terminology */
+.colorReferenceTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.colorReferenceTable th,
+.colorReferenceTable td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.colorReferenceTable th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.colorReferenceTable td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.colorReferenceTable td:last-child {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.colorReferenceTable tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.colorDot {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
 }

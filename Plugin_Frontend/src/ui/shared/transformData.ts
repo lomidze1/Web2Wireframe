@@ -21,24 +21,27 @@ const SEMANTIC_PLACEHOLDERS: Record<string, string> = {
   h6: "Small Heading",
   p: "Body text paragraph with sample content.",
   span: "Text",
-  a: "Link Text",
+  a: "Link",
   button: "Button",
   label: "Label",
-  li: "List item",
+  li: "•",  // Bullet point for list items
   td: "Cell",
   th: "Header",
   input: "Input field",
   textarea: "Text area content",
   small: "Fine print",
-  strong: "Important",
-  em: "Emphasized",
+  strong: "Text",  // Generic text instead of "Important"
+  em: "Text",      // Generic text instead of "Emphasized"
   blockquote: "Quote text here...",
 };
 
 /**
- * Generate Lorem Ipsum text of appropriate length
+ * Generate Lorem Ipsum text with EXACT character count matching the original
+ * This preserves the visual length/density of the original text in wireframes
  */
 function generateLoremIpsum(originalLength: number): string {
+  if (originalLength <= 0) return "";
+
   const loremWords = [
     "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit",
     "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et", "dolore",
@@ -50,24 +53,100 @@ function generateLoremIpsum(originalLength: number): string {
     "deserunt", "mollit", "anim", "id", "est", "laborum",
   ];
 
-  // Estimate word count from character length (average word ~5 chars + space)
-  const targetWords = Math.max(1, Math.ceil(originalLength / 6));
+  // Build text by adding words until we reach or exceed target length
   const result: string[] = [];
+  let currentLength = 0;
+  let wordIndex = 0;
 
-  for (let i = 0; i < targetWords; i++) {
-    const word = loremWords[i % loremWords.length];
-    // Capitalize first word
-    result.push(i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word);
+  while (currentLength < originalLength) {
+    const word = loremWords[wordIndex % loremWords.length];
+    const formattedWord = wordIndex === 0
+      ? word.charAt(0).toUpperCase() + word.slice(1)
+      : word;
+
+    // Calculate what length would be after adding this word
+    const separator = result.length > 0 ? " " : "";
+    const newLength = currentLength + separator.length + formattedWord.length;
+
+    if (newLength <= originalLength) {
+      result.push(formattedWord);
+      currentLength = newLength;
+    } else {
+      // We need to add a partial word or just padding to reach exact length
+      const remainingChars = originalLength - currentLength;
+      if (remainingChars > 0) {
+        if (result.length > 0) {
+          // Add space + partial word
+          const partialWord = formattedWord.slice(0, remainingChars - 1);
+          if (partialWord.length > 0) {
+            result.push(partialWord);
+          }
+        } else {
+          // First word, just truncate
+          result.push(formattedWord.slice(0, remainingChars));
+        }
+      }
+      break;
+    }
+
+    wordIndex++;
   }
 
   return result.join(" ");
 }
 
 /**
- * Get semantic placeholder based on tag name
+ * Check if text looks like a price/currency pattern (e.g., "$0", "$99", "€50")
  */
-function getSemanticPlaceholder(tag: string, originalText: string): string {
+function isPricePattern(text: string): boolean {
+  // Match currency symbols followed by numbers, or numbers followed by currency
+  return /^[$€£¥₹]?\s*\d+([.,]\d+)?\s*[$€£¥₹]?$/.test(text.trim());
+}
+
+/**
+ * Check if text contains a price with period/unit (e.g., "/forever", "/month")
+ */
+function hasPricePeriod(text: string): boolean {
+  return /\/\s*(forever|month|year|week|day|mo|yr|wk|annual|quarterly)/i.test(text);
+}
+
+/**
+ * Get semantic placeholder based on tag name and context
+ */
+function getSemanticPlaceholder(
+  tag: string,
+  originalText: string,
+  className?: string,
+  elementName?: string
+): string {
   const tagLower = tag.toLowerCase();
+
+  // Check for logo - class name, element name, or text content contains "logo"
+  const isLogo =
+    (className && /\blogo\b/i.test(className)) ||
+    (elementName && /\blogo\b/i.test(elementName)) ||
+    (originalText && /^logo$/i.test(originalText.trim()));
+
+  if (isLogo) {
+    return "Logo";
+  }
+
+  // Preserve price patterns with periods (e.g., "$0 /forever" -> "$0 /period")
+  if (hasPricePeriod(originalText)) {
+    // Replace the price amount but keep the period indicator
+    const periodMatch = originalText.match(/(\/\s*\w+)/);
+    const period = periodMatch ? periodMatch[1] : "/period";
+    return `$0 ${period}`;
+  }
+
+  // Preserve simple price patterns (e.g., "$99" -> "$0")
+  if (isPricePattern(originalText)) {
+    // Extract currency symbol if present
+    const currencyMatch = originalText.match(/[$€£¥₹]/);
+    const currency = currencyMatch ? currencyMatch[0] : "$";
+    return `${currency}0`;
+  }
+
   const placeholder = SEMANTIC_PLACEHOLDERS[tagLower];
 
   if (placeholder) {
@@ -91,6 +170,8 @@ interface ExtractedElement {
   tag: string;
   textContent: string;
   children: ExtractedElement[];
+  className?: string;  // CSS class names for detection (logo, etc.)
+  name?: string;       // Element name for logo detection
   // ... other properties not needed for text transformation
   [key: string]: unknown;
 }
@@ -119,7 +200,12 @@ function transformTextInElement(element: ExtractedElement, textMode: TextMode): 
         transformed.textContent = generateLoremIpsum(transformed.textContent.length);
         break;
       case "semantic":
-        transformed.textContent = getSemanticPlaceholder(transformed.tag, transformed.textContent);
+        transformed.textContent = getSemanticPlaceholder(
+          transformed.tag,
+          transformed.textContent,
+          transformed.className,
+          transformed.name
+        );
         break;
       case "website":
       default:

@@ -257,3 +257,278 @@ export function debounce<T extends (...args: unknown[]) => void>(
     timeoutId = setTimeout(() => fn(...args), delay);
   };
 }
+
+/**
+ * Calculate luminance of a hex color (0-1, 0=black, 1=white)
+ */
+function getLuminance(hex: string): number {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+
+  const rs = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+  const gs = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+  const bs = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+/**
+ * Check if color is too close to white (likely default background)
+ */
+function isNearWhite(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  // Consider colors with all components > 250 as near-white
+  return r > 250 && g > 250 && b > 250;
+}
+
+/**
+ * Check if color is too close to black
+ */
+function isNearBlack(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return r < 5 && g < 5 && b < 5;
+}
+
+/**
+ * Check if two colors are similar (within threshold)
+ */
+function areColorsSimilar(hex1: string, hex2: string, threshold = 30): boolean {
+  const r1 = parseInt(hex1.slice(1, 3), 16);
+  const g1 = parseInt(hex1.slice(3, 5), 16);
+  const b1 = parseInt(hex1.slice(5, 7), 16);
+  const r2 = parseInt(hex2.slice(1, 3), 16);
+  const g2 = parseInt(hex2.slice(3, 5), 16);
+  const b2 = parseInt(hex2.slice(5, 7), 16);
+
+  const diff = Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2);
+  return diff < threshold;
+}
+
+/**
+ * Detected colors result type
+ */
+export interface DetectedColorsResult {
+  background: string;
+  text: string;
+  accent: string;
+  surface: string;
+  border: string;
+  main: string;
+  source: {
+    totalElements: number;
+    backgroundSamples: number;
+    textSamples: number;
+    accentSamples: number;
+  };
+}
+
+/**
+ * Element data for color analysis
+ */
+interface AnalyzableElement {
+  tag: string;
+  type: "frame" | "text" | "placeholder";
+  backgroundColor?: string | null;
+  textColor?: string | null;
+  borderColor?: string | null;
+  fills?: Array<{ type: string; color?: { r: number; g: number; b: number; a: number } }>;
+  width: number;
+  height: number;
+  children: AnalyzableElement[];
+}
+
+/**
+ * Analyze element tree and detect dominant colors
+ * Returns a smart color palette based on actual website colors
+ */
+export function analyzeColorsFromTree(tree: AnalyzableElement): DetectedColorsResult {
+  // Collect colors by category
+  const backgroundColors: Array<{ color: string; area: number }> = [];
+  const textColors: Array<{ color: string; count: number }> = [];
+  const accentColors: Array<{ color: string; count: number }> = [];
+  const borderColors: Array<{ color: string; count: number }> = [];
+  const surfaceColors: Array<{ color: string; area: number }> = [];
+
+  let totalElements = 0;
+
+  // Recursive traversal
+  function traverse(node: AnalyzableElement, depth: number): void {
+    totalElements++;
+    const area = node.width * node.height;
+
+    // Extract background color
+    let bgColor: string | null = null;
+
+    // Try fills array first (Figma format)
+    if (node.fills && node.fills.length > 0) {
+      for (const fill of node.fills) {
+        if (fill.type === "SOLID" && fill.color) {
+          const { r, g, b } = fill.color;
+          const hex = `#${Math.round(r * 255).toString(16).padStart(2, "0")}${Math.round(g * 255).toString(16).padStart(2, "0")}${Math.round(b * 255).toString(16).padStart(2, "0")}`.toUpperCase();
+          if (parseColor(hex)) {
+            bgColor = hex;
+            break;
+          }
+        }
+      }
+    }
+
+    // Fall back to backgroundColor string
+    if (!bgColor && node.backgroundColor) {
+      bgColor = parseColor(node.backgroundColor);
+    }
+
+    if (bgColor) {
+      // Root level = page background
+      if (depth === 0 && area > 100000) {
+        backgroundColors.push({ color: bgColor, area });
+      }
+      // Cards, containers (medium-large elements at depth > 0)
+      else if (depth > 0 && area > 5000 && area < 500000) {
+        surfaceColors.push({ color: bgColor, area });
+      }
+      // Hero sections, large colored areas
+      else if (area > 200000 && !isNearWhite(bgColor) && !isNearBlack(bgColor)) {
+        // This could be a "main" brand color
+        backgroundColors.push({ color: bgColor, area });
+      }
+    }
+
+    // Extract text color
+    if (node.type === "text" && node.textColor) {
+      const textCol = parseColor(node.textColor);
+      if (textCol) {
+        textColors.push({ color: textCol, count: 1 });
+      }
+    }
+
+    // Extract border color
+    if (node.borderColor) {
+      const borderCol = parseColor(node.borderColor);
+      if (borderCol) {
+        borderColors.push({ color: borderCol, count: 1 });
+      }
+    }
+
+    // Detect accent colors from interactive elements
+    const isInteractive = ["a", "button", "input"].includes(node.tag?.toLowerCase() || "");
+    if (isInteractive && bgColor && !isNearWhite(bgColor) && !isNearBlack(bgColor)) {
+      accentColors.push({ color: bgColor, count: 1 });
+    }
+
+    // Links often have colored text
+    if (node.tag?.toLowerCase() === "a" && node.textColor) {
+      const linkColor = parseColor(node.textColor);
+      if (linkColor && !isNearBlack(linkColor)) {
+        accentColors.push({ color: linkColor, count: 1 });
+      }
+    }
+
+    // Recurse children
+    if (node.children) {
+      for (const child of node.children) {
+        traverse(child, depth + 1);
+      }
+    }
+  }
+
+  traverse(tree, 0);
+
+  // Helper: Get most common color from array
+  function getMostCommon(items: Array<{ color: string; count?: number; area?: number }>, sortBy: "count" | "area" = "count"): string | null {
+    if (items.length === 0) return null;
+
+    // Group by similar colors
+    const groups: Map<string, { color: string; total: number }> = new Map();
+
+    for (const item of items) {
+      let foundGroup = false;
+      for (const [key, group] of groups) {
+        if (areColorsSimilar(item.color, key)) {
+          group.total += (sortBy === "area" ? item.area : item.count) || 1;
+          foundGroup = true;
+          break;
+        }
+      }
+      if (!foundGroup) {
+        groups.set(item.color, {
+          color: item.color,
+          total: (sortBy === "area" ? item.area : item.count) || 1
+        });
+      }
+    }
+
+    // Sort by total
+    const sorted = Array.from(groups.values()).sort((a, b) => b.total - a.total);
+    return sorted[0]?.color || null;
+  }
+
+  // Determine each color role
+  const detectedBg = getMostCommon(backgroundColors, "area");
+  const detectedText = getMostCommon(textColors, "count");
+  const detectedAccent = getMostCommon(accentColors, "count");
+  const detectedSurface = getMostCommon(surfaceColors, "area");
+  const detectedBorder = getMostCommon(borderColors, "count");
+
+  // Find "main" color - distinct brand color from large elements
+  // Filter out white/near-white backgrounds
+  const mainCandidates = backgroundColors.filter(
+    b => !isNearWhite(b.color) && !isNearBlack(b.color) && b.area > 50000
+  );
+  const detectedMain = getMostCommon(mainCandidates, "area");
+
+  // Build result with smart defaults
+  const result: DetectedColorsResult = {
+    // Page background: detected or white
+    background: detectedBg || "#FFFFFF",
+
+    // Text: detected dark color or default dark gray
+    text: detectedText || "#333333",
+
+    // Accent: detected interactive color or blue
+    accent: detectedAccent || "#3B82F6",
+
+    // Surface: detected card background or light gray
+    surface: detectedSurface || "#F5F5F5",
+
+    // Border: detected or light gray
+    border: detectedBorder || "#E0E0E0",
+
+    // Main/brand: detected hero color or use accent, or default blue-gray
+    main: detectedMain || detectedAccent || "#1F3A5F",
+
+    source: {
+      totalElements,
+      backgroundSamples: backgroundColors.length,
+      textSamples: textColors.length,
+      accentSamples: accentColors.length,
+    }
+  };
+
+  // Smart adjustments:
+  // If background is dark, invert text expectation
+  if (result.background && getLuminance(result.background) < 0.3) {
+    // Dark mode site - text should be light
+    if (detectedText && getLuminance(detectedText) < 0.5) {
+      result.text = "#FFFFFF";
+    }
+  }
+
+  // Ensure surface is different from background
+  if (result.surface === result.background) {
+    const bgLum = getLuminance(result.background);
+    // Make surface slightly darker or lighter than background
+    if (bgLum > 0.5) {
+      result.surface = "#F0F0F0";
+    } else {
+      result.surface = "#2A2A2A";
+    }
+  }
+
+  return result;
+}

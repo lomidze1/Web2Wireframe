@@ -10,6 +10,7 @@ import ImportOptionsModal, {
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
+import { transformFramesData } from "../../../shared/transformData";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -132,6 +133,22 @@ interface ExtractedCSSVariable {
   category?: string; // color, spacing, typography, etc.
 }
 
+// Detected colors from the page (matches Browser Extension)
+interface DetectedColors {
+  background: string;
+  text: string;
+  accent: string;
+  surface: string;
+  border: string;
+  main: string;
+  source: {
+    totalElements: number;
+    backgroundSamples: number;
+    textSamples: number;
+    accentSamples: number;
+  };
+}
+
 // NEW multi-frame format from Browser Extension
 interface MultiFrameCaptureResult {
   url: string;
@@ -142,6 +159,7 @@ interface MultiFrameCaptureResult {
   assets: unknown[];
   stylesheets: unknown[];
   cssVariables?: ExtractedCSSVariable[];
+  detectedColors?: DetectedColors;
 }
 
 // LEGACY single-viewport format (Area Selection)
@@ -174,6 +192,7 @@ interface UnifiedCaptureResult {
   assets: unknown[];
   stylesheets: unknown[];
   cssVariables?: ExtractedCSSVariable[];
+  detectedColors?: DetectedColors;
 }
 
 /**
@@ -183,15 +202,17 @@ interface UnifiedCaptureResult {
 function toUnifiedFormat(data: MultiFrameCaptureResult | SingleViewportCaptureResult): UnifiedCaptureResult | null {
   // Check for new multi-frame format
   if ('frames' in data && Array.isArray(data.frames) && data.frames.length > 0) {
+    const multiFrame = data as MultiFrameCaptureResult;
     return {
-      url: data.url,
-      title: data.title,
-      timestamp: data.timestamp,
-      frames: data.frames,
-      fonts: data.fonts,
-      assets: data.assets,
-      stylesheets: data.stylesheets,
-      cssVariables: data.cssVariables,
+      url: multiFrame.url,
+      title: multiFrame.title,
+      timestamp: multiFrame.timestamp,
+      frames: multiFrame.frames,
+      fonts: multiFrame.fonts,
+      assets: multiFrame.assets,
+      stylesheets: multiFrame.stylesheets,
+      cssVariables: multiFrame.cssVariables,
+      detectedColors: multiFrame.detectedColors,
     };
   }
 
@@ -210,6 +231,7 @@ function toUnifiedFormat(data: MultiFrameCaptureResult | SingleViewportCaptureRe
       assets: singleViewport.assets,
       stylesheets: singleViewport.stylesheets,
       cssVariables: singleViewport.cssVariables,
+      // Legacy format doesn't have detectedColors
     };
   }
 
@@ -488,8 +510,20 @@ export default function AreaSelection() {
     });
     setImportState({ status: "loading", message: "" });
 
+    // Transform text content based on textMode (lorem, semantic, or website)
+    // This must happen BEFORE converting to wireframe nodes
+    const transformedFrames = transformFramesData(
+      captureResult.frames as unknown as Parameters<typeof transformFramesData>[0],
+      {
+        colorMode: options.colorMode,
+        fontMode: options.fontMode,
+        textMode: options.textMode,
+      }
+    );
+
     // Convert all frames to wireframe format
-    const framesData = captureResult.frames.map((frame) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const framesData = transformedFrames.map((frame: any) => {
       const wireframeTree = convertToWireframeNode(frame.tree, {
         text: config.pluginColors.text,
         surface: config.pluginColors.surface,
@@ -511,10 +545,11 @@ export default function AreaSelection() {
             frames: framesData,
             sourceUrl: captureResult.url,
             pluginColors: config.pluginColors,
+            pluginFont: config.pluginFont,
             cssVariables: captureResult.cssVariables || [],
             variableMode: options.cssVariablesMode,
             layoutMode: options.layoutMode,
-            // Pass additional options for future use
+            // Import mode options
             colorMode: options.colorMode,
             fontMode: options.fontMode,
             textMode: options.textMode,
@@ -709,6 +744,7 @@ export default function AreaSelection() {
         onCancel={handleImportOptionsCancel}
         sourceUrl={pendingCaptureResult?.url}
         hasCssVariables={hasCssVariables}
+        detectedColors={pendingCaptureResult?.detectedColors}
       />
 
       {/* Rendering Loader Overlay */}
