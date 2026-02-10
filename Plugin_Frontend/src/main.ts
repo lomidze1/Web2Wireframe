@@ -582,13 +582,7 @@ function cssJustifyToFigma(
 function cssAlignToFigma(
   align: string | undefined,
 ): "MIN" | "CENTER" | "MAX" | "BASELINE" {
-  // DEBUG: Log raw input
-  console.log(`[cssAlignToFigma] Input: "${align}" (type: ${typeof align})`);
-
-  if (!align) {
-    console.log(`[cssAlignToFigma] Returning MIN (no align)`);
-    return "MIN";
-  }
+  if (!align) return "MIN";
 
   const map: Record<string, "MIN" | "CENTER" | "MAX" | "BASELINE"> = {
     "flex-start": "MIN",
@@ -603,12 +597,7 @@ function cssAlignToFigma(
     normal: "MIN",
   };
 
-  const result = map[align];
-  console.log(
-    `[cssAlignToFigma] Map lookup "${align}" => "${result}", falling back: ${!result}`,
-  );
-
-  return result || "MIN";
+  return map[align] || "MIN";
 }
 
 // Convert hex color to Figma RGB (0-1 range)
@@ -705,13 +694,6 @@ function parseGradient(
     ? resolveCSSVariables(gradient, variableValueMap)
     : gradient;
 
-  // DEBUG
-  console.log("[DEBUG parseGradient]", {
-    original: gradient,
-    resolved: resolvedGradient,
-    hasVarRemaining: resolvedGradient.includes("var("),
-  });
-
   // Match linear-gradient
   const linearMatch = resolvedGradient.match(
     /linear-gradient\s*\(\s*(\d+)deg\s*,\s*(.+)\)/i,
@@ -722,11 +704,6 @@ function parseGradient(
 
     // Parse color stops
     const colorStops = parseColorStops(colorStopsStr);
-    console.log(
-      "[DEBUG parseGradient] colorStops:",
-      colorStops.length,
-      colorStopsStr,
-    );
     if (colorStops.length < 2) return null;
 
     // Convert CSS angle to Figma gradient handles
@@ -832,12 +809,23 @@ function parseColorStops(colorStopsStr: string): ColorStop[] {
  * 3. Translate to position the center correctly (accounting for scale)
  */
 function calculateRadialGradientTransform(fill: FigmaFill): Transform {
+  // DEBUG: Log raw fill object to verify data flow
+  console.log(`[RADIAL TRANSFORM] Raw fill:`, JSON.stringify({
+    center: fill.center,
+    shape: fill.shape,
+    size: fill.size,
+    elementWidth: fill.elementWidth,
+    elementHeight: fill.elementHeight,
+  }));
+
   const cx = fill.center?.x ?? 0.5;
   const cy = fill.center?.y ?? 0.5;
   const shape = fill.shape ?? "ellipse";
   const size = fill.size ?? "farthest-corner";
   const elementWidth = fill.elementWidth ?? 100;
   const elementHeight = fill.elementHeight ?? 100;
+
+  console.log(`[RADIAL TRANSFORM] Input: center=(${cx}, ${cy}), shape=${shape}, size=${size}, element=${elementWidth}x${elementHeight}`);
 
   // Step 1: Calculate distances from center to edges
   const distLeft = cx * elementWidth;
@@ -893,14 +881,12 @@ function calculateRadialGradientTransform(fill: FigmaFill): Transform {
   // Step 5: Calculate translation
   // Figma's default gradient center is at (0.5, 0.5) in gradient space
   // After scaling, we need to position the center at (cx, cy)
-  // Translation formula: tx = cx - scaleX * 0.5, ty = cy - scaleY * 0.5
+  // NOTE: Figma's gradient Y-axis is INVERTED (0=bottom, 1=top)
+  // So we use (1-cy) for vertical positioning
   const tx = cx - scaleX * 0.5;
-  const ty = cy - scaleY * 0.5;
+  const ty = (1 - cy) - scaleY * 0.5;
 
-  console.log("[DEBUG calculateRadialGradientTransform]", {
-    input: { cx, cy, shape, size, elementWidth, elementHeight },
-    calculated: { radiusX, radiusY, scaleX, scaleY, tx, ty },
-  });
+  console.log(`[RADIAL TRANSFORM] Output: scale=(${scaleX.toFixed(3)}, ${scaleY.toFixed(3)}), translate=(${tx.toFixed(3)}, ${ty.toFixed(3)})`);
 
   return [
     [scaleX, 0, tx],
@@ -991,23 +977,11 @@ function convertFillsToPaints(
 ): Paint[] {
   if (!fills || fills.length === 0) return [];
 
-  console.log("[DEBUG convertFillsToPaints] Input fills count:", fills.length);
-  console.log(
-    "[DEBUG convertFillsToPaints] Fill types:",
-    fills.map((f) => f.type),
-  );
-
   const paints: Paint[] = [];
   const parentBg = context.parentBackgroundColor;
 
   for (const fill of fills) {
-    if (!fill.visible) {
-      console.log(
-        "[DEBUG convertFillsToPaints] Skipping invisible fill:",
-        fill.type,
-      );
-      continue;
-    }
+    if (!fill.visible) continue;
 
     switch (fill.type) {
       case "SOLID":
@@ -1020,31 +994,15 @@ function convertFillsToPaints(
           };
           if (context.colorMode === "plugin") {
             const isLight = isLightColorValue(fill.color);
-            // Check if original color is saturated (colorful) - indicates "highlighted" element
-            // Saturated colors (blue, green, etc.) should use secondary to stand out
             const isSaturated = isSaturatedColor(fill.color);
-            let role = determineColorRole(
-              "fill",
-              tag,
-              isLight,
-              undefined,
-              className,
-            );
+            let role = determineColorRole("fill", tag, isLight, undefined, className);
 
             // Override: Saturated fills on cards/containers → secondary (highlighted)
             if (isSaturated && !isLight && role === "surface") {
               role = "secondary";
-              console.log(
-                "[DEBUG convertFillsToPaints] Saturated color detected, using secondary instead of surface",
-              );
             }
 
-            // Use alternative color if it would match parent background
-            const pluginColorHex = getAlternativePluginColor(
-              role,
-              context.pluginColors,
-              parentBg,
-            );
+            const pluginColorHex = getAlternativePluginColor(role, context.pluginColors, parentBg);
             const pluginColorRGB = cssColorToFigmaRGB(pluginColorHex);
             if (pluginColorRGB) {
               finalColor = pluginColorRGB.color;
@@ -1053,58 +1011,32 @@ function convertFillsToPaints(
           const solidPaint: SolidPaint = {
             type: "SOLID",
             color: finalColor,
-            // Plugin colors mode: 100% opacity for clean wireframes
-            // Website mode: preserve original opacity
-            opacity:
-              context.colorMode === "plugin"
-                ? 1.0
-                : fill.opacity * fill.color.a,
+            opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity * fill.color.a,
           };
           paints.push(solidPaint);
-          console.log("[DEBUG convertFillsToPaints] Added SOLID:", solidPaint);
         }
         break;
 
       case "GRADIENT_LINEAR":
         if (fill.stops && fill.stops.length >= 2) {
-          // In plugin colors mode, convert gradient to solid color
           if (context.colorMode === "plugin") {
-            // Get the dominant color from gradient (use first stop as it's usually the main color)
             const dominantStop = fill.stops[0];
             const isLight = isLightColorValue(dominantStop.color);
             const isSaturated = isSaturatedColor(dominantStop.color);
-            let role = determineColorRole(
-              "fill",
-              tag,
-              isLight,
-              undefined,
-              className,
-            );
-            // Saturated gradient → secondary (highlighted)
+            let role = determineColorRole("fill", tag, isLight, undefined, className);
             if (isSaturated && !isLight && role === "surface") {
               role = "secondary";
             }
-            // Use alternative color if it would match parent background
-            const pluginColorHex = getAlternativePluginColor(
-              role,
-              context.pluginColors,
-              parentBg,
-            );
+            const pluginColorHex = getAlternativePluginColor(role, context.pluginColors, parentBg);
             const pluginColorRGB = cssColorToFigmaRGB(pluginColorHex);
             if (pluginColorRGB) {
-              const solidPaint: SolidPaint = {
+              paints.push({
                 type: "SOLID",
                 color: pluginColorRGB.color,
-                opacity: 1.0, // Plugin colors: 100% opacity for clean wireframes
-              };
-              paints.push(solidPaint);
-              console.log(
-                "[DEBUG convertFillsToPaints] Converted GRADIENT_LINEAR to SOLID (plugin mode):",
-                solidPaint,
-              );
+                opacity: 1.0,
+              });
             }
           } else {
-            // Website colors mode - keep the gradient
             const angle = fill.angle || 180;
             const angleRad = ((angle - 90) * Math.PI) / 180;
             const cos = Math.cos(angleRad);
@@ -1114,12 +1046,7 @@ function convertFillsToPaints(
               type: "GRADIENT_LINEAR",
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
-                color: {
-                  r: stop.color.r,
-                  g: stop.color.g,
-                  b: stop.color.b,
-                  a: stop.color.a,
-                },
+                color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
               })),
               gradientTransform: [
                 [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
@@ -1127,179 +1054,97 @@ function convertFillsToPaints(
               ],
             };
             paints.push(linearPaint);
-            console.log(
-              "[DEBUG convertFillsToPaints] Added GRADIENT_LINEAR with angle:",
-              angle,
-            );
           }
         }
         break;
 
       case "GRADIENT_RADIAL":
         if (fill.stops && fill.stops.length >= 2) {
-          // In plugin colors mode, convert gradient to solid color
           if (context.colorMode === "plugin") {
             const dominantStop = fill.stops[0];
             const isLight = isLightColorValue(dominantStop.color);
             const isSaturated = isSaturatedColor(dominantStop.color);
-            let role = determineColorRole(
-              "fill",
-              tag,
-              isLight,
-              undefined,
-              className,
-            );
-            // Saturated gradient → secondary (highlighted)
+            let role = determineColorRole("fill", tag, isLight, undefined, className);
             if (isSaturated && !isLight && role === "surface") {
               role = "secondary";
             }
-            // Use alternative color if it would match parent background
-            const pluginColorHex = getAlternativePluginColor(
-              role,
-              context.pluginColors,
-              parentBg,
-            );
+            const pluginColorHex = getAlternativePluginColor(role, context.pluginColors, parentBg);
             const pluginColorRGB = cssColorToFigmaRGB(pluginColorHex);
             if (pluginColorRGB) {
-              const solidPaint: SolidPaint = {
+              paints.push({
                 type: "SOLID",
                 color: pluginColorRGB.color,
-                opacity: 1.0, // Plugin colors: 100% opacity for clean wireframes
-              };
-              paints.push(solidPaint);
-              console.log(
-                "[DEBUG convertFillsToPaints] Converted GRADIENT_RADIAL to SOLID (plugin mode):",
-                solidPaint,
-              );
+                opacity: 1.0,
+              });
             }
           } else {
-            // Website colors mode - keep the gradient
             const radialTransform = calculateRadialGradientTransform(fill);
             const radialPaint: GradientPaint = {
               type: "GRADIENT_RADIAL",
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
-                color: {
-                  r: stop.color.r,
-                  g: stop.color.g,
-                  b: stop.color.b,
-                  a: stop.color.a,
-                },
+                color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
               })),
               gradientTransform: radialTransform,
             };
+            console.log(`[RADIAL PAINT] Final paint:`, JSON.stringify({
+              type: radialPaint.type,
+              gradientTransform: radialPaint.gradientTransform,
+              stopsCount: radialPaint.gradientStops.length,
+            }));
             paints.push(radialPaint);
-            console.log(
-              "[DEBUG convertFillsToPaints] Added GRADIENT_RADIAL, transform:",
-              radialTransform,
-              "stops:",
-              fill.stops.length,
-            );
           }
-        } else {
-          console.log(
-            "[DEBUG convertFillsToPaints] GRADIENT_RADIAL skipped - not enough stops:",
-            fill.stops?.length,
-          );
         }
         break;
 
       case "GRADIENT_CONIC":
         if (fill.stops && fill.stops.length >= 2) {
-          // In plugin colors mode, convert gradient to solid color
           if (context.colorMode === "plugin") {
             const dominantStop = fill.stops[0];
             const isLight = isLightColorValue(dominantStop.color);
             const isSaturated = isSaturatedColor(dominantStop.color);
-            let role = determineColorRole(
-              "fill",
-              tag,
-              isLight,
-              undefined,
-              className,
-            );
-            // Saturated gradient → secondary (highlighted)
+            let role = determineColorRole("fill", tag, isLight, undefined, className);
             if (isSaturated && !isLight && role === "surface") {
               role = "secondary";
             }
-            // Use alternative color if it would match parent background
-            const pluginColorHex = getAlternativePluginColor(
-              role,
-              context.pluginColors,
-              parentBg,
-            );
+            const pluginColorHex = getAlternativePluginColor(role, context.pluginColors, parentBg);
             const pluginColorRGB = cssColorToFigmaRGB(pluginColorHex);
             if (pluginColorRGB) {
-              const solidPaint: SolidPaint = {
+              paints.push({
                 type: "SOLID",
                 color: pluginColorRGB.color,
-                opacity: 1.0, // Plugin colors: 100% opacity for clean wireframes
-              };
-              paints.push(solidPaint);
-              console.log(
-                "[DEBUG convertFillsToPaints] Converted GRADIENT_CONIC to SOLID (plugin mode):",
-                solidPaint,
-              );
+                opacity: 1.0,
+              });
             }
           } else {
-            // Website colors mode - Figma doesn't have native conic gradient, approximate with angular
             const angularPaint: GradientPaint = {
               type: "GRADIENT_ANGULAR",
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
-                color: {
-                  r: stop.color.r,
-                  g: stop.color.g,
-                  b: stop.color.b,
-                  a: stop.color.a,
-                },
+                color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
               })),
-              gradientTransform: [
-                [1, 0, 0],
-                [0, 1, 0],
-              ],
+              gradientTransform: [[1, 0, 0], [0, 1, 0]],
             };
             paints.push(angularPaint);
-            console.log(
-              "[DEBUG convertFillsToPaints] Added GRADIENT_ANGULAR (from conic)",
-            );
           }
         }
         break;
 
       case "IMAGE_PLACEHOLDER":
-        // Use surface color for placeholder
         const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);
         paints.push({
           type: "SOLID",
           color: surfaceRgb,
-          // Plugin colors mode: 100% opacity, Website mode: preserve original opacity
           opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity,
         });
-        console.log(
-          "[DEBUG convertFillsToPaints] Added IMAGE_PLACEHOLDER as SOLID",
-        );
         break;
-
-      default:
-        console.log(
-          "[DEBUG convertFillsToPaints] Unknown fill type:",
-          (fill as FigmaFill).type,
-        );
     }
   }
 
   // CRITICAL: Reverse the order!
   // CSS backgrounds: first = top layer (front)
   // Figma fills: first = bottom layer (back)
-  const reversedPaints = paints.reverse();
-
-  console.log(
-    "[DEBUG convertFillsToPaints] Output paints count:",
-    reversedPaints.length,
-  );
-
-  return reversedPaints;
+  return paints.reverse();
 }
 
 /**
@@ -2156,6 +2001,11 @@ async function createNodeInFigma(
   context: RenderContext,
   depth: number = 0,
 ): Promise<SceneNode | null> {
+  // DEBUG: Log root node to check if fills are present
+  if (depth === 0) {
+    console.log(`[NODE DEBUG] Root "${node.name}" | fills=${node.fills?.length || 0} | bgColor=${node.backgroundColor || 'none'}`);
+  }
+
   // Depth limit to prevent infinite recursion
   if (depth > 20) {
     logger.warn("Max depth reached", { nodeId: node.id, depth });
@@ -2212,14 +2062,8 @@ async function createNodeInFigma(
   // When context.layoutMode is "absolute", skip Auto Layout and use x/y positioning
   const useAutoLayout = context.layoutMode === "autoLayout";
 
-  console.log(
-    `[DEBUG createNodeInFigma] node="${node.name}" nodeLayoutMode="${node.layoutMode}" contextLayoutMode="${context.layoutMode}" useAutoLayout=${useAutoLayout}`,
-  );
 
   if (useAutoLayout && node.layoutMode && node.layoutMode !== "NONE") {
-    console.log(
-      `[DEBUG] Applying auto layout to "${node.name}": ${node.layoutMode}`,
-    );
     frame.layoutMode = node.layoutMode;
 
     // Apply sizing mode for this Auto Layout frame (as a parent)
@@ -2545,25 +2389,7 @@ async function createNodeInFigma(
   // Create text node for frame's textContent (like li elements with text)
   // This is for frames that have textContent but type="frame" (containers)
   // =========================================================================
-
-  // DEBUG: Log ALL frames with textContent (not just li)
-  if (node.textContent && node.textContent.trim()) {
-    console.log("=== FRAME WITH TEXTCONTENT ===", {
-      tag: node.tag,
-      type: node.type,
-      name: node.name,
-      textContent: node.textContent?.substring(0, 50),
-      childrenCount: node.children?.length || 0,
-      willCreateTextNode: node.type === "frame",
-    });
-  }
-
   if (node.textContent && node.textContent.trim() && node.type === "frame") {
-    console.log(
-      ">>> CREATING TEXT NODE FOR:",
-      node.tag,
-      node.textContent?.substring(0, 30),
-    );
     try {
       // Create a text node for the frame's text content
       const textNode = figma.createText();
@@ -2645,10 +2471,6 @@ async function createNodeInFigma(
       frame.appendChild(textNode);
       textNode.x = textX;
       textNode.y = textY;
-
-      console.log(
-        `[DEBUG] Created text node for frame "${node.name}" with content "${node.textContent.substring(0, 30)}..."`,
-      );
     } catch (err) {
       logger.error("Error creating text node for frame", err, {
         nodeId: node.id,
@@ -2658,9 +2480,7 @@ async function createNodeInFigma(
     }
   }
 
-  console.log(
-    `[DEBUG createNodeInFigma] FINAL frame="${frame.name}" figmaLayoutMode="${frame.layoutMode}" contextMode="${context.layoutMode}"`,
-  );
+  // Frame created - minimal logging
   return frame;
 }
 
@@ -2733,10 +2553,6 @@ async function createWireframeFrame(
         },
       ];
     }
-    console.log(
-      "[DEBUG createWireframeFrame] Plugin mode: using background color:",
-      pluginColors.background,
-    );
   } else {
     // Website mode: use original website colors
     if (
@@ -2749,6 +2565,14 @@ async function createWireframeFrame(
         context,
         frameData.tree.tag,
       );
+      console.log(`[ROOT FILLS] Input: ${frameData.tree.fills.length} fills, Output: ${rootFills.length} paints`);
+      rootFills.forEach((paint, i) => {
+        if (paint.type === 'GRADIENT_RADIAL') {
+          console.log(`[ROOT FILLS] Paint ${i}: GRADIENT_RADIAL, transform:`, JSON.stringify(paint.gradientTransform));
+        } else {
+          console.log(`[ROOT FILLS] Paint ${i}: ${paint.type}`);
+        }
+      });
       if (rootFills.length > 0) {
         wireframeFrame.fills = rootFills;
         linkFillStyleIfAvailable(wireframeFrame, context);

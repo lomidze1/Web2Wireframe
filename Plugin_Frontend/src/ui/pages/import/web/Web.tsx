@@ -1,6 +1,6 @@
 /** @jsx h */
 import { h } from "preact";
-import { useState } from "preact/hooks";
+import { useState, useEffect } from "preact/hooks";
 import styles from "./Web.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -8,6 +8,9 @@ import SettingsPanel from "../../../components/settingsPanel";
 import VariablesChoiceModal, {
   type VariableMode,
 } from "../../../components/modalPopup/VariablesChoiceModal";
+import RenderingLoader, {
+  type RenderingProgress,
+} from "../../../components/renderingLoader/RenderingLoader";
 
 const TAB_ID = "web";
 const STORAGE_KEY = "w2w_settings_expanded_web";
@@ -28,6 +31,8 @@ interface PendingRenderData {
   localStyles?: unknown;
   pluginColors: unknown;
   cssVariables?: unknown[];
+  colorMode: "plugin" | "website";
+  fontMode: "plugin" | "website";
 }
 
 export default function Web() {
@@ -39,15 +44,62 @@ export default function Web() {
   const [showVariablesModal, setShowVariablesModal] = useState(false);
   const [pendingRenderData, setPendingRenderData] =
     useState<PendingRenderData | null>(null);
+  // Rendering loader state
+  const [showRenderingLoader, setShowRenderingLoader] = useState(false);
+  const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
 
   // Use shared hook for all settings logic
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
 
+  // Listen for messages from Figma plugin main thread
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === "render-progress") {
+        const { step, percent, isComplete } = msg.data;
+        setRenderingProgress({ step, percent, isComplete });
+
+        // When complete, show success state then close
+        if (isComplete) {
+          setTimeout(() => {
+            setShowRenderingLoader(false);
+            setRenderingProgress(undefined);
+            setImportState({ status: "idle", message: "" });
+            setUrl("");
+            setPendingRenderData(null);
+          }, 10000); // Show success state for 10 seconds
+        }
+      }
+
+      if (msg.type === "wireframe-error") {
+        setShowRenderingLoader(false);
+        setRenderingProgress(undefined);
+        setImportState({
+          status: "error",
+          message: msg.data.error || "Failed to create wireframe",
+        });
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
   /**
    * Send render message to Figma
    */
   const sendToFigma = (data: PendingRenderData, variableMode: VariableMode) => {
+    // Show the rendering loader
+    setShowRenderingLoader(true);
+    setRenderingProgress({
+      step: "Creating wireframe...",
+      percent: 0,
+    });
+    setImportState({ status: "loading", message: "" });
+
     parent.postMessage(
       {
         pluginMessage: {
@@ -59,23 +111,14 @@ export default function Web() {
             pluginColors: data.pluginColors,
             cssVariables: data.cssVariables || [],
             variableMode, // "styles" or "direct"
+            colorMode: data.colorMode,
+            fontMode: data.fontMode,
           },
         },
       },
       "*"
     );
-
-    setImportState({
-      status: "success",
-      message: "Wireframe created successfully!",
-    });
-
-    // Reset after success
-    setTimeout(() => {
-      setImportState({ status: "idle", message: "" });
-      setUrl("");
-      setPendingRenderData(null);
-    }, 3000);
+    // Progress updates and completion are handled by the message listener
   };
 
   /**
@@ -150,6 +193,8 @@ export default function Web() {
         localStyles: data.localStyles,
         pluginColors: data.pluginColors || config.pluginColors,
         cssVariables: data.cssVariables || [],
+        colorMode: settings.localColorMode,
+        fontMode: settings.localFontMode,
       };
 
       // Check if CSS variables exist
@@ -247,6 +292,19 @@ export default function Web() {
       <VariablesChoiceModal
         isOpen={showVariablesModal}
         onChoice={handleVariableChoice}
+      />
+
+      {/* Rendering Loader Overlay */}
+      <RenderingLoader
+        isVisible={showRenderingLoader}
+        progress={renderingProgress}
+        onClose={() => {
+          setShowRenderingLoader(false);
+          setRenderingProgress(undefined);
+          setImportState({ status: "idle", message: "" });
+          setUrl("");
+          setPendingRenderData(null);
+        }}
       />
     </div>
   );

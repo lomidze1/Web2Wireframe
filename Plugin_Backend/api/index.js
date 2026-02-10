@@ -182,6 +182,14 @@ app.post("/api/import-url", async (req, res) => {
 
     console.log(`[Import] Successfully generated ${frames.length} frame(s)`);
 
+    // DEBUG: Quick fills check
+    if (frames[0]?.tree) {
+      const countFills = (n) => (n.fills?.length || 0) + (n.children || []).reduce((acc, c) => acc + countFills(c), 0);
+      console.log(`[FILLS] Total: ${countFills(frames[0].tree)}, Root: ${frames[0].tree.fills?.length || 0}`);
+    } else {
+      console.log(`[FILLS] No tree in frame!`);
+    }
+
     res.json({
       success: true,
       wireframeId,
