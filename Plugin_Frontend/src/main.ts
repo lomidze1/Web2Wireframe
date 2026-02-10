@@ -8,27 +8,36 @@ import { errorHandler, ErrorCode } from "./utils/errorHandler";
 
 /** RGBA color normalized to 0-1 range (Figma format) */
 interface FigmaColor {
-  r: number;  // 0-1
-  g: number;  // 0-1
-  b: number;  // 0-1
-  a: number;  // 0-1
+  r: number; // 0-1
+  g: number; // 0-1
+  b: number; // 0-1
+  a: number; // 0-1
 }
 
 /** Gradient stop */
 interface FigmaGradientStop {
   color: FigmaColor;
-  position: number;  // 0-1
+  position: number; // 0-1
 }
 
 /** Radial gradient shape */
-type RadialGradientShape = 'circle' | 'ellipse';
+type RadialGradientShape = "circle" | "ellipse";
 
 /** Radial gradient size keyword */
-type RadialGradientSize = 'closest-side' | 'farthest-side' | 'closest-corner' | 'farthest-corner';
+type RadialGradientSize =
+  | "closest-side"
+  | "farthest-side"
+  | "closest-corner"
+  | "farthest-corner";
 
 /** Fill layer - supports solid, gradient, image placeholder */
 interface FigmaFill {
-  type: 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL' | 'GRADIENT_CONIC' | 'IMAGE_PLACEHOLDER';
+  type:
+    | "SOLID"
+    | "GRADIENT_LINEAR"
+    | "GRADIENT_RADIAL"
+    | "GRADIENT_CONIC"
+    | "IMAGE_PLACEHOLDER";
   visible: boolean;
   opacity: number;
   blendMode?: string;
@@ -37,8 +46,8 @@ interface FigmaFill {
   stops?: FigmaGradientStop[];
   // Radial/conic gradient specific
   center?: { x: number; y: number };
-  shape?: RadialGradientShape;        // circle or ellipse (default: ellipse)
-  size?: RadialGradientSize;          // CSS size keyword (default: farthest-corner)
+  shape?: RadialGradientShape; // circle or ellipse (default: ellipse)
+  size?: RadialGradientSize; // CSS size keyword (default: farthest-corner)
   // Element dimensions for proper gradient transform calculation
   elementWidth?: number;
   elementHeight?: number;
@@ -49,8 +58,8 @@ interface FigmaFill {
 interface FigmaStroke {
   color: FigmaColor;
   weight: number;
-  position: 'INSIDE' | 'CENTER' | 'OUTSIDE';
-  style: 'SOLID' | 'DASHED' | 'DOTTED';
+  position: "INSIDE" | "CENTER" | "OUTSIDE";
+  style: "SOLID" | "DASHED" | "DOTTED";
   sides?: {
     top: boolean;
     right: boolean;
@@ -61,7 +70,7 @@ interface FigmaStroke {
 
 /** Effect layer - shadow or blur */
 interface FigmaEffect {
-  type: 'DROP_SHADOW' | 'INNER_SHADOW' | 'LAYER_BLUR' | 'BACKGROUND_BLUR';
+  type: "DROP_SHADOW" | "INNER_SHADOW" | "LAYER_BLUR" | "BACKGROUND_BLUR";
   visible: boolean;
   color?: FigmaColor;
   offset?: { x: number; y: number };
@@ -78,7 +87,7 @@ interface WireframeNode {
   name: string;
   type: "frame" | "text" | "placeholder";
   tag: string;
-  className?: string;  // CSS class name(s) from the element
+  className?: string; // CSS class name(s) from the element
   x: number;
   y: number;
   width: number;
@@ -92,22 +101,22 @@ interface WireframeNode {
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
   // Layout Alignment (for Auto Layout)
-  justifyContent?: string;  // CSS justify-content value
-  alignItems?: string;      // CSS align-items value
-  flexWrap?: string;        // CSS flex-wrap value
+  justifyContent?: string; // CSS justify-content value
+  alignItems?: string; // CSS align-items value
+  flexWrap?: string; // CSS flex-wrap value
   // Child-level flex properties
-  layoutGrow?: 0 | 1;       // flex-grow: 0 = fixed, 1 = fill (Figma only supports 0 or 1)
-  layoutAlign?: "STRETCH" | "INHERIT";  // align-self: stretch
+  layoutGrow?: 0 | 1; // flex-grow: 0 = fixed, 1 = fill (Figma only supports 0 or 1)
+  layoutAlign?: "STRETCH" | "INHERIT"; // align-self: stretch
   // Sizing mode (how element sizes itself)
-  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";  // width behavior
-  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";    // height behavior
+  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL"; // width behavior
+  layoutSizingVertical?: "FIXED" | "HUG" | "FILL"; // height behavior
 
   // =========================================================================
   // NEW: Figma-ready arrays (multiple layers support)
   // =========================================================================
-  fills?: FigmaFill[];      // Multiple backgrounds: gradients, colors, image placeholders
-  strokes?: FigmaStroke[];  // Borders (with per-side support)
-  effects?: FigmaEffect[];  // Multiple shadows, backdrop-blur
+  fills?: FigmaFill[]; // Multiple backgrounds: gradients, colors, image placeholders
+  strokes?: FigmaStroke[]; // Borders (with per-side support)
+  effects?: FigmaEffect[]; // Multiple shadows, backdrop-blur
 
   // =========================================================================
   // LEGACY: Keep for backward compatibility
@@ -117,7 +126,14 @@ interface WireframeNode {
   textColor: string;
   borderColor: string | null;
   borderWidth: number;
-  borderRadius: number | { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number };
+  borderRadius:
+    | number
+    | {
+        topLeft: number;
+        topRight: number;
+        bottomRight: number;
+        bottomLeft: number;
+      };
   opacity: number;
   // Overflow (for clipsContent)
   overflow?: "visible" | "hidden" | "scroll" | "auto";
@@ -160,16 +176,16 @@ interface RenderWireframeData {
   localStyles?: object;
   pluginColors: {
     // 5-color minimalist wireframe palette
-    text: string;         // Primary text (dark) - #11151a
-    background: string;   // Page background (light) - #f1f2f0
-    secondary: string;    // Borders, secondary text, placeholders - #bdc1b2
-    surface: string;      // Cards, containers, sections - #afc6dc
-    accent: string;       // Buttons, links, CTAs - #c4def4
+    text: string; // Primary text (dark) - #11151a
+    background: string; // Page background (light) - #f1f2f0
+    secondary: string; // Borders, placeholders - #bdc1b2
+    surface: string; // Cards, containers, sections - #afc6dc
+    accent: string; // Buttons, links, CTAs - #c4def4
   };
   pluginFont?: string;
   cssVariables?: ExtractedCSSVariable[];
   variableMode?: "styles" | "direct";
-  layoutMode?: "autoLayout" | "absolute";  // autoLayout = responsive, absolute = pixel-perfect
+  layoutMode?: "autoLayout" | "absolute"; // autoLayout = responsive, absolute = pixel-perfect
   // Import options
   colorMode?: "plugin" | "website";
   fontMode?: "plugin" | "website";
@@ -181,7 +197,7 @@ interface RenderContext {
   pluginColors: RenderWireframeData["pluginColors"];
   fontFamily: string;
   variableMode: "styles" | "direct";
-  layoutMode: "autoLayout" | "absolute";  // autoLayout = use Auto Layout, absolute = use x,y positioning
+  layoutMode: "autoLayout" | "absolute"; // autoLayout = use Auto Layout, absolute = use x,y positioning
   cssVariables: ExtractedCSSVariable[];
   // Map from resolved color value → PaintStyle (for linking)
   colorStyleMap: Map<string, PaintStyle>;
@@ -199,11 +215,11 @@ interface RenderContext {
  * 5-color minimalist wireframe palette
  */
 type ColorRole =
-  | "text"        // #11151A - ONLY for text content and placeholder icons
-  | "background"  // #F1F2F0 - Page/section backgrounds
-  | "secondary"   // #BDC1B2 - Borders, strokes
-  | "surface"     // #AAB5C3 - Cards, containers
-  | "accent";     // #AFC6DC - Buttons, links, CTAs
+  | "text" // #11151A - ONLY for text content and placeholder icons
+  | "background" // #F1F2F0 - Page/section backgrounds
+  | "secondary" // #BDC1B2 - Borders, strokes
+  | "surface" // #AAB5C3 - Cards, containers
+  | "accent"; // #AFC6DC - Buttons, links, CTAs
 
 /**
  * Determine the color role based on element context
@@ -220,7 +236,9 @@ function isHighlightedElement(className?: string): boolean {
   if (!className) return false;
   const classLower = className.toLowerCase();
   // Common class patterns for highlighted/active/featured elements
-  return /\b(active|featured|popular|highlighted|selected|primary|recommended|best|pro|premium|enterprise)\b/.test(classLower);
+  return /\b(active|featured|popular|highlighted|selected|primary|recommended|best|pro|premium|enterprise)\b/.test(
+    classLower,
+  );
 }
 
 function determineColorRole(
@@ -228,7 +246,7 @@ function determineColorRole(
   tag?: string,
   isLightColor?: boolean,
   _parentBackgroundIsLight?: boolean,
-  className?: string
+  className?: string,
 ): ColorRole {
   // Strokes/borders ALWAYS use text color (#11151A) in plugin mode
   // This ensures clean black borders on all wireframe elements
@@ -248,7 +266,11 @@ function determineColorRole(
     const tagLower = tag.toLowerCase();
 
     // Buttons, links, CTAs use accent
-    if (["button", "a", "input[type=submit]", "input[type=button]"].includes(tagLower)) {
+    if (
+      ["button", "a", "input[type=submit]", "input[type=button]"].includes(
+        tagLower,
+      )
+    ) {
       return "accent";
     }
 
@@ -264,7 +286,19 @@ function determineColorRole(
     }
 
     // Cards, containers - check for highlighted/active state first
-    if (["div", "article", "aside", "main", "nav", "form", "ul", "ol", "li"].includes(tagLower)) {
+    if (
+      [
+        "div",
+        "article",
+        "aside",
+        "main",
+        "nav",
+        "form",
+        "ul",
+        "ol",
+        "li",
+      ].includes(tagLower)
+    ) {
       // Highlighted/active cards use secondary color (e.g., featured pricing card)
       if (!isLightColor && isHighlightedElement(className)) {
         return "secondary";
@@ -289,7 +323,7 @@ function determineColorRole(
  */
 function getTextColorForBackground(
   bgColor: { r: number; g: number; b: number } | null,
-  pluginColors: RenderWireframeData["pluginColors"]
+  pluginColors: RenderWireframeData["pluginColors"],
 ): string {
   // If no background, use default text color
   if (!bgColor) {
@@ -313,7 +347,7 @@ function getTextColorForBackground(
  * IMPORTANT: This uses Figma's Paint[] format, not the original website fills
  */
 function getDominantColorFromPaints(
-  paints: Paint[] | undefined
+  paints: Paint[] | undefined,
 ): { r: number; g: number; b: number } | null {
   if (!paints || paints.length === 0) return null;
 
@@ -323,9 +357,19 @@ function getDominantColorFromPaints(
     }
 
     // For gradients, use the first stop color
-    if ((paint.type === "GRADIENT_LINEAR" || paint.type === "GRADIENT_RADIAL" || paint.type === "GRADIENT_ANGULAR") && paint.gradientStops && paint.gradientStops.length > 0) {
+    if (
+      (paint.type === "GRADIENT_LINEAR" ||
+        paint.type === "GRADIENT_RADIAL" ||
+        paint.type === "GRADIENT_ANGULAR") &&
+      paint.gradientStops &&
+      paint.gradientStops.length > 0
+    ) {
       const firstStop = paint.gradientStops[0];
-      return { r: firstStop.color.r, g: firstStop.color.g, b: firstStop.color.b };
+      return {
+        r: firstStop.color.r,
+        g: firstStop.color.g,
+        b: firstStop.color.b,
+      };
     }
   }
 
@@ -340,7 +384,7 @@ function getDominantColorFromPaints(
 function getSmartTextColor(
   _node: { tag?: string; fills?: FigmaFill[] },
   context: RenderContext,
-  _isLink: boolean = false
+  _isLink: boolean = false,
 ): string {
   // All text uses the same dark text color for consistency
   // Links, buttons, paragraphs, headings - all use text color
@@ -350,7 +394,11 @@ function getSmartTextColor(
 /**
  * Check if a color is "light" (closer to white than black)
  */
-function isLightColorValue(color: { r: number; g: number; b: number }): boolean {
+function isLightColorValue(color: {
+  r: number;
+  g: number;
+  b: number;
+}): boolean {
   // Using relative luminance formula
   const luminance = 0.299 * color.r + 0.587 * color.g + 0.114 * color.b;
   return luminance > 0.5; // Threshold at 50%
@@ -388,7 +436,7 @@ function isSaturatedColor(color: { r: number; g: number; b: number }): boolean {
 function colorsAreTooSimilar(
   color1: { r: number; g: number; b: number } | null | undefined,
   color2: { r: number; g: number; b: number } | null | undefined,
-  tolerance: number = 0.05
+  tolerance: number = 0.05,
 ): boolean {
   if (!color1 || !color2) return false;
 
@@ -409,7 +457,7 @@ function colorsAreTooSimilar(
 function getAlternativePluginColor(
   currentRole: ColorRole,
   pluginColors: RenderWireframeData["pluginColors"],
-  parentBgColor: { r: number; g: number; b: number } | null | undefined
+  parentBgColor: { r: number; g: number; b: number } | null | undefined,
 ): string {
   if (!parentBgColor) return getPluginColorForRole(currentRole, pluginColors);
 
@@ -427,7 +475,12 @@ function getAlternativePluginColor(
 
   if (isParentLight) {
     // Parent is light, try different light colors
-    const lightAlternatives: ColorRole[] = ["surface", "accent", "background", "secondary"];
+    const lightAlternatives: ColorRole[] = [
+      "surface",
+      "accent",
+      "background",
+      "secondary",
+    ];
     for (const altRole of lightAlternatives) {
       if (altRole === currentRole) continue; // Skip current role
       const altHex = getPluginColorForRole(altRole, pluginColors);
@@ -460,25 +513,40 @@ function getAlternativePluginColor(
  */
 function getPluginColorForRole(
   role: ColorRole,
-  pluginColors: RenderWireframeData["pluginColors"]
+  pluginColors: RenderWireframeData["pluginColors"],
 ): string {
   const colorMap: Record<ColorRole, string> = {
-    text: pluginColors.text,           // Dark - ONLY for text content
+    text: pluginColors.text, // Dark - ONLY for text content
     background: pluginColors.background, // Light - page background
-    secondary: pluginColors.secondary,   // Medium - borders, strokes
-    surface: pluginColors.surface,       // Blue-gray - cards, containers
-    accent: pluginColors.accent,         // Light blue - buttons, links
+    secondary: pluginColors.secondary, // Medium - borders, strokes
+    surface: pluginColors.surface, // Blue-gray - cards, containers
+    accent: pluginColors.accent, // Light blue - buttons, links
   };
   // Fallback to surface for fills (NOT text - text is only for text content)
   return colorMap[role] || pluginColors.surface;
 }
 
 // Extract single border radius value from number or object
-function getBorderRadius(value: number | { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number } | undefined): number {
+function getBorderRadius(
+  value:
+    | number
+    | {
+        topLeft: number;
+        topRight: number;
+        bottomRight: number;
+        bottomLeft: number;
+      }
+    | undefined,
+): number {
   if (!value) return 0;
   if (typeof value === "number") return value;
   // Return the maximum corner radius for uniform appearance
-  return Math.max(value.topLeft || 0, value.topRight || 0, value.bottomRight || 0, value.bottomLeft || 0);
+  return Math.max(
+    value.topLeft || 0,
+    value.topRight || 0,
+    value.bottomRight || 0,
+    value.bottomLeft || 0,
+  );
 }
 
 // ============================================================================
@@ -488,20 +556,22 @@ function getBorderRadius(value: number | { topLeft: number; topRight: number; bo
 /**
  * Convert CSS justify-content to Figma primaryAxisAlignItems
  */
-function cssJustifyToFigma(justify: string | undefined): "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN" {
+function cssJustifyToFigma(
+  justify: string | undefined,
+): "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN" {
   if (!justify) return "MIN";
   const map: Record<string, "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN"> = {
     "flex-start": "MIN",
-    "start": "MIN",
-    "left": "MIN",
+    start: "MIN",
+    left: "MIN",
     "flex-end": "MAX",
-    "end": "MAX",
-    "right": "MAX",
-    "center": "CENTER",
+    end: "MAX",
+    right: "MAX",
+    center: "CENTER",
     "space-between": "SPACE_BETWEEN",
-    "space-around": "SPACE_BETWEEN",  // Figma approximation
-    "space-evenly": "SPACE_BETWEEN",  // Figma approximation
-    "normal": "MIN",
+    "space-around": "SPACE_BETWEEN", // Figma approximation
+    "space-evenly": "SPACE_BETWEEN", // Figma approximation
+    normal: "MIN",
   };
   return map[justify] || "MIN";
 }
@@ -509,7 +579,9 @@ function cssJustifyToFigma(justify: string | undefined): "MIN" | "CENTER" | "MAX
 /**
  * Convert CSS align-items to Figma counterAxisAlignItems
  */
-function cssAlignToFigma(align: string | undefined): "MIN" | "CENTER" | "MAX" | "BASELINE" {
+function cssAlignToFigma(
+  align: string | undefined,
+): "MIN" | "CENTER" | "MAX" | "BASELINE" {
   // DEBUG: Log raw input
   console.log(`[cssAlignToFigma] Input: "${align}" (type: ${typeof align})`);
 
@@ -520,19 +592,21 @@ function cssAlignToFigma(align: string | undefined): "MIN" | "CENTER" | "MAX" | 
 
   const map: Record<string, "MIN" | "CENTER" | "MAX" | "BASELINE"> = {
     "flex-start": "MIN",
-    "start": "MIN",
+    start: "MIN",
     "self-start": "MIN",
     "flex-end": "MAX",
-    "end": "MAX",
+    end: "MAX",
     "self-end": "MAX",
-    "center": "CENTER",
-    "stretch": "MIN",  // Stretch is handled via child's layoutAlign
-    "baseline": "BASELINE",
-    "normal": "MIN",
+    center: "CENTER",
+    stretch: "MIN", // Stretch is handled via child's layoutAlign
+    baseline: "BASELINE",
+    normal: "MIN",
   };
 
   const result = map[align];
-  console.log(`[cssAlignToFigma] Map lookup "${align}" => "${result}", falling back: ${!result}`);
+  console.log(
+    `[cssAlignToFigma] Map lookup "${align}" => "${result}", falling back: ${!result}`,
+  );
 
   return result || "MIN";
 }
@@ -563,7 +637,9 @@ function hexToFigmaRGB(hex: string): RGB {
 }
 
 // Parse CSS color to Figma RGB (handles hex, rgb, rgba)
-function cssColorToFigmaRGB(color: string): { color: RGB; opacity: number } | null {
+function cssColorToFigmaRGB(
+  color: string,
+): { color: RGB; opacity: number } | null {
   if (!color || color === "transparent") return null;
 
   // Handle hex (6 or 8 digit)
@@ -580,7 +656,9 @@ function cssColorToFigmaRGB(color: string): { color: RGB; opacity: number } | nu
   }
 
   // Handle rgb/rgba
-  const rgbMatch = color.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/i);
+  const rgbMatch = color.match(
+    /rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/i,
+  );
   if (rgbMatch) {
     const [, r, g, b, a] = rgbMatch;
     return {
@@ -599,21 +677,27 @@ function cssColorToFigmaRGB(color: string): { color: RGB; opacity: number } | nu
 // Resolve CSS variables in a string (e.g., gradient or color)
 function resolveCSSVariables(
   value: string,
-  variableValueMap: Map<string, string>
+  variableValueMap: Map<string, string>,
 ): string {
   if (!value || !value.includes("var(")) return value;
 
   // Replace all var(--name) with resolved values
-  return value.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^)]+))?\)/g, (match, varName, fallback) => {
-    const resolved = variableValueMap.get(varName);
-    if (resolved) return resolved;
-    if (fallback) return fallback.trim();
-    return match; // Keep original if not found
-  });
+  return value.replace(
+    /var\(\s*(--[\w-]+)\s*(?:,\s*([^)]+))?\)/g,
+    (match, varName, fallback) => {
+      const resolved = variableValueMap.get(varName);
+      if (resolved) return resolved;
+      if (fallback) return fallback.trim();
+      return match; // Keep original if not found
+    },
+  );
 }
 
 // Parse CSS gradient to Figma GradientPaint
-function parseGradient(gradient: string, variableValueMap?: Map<string, string>): GradientPaint | null {
+function parseGradient(
+  gradient: string,
+  variableValueMap?: Map<string, string>,
+): GradientPaint | null {
   if (!gradient) return null;
 
   // Resolve CSS variables first
@@ -629,14 +713,20 @@ function parseGradient(gradient: string, variableValueMap?: Map<string, string>)
   });
 
   // Match linear-gradient
-  const linearMatch = resolvedGradient.match(/linear-gradient\s*\(\s*(\d+)deg\s*,\s*(.+)\)/i);
+  const linearMatch = resolvedGradient.match(
+    /linear-gradient\s*\(\s*(\d+)deg\s*,\s*(.+)\)/i,
+  );
   if (linearMatch) {
     const [, angleDeg, colorStopsStr] = linearMatch;
     const angle = parseInt(angleDeg);
 
     // Parse color stops
     const colorStops = parseColorStops(colorStopsStr);
-    console.log("[DEBUG parseGradient] colorStops:", colorStops.length, colorStopsStr);
+    console.log(
+      "[DEBUG parseGradient] colorStops:",
+      colorStops.length,
+      colorStopsStr,
+    );
     if (colorStops.length < 2) return null;
 
     // Convert CSS angle to Figma gradient handles
@@ -744,8 +834,8 @@ function parseColorStops(colorStopsStr: string): ColorStop[] {
 function calculateRadialGradientTransform(fill: FigmaFill): Transform {
   const cx = fill.center?.x ?? 0.5;
   const cy = fill.center?.y ?? 0.5;
-  const shape = fill.shape ?? 'ellipse';
-  const size = fill.size ?? 'farthest-corner';
+  const shape = fill.shape ?? "ellipse";
+  const size = fill.size ?? "farthest-corner";
   const elementWidth = fill.elementWidth ?? 100;
   const elementHeight = fill.elementHeight ?? 100;
 
@@ -760,22 +850,22 @@ function calculateRadialGradientTransform(fill: FigmaFill): Transform {
   let radiusY: number;
 
   switch (size) {
-    case 'closest-side':
+    case "closest-side":
       radiusX = Math.min(distLeft, distRight);
       radiusY = Math.min(distTop, distBottom);
       break;
-    case 'farthest-side':
+    case "farthest-side":
       radiusX = Math.max(distLeft, distRight);
       radiusY = Math.max(distTop, distBottom);
       break;
-    case 'closest-corner': {
+    case "closest-corner": {
       const closestX = Math.min(distLeft, distRight);
       const closestY = Math.min(distTop, distBottom);
       const dist = Math.sqrt(closestX ** 2 + closestY ** 2);
       radiusX = radiusY = dist;
       break;
     }
-    case 'farthest-corner':
+    case "farthest-corner":
     default: {
       const farthestX = Math.max(distLeft, distRight);
       const farthestY = Math.max(distTop, distBottom);
@@ -786,7 +876,7 @@ function calculateRadialGradientTransform(fill: FigmaFill): Transform {
   }
 
   // Step 3: For circle shape, use equal radii
-  if (shape === 'circle') {
+  if (shape === "circle") {
     // For circle, the radius should be equal in both directions
     // Use the larger radius to ensure coverage
     const radius = Math.max(radiusX, radiusY);
@@ -819,6 +909,73 @@ function calculateRadialGradientTransform(fill: FigmaFill): Transform {
 }
 
 /**
+ * Convert Figma RGB (0-1 range) to hex color string
+ */
+function figmaRGBToHex(color: RGB): string {
+  const r = Math.round(color.r * 255);
+  const g = Math.round(color.g * 255);
+  const b = Math.round(color.b * 255);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+/**
+ * Link fill style to a frame if a matching style exists in colorStyleMap
+ * Call this AFTER setting frame.fills to link the style
+ */
+function linkFillStyleIfAvailable(
+  frame: FrameNode,
+  context: RenderContext,
+): void {
+  // Only link styles when "Create Figma Styles" is enabled
+  if (context.variableMode !== "styles") return;
+
+  // Get fills (may be readonly, need to cast)
+  const fills = frame.fills as readonly Paint[];
+  if (!fills || fills.length === 0) return;
+
+  // For now, only handle single solid fill (most common case)
+  // Multiple fills or gradients would need more complex handling
+  if (fills.length === 1 && fills[0].type === "SOLID") {
+    const solidFill = fills[0] as SolidPaint;
+    const hex = figmaRGBToHex(solidFill.color);
+    const normalized = normalizeColorForLookup(hex);
+    const style = context.colorStyleMap.get(normalized);
+
+    if (style) {
+      frame.fillStyleId = style.id;
+    }
+  }
+}
+
+/**
+ * Link stroke style to a frame if a matching style exists in colorStyleMap
+ * Call this AFTER setting frame.strokes to link the style
+ */
+function linkStrokeStyleIfAvailable(
+  frame: FrameNode,
+  context: RenderContext,
+): void {
+  // Only link styles when "Create Figma Styles" is enabled
+  if (context.variableMode !== "styles") return;
+
+  // Get strokes (may be readonly, need to cast)
+  const strokes = frame.strokes as readonly Paint[];
+  if (!strokes || strokes.length === 0) return;
+
+  // For now, only handle single solid stroke
+  if (strokes.length === 1 && strokes[0].type === "SOLID") {
+    const solidStroke = strokes[0] as SolidPaint;
+    const hex = figmaRGBToHex(solidStroke.color);
+    const normalized = normalizeColorForLookup(hex);
+    const style = context.colorStyleMap.get(normalized);
+
+    if (style) {
+      frame.strokeStyleId = style.id;
+    }
+  }
+}
+
+/**
  * Convert FigmaFill[] to Figma Paint[]
  * Handles: solid colors, linear/radial/conic gradients, image placeholders
  *
@@ -826,59 +983,89 @@ function calculateRadialGradientTransform(fill: FigmaFill): Transform {
  * Figma fills are bottom-to-top (first = bottom layer)
  * So we REVERSE the order at the end!
  */
-function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderContext, tag?: string, className?: string): Paint[] {
+function convertFillsToPaints(
+  fills: FigmaFill[] | undefined,
+  context: RenderContext,
+  tag?: string,
+  className?: string,
+): Paint[] {
   if (!fills || fills.length === 0) return [];
 
   console.log("[DEBUG convertFillsToPaints] Input fills count:", fills.length);
-  console.log("[DEBUG convertFillsToPaints] Fill types:", fills.map(f => f.type));
+  console.log(
+    "[DEBUG convertFillsToPaints] Fill types:",
+    fills.map((f) => f.type),
+  );
 
   const paints: Paint[] = [];
   const parentBg = context.parentBackgroundColor;
 
   for (const fill of fills) {
     if (!fill.visible) {
-      console.log("[DEBUG convertFillsToPaints] Skipping invisible fill:", fill.type);
+      console.log(
+        "[DEBUG convertFillsToPaints] Skipping invisible fill:",
+        fill.type,
+      );
       continue;
     }
 
     switch (fill.type) {
-      case 'SOLID':
+      case "SOLID":
         if (fill.color) {
           // When colorMode is "plugin", map solid colors to plugin palette
-          let finalColor = { r: fill.color.r, g: fill.color.g, b: fill.color.b };
+          let finalColor = {
+            r: fill.color.r,
+            g: fill.color.g,
+            b: fill.color.b,
+          };
           if (context.colorMode === "plugin") {
             const isLight = isLightColorValue(fill.color);
             // Check if original color is saturated (colorful) - indicates "highlighted" element
             // Saturated colors (blue, green, etc.) should use secondary to stand out
             const isSaturated = isSaturatedColor(fill.color);
-            let role = determineColorRole("fill", tag, isLight, undefined, className);
+            let role = determineColorRole(
+              "fill",
+              tag,
+              isLight,
+              undefined,
+              className,
+            );
 
             // Override: Saturated fills on cards/containers → secondary (highlighted)
             if (isSaturated && !isLight && role === "surface") {
               role = "secondary";
-              console.log("[DEBUG convertFillsToPaints] Saturated color detected, using secondary instead of surface");
+              console.log(
+                "[DEBUG convertFillsToPaints] Saturated color detected, using secondary instead of surface",
+              );
             }
 
             // Use alternative color if it would match parent background
-            const pluginColorHex = getAlternativePluginColor(role, context.pluginColors, parentBg);
+            const pluginColorHex = getAlternativePluginColor(
+              role,
+              context.pluginColors,
+              parentBg,
+            );
             const pluginColorRGB = cssColorToFigmaRGB(pluginColorHex);
             if (pluginColorRGB) {
               finalColor = pluginColorRGB.color;
             }
           }
           const solidPaint: SolidPaint = {
-            type: 'SOLID',
+            type: "SOLID",
             color: finalColor,
             // Plugin colors mode: 100% opacity for clean wireframes
             // Website mode: preserve original opacity
-            opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity * fill.color.a,
+            opacity:
+              context.colorMode === "plugin"
+                ? 1.0
+                : fill.opacity * fill.color.a,
           };
           paints.push(solidPaint);
           console.log("[DEBUG convertFillsToPaints] Added SOLID:", solidPaint);
         }
         break;
 
-      case 'GRADIENT_LINEAR':
+      case "GRADIENT_LINEAR":
         if (fill.stops && fill.stops.length >= 2) {
           // In plugin colors mode, convert gradient to solid color
           if (context.colorMode === "plugin") {
@@ -886,22 +1073,35 @@ function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderCon
             const dominantStop = fill.stops[0];
             const isLight = isLightColorValue(dominantStop.color);
             const isSaturated = isSaturatedColor(dominantStop.color);
-            let role = determineColorRole("fill", tag, isLight, undefined, className);
+            let role = determineColorRole(
+              "fill",
+              tag,
+              isLight,
+              undefined,
+              className,
+            );
             // Saturated gradient → secondary (highlighted)
             if (isSaturated && !isLight && role === "surface") {
               role = "secondary";
             }
             // Use alternative color if it would match parent background
-            const pluginColorHex = getAlternativePluginColor(role, context.pluginColors, parentBg);
+            const pluginColorHex = getAlternativePluginColor(
+              role,
+              context.pluginColors,
+              parentBg,
+            );
             const pluginColorRGB = cssColorToFigmaRGB(pluginColorHex);
             if (pluginColorRGB) {
               const solidPaint: SolidPaint = {
-                type: 'SOLID',
+                type: "SOLID",
                 color: pluginColorRGB.color,
-                opacity: 1.0,  // Plugin colors: 100% opacity for clean wireframes
+                opacity: 1.0, // Plugin colors: 100% opacity for clean wireframes
               };
               paints.push(solidPaint);
-              console.log("[DEBUG convertFillsToPaints] Converted GRADIENT_LINEAR to SOLID (plugin mode):", solidPaint);
+              console.log(
+                "[DEBUG convertFillsToPaints] Converted GRADIENT_LINEAR to SOLID (plugin mode):",
+                solidPaint,
+              );
             }
           } else {
             // Website colors mode - keep the gradient
@@ -911,8 +1111,8 @@ function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderCon
             const sin = Math.sin(angleRad);
 
             const linearPaint: GradientPaint = {
-              type: 'GRADIENT_LINEAR',
-              gradientStops: fill.stops.map(stop => ({
+              type: "GRADIENT_LINEAR",
+              gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: {
                   r: stop.color.r,
@@ -927,41 +1127,57 @@ function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderCon
               ],
             };
             paints.push(linearPaint);
-            console.log("[DEBUG convertFillsToPaints] Added GRADIENT_LINEAR with angle:", angle);
+            console.log(
+              "[DEBUG convertFillsToPaints] Added GRADIENT_LINEAR with angle:",
+              angle,
+            );
           }
         }
         break;
 
-      case 'GRADIENT_RADIAL':
+      case "GRADIENT_RADIAL":
         if (fill.stops && fill.stops.length >= 2) {
           // In plugin colors mode, convert gradient to solid color
           if (context.colorMode === "plugin") {
             const dominantStop = fill.stops[0];
             const isLight = isLightColorValue(dominantStop.color);
             const isSaturated = isSaturatedColor(dominantStop.color);
-            let role = determineColorRole("fill", tag, isLight, undefined, className);
+            let role = determineColorRole(
+              "fill",
+              tag,
+              isLight,
+              undefined,
+              className,
+            );
             // Saturated gradient → secondary (highlighted)
             if (isSaturated && !isLight && role === "surface") {
               role = "secondary";
             }
             // Use alternative color if it would match parent background
-            const pluginColorHex = getAlternativePluginColor(role, context.pluginColors, parentBg);
+            const pluginColorHex = getAlternativePluginColor(
+              role,
+              context.pluginColors,
+              parentBg,
+            );
             const pluginColorRGB = cssColorToFigmaRGB(pluginColorHex);
             if (pluginColorRGB) {
               const solidPaint: SolidPaint = {
-                type: 'SOLID',
+                type: "SOLID",
                 color: pluginColorRGB.color,
-                opacity: 1.0,  // Plugin colors: 100% opacity for clean wireframes
+                opacity: 1.0, // Plugin colors: 100% opacity for clean wireframes
               };
               paints.push(solidPaint);
-              console.log("[DEBUG convertFillsToPaints] Converted GRADIENT_RADIAL to SOLID (plugin mode):", solidPaint);
+              console.log(
+                "[DEBUG convertFillsToPaints] Converted GRADIENT_RADIAL to SOLID (plugin mode):",
+                solidPaint,
+              );
             }
           } else {
             // Website colors mode - keep the gradient
             const radialTransform = calculateRadialGradientTransform(fill);
             const radialPaint: GradientPaint = {
-              type: 'GRADIENT_RADIAL',
-              gradientStops: fill.stops.map(stop => ({
+              type: "GRADIENT_RADIAL",
+              gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: {
                   r: stop.color.r,
@@ -973,42 +1189,63 @@ function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderCon
               gradientTransform: radialTransform,
             };
             paints.push(radialPaint);
-            console.log("[DEBUG convertFillsToPaints] Added GRADIENT_RADIAL, transform:", radialTransform, "stops:", fill.stops.length);
+            console.log(
+              "[DEBUG convertFillsToPaints] Added GRADIENT_RADIAL, transform:",
+              radialTransform,
+              "stops:",
+              fill.stops.length,
+            );
           }
         } else {
-          console.log("[DEBUG convertFillsToPaints] GRADIENT_RADIAL skipped - not enough stops:", fill.stops?.length);
+          console.log(
+            "[DEBUG convertFillsToPaints] GRADIENT_RADIAL skipped - not enough stops:",
+            fill.stops?.length,
+          );
         }
         break;
 
-      case 'GRADIENT_CONIC':
+      case "GRADIENT_CONIC":
         if (fill.stops && fill.stops.length >= 2) {
           // In plugin colors mode, convert gradient to solid color
           if (context.colorMode === "plugin") {
             const dominantStop = fill.stops[0];
             const isLight = isLightColorValue(dominantStop.color);
             const isSaturated = isSaturatedColor(dominantStop.color);
-            let role = determineColorRole("fill", tag, isLight, undefined, className);
+            let role = determineColorRole(
+              "fill",
+              tag,
+              isLight,
+              undefined,
+              className,
+            );
             // Saturated gradient → secondary (highlighted)
             if (isSaturated && !isLight && role === "surface") {
               role = "secondary";
             }
             // Use alternative color if it would match parent background
-            const pluginColorHex = getAlternativePluginColor(role, context.pluginColors, parentBg);
+            const pluginColorHex = getAlternativePluginColor(
+              role,
+              context.pluginColors,
+              parentBg,
+            );
             const pluginColorRGB = cssColorToFigmaRGB(pluginColorHex);
             if (pluginColorRGB) {
               const solidPaint: SolidPaint = {
-                type: 'SOLID',
+                type: "SOLID",
                 color: pluginColorRGB.color,
-                opacity: 1.0,  // Plugin colors: 100% opacity for clean wireframes
+                opacity: 1.0, // Plugin colors: 100% opacity for clean wireframes
               };
               paints.push(solidPaint);
-              console.log("[DEBUG convertFillsToPaints] Converted GRADIENT_CONIC to SOLID (plugin mode):", solidPaint);
+              console.log(
+                "[DEBUG convertFillsToPaints] Converted GRADIENT_CONIC to SOLID (plugin mode):",
+                solidPaint,
+              );
             }
           } else {
             // Website colors mode - Figma doesn't have native conic gradient, approximate with angular
             const angularPaint: GradientPaint = {
-              type: 'GRADIENT_ANGULAR',
-              gradientStops: fill.stops.map(stop => ({
+              type: "GRADIENT_ANGULAR",
+              gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: {
                   r: stop.color.r,
@@ -1023,25 +1260,32 @@ function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderCon
               ],
             };
             paints.push(angularPaint);
-            console.log("[DEBUG convertFillsToPaints] Added GRADIENT_ANGULAR (from conic)");
+            console.log(
+              "[DEBUG convertFillsToPaints] Added GRADIENT_ANGULAR (from conic)",
+            );
           }
         }
         break;
 
-      case 'IMAGE_PLACEHOLDER':
+      case "IMAGE_PLACEHOLDER":
         // Use surface color for placeholder
         const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);
         paints.push({
-          type: 'SOLID',
+          type: "SOLID",
           color: surfaceRgb,
           // Plugin colors mode: 100% opacity, Website mode: preserve original opacity
           opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity,
         });
-        console.log("[DEBUG convertFillsToPaints] Added IMAGE_PLACEHOLDER as SOLID");
+        console.log(
+          "[DEBUG convertFillsToPaints] Added IMAGE_PLACEHOLDER as SOLID",
+        );
         break;
 
       default:
-        console.log("[DEBUG convertFillsToPaints] Unknown fill type:", (fill as FigmaFill).type);
+        console.log(
+          "[DEBUG convertFillsToPaints] Unknown fill type:",
+          (fill as FigmaFill).type,
+        );
     }
   }
 
@@ -1050,7 +1294,10 @@ function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderCon
   // Figma fills: first = bottom layer (back)
   const reversedPaints = paints.reverse();
 
-  console.log("[DEBUG convertFillsToPaints] Output paints count:", reversedPaints.length);
+  console.log(
+    "[DEBUG convertFillsToPaints] Output paints count:",
+    reversedPaints.length,
+  );
 
   return reversedPaints;
 }
@@ -1060,7 +1307,10 @@ function convertFillsToPaints(fills: FigmaFill[] | undefined, context: RenderCon
  * Note: Figma doesn't support different colors per side, so we use the first stroke
  * In plugin colors mode: ALWAYS use text color (#11151A) for clean black borders
  */
-function convertStrokesToFigma(strokes: FigmaStroke[] | undefined, context?: RenderContext): { paints: Paint[], weight: number } {
+function convertStrokesToFigma(
+  strokes: FigmaStroke[] | undefined,
+  context?: RenderContext,
+): { paints: Paint[]; weight: number } {
   if (!strokes || strokes.length === 0) {
     return { paints: [], weight: 0 };
   }
@@ -1072,20 +1322,28 @@ function convertStrokesToFigma(strokes: FigmaStroke[] | undefined, context?: Ren
   // This ensures only 5 plugin colors are used in wireframes
   if (context?.colorMode === "plugin" && context.pluginColors) {
     const textColor = hexToFigmaRGB(context.pluginColors.text);
-    const paints: Paint[] = [{
-      type: 'SOLID',
-      color: textColor,
-      opacity: 1.0,
-    }];
+    const paints: Paint[] = [
+      {
+        type: "SOLID",
+        color: textColor,
+        opacity: 1.0,
+      },
+    ];
     return { paints, weight: firstStroke.weight };
   }
 
   // Website colors mode: use original stroke color
-  const paints: Paint[] = [{
-    type: 'SOLID',
-    color: { r: firstStroke.color.r, g: firstStroke.color.g, b: firstStroke.color.b },
-    opacity: firstStroke.color.a,
-  }];
+  const paints: Paint[] = [
+    {
+      type: "SOLID",
+      color: {
+        r: firstStroke.color.r,
+        g: firstStroke.color.g,
+        b: firstStroke.color.b,
+      },
+      opacity: firstStroke.color.a,
+    },
+  ];
 
   return { paints, weight: firstStroke.weight };
 }
@@ -1095,7 +1353,10 @@ function convertStrokesToFigma(strokes: FigmaStroke[] | undefined, context?: Ren
  * Handles: drop shadow, inner shadow, background blur, layer blur
  * In plugin colors mode: shadows and background blur are removed for clean wireframes
  */
-function convertEffectsToFigma(effects: FigmaEffect[] | undefined, context?: RenderContext): Effect[] {
+function convertEffectsToFigma(
+  effects: FigmaEffect[] | undefined,
+  context?: RenderContext,
+): Effect[] {
   if (!effects || effects.length === 0) return [];
 
   const figmaEffects: Effect[] = [];
@@ -1105,54 +1366,64 @@ function convertEffectsToFigma(effects: FigmaEffect[] | undefined, context?: Ren
     if (!effect.visible) continue;
 
     switch (effect.type) {
-      case 'DROP_SHADOW':
+      case "DROP_SHADOW":
         // Skip shadows in plugin colors mode - wireframes don't need shadows
         if (isPluginColors) continue;
 
         if (effect.color && effect.offset) {
           figmaEffects.push({
-            type: 'DROP_SHADOW',
+            type: "DROP_SHADOW",
             visible: true,
-            color: { r: effect.color.r, g: effect.color.g, b: effect.color.b, a: effect.color.a },
+            color: {
+              r: effect.color.r,
+              g: effect.color.g,
+              b: effect.color.b,
+              a: effect.color.a,
+            },
             offset: { x: effect.offset.x, y: effect.offset.y },
             radius: effect.radius || 0,
             spread: effect.spread || 0,
-            blendMode: 'NORMAL',
+            blendMode: "NORMAL",
           });
         }
         break;
 
-      case 'INNER_SHADOW':
+      case "INNER_SHADOW":
         // Skip shadows in plugin colors mode - wireframes don't need shadows
         if (isPluginColors) continue;
 
         if (effect.color && effect.offset) {
           figmaEffects.push({
-            type: 'INNER_SHADOW',
+            type: "INNER_SHADOW",
             visible: true,
-            color: { r: effect.color.r, g: effect.color.g, b: effect.color.b, a: effect.color.a },
+            color: {
+              r: effect.color.r,
+              g: effect.color.g,
+              b: effect.color.b,
+              a: effect.color.a,
+            },
             offset: { x: effect.offset.x, y: effect.offset.y },
             radius: effect.radius || 0,
             spread: effect.spread || 0,
-            blendMode: 'NORMAL',
+            blendMode: "NORMAL",
           });
         }
         break;
 
-      case 'BACKGROUND_BLUR':
+      case "BACKGROUND_BLUR":
         // Skip background blur in plugin colors mode - wireframes don't need blur effects
         if (isPluginColors) continue;
 
         figmaEffects.push({
-          type: 'BACKGROUND_BLUR',
+          type: "BACKGROUND_BLUR",
           visible: true,
           radius: effect.blurRadius || effect.radius || 10,
         });
         break;
 
-      case 'LAYER_BLUR':
+      case "LAYER_BLUR":
         figmaEffects.push({
-          type: 'LAYER_BLUR',
+          type: "LAYER_BLUR",
           visible: true,
           radius: effect.blurRadius || effect.radius || 10,
         });
@@ -1165,7 +1436,12 @@ function convertEffectsToFigma(effects: FigmaEffect[] | undefined, context?: Ren
 
 // Create modern image placeholder icon
 // Matches the SVG design with mountain, sun, and clean border
-async function createImagePlaceholderIcon(size: number, borderColor: RGB): Promise<FrameNode> {
+async function createImagePlaceholderIcon(
+  size: number,
+  borderColor: RGB,
+  iconColorHex: string,
+  context: RenderContext,
+): Promise<FrameNode> {
   const iconFrame = figma.createFrame();
   iconFrame.name = "Image Icon";
   iconFrame.resize(size, size);
@@ -1173,6 +1449,23 @@ async function createImagePlaceholderIcon(size: number, borderColor: RGB): Promi
 
   const iconColor = borderColor;
   const strokeWeight = Math.max(1.5, size / 30);
+
+  // Helper function to link style for shape nodes
+  const linkShapeStyle = (
+    node: RectangleNode | EllipseNode | PolygonNode,
+    isFill: boolean,
+  ) => {
+    if (context.variableMode !== "styles") return;
+    const normalizedColor = normalizeColorForLookup(iconColorHex);
+    const linkedStyle = context.colorStyleMap.get(normalizedColor);
+    if (linkedStyle) {
+      if (isFill) {
+        node.fillStyleId = linkedStyle.id;
+      } else {
+        node.strokeStyleId = linkedStyle.id;
+      }
+    }
+  };
 
   // Outer rounded rectangle (image frame border)
   const outerRect = figma.createRectangle();
@@ -1185,6 +1478,7 @@ async function createImagePlaceholderIcon(size: number, borderColor: RGB): Promi
   outerRect.strokes = [{ type: "SOLID", color: iconColor }];
   outerRect.strokeWeight = strokeWeight;
   outerRect.cornerRadius = size * 0.06;
+  linkShapeStyle(outerRect, false); // Link stroke style
   iconFrame.appendChild(outerRect);
 
   // Sun circle (top right area)
@@ -1195,6 +1489,7 @@ async function createImagePlaceholderIcon(size: number, borderColor: RGB): Promi
   sun.y = outerRect.y + rectHeight * 0.15;
   sun.fills = [{ type: "SOLID", color: iconColor }];
   sun.strokes = [];
+  linkShapeStyle(sun, true); // Link fill style
   iconFrame.appendChild(sun);
 
   // Large mountain (bottom left, triangle)
@@ -1207,6 +1502,7 @@ async function createImagePlaceholderIcon(size: number, borderColor: RGB): Promi
   mountain1.y = outerRect.y + rectHeight - mountain1Height - rectHeight * 0.08;
   mountain1.fills = [{ type: "SOLID", color: iconColor }];
   mountain1.strokes = [];
+  linkShapeStyle(mountain1, true); // Link fill style
   iconFrame.appendChild(mountain1);
 
   // Small mountain (overlapping, right side)
@@ -1219,6 +1515,7 @@ async function createImagePlaceholderIcon(size: number, borderColor: RGB): Promi
   mountain2.y = outerRect.y + rectHeight - mountain2Height - rectHeight * 0.08;
   mountain2.fills = [{ type: "SOLID", color: iconColor }];
   mountain2.strokes = [];
+  linkShapeStyle(mountain2, true); // Link fill style
   iconFrame.appendChild(mountain2);
 
   return iconFrame;
@@ -1229,8 +1526,8 @@ async function createImagePlaceholderIcon(size: number, borderColor: RGB): Promi
 async function createPlaceholder(
   node: WireframeNode,
   surfaceColor: string,
-  borderColor?: string,
-  colorMode?: "plugin" | "website"
+  borderColor: string | undefined,
+  context: RenderContext,
 ): Promise<FrameNode> {
   const placeholder = figma.createFrame();
   placeholder.name = node.name || "Image";
@@ -1238,21 +1535,36 @@ async function createPlaceholder(
 
   // Surface background color (light gray like #dedede from SVG)
   const surfaceRgb = hexToFigmaRGB(surfaceColor);
-  placeholder.fills = [
-    {
-      type: "SOLID",
-      color: surfaceRgb,
-      // Plugin colors mode: 100% opacity, Website mode: 60% for softer appearance
-      opacity: colorMode === "plugin" ? 1.0 : 0.6,
-    },
-  ];
+
+  // Check if we should link to a style (when "Create Figma Styles" is enabled)
+  let styleLinked = false;
+  if (context.variableMode === "styles") {
+    const normalizedColor = normalizeColorForLookup(surfaceColor);
+    const linkedStyle = context.colorStyleMap.get(normalizedColor);
+    if (linkedStyle) {
+      placeholder.fillStyleId = linkedStyle.id;
+      styleLinked = true;
+    }
+  }
+
+  // Apply direct color if no style was linked
+  if (!styleLinked) {
+    placeholder.fills = [
+      {
+        type: "SOLID",
+        color: surfaceRgb,
+        // Plugin colors mode: 100% opacity, Website mode: 60% for softer appearance
+        opacity: context.colorMode === "plugin" ? 1.0 : 0.6,
+      },
+    ];
+  }
 
   // Border radius
   const cornerRadius = getBorderRadius(node.borderRadius);
   if (cornerRadius > 0) {
     placeholder.cornerRadius = Math.min(
       cornerRadius,
-      Math.min(node.width, node.height) / 2
+      Math.min(node.width, node.height) / 2,
     );
   }
 
@@ -1265,7 +1577,8 @@ async function createPlaceholder(
     iconColor = hexToFigmaRGB(borderColor);
   } else {
     // Derive icon color from surface: make it darker for contrast
-    const surfaceLuminance = 0.299 * surfaceRgb.r + 0.587 * surfaceRgb.g + 0.114 * surfaceRgb.b;
+    const surfaceLuminance =
+      0.299 * surfaceRgb.r + 0.587 * surfaceRgb.g + 0.114 * surfaceRgb.b;
     const darkenFactor = surfaceLuminance > 0.5 ? 0.5 : 1.5; // Darken light, lighten dark
     iconColor = {
       r: Math.min(1, Math.max(0, surfaceRgb.r * darkenFactor)),
@@ -1277,10 +1590,15 @@ async function createPlaceholder(
   // Add image icon in center
   // Size the icon proportionally to the placeholder
   const minDimension = Math.min(node.width, node.height);
-  const iconSize = Math.min(Math.max(minDimension * 0.4, 24), 120);  // Min 24px, max 120px
+  const iconSize = Math.min(Math.max(minDimension * 0.4, 24), 120); // Min 24px, max 120px
 
   if (iconSize >= 20) {
-    const icon = await createImagePlaceholderIcon(iconSize, iconColor);
+    const icon = await createImagePlaceholderIcon(
+      iconSize,
+      iconColor,
+      borderColor || "",
+      context,
+    );
     icon.x = (node.width - iconSize) / 2;
     icon.y = (node.height - iconSize) / 2;
     placeholder.appendChild(icon);
@@ -1315,7 +1633,11 @@ function collectTextSegments(node: WireframeNode): TextSegment[] {
   if (node.children && node.children.length > 0) {
     for (const child of node.children) {
       // Only include inline text children
-      if (child.type === "text" && child.textContent && child.textContent.trim() !== "") {
+      if (
+        child.type === "text" &&
+        child.textContent &&
+        child.textContent.trim() !== ""
+      ) {
         segments.push({
           text: child.textContent,
           color: child.textColor || node.textColor || "#333333",
@@ -1333,7 +1655,7 @@ function collectTextSegments(node: WireframeNode): TextSegment[] {
 async function createTextNode(
   node: WireframeNode,
   fontFamily: string,
-  context?: RenderContext
+  context?: RenderContext,
 ): Promise<TextNode | null> {
   // Collect all text segments (parent + inline children)
   const segments = collectTextSegments(node);
@@ -1390,19 +1712,21 @@ async function createTextNode(
   let fullText: string;
   if (context?.colorMode === "plugin" && segments.length > 1) {
     // Add separator between segments only if they don't already have whitespace
-    fullText = segments.map((s, i) => {
-      const text = s.text;
-      // Add leading space if previous segment doesn't end with space and this doesn't start with space
-      if (i > 0) {
-        const prevText = segments[i - 1].text;
-        const prevEndsWithSpace = /\s$/.test(prevText);
-        const thisStartsWithSpace = /^\s/.test(text);
-        if (!prevEndsWithSpace && !thisStartsWithSpace) {
-          return " " + text;
+    fullText = segments
+      .map((s, i) => {
+        const text = s.text;
+        // Add leading space if previous segment doesn't end with space and this doesn't start with space
+        if (i > 0) {
+          const prevText = segments[i - 1].text;
+          const prevEndsWithSpace = /\s$/.test(prevText);
+          const thisStartsWithSpace = /^\s/.test(text);
+          if (!prevEndsWithSpace && !thisStartsWithSpace) {
+            return " " + text;
+          }
         }
-      }
-      return text;
-    }).join("");
+        return text;
+      })
+      .join("");
   } else {
     fullText = segments.map((s) => s.text).join("");
   }
@@ -1443,11 +1767,11 @@ async function createTextNode(
       }
       const colorWithOpacity = cssColorToFigmaRGB(segmentColorToUse);
       if (colorWithOpacity) {
-        // Check if we should link to a style (only for website colors mode)
+        // Check if we should link to a style (when "Create Figma Styles" is enabled)
         let linkedStyle: PaintStyle | undefined;
-        if (context && context.variableMode === "styles" && context.colorMode === "website") {
+        if (context && context.variableMode === "styles") {
           // Normalize color for lookup
-          const normalizedColor = normalizeColorForLookup(segment.color);
+          const normalizedColor = normalizeColorForLookup(segmentColorToUse);
           linkedStyle = context.colorStyleMap.get(normalizedColor);
         }
 
@@ -1459,7 +1783,10 @@ async function createTextNode(
               type: "SOLID",
               color: colorWithOpacity.color,
               // Plugin colors mode: 100% opacity for clean wireframes
-              opacity: context?.colorMode === "plugin" ? 1.0 : colorWithOpacity.opacity,
+              opacity:
+                context?.colorMode === "plugin"
+                  ? 1.0
+                  : colorWithOpacity.opacity,
             },
           ]);
         }
@@ -1481,7 +1808,11 @@ async function createTextNode(
 
       // Apply segment font size if different
       if (segment.fontSize && segment.fontSize !== node.fontSize) {
-        textNode.setRangeFontSize(startIdx, endIdx, Math.max(segment.fontSize, 8));
+        textNode.setRangeFontSize(
+          startIdx,
+          endIdx,
+          Math.max(segment.fontSize, 8),
+        );
       }
     }
   } else {
@@ -1497,10 +1828,10 @@ async function createTextNode(
     const colorWithOpacity = cssColorToFigmaRGB(singleColorToUse);
 
     if (colorWithOpacity) {
-      // Check if we should link to a style (only for website colors mode)
+      // Check if we should link to a style (when "Create Figma Styles" is enabled)
       let linkedStyle: PaintStyle | undefined;
-      if (context && context.variableMode === "styles" && context.colorMode === "website") {
-        const normalizedColor = normalizeColorForLookup(segment.color);
+      if (context && context.variableMode === "styles") {
+        const normalizedColor = normalizeColorForLookup(singleColorToUse);
         linkedStyle = context.colorStyleMap.get(normalizedColor);
       }
 
@@ -1512,7 +1843,8 @@ async function createTextNode(
             type: "SOLID",
             color: colorWithOpacity.color,
             // Plugin colors mode: 100% opacity for clean wireframes
-            opacity: context?.colorMode === "plugin" ? 1.0 : colorWithOpacity.opacity,
+            opacity:
+              context?.colorMode === "plugin" ? 1.0 : colorWithOpacity.opacity,
           },
         ];
       }
@@ -1601,7 +1933,7 @@ async function createTextNode(
  */
 async function createTextWithBackground(
   node: WireframeNode,
-  context: RenderContext
+  context: RenderContext,
 ): Promise<FrameNode | null> {
   // Create the wrapper frame
   const frame = figma.createFrame();
@@ -1609,7 +1941,10 @@ async function createTextWithBackground(
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
   // Apply Auto Layout for proper text containment
-  frame.layoutMode = node.layoutMode && node.layoutMode !== "NONE" ? node.layoutMode : "HORIZONTAL";
+  frame.layoutMode =
+    node.layoutMode && node.layoutMode !== "NONE"
+      ? node.layoutMode
+      : "HORIZONTAL";
   frame.primaryAxisSizingMode = "FIXED";
   frame.counterAxisSizingMode = "FIXED";
   frame.primaryAxisAlignItems = "CENTER";
@@ -1632,9 +1967,16 @@ async function createTextWithBackground(
   // Apply fills (background) to the frame
   // =========================================================================
   if (node.fills && node.fills.length > 0) {
-    const paints = convertFillsToPaints(node.fills, context, node.tag, node.className);
+    const paints = convertFillsToPaints(
+      node.fills,
+      context,
+      node.tag,
+      node.className,
+    );
     if (paints.length > 0) {
       frame.fills = paints;
+      // Link to Figma style if "Create Figma Styles" is enabled
+      linkFillStyleIfAvailable(frame, context);
     } else {
       frame.fills = [];
     }
@@ -1651,6 +1993,8 @@ async function createTextWithBackground(
       frame.strokes = paints;
       frame.strokeWeight = weight;
       frame.strokeAlign = "INSIDE";
+      // Link to Figma style if "Create Figma Styles" is enabled
+      linkStrokeStyleIfAvailable(frame, context);
     }
   }
 
@@ -1720,7 +2064,7 @@ function applyFillToFrame(
   color: string,
   context: RenderContext,
   tag?: string,
-  className?: string
+  className?: string,
 ): void {
   // When colorMode is "plugin", use smart color mapping based on element role
   let effectiveColor = color;
@@ -1728,7 +2072,13 @@ function applyFillToFrame(
     const colorWithOpacity = cssColorToFigmaRGB(color);
     if (colorWithOpacity) {
       const isLight = isLightColorValue(colorWithOpacity.color);
-      const role = determineColorRole("fill", tag, isLight, undefined, className);
+      const role = determineColorRole(
+        "fill",
+        tag,
+        isLight,
+        undefined,
+        className,
+      );
       effectiveColor = getPluginColorForRole(role, context.pluginColors);
     }
   }
@@ -1739,9 +2089,9 @@ function applyFillToFrame(
     return;
   }
 
-  // Check if we should link to a style (only for website colors mode)
-  if (context.variableMode === "styles" && context.colorMode === "website") {
-    const normalizedColor = normalizeColorForLookup(color);
+  // Check if we should link to a style (when "Create Figma Styles" is enabled)
+  if (context.variableMode === "styles") {
+    const normalizedColor = normalizeColorForLookup(effectiveColor);
     const linkedStyle = context.colorStyleMap.get(normalizedColor);
 
     if (linkedStyle) {
@@ -1766,20 +2116,19 @@ function applyStrokeToFrame(
   frame: FrameNode,
   color: string,
   strokeWeight: number,
-  context: RenderContext
+  context: RenderContext,
 ): void {
   // When colorMode is "plugin", always use plugin TEXT color (#11151A) for borders
   // This ensures clean black borders on all wireframe elements
-  const effectiveColor = context.colorMode === "plugin"
-    ? context.pluginColors.text
-    : color;
+  const effectiveColor =
+    context.colorMode === "plugin" ? context.pluginColors.text : color;
 
   const colorWithOpacity = cssColorToFigmaRGB(effectiveColor);
   if (!colorWithOpacity) return;
 
-  // Check if we should link to a style (only for website colors mode)
-  if (context.variableMode === "styles" && context.colorMode === "website") {
-    const normalizedColor = normalizeColorForLookup(color);
+  // Check if we should link to a style (when "Create Figma Styles" is enabled)
+  if (context.variableMode === "styles") {
+    const normalizedColor = normalizeColorForLookup(effectiveColor);
     const linkedStyle = context.colorStyleMap.get(normalizedColor);
 
     if (linkedStyle) {
@@ -1805,7 +2154,7 @@ function applyStrokeToFrame(
 async function createNodeInFigma(
   node: WireframeNode,
   context: RenderContext,
-  depth: number = 0
+  depth: number = 0,
 ): Promise<SceneNode | null> {
   // Depth limit to prevent infinite recursion
   if (depth > 20) {
@@ -1821,12 +2170,21 @@ async function createNodeInFigma(
     const hasBackgroundStrokes = node.strokes && node.strokes.length > 0;
     const hasBackgroundEffects = node.effects && node.effects.length > 0;
     const br = node.borderRadius;
-    const hasBorderRadius = br && typeof br === 'object' && (
-      br.topLeft > 0 || br.topRight > 0 || br.bottomRight > 0 || br.bottomLeft > 0
-    );
+    const hasBorderRadius =
+      br &&
+      typeof br === "object" &&
+      (br.topLeft > 0 ||
+        br.topRight > 0 ||
+        br.bottomRight > 0 ||
+        br.bottomLeft > 0);
 
     // If text has background styling, wrap in a frame (like a button)
-    if (hasBackgroundFills || hasBackgroundStrokes || hasBackgroundEffects || hasBorderRadius) {
+    if (
+      hasBackgroundFills ||
+      hasBackgroundStrokes ||
+      hasBackgroundEffects ||
+      hasBorderRadius
+    ) {
       return await createTextWithBackground(node, context);
     }
 
@@ -1835,9 +2193,14 @@ async function createNodeInFigma(
   }
 
   // Handle placeholders (images/videos)
-  // Background uses surface color, icon uses text color (dark - the ONLY exception for using text color outside of actual text)
+  // Background uses secondary color, icon uses text color (dark - the ONLY exception for using text color outside of actual text)
   if (node.type === "placeholder" || node.isPlaceholder) {
-    return await createPlaceholder(node, context.pluginColors.surface, context.pluginColors.text, context.colorMode);
+    return await createPlaceholder(
+      node,
+      context.pluginColors.secondary,
+      context.pluginColors.text,
+      context,
+    );
   }
 
   // Create frame for containers
@@ -1849,10 +2212,14 @@ async function createNodeInFigma(
   // When context.layoutMode is "absolute", skip Auto Layout and use x/y positioning
   const useAutoLayout = context.layoutMode === "autoLayout";
 
-  console.log(`[DEBUG createNodeInFigma] node="${node.name}" nodeLayoutMode="${node.layoutMode}" contextLayoutMode="${context.layoutMode}" useAutoLayout=${useAutoLayout}`);
+  console.log(
+    `[DEBUG createNodeInFigma] node="${node.name}" nodeLayoutMode="${node.layoutMode}" contextLayoutMode="${context.layoutMode}" useAutoLayout=${useAutoLayout}`,
+  );
 
   if (useAutoLayout && node.layoutMode && node.layoutMode !== "NONE") {
-    console.log(`[DEBUG] Applying auto layout to "${node.name}": ${node.layoutMode}`);
+    console.log(
+      `[DEBUG] Applying auto layout to "${node.name}": ${node.layoutMode}`,
+    );
     frame.layoutMode = node.layoutMode;
 
     // Apply sizing mode for this Auto Layout frame (as a parent)
@@ -1896,25 +2263,48 @@ async function createNodeInFigma(
   // NEW: Apply fills from Figma-ready array (multiple gradients, colors)
   // =========================================================================
   if (node.fills && node.fills.length > 0) {
-    const paints = convertFillsToPaints(node.fills, context, node.tag, node.className);
+    const paints = convertFillsToPaints(
+      node.fills,
+      context,
+      node.tag,
+      node.className,
+    );
     if (paints.length > 0) {
       frame.fills = paints;
+      // Link to Figma style if "Create Figma Styles" is enabled
+      linkFillStyleIfAvailable(frame, context);
     } else {
       frame.fills = [];
     }
   }
   // LEGACY: Fallback to old gradient/backgroundColor fields
   else if (node.backgroundGradient) {
-    const gradientPaint = parseGradient(node.backgroundGradient, context.variableValueMap);
+    const gradientPaint = parseGradient(
+      node.backgroundGradient,
+      context.variableValueMap,
+    );
     if (gradientPaint) {
       frame.fills = [gradientPaint];
+      linkFillStyleIfAvailable(frame, context);
     } else if (node.backgroundColor) {
-      applyFillToFrame(frame, node.backgroundColor, context, node.tag, node.className);
+      applyFillToFrame(
+        frame,
+        node.backgroundColor,
+        context,
+        node.tag,
+        node.className,
+      );
     } else {
       frame.fills = [];
     }
   } else if (node.backgroundColor) {
-    applyFillToFrame(frame, node.backgroundColor, context, node.tag, node.className);
+    applyFillToFrame(
+      frame,
+      node.backgroundColor,
+      context,
+      node.tag,
+      node.className,
+    );
   } else {
     frame.fills = [];
   }
@@ -1927,6 +2317,8 @@ async function createNodeInFigma(
     if (paints.length > 0) {
       frame.strokes = paints;
       frame.strokeWeight = weight;
+      // Link to Figma style if "Create Figma Styles" is enabled
+      linkStrokeStyleIfAvailable(frame, context);
     }
   }
   // LEGACY: Fallback to old borderColor/borderWidth fields
@@ -1949,7 +2341,7 @@ async function createNodeInFigma(
   if (getBorderRadius(node.borderRadius) > 0) {
     frame.cornerRadius = Math.min(
       getBorderRadius(node.borderRadius),
-      Math.min(node.width, node.height) / 2
+      Math.min(node.width, node.height) / 2,
     );
   }
 
@@ -1961,14 +2353,18 @@ async function createNodeInFigma(
   // Clips content - based on CSS overflow
   // overflow: hidden, scroll, auto = clipsContent true
   // overflow: visible = clipsContent false (default)
-  frame.clipsContent = node.overflow === "hidden" || node.overflow === "scroll" || node.overflow === "auto";
+  frame.clipsContent =
+    node.overflow === "hidden" ||
+    node.overflow === "scroll" ||
+    node.overflow === "auto";
 
   // Recursively create children
   if (node.children && node.children.length > 0) {
     // Only apply auto layout child properties if BOTH:
     // 1. context.layoutMode is "autoLayout" (user chose auto layout mode)
     // 2. This parent node has auto layout (node.layoutMode !== "NONE")
-    const parentHasAutoLayout = useAutoLayout && node.layoutMode && node.layoutMode !== "NONE";
+    const parentHasAutoLayout =
+      useAutoLayout && node.layoutMode && node.layoutMode !== "NONE";
 
     // Get ACTUAL applied background color from this frame (after plugin color conversion)
     // This enables correct child-parent color conflict detection
@@ -1985,7 +2381,11 @@ async function createNodeInFigma(
 
     for (const child of node.children) {
       try {
-        const childNode = await createNodeInFigma(child, childContext, depth + 1);
+        const childNode = await createNodeInFigma(
+          child,
+          childContext,
+          depth + 1,
+        );
 
         if (childNode) {
           // Append child first (required for Auto Layout properties)
@@ -1996,7 +2396,8 @@ async function createNodeInFigma(
           if (child.position === "absolute" || child.position === "fixed") {
             // For nodes that support layoutPositioning (frames, text, etc.)
             if ("layoutPositioning" in childNode) {
-              (childNode as FrameNode | TextNode).layoutPositioning = "ABSOLUTE";
+              (childNode as FrameNode | TextNode).layoutPositioning =
+                "ABSOLUTE";
             }
             // Set x/y coordinates for absolute positioning
             childNode.x = child.x;
@@ -2004,7 +2405,11 @@ async function createNodeInFigma(
           } else if (parentHasAutoLayout) {
             // Auto Layout parent: apply child-level properties
             // These properties work on most node types
-            if (childNode.type === "FRAME" || childNode.type === "COMPONENT" || childNode.type === "INSTANCE") {
+            if (
+              childNode.type === "FRAME" ||
+              childNode.type === "COMPONENT" ||
+              childNode.type === "INSTANCE"
+            ) {
               const frameChild = childNode as FrameNode;
 
               // Apply layoutGrow (flex-grow equivalent)
@@ -2024,28 +2429,52 @@ async function createNodeInFigma(
               // Primary axis sizing (along the layout direction)
               if (isHorizontalLayout) {
                 // Horizontal layout: width is primary axis
-                if (child.layoutSizingHorizontal === "FILL" || child.layoutGrow === 1) {
+                if (
+                  child.layoutSizingHorizontal === "FILL" ||
+                  child.layoutGrow === 1
+                ) {
                   frameChild.layoutSizingHorizontal = "FILL";
-                } else if (child.layoutSizingHorizontal === "HUG" && frameChild.layoutMode !== "NONE") {
+                } else if (
+                  child.layoutSizingHorizontal === "HUG" &&
+                  frameChild.layoutMode !== "NONE"
+                ) {
                   frameChild.layoutSizingHorizontal = "HUG";
                 }
                 // Counter axis (vertical): FILL if stretching
-                if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
+                if (
+                  child.layoutAlign === "STRETCH" ||
+                  child.layoutSizingVertical === "FILL"
+                ) {
                   frameChild.layoutSizingVertical = "FILL";
-                } else if (child.layoutSizingVertical === "HUG" && frameChild.layoutMode !== "NONE") {
+                } else if (
+                  child.layoutSizingVertical === "HUG" &&
+                  frameChild.layoutMode !== "NONE"
+                ) {
                   frameChild.layoutSizingVertical = "HUG";
                 }
               } else {
                 // Vertical layout: height is primary axis
-                if (child.layoutSizingVertical === "FILL" || child.layoutGrow === 1) {
+                if (
+                  child.layoutSizingVertical === "FILL" ||
+                  child.layoutGrow === 1
+                ) {
                   frameChild.layoutSizingVertical = "FILL";
-                } else if (child.layoutSizingVertical === "HUG" && frameChild.layoutMode !== "NONE") {
+                } else if (
+                  child.layoutSizingVertical === "HUG" &&
+                  frameChild.layoutMode !== "NONE"
+                ) {
                   frameChild.layoutSizingVertical = "HUG";
                 }
                 // Counter axis (horizontal): FILL if stretching
-                if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL") {
+                if (
+                  child.layoutAlign === "STRETCH" ||
+                  child.layoutSizingHorizontal === "FILL"
+                ) {
                   frameChild.layoutSizingHorizontal = "FILL";
-                } else if (child.layoutSizingHorizontal === "HUG" && frameChild.layoutMode !== "NONE") {
+                } else if (
+                  child.layoutSizingHorizontal === "HUG" &&
+                  frameChild.layoutMode !== "NONE"
+                ) {
                   frameChild.layoutSizingHorizontal = "HUG";
                 }
               }
@@ -2064,7 +2493,10 @@ async function createNodeInFigma(
                   textChild.textAutoResize = "WIDTH_AND_HEIGHT"; // Auto width and height
                 }
                 // Counter axis (vertical)
-                if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
+                if (
+                  child.layoutAlign === "STRETCH" ||
+                  child.layoutSizingVertical === "FILL"
+                ) {
                   textChild.layoutSizingVertical = "FILL";
                 }
               } else {
@@ -2075,7 +2507,10 @@ async function createNodeInFigma(
                   textChild.layoutSizingVertical = "HUG";
                 }
                 // Counter axis (horizontal)
-                if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL") {
+                if (
+                  child.layoutAlign === "STRETCH" ||
+                  child.layoutSizingHorizontal === "FILL"
+                ) {
                   textChild.layoutSizingHorizontal = "FILL";
                   textChild.textAutoResize = "HEIGHT"; // Fixed width, auto height
                 } else if (child.layoutSizingHorizontal === "HUG") {
@@ -2124,11 +2559,18 @@ async function createNodeInFigma(
   }
 
   if (node.textContent && node.textContent.trim() && node.type === "frame") {
-    console.log(">>> CREATING TEXT NODE FOR:", node.tag, node.textContent?.substring(0, 30));
+    console.log(
+      ">>> CREATING TEXT NODE FOR:",
+      node.tag,
+      node.textContent?.substring(0, 30),
+    );
     try {
       // Create a text node for the frame's text content
       const textNode = figma.createText();
-      await figma.loadFontAsync({ family: context.fontFamily, style: "Regular" });
+      await figma.loadFontAsync({
+        family: context.fontFamily,
+        style: "Regular",
+      });
 
       textNode.characters = node.textContent;
       textNode.name = node.textContent.substring(0, 20);
@@ -2138,41 +2580,62 @@ async function createNodeInFigma(
       textNode.fontName = { family: context.fontFamily, style: "Regular" };
 
       // Apply text color - when colorMode is "plugin", use smart context-aware colors
-      const textColorToUse = context.colorMode === "plugin"
-        ? getSmartTextColor(node, context, node.tag?.toLowerCase() === "a")
-        : (node.textColor || context.pluginColors.text);
+      const textColorToUse =
+        context.colorMode === "plugin"
+          ? getSmartTextColor(node, context, node.tag?.toLowerCase() === "a")
+          : node.textColor || context.pluginColors.text;
       const colorResult = cssColorToFigmaRGB(textColorToUse);
       if (colorResult) {
-        // Plugin colors mode: 100% opacity for clean wireframes
-        textNode.fills = [{ type: 'SOLID', color: colorResult.color, opacity: context.colorMode === "plugin" ? 1.0 : colorResult.opacity }];
+        // Check if we should link to a style (when "Create Figma Styles" is enabled)
+        let styleLinked = false;
+        if (context.variableMode === "styles") {
+          const normalizedColor = normalizeColorForLookup(textColorToUse);
+          const linkedStyle = context.colorStyleMap.get(normalizedColor);
+          if (linkedStyle) {
+            textNode.fillStyleId = linkedStyle.id;
+            styleLinked = true;
+          }
+        }
+        // Apply direct color if no style was linked
+        if (!styleLinked) {
+          textNode.fills = [
+            {
+              type: "SOLID",
+              color: colorResult.color,
+              opacity:
+                context.colorMode === "plugin" ? 1.0 : colorResult.opacity,
+            },
+          ];
+        }
       }
 
       // Apply line height
       if (node.lineHeight) {
-        const lineHeightValue = typeof node.lineHeight === 'string'
-          ? parseFloat(node.lineHeight)
-          : node.lineHeight;
+        const lineHeightValue =
+          typeof node.lineHeight === "string"
+            ? parseFloat(node.lineHeight)
+            : node.lineHeight;
         if (!isNaN(lineHeightValue) && lineHeightValue > 0) {
-          textNode.lineHeight = { value: lineHeightValue, unit: 'PIXELS' };
+          textNode.lineHeight = { value: lineHeightValue, unit: "PIXELS" };
         }
       }
 
       // Apply letter spacing
       if (node.letterSpacing && node.letterSpacing !== 0) {
-        textNode.letterSpacing = { value: node.letterSpacing, unit: 'PIXELS' };
+        textNode.letterSpacing = { value: node.letterSpacing, unit: "PIXELS" };
       }
 
       // Apply text align
       if (node.textAlign) {
         const alignMap: Record<string, TextNode["textAlignHorizontal"]> = {
-          'left': 'LEFT',
-          'start': 'LEFT',
-          'center': 'CENTER',
-          'right': 'RIGHT',
-          'end': 'RIGHT',
-          'justify': 'JUSTIFIED'
+          left: "LEFT",
+          start: "LEFT",
+          center: "CENTER",
+          right: "RIGHT",
+          end: "RIGHT",
+          justify: "JUSTIFIED",
         };
-        textNode.textAlignHorizontal = alignMap[node.textAlign] || 'LEFT';
+        textNode.textAlignHorizontal = alignMap[node.textAlign] || "LEFT";
       }
 
       // Position the text - account for padding (text starts after padding.left)
@@ -2183,17 +2646,21 @@ async function createNodeInFigma(
       textNode.x = textX;
       textNode.y = textY;
 
-      console.log(`[DEBUG] Created text node for frame "${node.name}" with content "${node.textContent.substring(0, 30)}..."`);
+      console.log(
+        `[DEBUG] Created text node for frame "${node.name}" with content "${node.textContent.substring(0, 30)}..."`,
+      );
     } catch (err) {
       logger.error("Error creating text node for frame", err, {
         nodeId: node.id,
         nodeName: node.name,
-        textContent: node.textContent?.substring(0, 50)
+        textContent: node.textContent?.substring(0, 50),
       });
     }
   }
 
-  console.log(`[DEBUG createNodeInFigma] FINAL frame="${frame.name}" figmaLayoutMode="${frame.layoutMode}" contextMode="${context.layoutMode}"`);
+  console.log(
+    `[DEBUG createNodeInFigma] FINAL frame="${frame.name}" figmaLayoutMode="${frame.layoutMode}" contextMode="${context.layoutMode}"`,
+  );
   return frame;
 }
 
@@ -2202,7 +2669,7 @@ async function createWireframeFrame(
   frameData: WireframeFrame,
   sourceUrl: string,
   context: RenderContext,
-  index: number
+  index: number,
 ): Promise<FrameNode> {
   const { pluginColors, fontFamily } = context;
 
@@ -2232,32 +2699,59 @@ async function createWireframeFrame(
   wireframeFrame.name = `Wireframe - ${hostname} (${frameData.viewportWidth}px)`;
   wireframeFrame.resize(
     frameData.viewportWidth,
-    Math.min(frameData.viewportHeight, 15000)
+    Math.min(frameData.viewportHeight, 15000),
   );
 
   // Position: Viewport center + offset for multiple frames
   const viewport = figma.viewport.center;
   wireframeFrame.x =
-    viewport.x - frameData.viewportWidth / 2 + index * (frameData.viewportWidth + 100);
+    viewport.x -
+    frameData.viewportWidth / 2 +
+    index * (frameData.viewportWidth + 100);
   wireframeFrame.y = viewport.y - 200;
 
   // Set root wireframe frame background
   // In plugin mode: ALWAYS use background color (#F1F2F0) for root frame
   // This ensures clean wireframe aesthetic - children will use surface/secondary/accent
   if (context.colorMode === "plugin") {
-    wireframeFrame.fills = [
-      {
-        type: "SOLID",
-        color: hexToFigmaRGB(pluginColors.background),
-      },
-    ];
-    console.log("[DEBUG createWireframeFrame] Plugin mode: using background color:", pluginColors.background);
+    // Check if we should link to a style (when "Create Figma Styles" is enabled)
+    let rootStyleLinked = false;
+    if (context.variableMode === "styles") {
+      const normalizedColor = normalizeColorForLookup(pluginColors.background);
+      const linkedStyle = context.colorStyleMap.get(normalizedColor);
+      if (linkedStyle) {
+        wireframeFrame.fillStyleId = linkedStyle.id;
+        rootStyleLinked = true;
+      }
+    }
+    // Apply direct color if no style was linked
+    if (!rootStyleLinked) {
+      wireframeFrame.fills = [
+        {
+          type: "SOLID",
+          color: hexToFigmaRGB(pluginColors.background),
+        },
+      ];
+    }
+    console.log(
+      "[DEBUG createWireframeFrame] Plugin mode: using background color:",
+      pluginColors.background,
+    );
   } else {
     // Website mode: use original website colors
-    if (frameData.tree && frameData.tree.fills && frameData.tree.fills.length > 0) {
-      const rootFills = convertFillsToPaints(frameData.tree.fills, context, frameData.tree.tag);
+    if (
+      frameData.tree &&
+      frameData.tree.fills &&
+      frameData.tree.fills.length > 0
+    ) {
+      const rootFills = convertFillsToPaints(
+        frameData.tree.fills,
+        context,
+        frameData.tree.tag,
+      );
       if (rootFills.length > 0) {
         wireframeFrame.fills = rootFills;
+        linkFillStyleIfAvailable(wireframeFrame, context);
       } else {
         wireframeFrame.fills = [
           {
@@ -2278,15 +2772,19 @@ async function createWireframeFrame(
 
   // Clip contents - based on root element's overflow
   const rootOverflow = frameData.tree?.overflow;
-  wireframeFrame.clipsContent = rootOverflow === "hidden" || rootOverflow === "scroll" || rootOverflow === "auto";
+  wireframeFrame.clipsContent =
+    rootOverflow === "hidden" ||
+    rootOverflow === "scroll" ||
+    rootOverflow === "auto";
 
   // Create nested structure from tree
   if (frameData.tree && frameData.tree.children) {
     // Get ACTUAL applied background color (plugin color if in plugin mode)
     // This enables correct child-parent color conflict detection
     // Root frame is ALWAYS background (#F1F2F0) in plugin mode
-    const rootBgColor = getDominantColorFromPaints(wireframeFrame.fills as Paint[])
-      || hexToFigmaRGB(pluginColors.background);  // Default to background since root uses that
+    const rootBgColor =
+      getDominantColorFromPaints(wireframeFrame.fills as Paint[]) ||
+      hexToFigmaRGB(pluginColors.background); // Default to background since root uses that
 
     // Create child context with root background tracking
     const childContext: RenderContext = {
@@ -2301,8 +2799,13 @@ async function createWireframeFrame(
         if (childNode) {
           // Handle horizontally centered elements (margin: 0 auto)
           // Calculate centered x position instead of using absolute x
-          if (child.horizontallyCentered && child.width < frameData.viewportWidth) {
-            childNode.x = Math.round((frameData.viewportWidth - child.width) / 2);
+          if (
+            child.horizontallyCentered &&
+            child.width < frameData.viewportWidth
+          ) {
+            childNode.x = Math.round(
+              (frameData.viewportWidth - child.width) / 2,
+            );
           } else {
             childNode.x = child.x;
           }
@@ -2356,13 +2859,13 @@ function isColorValue(value: string): boolean {
 // Create Figma color styles from CSS variables
 async function createColorStylesFromVariables(
   cssVariables: ExtractedCSSVariable[],
-  sourceUrl: string
+  sourceUrl: string,
 ): Promise<Map<string, PaintStyle>> {
   const styleMap = new Map<string, PaintStyle>();
 
   // Filter to only color variables
   const colorVariables = cssVariables.filter(
-    (v) => v.category === "color" || isColorValue(v.value)
+    (v) => v.category === "color" || isColorValue(v.value),
   );
 
   if (colorVariables.length === 0) {
@@ -2424,24 +2927,24 @@ async function createColorStylesFromVariables(
 
 // Create Figma color styles from plugin colors (for Plugin Colors mode)
 async function createPluginColorStyles(
-  pluginColors: RenderWireframeData["pluginColors"]
+  pluginColors: RenderWireframeData["pluginColors"],
 ): Promise<Map<string, PaintStyle>> {
   const styleMap = new Map<string, PaintStyle>();
 
-  // Plugin color roles and their names (5 colors total)
-  const colorRoles: { key: keyof typeof pluginColors; name: string }[] = [
-    { key: "text", name: "Text" },
-    { key: "background", name: "Background" },
-    { key: "secondary", name: "Secondary" },
-    { key: "surface", name: "Surface" },
-    { key: "accent", name: "Accent" },
+  // Plugin color roles (5 colors total)
+  const colorRoles: (keyof typeof pluginColors)[] = [
+    "text",
+    "background",
+    "secondary",
+    "surface",
+    "accent",
   ];
 
   logger.info("Creating plugin color styles", {
     colorCount: colorRoles.length,
   });
 
-  for (const { key, name } of colorRoles) {
+  for (const key of colorRoles) {
     try {
       const colorValue = pluginColors[key];
       // Skip if color value is undefined (new optional colors may not be set)
@@ -2449,8 +2952,8 @@ async function createPluginColorStyles(
       const parsed = cssColorToFigmaRGB(colorValue);
       if (!parsed) continue;
 
-      // Create style name: "W2W / Main", "W2W / Text", etc.
-      const styleName = `W2W / ${name}`;
+      // Create style name: "W2W/--text", "W2W/--background", etc.
+      const styleName = `W2W/--${key}`;
 
       // Check if style already exists
       const existingStyles = figma.getLocalPaintStyles();
@@ -2531,9 +3034,10 @@ export default function () {
       // If fontMode is "plugin", use pluginFont (default: Montserrat)
       // If fontMode is "website", use the font from wireframe data
       const websiteFont = frames[0]?.tree?.fontFamily || "Inter";
-      const fontFamily = effectiveFontMode === "plugin"
-        ? (pluginFont || "Montserrat")
-        : websiteFont;
+      const fontFamily =
+        effectiveFontMode === "plugin"
+          ? pluginFont || "Montserrat"
+          : websiteFont;
 
       if (!frames || frames.length === 0) {
         errorHandler.handle({
@@ -2590,7 +3094,9 @@ export default function () {
           figma.notify("Creating plugin color styles...", { timeout: 1500 });
           try {
             const pluginStyleMap = await createPluginColorStyles(colors);
-            logger.info("Created plugin color styles", { styleCount: pluginStyleMap.size });
+            logger.info("Created plugin color styles", {
+              styleCount: pluginStyleMap.size,
+            });
 
             // Build color lookup map (plugin color role → style)
             // Map each role's color value to its style
@@ -2612,9 +3118,14 @@ export default function () {
         }
         // If colorMode is "website" and we have CSS variables, create website color styles
         else if (cssVariables && cssVariables.length > 0) {
-          figma.notify("Creating color styles from CSS variables...", { timeout: 1500 });
+          figma.notify("Creating color styles from CSS variables...", {
+            timeout: 1500,
+          });
           try {
-            const styleMap = await createColorStylesFromVariables(cssVariables, sourceUrl);
+            const styleMap = await createColorStylesFromVariables(
+              cssVariables,
+              sourceUrl,
+            );
             logger.info("Created color styles", { styleCount: styleMap.size });
 
             // Build color lookup map (resolved value → style)
@@ -2636,7 +3147,7 @@ export default function () {
         pluginColors: colors,
         fontFamily,
         variableMode: variableMode || "direct",
-        layoutMode: layoutMode || "autoLayout",  // Default to auto layout
+        layoutMode: layoutMode || "autoLayout", // Default to auto layout
         cssVariables: cssVariables || [],
         colorStyleMap,
         variableValueMap,
@@ -2664,7 +3175,7 @@ export default function () {
 
           // Calculate progress: frames take 25-85% of total progress
           // First show "building elements" then "creating wireframe"
-          const frameStartProgress = 25 + ((i) / frames.length) * 60;
+          const frameStartProgress = 25 + (i / frames.length) * 60;
           const frameEndProgress = 25 + ((i + 1) / frames.length) * 60;
 
           // Show building elements step
@@ -2680,7 +3191,7 @@ export default function () {
             frames[i],
             sourceUrl,
             renderContext,
-            i
+            i,
           );
           createdFrames.push(wireframeFrame);
 
@@ -2688,9 +3199,10 @@ export default function () {
           figma.ui.postMessage({
             type: "render-progress",
             data: {
-              step: frames.length > 1
-                ? `Viewport ${i + 1} of ${frames.length} complete...`
-                : "Applying styles and colors...",
+              step:
+                frames.length > 1
+                  ? `Viewport ${i + 1} of ${frames.length} complete...`
+                  : "Applying styles and colors...",
               percent: Math.round(frameEndProgress),
             },
           });
@@ -2723,7 +3235,7 @@ export default function () {
           }
 
           // Get viewport widths for section name
-          const viewportWidths = frames.map(f => f.viewportWidth).join(" + ");
+          const viewportWidths = frames.map((f) => f.viewportWidth).join(" + ");
           const timestamp = new Date().toLocaleString();
           section.name = `${hostname} (${viewportWidths}) - Web2Wireframe - ${timestamp}`;
 
@@ -2743,7 +3255,7 @@ export default function () {
           // Resize section to fit all frames
           section.resizeWithoutConstraints(
             currentX,
-            maxHeight + sectionPadding * 2
+            maxHeight + sectionPadding * 2,
           );
 
           // Position section at viewport center
@@ -2777,9 +3289,12 @@ export default function () {
         logger.info("Wireframe created successfully", {
           frameCount: createdFrames.length,
         });
-        figma.notify(`Created ${createdFrames.length} wireframe frame(s)${createdFrames.length > 1 ? " in Section" : ""}!`, {
-          timeout: 3000,
-        });
+        figma.notify(
+          `Created ${createdFrames.length} wireframe frame(s)${createdFrames.length > 1 ? " in Section" : ""}!`,
+          {
+            timeout: 3000,
+          },
+        );
 
         // Send completion progress to UI
         figma.ui.postMessage({
@@ -2849,7 +3364,9 @@ export default function () {
           type: "config-loaded",
           data: { config },
         });
-        logger.info("Config loaded from clientStorage", { hasConfig: !!config });
+        logger.info("Config loaded from clientStorage", {
+          hasConfig: !!config,
+        });
       } catch (err) {
         logger.warn("Failed to load config from clientStorage", { error: err });
         figma.ui.postMessage({

@@ -195,7 +195,9 @@ export default function Settings({
 
           {/* Import Options Toggle - Outside scroll area for Config panel */}
           {activePanel === "config" && (
-            <div class={`${styles.importOptionsToggleRow} ${config.showImportOptions ? styles.toggleEnabled : ""}`}>
+            <div
+              class={`${styles.importOptionsToggleRow} ${config.showImportOptions ? styles.toggleEnabled : ""}`}
+            >
               <span class={styles.importOptionsToggleIcon}>
                 {/* Eye Open SVG */}
                 <svg
@@ -287,8 +289,9 @@ export default function Settings({
                       <summary>Plugin Colors (5-Color Palette)</summary>
                       <div class={styles.accordionContent}>
                         <p style={{ marginBottom: "12px" }}>
-                          Minimalist 5-color wireframe palette optimized for clean,
-                          professional wireframes with WCAG AA contrast compliance.
+                          Minimalist 5-color wireframe palette optimized for
+                          clean, professional wireframes with WCAG AA contrast
+                          compliance.
                         </p>
                         <table class={styles.colorReferenceTable}>
                           <thead>
@@ -300,35 +303,61 @@ export default function Settings({
                           <tbody>
                             <tr>
                               <td>
-                                <span class={styles.colorDot} style={{ background: DEFAULT_PLUGIN_COLORS.text }}></span>
+                                <span
+                                  class={styles.colorDot}
+                                  style={{
+                                    background: DEFAULT_PLUGIN_COLORS.text,
+                                  }}
+                                ></span>
                                 text
                               </td>
                               <td>Primary text, headings (dark)</td>
                             </tr>
                             <tr>
                               <td>
-                                <span class={styles.colorDot} style={{ background: DEFAULT_PLUGIN_COLORS.background }}></span>
+                                <span
+                                  class={styles.colorDot}
+                                  style={{
+                                    background:
+                                      DEFAULT_PLUGIN_COLORS.background,
+                                  }}
+                                ></span>
                                 background
                               </td>
                               <td>Page background (light)</td>
                             </tr>
                             <tr>
                               <td>
-                                <span class={styles.colorDot} style={{ background: DEFAULT_PLUGIN_COLORS.secondary }}></span>
+                                <span
+                                  class={styles.colorDot}
+                                  style={{
+                                    background: DEFAULT_PLUGIN_COLORS.secondary,
+                                  }}
+                                ></span>
                                 secondary
                               </td>
-                              <td>Borders, secondary text, placeholders</td>
+                              <td>Borders, placeholders</td>
                             </tr>
                             <tr>
                               <td>
-                                <span class={styles.colorDot} style={{ background: DEFAULT_PLUGIN_COLORS.surface }}></span>
+                                <span
+                                  class={styles.colorDot}
+                                  style={{
+                                    background: DEFAULT_PLUGIN_COLORS.surface,
+                                  }}
+                                ></span>
                                 surface
                               </td>
                               <td>Cards, containers, sections</td>
                             </tr>
                             <tr>
                               <td>
-                                <span class={styles.colorDot} style={{ background: DEFAULT_PLUGIN_COLORS.accent }}></span>
+                                <span
+                                  class={styles.colorDot}
+                                  style={{
+                                    background: DEFAULT_PLUGIN_COLORS.accent,
+                                  }}
+                                ></span>
                                 accent
                               </td>
                               <td>Buttons, links, CTAs</td>
@@ -516,13 +545,40 @@ export default function Settings({
                                   <div class={styles.colorSwatch}>
                                     <input
                                       type="color"
-                                      value={config.pluginColors?.text || DEFAULT_PLUGIN_COLORS.text}
-                                      onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, text: (e.target as HTMLInputElement).value } })}
+                                      value={
+                                        config.pluginColors?.text ||
+                                        DEFAULT_PLUGIN_COLORS.text
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            text: (e.target as HTMLInputElement)
+                                              .value,
+                                          },
+                                        })
+                                      }
                                     />
                                   </div>
                                   <div class={styles.colorBody}>
                                     <div class={styles.colorLabel}>text</div>
-                                    <input type="text" class={styles.colorInput} value={config.pluginColors?.text || DEFAULT_PLUGIN_COLORS.text} onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, text: (e.target as HTMLInputElement).value } })} />
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.text ||
+                                        DEFAULT_PLUGIN_COLORS.text
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            text: (e.target as HTMLInputElement)
+                                              .value,
+                                          },
+                                        })
+                                      }
+                                    />
                                   </div>
                                 </div>
 
@@ -531,13 +587,44 @@ export default function Settings({
                                   <div class={styles.colorSwatch}>
                                     <input
                                       type="color"
-                                      value={config.pluginColors?.background || DEFAULT_PLUGIN_COLORS.background}
-                                      onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, background: (e.target as HTMLInputElement).value } })}
+                                      value={
+                                        config.pluginColors?.background ||
+                                        DEFAULT_PLUGIN_COLORS.background
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            background: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
                                     />
                                   </div>
                                   <div class={styles.colorBody}>
-                                    <div class={styles.colorLabel}>background</div>
-                                    <input type="text" class={styles.colorInput} value={config.pluginColors?.background || DEFAULT_PLUGIN_COLORS.background} onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, background: (e.target as HTMLInputElement).value } })} />
+                                    <div class={styles.colorLabel}>
+                                      background
+                                    </div>
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.background ||
+                                        DEFAULT_PLUGIN_COLORS.background
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            background: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
                                   </div>
                                 </div>
 
@@ -546,13 +633,44 @@ export default function Settings({
                                   <div class={styles.colorSwatch}>
                                     <input
                                       type="color"
-                                      value={config.pluginColors?.secondary || DEFAULT_PLUGIN_COLORS.secondary}
-                                      onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, secondary: (e.target as HTMLInputElement).value } })}
+                                      value={
+                                        config.pluginColors?.secondary ||
+                                        DEFAULT_PLUGIN_COLORS.secondary
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            secondary: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
                                     />
                                   </div>
                                   <div class={styles.colorBody}>
-                                    <div class={styles.colorLabel}>secondary</div>
-                                    <input type="text" class={styles.colorInput} value={config.pluginColors?.secondary || DEFAULT_PLUGIN_COLORS.secondary} onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, secondary: (e.target as HTMLInputElement).value } })} />
+                                    <div class={styles.colorLabel}>
+                                      secondary
+                                    </div>
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.secondary ||
+                                        DEFAULT_PLUGIN_COLORS.secondary
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            secondary: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
                                   </div>
                                 </div>
 
@@ -561,13 +679,42 @@ export default function Settings({
                                   <div class={styles.colorSwatch}>
                                     <input
                                       type="color"
-                                      value={config.pluginColors?.surface || DEFAULT_PLUGIN_COLORS.surface}
-                                      onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, surface: (e.target as HTMLInputElement).value } })}
+                                      value={
+                                        config.pluginColors?.surface ||
+                                        DEFAULT_PLUGIN_COLORS.surface
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            surface: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
                                     />
                                   </div>
                                   <div class={styles.colorBody}>
                                     <div class={styles.colorLabel}>surface</div>
-                                    <input type="text" class={styles.colorInput} value={config.pluginColors?.surface || DEFAULT_PLUGIN_COLORS.surface} onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, surface: (e.target as HTMLInputElement).value } })} />
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.surface ||
+                                        DEFAULT_PLUGIN_COLORS.surface
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            surface: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
                                   </div>
                                 </div>
 
@@ -576,13 +723,42 @@ export default function Settings({
                                   <div class={styles.colorSwatch}>
                                     <input
                                       type="color"
-                                      value={config.pluginColors?.accent || DEFAULT_PLUGIN_COLORS.accent}
-                                      onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, accent: (e.target as HTMLInputElement).value } })}
+                                      value={
+                                        config.pluginColors?.accent ||
+                                        DEFAULT_PLUGIN_COLORS.accent
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            accent: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
                                     />
                                   </div>
                                   <div class={styles.colorBody}>
                                     <div class={styles.colorLabel}>accent</div>
-                                    <input type="text" class={styles.colorInput} value={config.pluginColors?.accent || DEFAULT_PLUGIN_COLORS.accent} onChange={(e) => updateConfig({ pluginColors: { ...config.pluginColors, accent: (e.target as HTMLInputElement).value } })} />
+                                    <input
+                                      type="text"
+                                      class={styles.colorInput}
+                                      value={
+                                        config.pluginColors?.accent ||
+                                        DEFAULT_PLUGIN_COLORS.accent
+                                      }
+                                      onChange={(e) =>
+                                        updateConfig({
+                                          pluginColors: {
+                                            ...config.pluginColors,
+                                            accent: (
+                                              e.target as HTMLInputElement
+                                            ).value,
+                                          },
+                                        })
+                                      }
+                                    />
                                   </div>
                                 </div>
 
@@ -592,7 +768,9 @@ export default function Settings({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     updateConfig({
-                                      pluginColors: { ...DEFAULT_PLUGIN_COLORS },
+                                      pluginColors: {
+                                        ...DEFAULT_PLUGIN_COLORS,
+                                      },
                                     });
                                   }}
                                   title="Reset all colors to original defaults"
@@ -683,7 +861,8 @@ export default function Settings({
                               onClick={() => toggleCollapse("pluginFonts")}
                             >
                               <span class={styles.colorPickerSubtitle}>
-                                Select the font family for all text in wireframes.
+                                Select the font family for all text in
+                                wireframes.
                               </span>
                               <span
                                 class={`${styles.collapseArrow} ${collapsed.pluginFonts ? "" : styles.collapseArrowOpen}`}
@@ -695,10 +874,14 @@ export default function Settings({
                               <div class={styles.fontPickerContent}>
                                 <select
                                   class={styles.fontSelect}
-                                  value={config.pluginFont || DEFAULT_PLUGIN_FONT}
+                                  value={
+                                    config.pluginFont || DEFAULT_PLUGIN_FONT
+                                  }
                                   onChange={(e) =>
                                     updateConfig({
-                                      pluginFont: (e.target as HTMLSelectElement).value,
+                                      pluginFont: (
+                                        e.target as HTMLSelectElement
+                                      ).value,
                                     })
                                   }
                                 >
@@ -710,7 +893,10 @@ export default function Settings({
                                 </select>
                                 <div
                                   class={styles.fontPreview}
-                                  style={{ fontFamily: config.pluginFont || DEFAULT_PLUGIN_FONT }}
+                                  style={{
+                                    fontFamily:
+                                      config.pluginFont || DEFAULT_PLUGIN_FONT,
+                                  }}
                                 >
                                   The quick brown fox jumps over the lazy dog.
                                 </div>

@@ -744,7 +744,6 @@ export default function AreaSelection() {
         onCancel={handleImportOptionsCancel}
         sourceUrl={pendingCaptureResult?.url}
         hasCssVariables={hasCssVariables}
-        detectedColors={pendingCaptureResult?.detectedColors}
       />
 
       {/* Rendering Loader Overlay */}
