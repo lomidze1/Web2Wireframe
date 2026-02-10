@@ -173,18 +173,63 @@ Available from `@create-figma-plugin/ui`:
 - `Banner`, `Modal`
 - `Tabs`
 
-## Integration with Plugin_Backend
+## Integration with Plugin_Backend (Port 3002)
+
+### CDP Data (Primary - via Browser Extension)
 ```typescript
-// Fetch wireframe data from backend
-const response = await fetch('http://localhost:3001/api/import-url', {
+// Fetch wireframe captured by Browser Extension
+const response = await fetch('http://localhost:3002/api/import-cdp', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(cdpCaptureResult),  // From Browser_Extension
+});
+const wireframeData = await response.json();
+
+// Use data to create Figma elements with 1:1 fidelity
+emit('RENDER_WIREFRAME', wireframeData);
+```
+
+### Puppeteer Fallback (Legacy)
+```typescript
+// Fallback when Browser Extension not available
+const response = await fetch('http://localhost:3002/api/import-url', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ url: userUrl }),
 });
 const wireframeData = await response.json();
 
-// Use data to create Figma elements
 emit('RENDER_WIREFRAME', wireframeData);
+```
+
+### Rendering CDP Data to Figma
+
+```typescript
+// CDP provides Figma-ready data structures
+interface FigmaFill {
+  type: 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL';
+  color?: { r: number; g: number; b: number; a: number };
+  stops?: Array<{ color: FigmaColor; position: number }>;
+  angle?: number;
+}
+
+// Direct mapping from CDP ExtractedElement
+function createFigmaNode(element: ExtractedElement): FrameNode {
+  const frame = figma.createFrame();
+  frame.x = element.x;
+  frame.y = element.y;
+  frame.resize(element.width, element.height);
+
+  // CDP provides pre-processed fills (gradients preserved!)
+  frame.fills = element.fills.map(fill => ({
+    type: fill.type,
+    color: fill.color,
+    gradientStops: fill.stops,
+    gradientTransform: calculateGradientTransform(fill),
+  }));
+
+  return frame;
+}
 ```
 
 ## Best Practices

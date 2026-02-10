@@ -62,6 +62,14 @@ npm run lint
 - [ ] Auth tokens configured
 - [ ] CORS origins set
 
+#### Browser_Extension
+- [ ] Manifest version correct (V3)
+- [ ] Permissions minimal and documented
+- [ ] Icons in all sizes (16, 48, 128)
+- [ ] Build output in dist/
+- [ ] No console.logs in production
+- [ ] chrome.debugger permissions declared
+
 ## Output
 
 ```markdown

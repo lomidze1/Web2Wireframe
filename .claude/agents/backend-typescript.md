@@ -138,7 +138,7 @@ const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
 - `GET /api/figmaAuth/callback` - OAuth callback
 - `GET /api/health` - Health check
 
-### License_Backend (Port 4001)
+### License_Backend (Port 3003)
 - `GET /health` - Health check
 - `GET /me/license` - Get user's license (auth required)
 - `POST /license/activate` - Activate/change plan (auth required)
@@ -170,7 +170,7 @@ npm run start        # node dist/index.js
 - `ALLOWED_ORIGINS` - CORS allowed origins
 
 ### License_Backend (.env)
-- `PORT=4001`
+- `PORT=3003`
 - `DEV_TOKEN` - Development auth token
 - `ADMIN_TOKEN` - Admin operations token
 - `ALLOWED_ORIGINS` - CORS allowed origins

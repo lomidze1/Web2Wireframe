@@ -30,19 +30,23 @@ Web2Wireframe is a monorepo with 5 services using npm workspaces:
 │   Website    │   Website    │   Plugin     │    Plugin        │
 │   Frontend   │   Backend    │   Frontend   │    Backend       │
 │   (React)    │   (Express)  │   (Figma)    │    (Express)     │
-│   :5173      │   :3001      │   UI 440x600 │    :3001         │
+│   :5173      │   :3001      │   UI 440x600 │    :3002         │
 ├──────────────┴──────────────┴──────────────┴──────────────────┤
 │                        License_Backend                         │
-│                        (Express) :4001                         │
+│                        (Express) :3003                         │
+├─────────────────────────────────────────────────────────────────┤
+│                       Browser_Extension                         │
+│                    (Chrome Extension + CDP)                     │
 └─────────────────────────────────────────────────────────────────┘
 
 Data Flow:
 Website_Frontend ──HTTP──▶ Website_Backend ──▶ Resend (email)
-                                            (subs)
 
-Plugin_Frontend ──HTTP──▶ Plugin_Backend ──▶ Puppeteer (render)
-                                          ──▶ Cheerio (parse)
-                                          ──▶ MongoDB (store)
+Plugin_Frontend ──HTTP──▶ Plugin_Backend ──▶ MongoDB (store)
+                                          ──▶ Puppeteer (fallback)
+
+Browser_Extension ──CDP──▶ Active Tab ──▶ DOM/CSS/Assets extraction
+                  ──HTTP──▶ Plugin_Backend ──▶ /api/import-cdp
 
 Plugin_Frontend ──HTTP──▶ License_Backend ──▶ License validation
 ```
@@ -68,9 +72,9 @@ Plugin_Frontend ──HTTP──▶ License_Backend ──▶ License validation
     "Website_Frontend",
     "Website_Backend",
     "Plugin_Frontend",
-    "Plugin_Backend",
-    "License_Backend"
+    "Plugin_Backend"
   ],
+  // Note: License_Backend and Browser_Extension are standalone (not in workspaces)
   "scripts": {
     "dev": "concurrently \"npm:dev:*\"",
     "dev:frontend": "npm -w Website_Frontend run dev",
@@ -120,18 +124,22 @@ ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 ### Plugin_Backend (.env)
 
 ```
-PORT=3001
+API_PORT=3002
 MONGODB_URI=mongodb+srv://...
 ```
 
 ### License_Backend (.env)
 
 ```
-PORT=4001
+PORT=3003
 DEV_TOKEN=dev-token-xxxx
 ADMIN_TOKEN=admin-token-xxxx
 ALLOWED_ORIGINS=http://localhost:5173
 ```
+
+### Browser_Extension
+
+No .env needed - runs in browser context with Chrome APIs.
 
 ## Common Commands
 
@@ -143,12 +151,14 @@ npm run dev
 npm run dev:frontend    # Website_Frontend @ :5173
 npm run dev:backend     # Website_Backend @ :3001
 npm run dev:plugin      # Plugin_Frontend (watch mode)
+npm run dev:extension   # Browser_Extension (esbuild watch)
 
 # Build
 npm run build:all       # All services
 npm run build:frontend  # Website_Frontend
 npm run build:backend   # Website_Backend
 npm run build:plugin    # Plugin_Frontend
+npm run build:extension # Browser_Extension
 
 # Quality
 npm run type-check      # TypeScript across workspaces
@@ -175,17 +185,39 @@ Website_Backend (Express)
 Email delivered to support
 ```
 
-### Wireframe Generation Flow
+### Wireframe Generation Flow (CDP - Primary)
 
 ```
-User enters URL in Figma Plugin
+User clicks "Extract" in Browser Extension popup
        ↓
-Plugin_Frontend (emit to backend)
+Browser_Extension (popup)
+       ↓ chrome.debugger.attach()
+Background script (CDP client)
+       ↓ DOM.getDocument (full tree)
+       ↓ CSS.getMatchedStylesForNode (original rules!)
+       ↓ CSS.getPlatformFontsForNode
+       ↓ Extract images/SVGs as base64
+       ↓ POST /api/import-cdp
+Plugin_Backend (Express)
+       ↓ Process CDP data
+       ↓ Save to MongoDB
+       ↓ Return wireframe ID
+Plugin_Frontend
+       ↓ Fetch wireframe data
+       ↓ Create Figma frames
+Wireframe appears in Figma
+```
+
+### Wireframe Generation Flow (Puppeteer - Fallback)
+
+```
+User enters URL in Figma Plugin (no extension)
+       ↓
+Plugin_Frontend
        ↓ POST /api/import-url
 Plugin_Backend (Express)
        ↓ Puppeteer renders page
-       ↓ Cheerio parses HTML
-       ↓ Extract elements, colors, fonts
+       ↓ getComputedStyle() (loses gradients!)
        ↓ Save to MongoDB
        ↓ Return wireframe data
 Plugin_Frontend

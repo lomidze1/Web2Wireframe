@@ -49,6 +49,14 @@ disable-model-invocation: true
 - [ ] Schema validation
 - [ ] Connection error handling
 
+### Browser Extension (CDP)
+- [ ] CDPClient always destroyed after use
+- [ ] Proper error handling for chrome.debugger
+- [ ] No sensitive data in console.log
+- [ ] Message types properly typed
+- [ ] CSS.getMatchedStylesForNode used (not just computedStyle)
+- [ ] Timeouts set for CDP operations
+
 ## Output Format
 
 ```markdown

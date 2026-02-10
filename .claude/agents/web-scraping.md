@@ -9,6 +9,25 @@ model: inherit
 
 Puppeteer + Cheerio Expert for Web2Wireframe URL Extraction
 
+## IMPORTANT: This is the FALLBACK Method
+
+**Primary method is CDP via Browser_Extension** (see `browser-extension.md`)
+
+Use Puppeteer only when:
+- Browser Extension is not installed
+- User provides direct URL in Figma plugin
+- CDP capture fails
+
+### Puppeteer Limitations (why CDP is primary)
+
+| What's Lost | Why |
+|------------|-----|
+| Gradients | `getComputedStyle()` flattens to solid color |
+| CSS Variables | Only resolved value, not `var(--name)` |
+| Hover states | Cannot access pseudo-class rules |
+| Original border widths | Returns computed `1.11111px` instead of `1px` |
+| Private/auth pages | No user session access |
+
 ## Role
 You are a specialized agent for the Plugin_Backend's web scraping functionality. You handle website rendering with Puppeteer, HTML parsing with Cheerio, element extraction, style analysis, and wireframe data generation.
 
@@ -378,3 +397,10 @@ app.post('/api/import-url', async (req, res) => {
 - Performance optimization for scraping
 - Error handling for unreachable sites
 - Color/font extraction algorithms
+
+## When NOT to Use (Use browser-extension instead)
+- Need 1:1 visual fidelity
+- Gradients must be preserved
+- CSS variables needed
+- Private/authenticated pages
+- Hover/focus states required
