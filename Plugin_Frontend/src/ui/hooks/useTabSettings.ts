@@ -23,6 +23,7 @@ export interface TabSettingsResult {
   // Expand/collapse state
   isExpanded: boolean;
   toggleExpanded: () => void;
+  collapseSettings: () => void;
 
   // Local values
   localViewports: string[];
@@ -247,9 +248,16 @@ export function useTabSettings(
     });
   }, [storageKey]);
 
+  // Collapse settings panel (useful when starting import)
+  const collapseSettings = useCallback(() => {
+    setIsExpanded(false);
+    safeSetStorage(storageKey, false);
+  }, [storageKey]);
+
   return {
     isExpanded,
     toggleExpanded,
+    collapseSettings,
     localViewports,
     localColorMode,
     localFontMode,

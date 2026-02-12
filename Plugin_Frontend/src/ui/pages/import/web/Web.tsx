@@ -33,6 +33,7 @@ interface PendingRenderData {
   cssVariables?: unknown[];
   colorMode: "plugin" | "website";
   fontMode: "plugin" | "website";
+  layoutMode: "autoLayout" | "absolute";
 }
 
 export default function Web() {
@@ -113,6 +114,7 @@ export default function Web() {
             variableMode, // "styles" or "direct"
             colorMode: data.colorMode,
             fontMode: data.fontMode,
+            layoutMode: data.layoutMode, // "autoLayout" or "absolute"
           },
         },
       },
@@ -147,6 +149,9 @@ export default function Web() {
     }
 
     setImportState({ status: "loading", message: "Importing website..." });
+
+    // Collapse settings panel so user can see loading status
+    settings.collapseSettings();
 
     try {
       // Map frontend color/font modes to backend modes
@@ -195,6 +200,7 @@ export default function Web() {
         cssVariables: data.cssVariables || [],
         colorMode: settings.localColorMode,
         fontMode: settings.localFontMode,
+        layoutMode: settings.localLayoutMode,
       };
 
       // Check if CSS variables exist

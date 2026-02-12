@@ -323,6 +323,28 @@ function findNodesNeedingMatchedStyles(nodes) {
     if (tag === "button" || tag === "a") return true;
     if (node.attributes.role === "button") return true;
 
+    // Include semantic container elements (often have margin: auto centering)
+    if (tag === "section" || tag === "main" || tag === "article" || tag === "aside") return true;
+    if (tag === "header" || tag === "footer" || tag === "nav") return true;
+
+    // Include divs with common container class names (might have margin: auto)
+    const className = (node.attributes.class || "").toLowerCase();
+    if (tag === "div" && (
+      className.includes("container") ||
+      className.includes("wrapper") ||
+      className.includes("content") ||
+      className.includes("inner") ||
+      className.includes("main")
+    )) return true;
+
+    // IMPORTANT: Check for potential margin: auto centering on ANY element
+    // If computed marginLeft equals marginRight and both > 0, likely has margin: auto
+    const marginLeft = parseFloat(node.computedStyles["margin-left"] || "0");
+    const marginRight = parseFloat(node.computedStyles["margin-right"] || "0");
+    if (marginLeft > 0 && marginRight > 0 && Math.abs(marginLeft - marginRight) < 2) {
+      return true; // Likely centered with margin: auto
+    }
+
     // Check for any non-none box-shadow (need matched styles for accurate values)
     const boxShadow = node.computedStyles["box-shadow"] || "";
     if (boxShadow && boxShadow !== "none") return true;

@@ -139,6 +139,13 @@ interface WireframeNode {
   overflow?: "visible" | "hidden" | "scroll" | "auto";
   // Centering (margin: 0 auto detected from original CSS)
   horizontallyCentered?: boolean;
+  // Vertical centering via margin-top/bottom: auto (flex context)
+  verticallyCenteredViaMargin?: boolean;
+  // Self-alignment (for flex/grid children)
+  alignSelf?: string;
+  justifySelf?: string;
+  // Margins for wrapper frame creation
+  margin?: { top: number; right: number; bottom: number; left: number };
 
   // Text
   textContent: string;
@@ -592,12 +599,102 @@ function cssAlignToFigma(
     end: "MAX",
     "self-end": "MAX",
     center: "CENTER",
-    stretch: "MIN", // Stretch is handled via child's layoutAlign
+    stretch: "MIN", // Stretch handled via layoutAlign
     baseline: "BASELINE",
-    normal: "MIN",
+    normal: "MIN", // CSS default = not centered
   };
 
   return map[align] || "MIN";
+}
+
+/**
+ * Convert CSS align-self to Figma layoutAlign
+ * Used for child elements in Auto Layout
+ */
+function cssAlignSelfToFigma(
+  alignSelf: string | undefined,
+  parentCounterAlign: "MIN" | "CENTER" | "MAX" | "BASELINE",
+): "MIN" | "CENTER" | "MAX" | "STRETCH" | "INHERIT" {
+  if (!alignSelf || alignSelf === "auto") {
+    // "auto" means inherit from parent's align-items
+    return "INHERIT";
+  }
+
+  const map: Record<
+    string,
+    "MIN" | "CENTER" | "MAX" | "STRETCH" | "INHERIT"
+  > = {
+    "flex-start": "MIN",
+    start: "MIN",
+    "self-start": "MIN",
+    "flex-end": "MAX",
+    end: "MAX",
+    "self-end": "MAX",
+    center: "CENTER",
+    stretch: "STRETCH",
+    baseline: "MIN", // Figma doesn't support baseline for individual items
+  };
+
+  return map[alignSelf] || "INHERIT";
+}
+
+/**
+ * Check if a node needs a margin wrapper frame
+ * Wrapper frames are created for elements with CSS margins
+ * since Figma doesn't have margin - only padding
+ */
+function needsMarginWrapper(
+  margin: { top: number; right: number; bottom: number; left: number } | undefined,
+): boolean {
+  if (!margin) return false;
+  return margin.top > 0 || margin.right > 0 || margin.bottom > 0 || margin.left > 0;
+}
+
+/**
+ * Create a wrapper frame that converts CSS margin to Figma padding
+ * The wrapper has padding equal to the element's margin
+ * The child element is placed inside with its original styles
+ */
+function createMarginWrapper(
+  child: WireframeNode,
+  childNode: SceneNode,
+  parentLayoutMode: "HORIZONTAL" | "VERTICAL" | "NONE",
+): FrameNode {
+  const margin = child.margin!;
+  const wrapper = figma.createFrame();
+
+  // Name the wrapper to indicate it's a margin wrapper
+  wrapper.name = `${child.name}:margin`;
+
+  // Make wrapper transparent (no fill)
+  wrapper.fills = [];
+
+  // Size: child size + margins
+  const wrapperWidth = child.width + margin.left + margin.right;
+  const wrapperHeight = child.height + margin.top + margin.bottom;
+  wrapper.resize(Math.max(wrapperWidth, 1), Math.max(wrapperHeight, 1));
+
+  // Apply Auto Layout to position child correctly
+  // Use opposite direction of parent to stack margin + content
+  wrapper.layoutMode = parentLayoutMode === "HORIZONTAL" ? "HORIZONTAL" : "VERTICAL";
+
+  // Set padding = margin values
+  wrapper.paddingTop = margin.top;
+  wrapper.paddingRight = margin.right;
+  wrapper.paddingBottom = margin.bottom;
+  wrapper.paddingLeft = margin.left;
+
+  // Center the child in wrapper (the padding will create the margin effect)
+  wrapper.primaryAxisAlignItems = "MIN";
+  wrapper.counterAxisAlignItems = "MIN";
+
+  // No extra spacing
+  wrapper.itemSpacing = 0;
+
+  // Add child to wrapper
+  wrapper.appendChild(childNode);
+
+  return wrapper;
 }
 
 // Convert hex color to Figma RGB (0-1 range)
@@ -2062,9 +2159,15 @@ async function createNodeInFigma(
   // When context.layoutMode is "absolute", skip Auto Layout and use x/y positioning
   const useAutoLayout = context.layoutMode === "autoLayout";
 
-
-  if (useAutoLayout && node.layoutMode && node.layoutMode !== "NONE") {
-    frame.layoutMode = node.layoutMode;
+  // In Auto Layout mode, ALL frames get Auto Layout (like html.to.design)
+  // In Absolute mode, NO frames get Auto Layout - only x/y positioning
+  if (useAutoLayout) {
+    // Use CSS layout direction if available, otherwise default to VERTICAL
+    // This ensures ALL containers have Auto Layout in "autoLayout" mode
+    frame.layoutMode =
+      node.layoutMode && node.layoutMode !== "NONE"
+        ? node.layoutMode
+        : "VERTICAL";
 
     // Apply sizing mode for this Auto Layout frame (as a parent)
     // Parent frames can be FIXED or HUG (not FILL - that's for children)
@@ -2204,11 +2307,9 @@ async function createNodeInFigma(
 
   // Recursively create children
   if (node.children && node.children.length > 0) {
-    // Only apply auto layout child properties if BOTH:
-    // 1. context.layoutMode is "autoLayout" (user chose auto layout mode)
-    // 2. This parent node has auto layout (node.layoutMode !== "NONE")
-    const parentHasAutoLayout =
-      useAutoLayout && node.layoutMode && node.layoutMode !== "NONE";
+    // In Auto Layout mode, ALL parents have Auto Layout (we set it above)
+    // In Absolute mode, NO parents have Auto Layout
+    const parentHasAutoLayout = useAutoLayout;
 
     // Get ACTUAL applied background color from this frame (after plugin color conversion)
     // This enables correct child-parent color conflict detection
@@ -2232,8 +2333,20 @@ async function createNodeInFigma(
         );
 
         if (childNode) {
-          // Append child first (required for Auto Layout properties)
-          frame.appendChild(childNode);
+          // Check if child needs a margin wrapper (CSS margins → Figma padding wrapper)
+          // Only in Auto Layout mode - absolute mode uses x/y positioning
+          let nodeToAppend: SceneNode = childNode;
+          if (
+            parentHasAutoLayout &&
+            needsMarginWrapper(child.margin) &&
+            child.position !== "absolute" &&
+            child.position !== "fixed"
+          ) {
+            nodeToAppend = createMarginWrapper(child, childNode, frame.layoutMode);
+          }
+
+          // Append child (or wrapper) first (required for Auto Layout properties)
+          frame.appendChild(nodeToAppend);
 
           // Check if child has absolute/fixed positioning (like ::before/::after pseudo elements)
           // These should be positioned absolutely in Figma, not controlled by Auto Layout
@@ -2261,14 +2374,26 @@ async function createNodeInFigma(
                 frameChild.layoutGrow = 1;
               }
 
-              // Apply layoutAlign (align-self: stretch)
-              if (child.layoutAlign === "STRETCH") {
+              // Apply layoutAlign from CSS align-self
+              // Priority: align-self > layoutAlign > inherit from parent
+              const selfAlign = cssAlignSelfToFigma(
+                child.alignSelf,
+                frame.counterAxisAlignItems,
+              );
+              if (selfAlign === "STRETCH") {
+                frameChild.layoutAlign = "STRETCH";
+              } else if (selfAlign === "CENTER") {
+                // CENTER align-self means don't stretch, stay centered
+                frameChild.layoutAlign = "INHERIT";
+              } else if (child.layoutAlign === "STRETCH") {
+                // Fallback to legacy layoutAlign
                 frameChild.layoutAlign = "STRETCH";
               }
 
               // Apply sizing mode for children inside Auto Layout
               // Children can be FIXED or FILL (HUG only if they have their own auto-layout)
-              const isHorizontalLayout = node.layoutMode === "HORIZONTAL";
+              // Use frame.layoutMode (not node.layoutMode) since we may have defaulted to VERTICAL
+              const isHorizontalLayout = frame.layoutMode === "HORIZONTAL";
 
               // Primary axis sizing (along the layout direction)
               if (isHorizontalLayout) {
@@ -2325,7 +2450,8 @@ async function createNodeInFigma(
             } else if (childNode.type === "TEXT") {
               // Text nodes can also have sizing in auto-layout
               const textChild = childNode as TextNode;
-              const isHorizontalLayout = node.layoutMode === "HORIZONTAL";
+              // Use frame.layoutMode (not node.layoutMode) since we may have defaulted to VERTICAL
+              const isHorizontalLayout = frame.layoutMode === "HORIZONTAL";
 
               if (isHorizontalLayout) {
                 // Primary axis (horizontal)

@@ -659,6 +659,62 @@ async function extractDOMTreeWithCDP(page, options = {}) {
         bottomLeft: parseInt(s["border-bottom-left-radius"]) || 0,
       };
 
+      // Extract margins for wrapper frame creation
+      const margin = {
+        top: parseInt(s["margin-top"]) || 0,
+        right: parseInt(s["margin-right"]) || 0,
+        bottom: parseInt(s["margin-bottom"]) || 0,
+        left: parseInt(s["margin-left"]) || 0,
+      };
+
+      // Detect horizontal centering (margin: 0 auto, margin-inline: auto)
+      // Use matchedStyles to get original CSS values (computed styles resolve "auto" to pixels)
+      let horizontallyCentered = false;
+      if (matchedStyles) {
+        const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
+        const marginLeftOriginal = extractPropertyFromMatchedRules(matchedStyles, "margin-left");
+        const marginRightOriginal = extractPropertyFromMatchedRules(matchedStyles, "margin-right");
+        const marginInlineOriginal = extractPropertyFromMatchedRules(matchedStyles, "margin-inline");
+
+        if (marginShorthand && /\bauto\b/i.test(marginShorthand)) {
+          horizontallyCentered = true;
+        } else if (marginInlineOriginal === "auto") {
+          horizontallyCentered = true;
+        } else if (marginLeftOriginal === "auto" || marginRightOriginal === "auto") {
+          horizontallyCentered = true;
+        }
+      }
+
+      // Detect vertical centering via margins (flex container)
+      // Use matchedStyles to get original CSS values (computed styles resolve "auto" to pixels)
+      let verticallyCenteredViaMargin = false;
+      if (matchedStyles) {
+        const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
+        const marginTopOriginal = extractPropertyFromMatchedRules(matchedStyles, "margin-top");
+        const marginBottomOriginal = extractPropertyFromMatchedRules(matchedStyles, "margin-bottom");
+        const marginBlockOriginal = extractPropertyFromMatchedRules(matchedStyles, "margin-block");
+
+        // Check shorthand for vertical auto (e.g., "auto 0" or "auto auto")
+        if (marginShorthand) {
+          const parts = marginShorthand.trim().split(/\s+/);
+          // margin: auto → all sides auto
+          // margin: auto 0 → top/bottom auto
+          if (parts[0] === "auto") {
+            verticallyCenteredViaMargin = true;
+          }
+        }
+        if (!verticallyCenteredViaMargin && marginBlockOriginal === "auto") {
+          verticallyCenteredViaMargin = true;
+        }
+        if (!verticallyCenteredViaMargin && (marginTopOriginal === "auto" || marginBottomOriginal === "auto")) {
+          verticallyCenteredViaMargin = true;
+        }
+      }
+
+      // Self-alignment properties (for flex/grid children)
+      const alignSelf = s["align-self"] || "auto";
+      const justifySelf = s["justify-self"] || "auto";
+
       // Padding for list item bullet handling
       const padding = {
         top: parseInt(s["padding-top"]) || 0,
@@ -686,6 +742,18 @@ async function extractDOMTreeWithCDP(page, options = {}) {
         layoutMode: getLayout(s),
         itemSpacing: parseInt(s.gap) || 0,
         padding,
+        // Flex properties for Auto Layout
+        justifyContent: s["justify-content"] || "normal",
+        alignItems: s["align-items"] || "normal",
+        flexWrap: s["flex-wrap"] || "nowrap",
+        // Self-alignment (for children)
+        alignSelf,
+        justifySelf,
+        // Centering detection
+        horizontallyCentered,
+        verticallyCenteredViaMargin,
+        // Margins for wrapper frame creation
+        margin,
         // Figma-ready arrays
         fills,
         strokes,
@@ -724,6 +792,28 @@ async function extractDOMTreeWithCDP(page, options = {}) {
           if (childElement) {
             element.children.push(childElement);
           }
+        }
+      }
+
+      // Auto-upgrade parent alignment if any child is horizontally centered
+      // This converts CSS "margin: 0 auto" centering to Figma Auto Layout
+      // Don't check width - centering applies regardless of child size
+      if (element.children.length > 0) {
+        const hasCenteredChild = element.children.some(
+          (child) => child.horizontallyCentered
+        );
+        if (hasCenteredChild) {
+          // If no layout, convert to VERTICAL
+          if (element.layoutMode === "NONE") {
+            element.layoutMode = "VERTICAL";
+            element.justifyContent = "normal"; // Keep vertical positioning as-is
+          }
+          // For VERTICAL layout, center horizontally (cross-axis)
+          if (element.layoutMode === "VERTICAL") {
+            element.alignItems = "center";
+          }
+          // For HORIZONTAL layout, this would need different handling
+          // (centered child in row → would need wrapper or different approach)
         }
       }
 

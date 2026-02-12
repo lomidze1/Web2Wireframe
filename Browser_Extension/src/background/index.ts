@@ -1173,13 +1173,37 @@ function buildElementTreeFromBounds(
       const marginRight = extractPropertyFromMatchedRules(matchedStyles, "margin-right");
       const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
 
+      // DEBUG: Log margin values for container elements
+      const className = node.attributes["class"] || "";
+      if (className.includes("container") || tag === "section") {
+        console.log(`[DEBUG CENTERING] tag=${tag}, class="${className}"`);
+        console.log(`  hasMatchedStyles: ${!!matchedStyles}`);
+        console.log(`  marginShorthand: "${marginShorthand}"`);
+        console.log(`  marginLeft: "${marginLeft}", marginRight: "${marginRight}"`);
+      }
+
       // Check if margin shorthand contains "auto" (e.g., "0 auto", "0px auto", "auto")
       if (marginShorthand && /\bauto\b/i.test(marginShorthand)) {
         horizontallyCentered = true;
+        if (className.includes("container") || tag === "section") {
+          console.log(`  → horizontallyCentered = TRUE (via shorthand)`);
+        }
       }
       // Or check individual margin-left/right for "auto"
       else if (marginLeft === "auto" || marginRight === "auto") {
         horizontallyCentered = true;
+        if (className.includes("container") || tag === "section") {
+          console.log(`  → horizontallyCentered = TRUE (via margin-left/right)`);
+        }
+      } else {
+        if (className.includes("container") || tag === "section") {
+          console.log(`  → horizontallyCentered = FALSE`);
+        }
+      }
+    } else {
+      const className = node.attributes["class"] || "";
+      if (className.includes("container") || tag === "section") {
+        console.log(`[DEBUG CENTERING] tag=${tag}, class="${className}" - NO matchedStyles!`);
       }
     }
 
@@ -1267,6 +1291,49 @@ function buildElementTreeFromBounds(
             childElement.width = Math.max(0, viewportWidth - childElement.x);
           }
           element.children.push(childElement);
+        }
+      }
+    }
+
+    // Auto-upgrade parent alignment if any child is horizontally centered
+    // This converts CSS "margin: 0 auto" centering to Figma Auto Layout
+    if (element.children.length > 0) {
+      // DEBUG: Log parent-child centering check (buildElementTreeFromBounds)
+      const parentClass = element.className || "";
+      if (tag === "section" || parentClass.includes("container")) {
+        console.log(`[DEBUG POST-PROCESS buildElementTreeFromBounds] tag=${tag}, class="${parentClass}"`);
+        console.log(`  layoutMode: "${element.layoutMode}"`);
+        console.log(`  children count: ${element.children.length}`);
+        element.children.forEach((child, i) => {
+          console.log(`  child[${i}]: name="${child.name}", horizontallyCentered=${child.horizontallyCentered}, width=${child.width} < parentWidth=${width}?`);
+        });
+      }
+
+      // Check if any child has horizontal centering (margin: auto)
+      // Don't check width - centering applies regardless of child size
+      const hasCenteredChild = element.children.some(
+        (child) => child.horizontallyCentered
+      );
+
+      if (tag === "section" || parentClass.includes("container")) {
+        console.log(`  hasCenteredChild: ${hasCenteredChild}`);
+      }
+
+      if (hasCenteredChild) {
+        // If no layout, convert to VERTICAL
+        if (element.layoutMode === "NONE") {
+          element.layoutMode = "VERTICAL";
+          element.justifyContent = "normal"; // Keep vertical positioning as-is
+          if (tag === "section" || parentClass.includes("container")) {
+            console.log(`  → Upgraded layoutMode to VERTICAL`);
+          }
+        }
+        // For VERTICAL layout, center horizontally (cross-axis)
+        if (element.layoutMode === "VERTICAL") {
+          element.alignItems = "center";
+          if (tag === "section" || parentClass.includes("container")) {
+            console.log(`  → Set alignItems to "center"`);
+          }
         }
       }
     }
@@ -1637,6 +1704,19 @@ function buildElementTree(
     const height = scaledBounds.height;
     const matchedStyles = matchedStylesMap.get(node.backendNodeId) || null;
 
+    // DEBUG: Log X coordinate calculation for key elements
+    const debugClass = (node.attributes["class"] || "").toLowerCase();
+    const isDebugElement = tag === "body" || tag === "section" ||
+      debugClass.includes("container") || debugClass.includes("wrapper") ||
+      debugClass.includes("content") || debugClass.includes("main");
+    if (isDebugElement) {
+      console.log(`[DEBUG X-COORD] tag=${tag}, class="${node.attributes["class"] || ""}":`);
+      console.log(`  raw bounds.x = ${node.bounds.x}, browserDpr = ${browserDpr}`);
+      console.log(`  scaled x = ${x}, parentX = ${parentX}`);
+      console.log(`  final element.x = ${x - parentX}`);
+      console.log(`  width = ${width}`);
+    }
+
     // Determine element type
     const isMedia =
       MEDIA_TAGS.includes(tag as (typeof MEDIA_TAGS)[number]) ||
@@ -1824,10 +1904,34 @@ function buildElementTree(
       const marginRight = extractPropertyFromMatchedRules(matchedStyles, "margin-right");
       const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
 
+      // DEBUG: Log margin values for container elements (buildElementTree)
+      const className = node.attributes["class"] || "";
+      if (className.includes("container") || tag === "section") {
+        console.log(`[DEBUG CENTERING buildElementTree] tag=${tag}, class="${className}"`);
+        console.log(`  hasMatchedStyles: ${!!matchedStyles}`);
+        console.log(`  marginShorthand: "${marginShorthand}"`);
+        console.log(`  marginLeft: "${marginLeft}", marginRight: "${marginRight}"`);
+      }
+
       if (marginShorthand && /\bauto\b/i.test(marginShorthand)) {
         horizontallyCentered = true;
+        if (className.includes("container") || tag === "section") {
+          console.log(`  → horizontallyCentered = TRUE (via shorthand)`);
+        }
       } else if (marginLeft === "auto" || marginRight === "auto") {
         horizontallyCentered = true;
+        if (className.includes("container") || tag === "section") {
+          console.log(`  → horizontallyCentered = TRUE (via margin-left/right)`);
+        }
+      } else {
+        if (className.includes("container") || tag === "section") {
+          console.log(`  → horizontallyCentered = FALSE`);
+        }
+      }
+    } else {
+      const className = node.attributes["class"] || "";
+      if (className.includes("container") || tag === "section") {
+        console.log(`[DEBUG CENTERING buildElementTree] tag=${tag}, class="${className}" - NO matchedStyles!`);
       }
     }
 
@@ -1956,6 +2060,49 @@ function buildElementTree(
       }
     }
 
+    // Auto-upgrade parent alignment if any child is horizontally centered
+    // This converts CSS "margin: 0 auto" centering to Figma Auto Layout
+    if (element.children.length > 0) {
+      // DEBUG: Log parent-child centering check (buildElementTree)
+      const parentClass = element.className || "";
+      if (tag === "section" || parentClass.includes("container")) {
+        console.log(`[DEBUG POST-PROCESS buildElementTree] tag=${tag}, class="${parentClass}"`);
+        console.log(`  layoutMode: "${element.layoutMode}"`);
+        console.log(`  children count: ${element.children.length}`);
+        element.children.forEach((child, i) => {
+          console.log(`  child[${i}]: name="${child.name}", horizontallyCentered=${child.horizontallyCentered}, width=${child.width} < parentWidth=${width}?`);
+        });
+      }
+
+      // Check if any child has horizontal centering (margin: auto)
+      // Don't check width - centering applies regardless of child size
+      const hasCenteredChild = element.children.some(
+        (child) => child.horizontallyCentered
+      );
+
+      if (tag === "section" || parentClass.includes("container")) {
+        console.log(`  hasCenteredChild: ${hasCenteredChild}`);
+      }
+
+      if (hasCenteredChild) {
+        // If no layout, convert to VERTICAL
+        if (element.layoutMode === "NONE") {
+          element.layoutMode = "VERTICAL";
+          element.justifyContent = "normal"; // Keep vertical positioning as-is
+          if (tag === "section" || parentClass.includes("container")) {
+            console.log(`  → Upgraded layoutMode to VERTICAL`);
+          }
+        }
+        // For VERTICAL layout, center horizontally (cross-axis)
+        if (element.layoutMode === "VERTICAL") {
+          element.alignItems = "center";
+          if (tag === "section" || parentClass.includes("container")) {
+            console.log(`  → Set alignItems to "center"`);
+          }
+        }
+      }
+    }
+
     // For <li> elements: add synthetic text child for the text content
     // This creates the structure: <li>(frame) -> [::before(text "•"), #text(text "actual content")]
     if (isListItemWithText && finalText) {
@@ -2015,6 +2162,40 @@ function buildElementTree(
   const tree = buildNode(bodyNode, 0, 0, 0);
   if (!tree) {
     throw new Error("Failed to build element tree");
+  }
+
+  // Get actual body width from CDP (before overriding)
+  const actualBodyWidth = bodyNode.bounds ? bodyNode.bounds.width / browserDpr : viewportWidth;
+
+  // =========================================================================
+  // RECALCULATE X POSITIONS FOR ABSOLUTE MODE
+  // Problem: CDP returns bounds for the user's CURRENT browser viewport
+  // but we're creating a frame at TARGET viewportWidth (e.g., 1440px)
+  // Solution: Recalculate X for centered elements: x = (viewportWidth - width) / 2
+  // =========================================================================
+  if (actualBodyWidth !== viewportWidth && Math.abs(actualBodyWidth - viewportWidth) > 1) {
+    console.log(`[DEBUG VIEWPORT FIX] Actual body width: ${actualBodyWidth}, target: ${viewportWidth}`);
+
+    function recalculateXPositions(element: ExtractedElement, parentWidth: number): void {
+      // For centered elements, recalculate X based on target viewport
+      if (element.horizontallyCentered && element.width < parentWidth) {
+        const newX = Math.round((parentWidth - element.width) / 2);
+        console.log(`[DEBUG VIEWPORT FIX] ${element.name}: x ${element.x} → ${newX} (centered in ${parentWidth}px)`);
+        element.x = newX;
+      }
+
+      // Recursively process children
+      for (const child of element.children) {
+        // Children are positioned relative to their parent
+        // For centered children, use element's width as parent width
+        recalculateXPositions(child, element.width);
+      }
+    }
+
+    // Start with body's direct children using viewportWidth
+    for (const child of tree.children) {
+      recalculateXPositions(child, viewportWidth);
+    }
   }
 
   // Override body width to viewport width (fixes scrollWidth being larger)
