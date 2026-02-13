@@ -2351,8 +2351,9 @@ async function createNodeInFigma(
           // Check if child has absolute/fixed positioning (like ::before/::after pseudo elements)
           // These should be positioned absolutely in Figma, not controlled by Auto Layout
           if (child.position === "absolute" || child.position === "fixed") {
-            // For nodes that support layoutPositioning (frames, text, etc.)
-            if ("layoutPositioning" in childNode) {
+            // IMPORTANT: layoutPositioning = "ABSOLUTE" only works if parent has Auto Layout
+            // If parent has layoutMode = NONE, we can't set layoutPositioning
+            if (parentHasAutoLayout && "layoutPositioning" in childNode) {
               (childNode as FrameNode | TextNode).layoutPositioning =
                 "ABSOLUTE";
             }
@@ -2493,6 +2494,15 @@ async function createNodeInFigma(
           } else {
             // Absolute mode OR non-Auto Layout parent: use absolute positioning
             // Position is relative to parent frame
+
+            // DEBUG: Log inner container coordinates
+            const debugClass = child.className || "";
+            if (debugClass.includes("_inner") || debugClass.includes("container")) {
+              console.log(`[FIGMA Y-DEBUG CHILD] tag=${child.tag}, class="${debugClass}"`);
+              console.log(`  child.y=${child.y}, child.height=${child.height}`);
+              console.log(`  parent.height=${node.height}, parent.tag=${node.tag}`);
+            }
+
             // Handle horizontally centered elements (margin: 0 auto)
             if (child.horizontallyCentered && child.width < node.width) {
               childNode.x = Math.round((node.width - child.width) / 2);
@@ -2747,6 +2757,19 @@ async function createWireframeFrame(
         const childNode = await createNodeInFigma(child, childContext, 1);
 
         if (childNode) {
+          // DEBUG: Log header and inner container coordinates
+          const debugClass = child.className || "";
+          if (child.tag === "header" || debugClass.includes("header")) {
+            console.log(`[FIGMA Y-DEBUG TOP-LEVEL] tag=${child.tag}, class="${debugClass}"`);
+            console.log(`  child.y=${child.y}, child.height=${child.height}`);
+            console.log(`  child.children count=${child.children?.length || 0}`);
+            // Log first child (container) if exists
+            if (child.children && child.children.length > 0) {
+              const inner = child.children[0];
+              console.log(`  first child: tag=${inner.tag}, class="${inner.className}", y=${inner.y}, height=${inner.height}`);
+            }
+          }
+
           // Handle horizontally centered elements (margin: 0 auto)
           // Calculate centered x position instead of using absolute x
           if (

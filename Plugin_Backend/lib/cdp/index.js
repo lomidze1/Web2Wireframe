@@ -56,7 +56,6 @@ const TEXT_TAGS = [
   "h6",
   "p",
   "span",
-  "a",
   "li",
   "label",
   "td",
@@ -126,14 +125,6 @@ async function extractDOMTreeWithCDP(page, options = {}) {
     );
 
     // DEBUG: Check if BODY is in the list
-    const debugBodyNode = nodes.find((n) => n.nodeName === "body");
-    if (debugBodyNode) {
-      const bodyInList = nodesNeedingStyles.some((n) => n.nodeName === "body");
-      console.log(`[CDP DEBUG] BODY node found. In matched styles list: ${bodyInList}`);
-      console.log(`[CDP DEBUG] BODY computed bg-image: "${debugBodyNode.computedStyles["background-image"]}"`);
-      console.log(`[CDP DEBUG] BODY computed bg-color: "${debugBodyNode.computedStyles["background-color"]}"`);
-    }
-
     // Step 4: Request DOM document (required before pushNodesByBackendIdsToFrontend)
     await client.send("DOM.getDocument", { depth: 0 });
 
@@ -433,6 +424,50 @@ async function extractDOMTreeWithCDP(page, options = {}) {
     }
 
     /**
+     * Check if a text element needs a Frame wrapper (smart wrapping).
+     *
+     * Figma Text nodes CANNOT have: padding, background, border, border-radius, box-shadow, backdrop-filter
+     * If any of these styles are present, we need to wrap the text in a Frame.
+     *
+     * NOTE: margin does NOT trigger wrapper - it's handled by absolute positioning.
+     * @param {{ top: number, right: number, bottom: number, left: number }} padding
+     * @param {Array} fills
+     * @param {Array} strokes
+     * @param {Array} effects
+     * @param {{ topLeft: number, topRight: number, bottomRight: number, bottomLeft: number }} borderRadius
+     * @returns {boolean}
+     */
+    function needsFrameWrapper(padding, fills, strokes, effects, borderRadius) {
+      // Check padding
+      if (padding.top > 0 || padding.right > 0 || padding.bottom > 0 || padding.left > 0) {
+        return true;
+      }
+
+      // Check fills (background-color, gradient)
+      if (fills.length > 0) {
+        return true;
+      }
+
+      // Check strokes (border)
+      if (strokes.length > 0) {
+        return true;
+      }
+
+      // Check effects (box-shadow, backdrop-filter)
+      if (effects.length > 0) {
+        return true;
+      }
+
+      // Check border-radius
+      if (borderRadius.topLeft > 0 || borderRadius.topRight > 0 ||
+          borderRadius.bottomRight > 0 || borderRadius.bottomLeft > 0) {
+        return true;
+      }
+
+      return false;
+    }
+
+    /**
      * Process a single node into ExtractedElement
      * @param {import('./snapshot').ParsedSnapshotNode} node
      * @param {number} depth
@@ -477,23 +512,18 @@ async function extractDOMTreeWithCDP(page, options = {}) {
         }
       }
 
-      // Determine if this element should be treated as a text element
+      // Determine if this element WOULD be treated as a text element (before smart wrapping check)
       // Either: in TEXT_TAGS OR is a leaf element (no element children) with text
       // NOTE: <a> tags are excluded - they remain frames with centered text children
       const isText = TEXT_TAGS.includes(tag);
       const isLeaf = isLeafElement(node.index);
-      const shouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
+      const wouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
 
-      // Determine element type
-      let type = "frame";
-      let textContent = "";
+      // Get transformed text content (will be used if this becomes a text element)
+      const transformedText = wouldBeText && aggregatedText ? transformText(aggregatedText, tag) : "";
 
-      if (media) {
-        type = "placeholder";
-      } else if (shouldBeText && aggregatedText) {
-        type = "text";
-        textContent = transformText(aggregatedText, tag);
-      }
+      // NOTE: Final type determination (frame/text/placeholder) is done AFTER
+      // fills/strokes/effects/borderRadius/padding are computed (smart wrapping check)
 
       // Get matched styles if available
       const matchedStyles = matchedStylesMap.get(node.backendNodeId);
@@ -536,15 +566,6 @@ async function extractDOMTreeWithCDP(page, options = {}) {
         ? backgroundColor
         : null;
 
-      // DEBUG: Log BODY specifically to trace gradient extraction
-      if (node.nodeName === "body") {
-        console.log(`[CDP DEBUG BODY] Has matchedStyles: ${!!matchedStyles}`);
-        console.log(`[CDP DEBUG BODY] backgroundImage (computed): "${backgroundImage}"`);
-        console.log(`[CDP DEBUG BODY] backgroundShorthand (matched): "${backgroundShorthand}"`);
-        console.log(`[CDP DEBUG BODY] backgroundColor: "${backgroundColor}"`);
-        console.log(`[CDP DEBUG BODY] bgColorForFills: "${bgColorForFills}"`);
-      }
-
       // Parse to Figma-ready fills (gradients, colors, image placeholders)
       // Use backgroundShorthand if available (may contain gradient), otherwise backgroundImage
       const fills = parseBackgroundToFills(
@@ -554,11 +575,6 @@ async function extractDOMTreeWithCDP(page, options = {}) {
         { width: w, height: h }
       );
 
-      // DEBUG: Log BODY fills specifically
-      if (node.nodeName === "body") {
-        console.log(`[CDP DEBUG BODY] Generated ${fills.length} fills:`, fills.map(f => f.type));
-      }
-
       // Parse box-shadow to effects
       // Try matched styles first (preserves original CSS), fallback to computed
       let boxShadow = s["box-shadow"];
@@ -567,14 +583,6 @@ async function extractDOMTreeWithCDP(page, options = {}) {
         if (originalBoxShadow) {
           boxShadow = originalBoxShadow;
         }
-      }
-
-      // DEBUG: Log header box-shadow
-      if (tag === "header" || node.attributes.class?.includes("header")) {
-        console.log(`[CDP DEBUG HEADER] tag: ${tag}, class: ${node.attributes.class}`);
-        console.log(`[CDP DEBUG HEADER] computed box-shadow: "${s["box-shadow"]}"`);
-        console.log(`[CDP DEBUG HEADER] matched box-shadow: "${boxShadow}"`);
-        console.log(`[CDP DEBUG HEADER] hasMatchedStyles: ${!!matchedStyles}`);
       }
 
       let effects = parseBoxShadowToEffects(boxShadow);
@@ -723,10 +731,36 @@ async function extractDOMTreeWithCDP(page, options = {}) {
         left: parseInt(s["padding-left"]) || 0,
       };
 
-      // For <li> elements with text: create synthetic text child instead
-      // This matches Browser_Extension behavior for proper bullet + text layout
+      // =========================================================================
+      // SMART WRAPPING: Determine final type now that we have all style info
+      // =========================================================================
+
+      // Check if this text element needs a Frame wrapper (has styles Text nodes can't support)
+      const requiresWrapper = wouldBeText && needsFrameWrapper(padding, fills, strokes, effects, borderRadius);
+
+      // Final decision: only be Text if no wrapper needed
+      const shouldBeText = wouldBeText && !requiresWrapper;
+      const shouldBeFrameWithTextChild = wouldBeText && requiresWrapper;
+
+      // Determine final element type
+      let type = "frame";
+      let textContent = "";
+
+      if (media) {
+        type = "placeholder";
+      } else if (shouldBeText && transformedText) {
+        type = "text";
+        textContent = transformedText;
+      } else if (shouldBeFrameWithTextChild && transformedText) {
+        // Frame wrapper - textContent used for synthetic child, not on frame
+        textContent = transformedText;
+      }
+
+      // For <li>, <a>, or elements needing wrapper: don't put text on frame, we'll add synthetic child
       const isListItemWithText = tag === "li" && !!textContent;
-      const frameTextContent = isListItemWithText ? "" : textContent;
+      const isLinkWithText = tag === "a" && isLeaf && !!textContent;
+      const needsSyntheticTextChild = isListItemWithText || shouldBeFrameWithTextChild || isLinkWithText;
+      const frameTextContent = needsSyntheticTextChild ? "" : textContent;
 
       /** @type {import('./types').ExtractedElement} */
       const element = {
@@ -817,7 +851,7 @@ async function extractDOMTreeWithCDP(page, options = {}) {
         }
       }
 
-      // For <li> elements: add synthetic text child for the text content
+      // For <li> elements: add synthetic text child for the text content (with bullet offset)
       // This creates proper structure: <li>(frame) -> [bullet area, text]
       if (isListItemWithText && textContent) {
         const bulletWidth = padding.left || 16;
@@ -831,6 +865,86 @@ async function extractDOMTreeWithCDP(page, options = {}) {
           y: 0,
           width: Math.max(10, w - bulletWidth - padding.right),
           height: h,
+          layoutMode: "NONE",
+          itemSpacing: 0,
+          padding: { top: 0, right: 0, bottom: 0, left: 0 },
+          fills: [],
+          strokes: [],
+          effects: [],
+          backgroundColor: null,
+          backgroundGradient: null,
+          textColor: legacyTextColor,
+          borderColor: null,
+          borderWidth: 0,
+          borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+          boxShadow: null,
+          fontFamily,
+          fontSize: parseInt(s["font-size"]) || 14,
+          fontWeight: parseInt(s["font-weight"]) || 400,
+          lineHeight: s["line-height"] || "normal",
+          letterSpacing: parseFloat(s["letter-spacing"]) || 0,
+          textAlign: s["text-align"] || "left",
+          textContent: textContent,
+          opacity: 1,
+          isPlaceholder: false,
+          children: [],
+        };
+        element.children.push(syntheticTextChild);
+      }
+
+      // Smart wrapping: For text elements that need Frame wrapper (padding, bg, border, etc.)
+      // Create Frame with styles + Text child inside (text-only styles)
+      if (shouldBeFrameWithTextChild && textContent) {
+        /** @type {import('./types').ExtractedElement} */
+        const syntheticTextChild = {
+          id: `n${nodeIdCounter++}`,
+          name: "Text",
+          type: "text",
+          tag: "#text",
+          x: 0,
+          y: 0,
+          width: Math.max(10, w - padding.left - padding.right),
+          height: Math.max(10, h - padding.top - padding.bottom),
+          layoutMode: "NONE",
+          itemSpacing: 0,
+          padding: { top: 0, right: 0, bottom: 0, left: 0 },
+          fills: [],
+          strokes: [],
+          effects: [],
+          backgroundColor: null,
+          backgroundGradient: null,
+          textColor: legacyTextColor,
+          borderColor: null,
+          borderWidth: 0,
+          borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+          boxShadow: null,
+          fontFamily,
+          fontSize: parseInt(s["font-size"]) || 14,
+          fontWeight: parseInt(s["font-weight"]) || 400,
+          lineHeight: s["line-height"] || "normal",
+          letterSpacing: parseFloat(s["letter-spacing"]) || 0,
+          textAlign: s["text-align"] || "left",
+          textContent: textContent,
+          opacity: 1,
+          isPlaceholder: false,
+          children: [],
+        };
+        element.children.push(syntheticTextChild);
+      }
+
+      // For <a> (link) elements with text: always create synthetic text child
+      // Links remain Frames so they can have styling, but need text child inside
+      if (isLinkWithText && textContent) {
+        /** @type {import('./types').ExtractedElement} */
+        const syntheticTextChild = {
+          id: `n${nodeIdCounter++}`,
+          name: "Text",
+          type: "text",
+          tag: "#text",
+          x: 0,
+          y: 0,
+          width: Math.max(10, w - padding.left - padding.right),
+          height: Math.max(10, h - padding.top - padding.bottom),
           layoutMode: "NONE",
           itemSpacing: 0,
           padding: { top: 0, right: 0, bottom: 0, left: 0 },

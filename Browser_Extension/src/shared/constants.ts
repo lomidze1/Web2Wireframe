@@ -62,7 +62,6 @@ export const TEXT_TAGS = [
   "h6",
   "p",
   "span",
-  "a",
   "label",
   "td",
   "th",

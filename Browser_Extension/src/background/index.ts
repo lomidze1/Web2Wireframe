@@ -1173,37 +1173,13 @@ function buildElementTreeFromBounds(
       const marginRight = extractPropertyFromMatchedRules(matchedStyles, "margin-right");
       const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
 
-      // DEBUG: Log margin values for container elements
-      const className = node.attributes["class"] || "";
-      if (className.includes("container") || tag === "section") {
-        console.log(`[DEBUG CENTERING] tag=${tag}, class="${className}"`);
-        console.log(`  hasMatchedStyles: ${!!matchedStyles}`);
-        console.log(`  marginShorthand: "${marginShorthand}"`);
-        console.log(`  marginLeft: "${marginLeft}", marginRight: "${marginRight}"`);
-      }
-
       // Check if margin shorthand contains "auto" (e.g., "0 auto", "0px auto", "auto")
       if (marginShorthand && /\bauto\b/i.test(marginShorthand)) {
         horizontallyCentered = true;
-        if (className.includes("container") || tag === "section") {
-          console.log(`  → horizontallyCentered = TRUE (via shorthand)`);
-        }
       }
       // Or check individual margin-left/right for "auto"
       else if (marginLeft === "auto" || marginRight === "auto") {
         horizontallyCentered = true;
-        if (className.includes("container") || tag === "section") {
-          console.log(`  → horizontallyCentered = TRUE (via margin-left/right)`);
-        }
-      } else {
-        if (className.includes("container") || tag === "section") {
-          console.log(`  → horizontallyCentered = FALSE`);
-        }
-      }
-    } else {
-      const className = node.attributes["class"] || "";
-      if (className.includes("container") || tag === "section") {
-        console.log(`[DEBUG CENTERING] tag=${tag}, class="${className}" - NO matchedStyles!`);
       }
     }
 
@@ -1218,8 +1194,15 @@ function buildElementTreeFromBounds(
     }
 
     const isLeaf = isLeafElementFromSubtree(node.index, subtreeNodes, childrenMap);
-    const shouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
     const finalText = aggregatedText;
+
+    // Smart wrapping: Check if this would be text but has styles Figma Text can't support
+    const wouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
+    const requiresWrapper = wouldBeText && needsFrameWrapper(padding, fills, strokes, effects, borderRadius);
+
+    // Final decision: only be Text if no wrapper needed
+    const shouldBeText = wouldBeText && !requiresWrapper;
+    const shouldBeFrameWithTextChild = wouldBeText && requiresWrapper;
 
     let elementType: "frame" | "text" | "placeholder" = "frame";
     if (isMedia) {
@@ -1228,8 +1211,11 @@ function buildElementTreeFromBounds(
       elementType = "text";
     }
 
+    // For <li>, <a>, or elements needing wrapper: don't put text on frame, we'll add synthetic child
     const isListItemWithText = tag === "li" && !!finalText;
-    const frameTextContent = isListItemWithText ? "" : finalText;
+    const isLinkWithText = tag === "a" && isLeaf && !!finalText;
+    const needsSyntheticTextChild = isListItemWithText || shouldBeFrameWithTextChild || isLinkWithText;
+    const frameTextContent = needsSyntheticTextChild ? "" : finalText;
 
     // Build element with offset coordinates (relative to selection root)
     const element: ExtractedElement = {
@@ -1298,47 +1284,24 @@ function buildElementTreeFromBounds(
     // Auto-upgrade parent alignment if any child is horizontally centered
     // This converts CSS "margin: 0 auto" centering to Figma Auto Layout
     if (element.children.length > 0) {
-      // DEBUG: Log parent-child centering check (buildElementTreeFromBounds)
-      const parentClass = element.className || "";
-      if (tag === "section" || parentClass.includes("container")) {
-        console.log(`[DEBUG POST-PROCESS buildElementTreeFromBounds] tag=${tag}, class="${parentClass}"`);
-        console.log(`  layoutMode: "${element.layoutMode}"`);
-        console.log(`  children count: ${element.children.length}`);
-        element.children.forEach((child, i) => {
-          console.log(`  child[${i}]: name="${child.name}", horizontallyCentered=${child.horizontallyCentered}, width=${child.width} < parentWidth=${width}?`);
-        });
-      }
-
-      // Check if any child has horizontal centering (margin: auto)
-      // Don't check width - centering applies regardless of child size
       const hasCenteredChild = element.children.some(
         (child) => child.horizontallyCentered
       );
-
-      if (tag === "section" || parentClass.includes("container")) {
-        console.log(`  hasCenteredChild: ${hasCenteredChild}`);
-      }
 
       if (hasCenteredChild) {
         // If no layout, convert to VERTICAL
         if (element.layoutMode === "NONE") {
           element.layoutMode = "VERTICAL";
           element.justifyContent = "normal"; // Keep vertical positioning as-is
-          if (tag === "section" || parentClass.includes("container")) {
-            console.log(`  → Upgraded layoutMode to VERTICAL`);
-          }
         }
         // For VERTICAL layout, center horizontally (cross-axis)
         if (element.layoutMode === "VERTICAL") {
           element.alignItems = "center";
-          if (tag === "section" || parentClass.includes("container")) {
-            console.log(`  → Set alignItems to "center"`);
-          }
         }
       }
     }
 
-    // For <li> elements: add synthetic text child
+    // For <li> elements: add synthetic text child (with bullet offset)
     if (isListItemWithText && finalText) {
       const bulletWidth = padding.left || 16;
       const syntheticTextChild: ExtractedElement = {
@@ -1350,6 +1313,86 @@ function buildElementTreeFromBounds(
         y: 0,
         width: Math.max(10, width - bulletWidth - padding.right),
         height: height,
+        position: "relative",
+        layoutMode: "NONE",
+        itemSpacing: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        fills: [],
+        strokes: [],
+        effects: [],
+        backgroundColor: null,
+        backgroundGradient: null,
+        textColor,
+        borderColor: null,
+        borderWidth: 0,
+        borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+        boxShadow: null,
+        fontFamily,
+        fontSize,
+        fontWeight,
+        lineHeight,
+        letterSpacing,
+        textAlign,
+        textContent: finalText,
+        opacity: 1,
+        isPlaceholder: false,
+        children: [],
+      };
+      element.children.push(syntheticTextChild);
+    }
+
+    // Smart wrapping: For text elements that need Frame wrapper (padding, bg, border, etc.)
+    // Create Frame with styles + Text child inside (text-only styles)
+    if (shouldBeFrameWithTextChild && finalText) {
+      const syntheticTextChild: ExtractedElement = {
+        id: generateId(),
+        type: "text",
+        tag: "#text",
+        name: "Text",
+        x: 0,
+        y: 0,
+        width: Math.max(10, width - padding.left - padding.right),
+        height: Math.max(10, height - padding.top - padding.bottom),
+        position: "relative",
+        layoutMode: "NONE",
+        itemSpacing: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        fills: [],
+        strokes: [],
+        effects: [],
+        backgroundColor: null,
+        backgroundGradient: null,
+        textColor,
+        borderColor: null,
+        borderWidth: 0,
+        borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+        boxShadow: null,
+        fontFamily,
+        fontSize,
+        fontWeight,
+        lineHeight,
+        letterSpacing,
+        textAlign,
+        textContent: finalText,
+        opacity: 1,
+        isPlaceholder: false,
+        children: [],
+      };
+      element.children.push(syntheticTextChild);
+    }
+
+    // For <a> (link) elements with text: always create synthetic text child
+    // Links remain Frames so they can have styling, but need text child inside
+    if (isLinkWithText && finalText) {
+      const syntheticTextChild: ExtractedElement = {
+        id: generateId(),
+        type: "text",
+        tag: "#text",
+        name: "Text",
+        x: 0,
+        y: 0,
+        width: Math.max(10, width - padding.left - padding.right),
+        height: Math.max(10, height - padding.top - padding.bottom),
         position: "relative",
         layoutMode: "NONE",
         itemSpacing: 0,
@@ -1479,6 +1522,50 @@ function isLeafElementFromSubtree(
   }
 
   return true;
+}
+
+/**
+ * Check if a text element needs a Frame wrapper (smart wrapping).
+ *
+ * Figma Text nodes CANNOT have: padding, background, border, border-radius, box-shadow, backdrop-filter
+ * If any of these styles are present, we need to wrap the text in a Frame.
+ *
+ * NOTE: margin does NOT trigger wrapper - it's handled by absolute positioning.
+ */
+function needsFrameWrapper(
+  padding: { top: number; right: number; bottom: number; left: number },
+  fills: unknown[],
+  strokes: unknown[],
+  effects: unknown[],
+  borderRadius: { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number },
+): boolean {
+  // Check padding
+  if (padding.top > 0 || padding.right > 0 || padding.bottom > 0 || padding.left > 0) {
+    return true;
+  }
+
+  // Check fills (background-color, gradient)
+  if (fills.length > 0) {
+    return true;
+  }
+
+  // Check strokes (border)
+  if (strokes.length > 0) {
+    return true;
+  }
+
+  // Check effects (box-shadow, backdrop-filter)
+  if (effects.length > 0) {
+    return true;
+  }
+
+  // Check border-radius
+  if (borderRadius.topLeft > 0 || borderRadius.topRight > 0 ||
+      borderRadius.bottomRight > 0 || borderRadius.bottomLeft > 0) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -1704,19 +1791,6 @@ function buildElementTree(
     const height = scaledBounds.height;
     const matchedStyles = matchedStylesMap.get(node.backendNodeId) || null;
 
-    // DEBUG: Log X coordinate calculation for key elements
-    const debugClass = (node.attributes["class"] || "").toLowerCase();
-    const isDebugElement = tag === "body" || tag === "section" ||
-      debugClass.includes("container") || debugClass.includes("wrapper") ||
-      debugClass.includes("content") || debugClass.includes("main");
-    if (isDebugElement) {
-      console.log(`[DEBUG X-COORD] tag=${tag}, class="${node.attributes["class"] || ""}":`);
-      console.log(`  raw bounds.x = ${node.bounds.x}, browserDpr = ${browserDpr}`);
-      console.log(`  scaled x = ${x}, parentX = ${parentX}`);
-      console.log(`  final element.x = ${x - parentX}`);
-      console.log(`  width = ${width}`);
-    }
-
     // Determine element type
     const isMedia =
       MEDIA_TAGS.includes(tag as (typeof MEDIA_TAGS)[number]) ||
@@ -1904,34 +1978,10 @@ function buildElementTree(
       const marginRight = extractPropertyFromMatchedRules(matchedStyles, "margin-right");
       const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
 
-      // DEBUG: Log margin values for container elements (buildElementTree)
-      const className = node.attributes["class"] || "";
-      if (className.includes("container") || tag === "section") {
-        console.log(`[DEBUG CENTERING buildElementTree] tag=${tag}, class="${className}"`);
-        console.log(`  hasMatchedStyles: ${!!matchedStyles}`);
-        console.log(`  marginShorthand: "${marginShorthand}"`);
-        console.log(`  marginLeft: "${marginLeft}", marginRight: "${marginRight}"`);
-      }
-
       if (marginShorthand && /\bauto\b/i.test(marginShorthand)) {
         horizontallyCentered = true;
-        if (className.includes("container") || tag === "section") {
-          console.log(`  → horizontallyCentered = TRUE (via shorthand)`);
-        }
       } else if (marginLeft === "auto" || marginRight === "auto") {
         horizontallyCentered = true;
-        if (className.includes("container") || tag === "section") {
-          console.log(`  → horizontallyCentered = TRUE (via margin-left/right)`);
-        }
-      } else {
-        if (className.includes("container") || tag === "section") {
-          console.log(`  → horizontallyCentered = FALSE`);
-        }
-      }
-    } else {
-      const className = node.attributes["class"] || "";
-      if (className.includes("container") || tag === "section") {
-        console.log(`[DEBUG CENTERING buildElementTree] tag=${tag}, class="${className}" - NO matchedStyles!`);
       }
     }
 
@@ -1965,11 +2015,18 @@ function buildElementTree(
     // Either: in TEXT_TAGS OR is a leaf element (no element children) with text
     // NOTE: <a> tags are excluded - they remain frames with centered text children
     const isLeaf = isLeafElement(node.index, nodes, childrenMap);
-    const shouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
 
     // Text transformation moved to Plugin (import-time)
     // Here we always capture original text
     const finalText = aggregatedText;
+
+    // Smart wrapping: Check if this would be text but has styles Figma Text can't support
+    const wouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
+    const requiresWrapper = wouldBeText && needsFrameWrapper(padding, fills, strokes, effects, borderRadius);
+
+    // Final decision: only be Text if no wrapper needed
+    const shouldBeText = wouldBeText && !requiresWrapper;
+    const shouldBeFrameWithTextChild = wouldBeText && requiresWrapper;
 
     // Determine element type for Figma
     let elementType: "frame" | "text" | "placeholder" = "frame";
@@ -1979,10 +2036,11 @@ function buildElementTree(
       elementType = "text";
     }
 
-    // For <li> elements with text content, we'll create a synthetic text child
-    // instead of putting textContent on the frame itself
+    // For <li>, <a>, or elements needing wrapper: don't put text on frame, we'll add synthetic child
     const isListItemWithText = tag === "li" && !!finalText;
-    const frameTextContent = isListItemWithText ? "" : finalText;
+    const isLinkWithText = tag === "a" && isLeaf && !!finalText;
+    const needsSyntheticTextChild = isListItemWithText || shouldBeFrameWithTextChild || isLinkWithText;
+    const frameTextContent = needsSyntheticTextChild ? "" : finalText;
 
     // Build element
     const element: ExtractedElement = {
@@ -2063,47 +2121,24 @@ function buildElementTree(
     // Auto-upgrade parent alignment if any child is horizontally centered
     // This converts CSS "margin: 0 auto" centering to Figma Auto Layout
     if (element.children.length > 0) {
-      // DEBUG: Log parent-child centering check (buildElementTree)
-      const parentClass = element.className || "";
-      if (tag === "section" || parentClass.includes("container")) {
-        console.log(`[DEBUG POST-PROCESS buildElementTree] tag=${tag}, class="${parentClass}"`);
-        console.log(`  layoutMode: "${element.layoutMode}"`);
-        console.log(`  children count: ${element.children.length}`);
-        element.children.forEach((child, i) => {
-          console.log(`  child[${i}]: name="${child.name}", horizontallyCentered=${child.horizontallyCentered}, width=${child.width} < parentWidth=${width}?`);
-        });
-      }
-
-      // Check if any child has horizontal centering (margin: auto)
-      // Don't check width - centering applies regardless of child size
       const hasCenteredChild = element.children.some(
         (child) => child.horizontallyCentered
       );
-
-      if (tag === "section" || parentClass.includes("container")) {
-        console.log(`  hasCenteredChild: ${hasCenteredChild}`);
-      }
 
       if (hasCenteredChild) {
         // If no layout, convert to VERTICAL
         if (element.layoutMode === "NONE") {
           element.layoutMode = "VERTICAL";
           element.justifyContent = "normal"; // Keep vertical positioning as-is
-          if (tag === "section" || parentClass.includes("container")) {
-            console.log(`  → Upgraded layoutMode to VERTICAL`);
-          }
         }
         // For VERTICAL layout, center horizontally (cross-axis)
         if (element.layoutMode === "VERTICAL") {
           element.alignItems = "center";
-          if (tag === "section" || parentClass.includes("container")) {
-            console.log(`  → Set alignItems to "center"`);
-          }
         }
       }
     }
 
-    // For <li> elements: add synthetic text child for the text content
+    // For <li> elements: add synthetic text child for the text content (with bullet offset)
     // This creates the structure: <li>(frame) -> [::before(text "•"), #text(text "actual content")]
     if (isListItemWithText && finalText) {
       // Calculate text position - after the bullet (::before pseudo-element)
@@ -2156,6 +2191,103 @@ function buildElementTree(
       element.children.push(syntheticTextChild);
     }
 
+    // Smart wrapping: For text elements that need Frame wrapper (padding, bg, border, etc.)
+    // Create Frame with styles + Text child inside (text-only styles)
+    if (shouldBeFrameWithTextChild && finalText) {
+      const syntheticTextChild: ExtractedElement = {
+        id: generateId(),
+        type: "text",
+        tag: "#text",
+        name: "Text",
+        x: 0,
+        y: 0,
+        width: Math.max(10, width - padding.left - padding.right),
+        height: Math.max(10, height - padding.top - padding.bottom),
+        position: "relative",
+        layoutMode: "NONE",
+        itemSpacing: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        justifyContent: "normal",
+        alignItems: "normal",
+        flexWrap: "nowrap",
+        fills: [],
+        strokes: [],
+        effects: [],
+        backgroundColor: null,
+        backgroundGradient: null,
+        textColor,
+        borderColor: null,
+        borderWidth: 0,
+        borderRadius: {
+          topLeft: 0,
+          topRight: 0,
+          bottomRight: 0,
+          bottomLeft: 0,
+        },
+        boxShadow: null,
+        fontFamily,
+        fontSize,
+        fontWeight,
+        lineHeight,
+        letterSpacing,
+        textAlign,
+        textContent: finalText,
+        opacity: 1,
+        isPlaceholder: false,
+        children: [],
+      };
+
+      element.children.push(syntheticTextChild);
+    }
+
+    // For <a> (link) elements with text: always create synthetic text child
+    // Links remain Frames so they can have styling, but need text child inside
+    if (isLinkWithText && finalText) {
+      const syntheticTextChild: ExtractedElement = {
+        id: generateId(),
+        type: "text",
+        tag: "#text",
+        name: "Text",
+        x: 0,
+        y: 0,
+        width: Math.max(10, width - padding.left - padding.right),
+        height: Math.max(10, height - padding.top - padding.bottom),
+        position: "relative",
+        layoutMode: "NONE",
+        itemSpacing: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        justifyContent: "normal",
+        alignItems: "normal",
+        flexWrap: "nowrap",
+        fills: [],
+        strokes: [],
+        effects: [],
+        backgroundColor: null,
+        backgroundGradient: null,
+        textColor,
+        borderColor: null,
+        borderWidth: 0,
+        borderRadius: {
+          topLeft: 0,
+          topRight: 0,
+          bottomRight: 0,
+          bottomLeft: 0,
+        },
+        boxShadow: null,
+        fontFamily,
+        fontSize,
+        fontWeight,
+        lineHeight,
+        letterSpacing,
+        textAlign,
+        textContent: finalText,
+        opacity: 1,
+        isPlaceholder: false,
+        children: [],
+      };
+      element.children.push(syntheticTextChild);
+    }
+
     return element;
   }
 
@@ -2174,13 +2306,10 @@ function buildElementTree(
   // Solution: Recalculate X for centered elements: x = (viewportWidth - width) / 2
   // =========================================================================
   if (actualBodyWidth !== viewportWidth && Math.abs(actualBodyWidth - viewportWidth) > 1) {
-    console.log(`[DEBUG VIEWPORT FIX] Actual body width: ${actualBodyWidth}, target: ${viewportWidth}`);
-
     function recalculateXPositions(element: ExtractedElement, parentWidth: number): void {
       // For centered elements, recalculate X based on target viewport
       if (element.horizontallyCentered && element.width < parentWidth) {
         const newX = Math.round((parentWidth - element.width) / 2);
-        console.log(`[DEBUG VIEWPORT FIX] ${element.name}: x ${element.x} → ${newX} (centered in ${parentWidth}px)`);
         element.x = newX;
       }
 
