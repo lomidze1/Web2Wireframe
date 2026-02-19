@@ -6,6 +6,7 @@ import ImportOptionsModal, {
   type UnifiedImportOptions,
 } from "../../../components/modalPopup/ImportOptionsModal";
 import { transformFramesData } from "../../../shared/transformData";
+import { prepareFramesForAbsoluteMode, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import { useConfig } from "../../../shared/ConfigContext";
 import RenderingLoader, {
   type RenderingProgress,
@@ -209,12 +210,22 @@ export default function BrowserExtension() {
       percent: 0,
     });
 
+    // Convert frames to WireframeNode format using shared unified function
+    // This ensures URL Import uses the same conversion logic as JSON Import
+    const framesData = prepareFramesForAbsoluteMode(
+      frames as { viewport: { width: number; height: number }; tree: ExtractedElement }[],
+      {
+        text: config.pluginColors.text,
+        surface: config.pluginColors.surface,
+      }
+    );
+
     parent.postMessage(
       {
         pluginMessage: {
           type: "render-wireframe",
           data: {
-            frames,
+            frames: framesData,
             sourceUrl: data.sourceUrl,
             localStyles: data.localStyles,
             pluginColors: config.pluginColors,

@@ -1851,12 +1851,28 @@ async function createTextNode(
   const isSingleChar = fullText.length <= 2;
   const isVeryNarrow = node.width < (node.fontSize || 14) * 1.5;
 
-  if (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow) {
-    // width: fit-content, max-content, min-content, or single char - let Figma auto-size width
+  // Inline elements (a, span, label, etc.) should default to HUG (auto-width)
+  // unless explicitly set to FIXED. These elements naturally fit their content.
+  const inlineTags = ["a", "span", "label", "strong", "em", "b", "i", "code", "small", "mark"];
+  const isInlineElement = node.tag && inlineTags.includes(node.tag.toLowerCase());
+
+  // Use HUG (auto-width) for:
+  // 1. Explicit HUG sizing
+  // 2. Single characters (bullets, icons)
+  // 3. Very narrow elements
+  // 4. Inline elements (they naturally fit content)
+  const shouldHug =
+    node.layoutSizingHorizontal === "HUG" ||
+    isSingleChar ||
+    isVeryNarrow ||
+    isInlineElement;
+
+  if (shouldHug) {
+    // width: fit-content, max-content, min-content, or inline element - let Figma auto-size width
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
     // Note: We don't call resize() here because Figma will auto-size
   } else {
-    // Fixed width, auto height (default behavior)
+    // Fixed width, auto height (default behavior for block elements)
     textNode.resize(Math.max(node.width, 1), Math.max(node.height, 1));
     textNode.textAutoResize = "HEIGHT";
   }
@@ -2111,6 +2127,18 @@ async function createNodeInFigma(
 
   // Handle text nodes (including those with inline children like <a> inside <h2>)
   if (node.type === "text") {
+    // DEBUG: Log text node rendering
+    console.log("[main.ts] Rendering TEXT node:", {
+      id: node.id,
+      type: node.type,
+      tag: node.tag,
+      textContent: node.textContent?.substring(0, 50),
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+    });
+
     // Check if text node has background fills (like buttons)
     // In Figma, TextNode can't have background - need to wrap in a Frame
     const hasBackgroundFills = node.fills && node.fills.length > 0;
@@ -2524,8 +2552,18 @@ async function createNodeInFigma(
   // =========================================================================
   // Create text node for frame's textContent (like li elements with text)
   // This is for frames that have textContent but type="frame" (containers)
+  // IMPORTANT: Skip if node already has a synthetic text child from CDP extraction
+  // This prevents duplicate text rendering (one from textContent, one from child)
   // =========================================================================
-  if (node.textContent && node.textContent.trim() && node.type === "frame") {
+  const hasSyntheticTextChild = node.children?.some(
+    (child) => child.type === "text"
+  );
+  if (
+    node.textContent &&
+    node.textContent.trim() &&
+    node.type === "frame" &&
+    !hasSyntheticTextChild
+  ) {
     try {
       // Create a text node for the frame's text content
       const textNode = figma.createText();
@@ -3018,6 +3056,43 @@ export default function () {
           message: "No wireframe data received",
         });
         return;
+      }
+
+      // DEBUG: Count text nodes in incoming frames
+      const countTextNodes = (node: WireframeNode): number => {
+        let count = node.type === "text" ? 1 : 0;
+        if (node.children) {
+          for (const child of node.children) {
+            count += countTextNodes(child);
+          }
+        }
+        return count;
+      };
+      const totalTextNodes = frames.reduce((sum, frame) => {
+        return sum + (frame.tree ? countTextNodes(frame.tree) : 0);
+      }, 0);
+      console.log("[main.ts DEBUG] Received frames with", totalTextNodes, "text nodes");
+
+      // DEBUG: Find and log specific element for comparison
+      const findElementByClass = (node: WireframeNode, className: string): WireframeNode | null => {
+        if (node.className?.includes(className)) {
+          return node;
+        }
+        for (const child of node.children || []) {
+          const found = findElementByClass(child, className);
+          if (found) return found;
+        }
+        return null;
+      };
+
+      for (const frame of frames) {
+        if (frame.tree) {
+          const debugElement = findElementByClass(frame.tree, "_card_wflxa_31");
+          if (debugElement) {
+            console.log("[FIGMA RECEIVED] _card_wflxa_31 element:");
+            console.log(JSON.stringify(debugElement, null, 2));
+          }
+        }
       }
 
       logger.info("Creating wireframe", {

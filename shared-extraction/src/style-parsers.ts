@@ -3,9 +3,17 @@
  * Converts CSS properties to Figma-ready format
  *
  * Goal: 1:1 visual fidelity - website looks identical in Figma
- *
- * @fileoverview Converted from Browser_Extension TypeScript to CommonJS
  */
+
+import type {
+  FigmaColor,
+  FigmaFill,
+  FigmaStroke,
+  FigmaEffect,
+  FigmaGradientStop,
+  RadialGradientShape,
+  RadialGradientSize,
+} from "./types";
 
 // ============================================================================
 // COLOR PARSING
@@ -13,18 +21,18 @@
 
 /**
  * Parse any CSS color to Figma RGBA (0-1 range)
- * @param {string | null | undefined} color
- * @param {boolean} [allowTransparent=false]
- * @returns {import('./types').FigmaColor | null}
  */
-function parseColorToFigma(color, allowTransparent = false) {
+export function parseColorToFigma(
+  color: string | null | undefined,
+  allowTransparent: boolean = false
+): FigmaColor | null {
   if (!color || color === "none") {
     return null;
   }
 
   const trimmed = color.trim();
 
-  // Handle transparent
+  // Handle transparent - return as transparent black for gradient stops
   if (trimmed === "transparent") {
     if (allowTransparent) {
       return { r: 0, g: 0, b: 0, a: 0 };
@@ -61,7 +69,7 @@ function parseColorToFigma(color, allowTransparent = false) {
     };
   }
 
-  // HSL/HSLA
+  // HSL/HSLA (convert to RGB first)
   const hslaMatch = trimmed.match(
     /hsla?\s*\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+)\s*)?\)/i
   );
@@ -72,8 +80,8 @@ function parseColorToFigma(color, allowTransparent = false) {
     return hslToFigma(parseFloat(h), parseFloat(s), parseFloat(l), alpha);
   }
 
-  // Named colors
-  const namedColors = {
+  // Named colors (common ones)
+  const namedColors: Record<string, string> = {
     white: "#FFFFFF",
     black: "#000000",
     red: "#FF0000",
@@ -91,15 +99,14 @@ function parseColorToFigma(color, allowTransparent = false) {
     return hexToFigma(namedColors[trimmed.toLowerCase()]);
   }
 
+  console.warn("[parseColorToFigma] Could not parse:", color);
   return null;
 }
 
 /**
  * Hex to Figma color
- * @param {string} hex
- * @returns {import('./types').FigmaColor}
  */
-function hexToFigma(hex) {
+function hexToFigma(hex: string): FigmaColor {
   let h = hex.replace("#", "");
 
   // Shorthand (#RGB → #RRGGBB)
@@ -107,7 +114,7 @@ function hexToFigma(hex) {
     h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
   }
 
-  // 8-char hex with alpha
+  // 8-char hex with alpha (#RRGGBBAA)
   let alpha = 1;
   if (h.length === 8) {
     alpha = parseInt(h.slice(6, 8), 16) / 255;
@@ -124,13 +131,13 @@ function hexToFigma(hex) {
 
 /**
  * HSL to Figma color
- * @param {number} h
- * @param {number} s
- * @param {number} l
- * @param {number} [a=1]
- * @returns {import('./types').FigmaColor}
  */
-function hslToFigma(h, s, l, a = 1) {
+function hslToFigma(
+  h: number,
+  s: number,
+  l: number,
+  a: number = 1
+): FigmaColor {
   s /= 100;
   l /= 100;
 
@@ -181,29 +188,37 @@ function hslToFigma(h, s, l, a = 1) {
 // ============================================================================
 
 /**
- * Parse CSS background to Figma fills array
- * @param {string | null} background - CSS background-image
- * @param {string | null} backgroundColor - CSS background-color
- * @param {Map<string, string>} [resolvedVariables]
- * @param {{width: number, height: number}} [elementDimensions]
- * @returns {import('./types').FigmaFill[]}
+ * Element dimensions for proper gradient transform calculation
  */
-function parseBackgroundToFills(
-  background,
-  backgroundColor,
-  resolvedVariables = new Map(),
-  elementDimensions
-) {
-  /** @type {import('./types').FigmaFill[]} */
-  const fills = [];
+export interface ElementDimensions {
+  width: number;
+  height: number;
+}
 
-  // Resolve CSS variables
-  let resolvedBackground = background
+/**
+ * Parse CSS background to Figma fills array
+ * Handles: multiple gradients, solid colors, images (as placeholders)
+ *
+ * @param background - CSS background shorthand or background-image
+ * @param backgroundColor - CSS background-color (fallback)
+ * @param resolvedVariables - Map of CSS variable names to resolved values
+ * @param elementDimensions - Element width/height for gradient size calculation
+ */
+export function parseBackgroundToFills(
+  background: string | null,
+  backgroundColor: string | null,
+  resolvedVariables: Map<string, string> = new Map(),
+  elementDimensions?: ElementDimensions
+): FigmaFill[] {
+  const fills: FigmaFill[] = [];
+
+  // Resolve CSS variables in the background string
+  const resolvedBackground = background
     ? resolveCSSVariables(background, resolvedVariables)
     : null;
 
   if (resolvedBackground) {
-    // Split multiple backgrounds
+    // Split multiple backgrounds (comma-separated, but respect parentheses)
     const layers = splitMultipleBackgrounds(resolvedBackground);
 
     for (const layer of layers) {
@@ -214,7 +229,9 @@ function parseBackgroundToFills(
     }
   }
 
-  // Add solid background color as last layer
+  // Add solid background color as last layer ONLY if:
+  // 1. No fills parsed from background string, OR
+  // 2. The last fill is NOT a solid color (avoid duplicates from var(--bg) + computed bg-color)
   if (backgroundColor) {
     const lastFill = fills[fills.length - 1];
     const alreadyHasSolidAtEnd = lastFill?.type === "SOLID";
@@ -230,7 +247,7 @@ function parseBackgroundToFills(
           type: "SOLID",
           visible: true,
           opacity: color.a,
-          color: { ...color, a: 1 },
+          color: { ...color, a: 1 }, // Separate opacity from color
         });
       }
     }
@@ -240,12 +257,10 @@ function parseBackgroundToFills(
 }
 
 /**
- * Split multiple backgrounds by comma
- * @param {string} background
- * @returns {string[]}
+ * Split multiple backgrounds by comma (respecting parentheses)
  */
-function splitMultipleBackgrounds(background) {
-  const layers = [];
+function splitMultipleBackgrounds(background: string): string[] {
+  const layers: string[] = [];
   let depth = 0;
   let current = "";
 
@@ -269,11 +284,11 @@ function splitMultipleBackgrounds(background) {
 
 /**
  * Parse single background layer
- * @param {string} layer
- * @param {{width: number, height: number}} [elementDimensions]
- * @returns {import('./types').FigmaFill | null}
  */
-function parseBackgroundLayer(layer, elementDimensions) {
+function parseBackgroundLayer(
+  layer: string,
+  elementDimensions?: ElementDimensions
+): FigmaFill | null {
   // Linear gradient
   if (layer.includes("linear-gradient")) {
     return parseLinearGradient(layer);
@@ -283,6 +298,7 @@ function parseBackgroundLayer(layer, elementDimensions) {
   if (layer.includes("radial-gradient")) {
     const fill = parseRadialGradient(layer);
     if (fill && elementDimensions) {
+      // Store element dimensions for transform calculation in Figma
       fill.elementWidth = elementDimensions.width;
       fill.elementHeight = elementDimensions.height;
     }
@@ -320,15 +336,16 @@ function parseBackgroundLayer(layer, elementDimensions) {
 
 /**
  * Parse linear-gradient to Figma fill
- * @param {string} gradient
- * @returns {import('./types').FigmaFill | null}
+ * Handles: deg, to direction, color stops with positions
  */
-function parseLinearGradient(gradient) {
+function parseLinearGradient(gradient: string): FigmaFill | null {
+  // Extract content inside linear-gradient(...)
   const match = gradient.match(/linear-gradient\s*\(\s*(.+)\s*\)/i);
   if (!match) return null;
 
   const content = match[1];
 
+  // Parse angle/direction and color stops
   let angle = 180; // Default: to bottom
   let colorStopsStr = content;
 
@@ -337,8 +354,9 @@ function parseLinearGradient(gradient) {
   if (degMatch) {
     angle = parseFloat(degMatch[1]);
     colorStopsStr = content.slice(degMatch[0].length);
-  } else {
-    // Check for "to direction"
+  }
+  // Check for "to direction"
+  else {
     const dirMatch = content.match(
       /^to\s+(top|bottom|left|right)(?:\s+(top|bottom|left|right))?\s*,\s*/i
     );
@@ -348,7 +366,9 @@ function parseLinearGradient(gradient) {
     }
   }
 
+  // Parse color stops
   const stops = parseColorStops(colorStopsStr);
+
   if (stops.length < 2) return null;
 
   return {
@@ -362,23 +382,31 @@ function parseLinearGradient(gradient) {
 
 /**
  * Parse radial-gradient to Figma fill
- * @param {string} gradient
- * @returns {import('./types').FigmaFill | null}
+ * Handles: "circle at 20% 20%, color1, color2" or "ellipse farthest-corner at 50% 50%, ..."
+ *
+ * CSS Radial Gradient Syntax:
+ * radial-gradient([shape] [size] at [position], color-stops)
+ *
+ * Shape: circle | ellipse (default: ellipse)
+ * Size: closest-side | farthest-side | closest-corner | farthest-corner (default: farthest-corner)
+ *       OR explicit: <length> | <length> <length> | <percentage> <percentage>
+ * Position: at X Y (default: at 50% 50%)
  */
-function parseRadialGradient(gradient) {
+function parseRadialGradient(gradient: string): FigmaFill | null {
   const match = gradient.match(/radial-gradient\s*\(\s*(.+)\s*\)/i);
   if (!match) return null;
 
   const content = match[1];
 
+  // Default values
   let center = { x: 0.5, y: 0.5 };
-  let shape = "ellipse";
-  let size = "farthest-corner";
+  let shape: RadialGradientShape = "ellipse"; // CSS default
+  let size: RadialGradientSize = "farthest-corner"; // CSS default
 
-  // Parse shape
+  // Parse shape keyword (circle or ellipse)
   const shapeMatch = content.match(/^(circle|ellipse)\b/i);
   if (shapeMatch) {
-    shape = shapeMatch[1].toLowerCase();
+    shape = shapeMatch[1].toLowerCase() as RadialGradientShape;
   }
 
   // Parse size keyword
@@ -386,22 +414,24 @@ function parseRadialGradient(gradient) {
     /\b(closest-side|farthest-side|closest-corner|farthest-corner)\b/i
   );
   if (sizeMatch) {
-    size = sizeMatch[1].toLowerCase();
+    size = sizeMatch[1].toLowerCase() as RadialGradientSize;
   }
 
-  // Parse position
+  // Parse position "at X Y"
   const atMatch = content.match(/at\s+([\d.]+%?)\s+([\d.]+%?)/i);
   if (atMatch) {
     center = {
       x: parsePercent(atMatch[1]),
       y: parsePercent(atMatch[2]),
     };
-    console.log(`[RADIAL DEBUG] Parsed center: at ${atMatch[1]} ${atMatch[2]} → {x: ${center.x}, y: ${center.y}}`);
-  } else {
-    console.log(`[RADIAL DEBUG] No position found in: "${content.substring(0, 50)}..."`);
   }
 
   // Find where color stops begin
+  // The configuration part ends at the first comma after all keywords/position
+  // We need to find the comma that's NOT inside a function like rgb()
+
+  // Build regex to match the entire configuration part
+  // Pattern: [shape] [size] [at X Y] ,
   const configPatterns = [
     /^(?:circle|ellipse)\s*/i,
     /^(?:closest-side|farthest-side|closest-corner|farthest-corner)\s*/i,
@@ -411,6 +441,7 @@ function parseRadialGradient(gradient) {
   let remaining = content;
   let configFound = true;
 
+  // Strip configuration parts from the beginning
   while (configFound) {
     configFound = false;
     for (const pattern of configPatterns) {
@@ -423,8 +454,10 @@ function parseRadialGradient(gradient) {
     }
   }
 
+  // Remove leading comma if present
   remaining = remaining.replace(/^,\s*/, "");
 
+  // If remaining still doesn't look like colors, try finding first comma
   if (!looksLikeColor(remaining.split(",")[0]?.trim() || "")) {
     const commaIndex = content.indexOf(",");
     if (commaIndex > -1) {
@@ -447,11 +480,9 @@ function parseRadialGradient(gradient) {
 }
 
 /**
- * Check if string looks like a CSS color
- * @param {string} str
- * @returns {boolean}
+ * Check if a string looks like a CSS color
  */
-function looksLikeColor(str) {
+function looksLikeColor(str: string): boolean {
   const trimmed = str.trim();
   return (
     trimmed.startsWith("#") ||
@@ -465,10 +496,8 @@ function looksLikeColor(str) {
 
 /**
  * Parse conic-gradient to Figma fill
- * @param {string} gradient
- * @returns {import('./types').FigmaFill | null}
  */
-function parseConicGradient(gradient) {
+function parseConicGradient(gradient: string): FigmaFill | null {
   const match = gradient.match(/conic-gradient\s*\(\s*(.+)\s*\)/i);
   if (!match) return null;
 
@@ -494,6 +523,7 @@ function parseConicGradient(gradient) {
     colorStopsStr = colorStopsStr.replace(atMatch[0], "");
   }
 
+  // Remove leading comma if present
   colorStopsStr = colorStopsStr.replace(/^,\s*/, "");
 
   const stops = parseColorStops(colorStopsStr);
@@ -511,45 +541,50 @@ function parseConicGradient(gradient) {
 
 /**
  * Parse color stops from gradient
- * @param {string} stopsStr
- * @returns {import('./types').FigmaGradientStop[]}
+ * Handles: "red 0%, blue 50%, green 100%" or just "red, blue, green"
+ *
+ * IMPORTANT: When encountering `transparent`, we use the adjacent color's RGB
+ * with alpha=0, instead of black. This ensures smooth Figma gradient display.
  */
-function parseColorStops(stopsStr) {
-  /** @type {import('./types').FigmaGradientStop[]} */
-  const stops = [];
-  /** @type {number[]} */
-  const transparentIndices = [];
+function parseColorStops(stopsStr: string): FigmaGradientStop[] {
+  const stops: FigmaGradientStop[] = [];
+  const transparentIndices: number[] = [];
 
+  // Split by comma, but respect parentheses (for rgb/rgba/hsl)
   const parts = splitMultipleBackgrounds(stopsStr);
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i].trim();
     if (!part) continue;
 
-    // Skip pure position values
+    // Skip parts that are just positions (no color) - defensive against parsing errors
     if (/^[\d.]+%?$/.test(part)) {
       continue;
     }
 
-    // Extract color and position
+    // Extract color and optional position
+    // Match: "rgba(255, 0, 0, 0.5) 50%" or "red 25%" or just "blue"
     const posMatch = part.match(/^(.+?)\s+([\d.]+%?)$/);
 
-    let colorStr;
-    let position;
+    let colorStr: string;
+    let position: number;
 
     if (posMatch) {
       colorStr = posMatch[1].trim();
       position = parsePercent(posMatch[2]);
     } else {
       colorStr = part;
+      // Auto-distribute positions
       position = parts.length > 1 ? i / (parts.length - 1) : 0;
     }
 
+    // Check if this is a transparent color (will be fixed later)
     const isTransparent =
       colorStr.toLowerCase() === "transparent" ||
       colorStr === "rgba(0, 0, 0, 0)" ||
       colorStr === "rgba(0,0,0,0)";
 
+    // Allow transparent colors in gradient stops (they create fade effects)
     const color = parseColorToFigma(colorStr, true);
     if (color) {
       stops.push({ color, position });
@@ -559,16 +594,22 @@ function parseColorStops(stopsStr) {
     }
   }
 
-  // Fix transparent stops (use adjacent color's RGB)
+  // FIX: Replace transparent (black with alpha 0) with adjacent color's RGB
+  // This ensures Figma displays gradient fades correctly without black edges
   for (const idx of transparentIndices) {
-    let referenceColor = null;
+    // Find the nearest non-transparent color
+    let referenceColor: FigmaColor | null = null;
 
+    // Try previous stop first
     if (idx > 0 && !transparentIndices.includes(idx - 1)) {
       referenceColor = stops[idx - 1].color;
-    } else if (idx < stops.length - 1 && !transparentIndices.includes(idx + 1)) {
+    }
+    // Try next stop
+    else if (idx < stops.length - 1 && !transparentIndices.includes(idx + 1)) {
       referenceColor = stops[idx + 1].color;
     }
 
+    // Apply the fix: use reference color's RGB with alpha 0
     if (referenceColor) {
       stops[idx].color = {
         r: referenceColor.r,
@@ -584,11 +625,8 @@ function parseColorStops(stopsStr) {
 
 /**
  * Convert CSS direction to angle
- * @param {string} dir1
- * @param {string} [dir2]
- * @returns {number}
  */
-function directionToAngle(dir1, dir2) {
+function directionToAngle(dir1: string, dir2?: string): number {
   const d1 = dir1.toLowerCase();
   const d2 = dir2?.toLowerCase();
 
@@ -600,22 +638,23 @@ function directionToAngle(dir1, dir2) {
   // Corners
   if ((d1 === "top" && d2 === "right") || (d1 === "right" && d2 === "top"))
     return 45;
-  if ((d1 === "bottom" && d2 === "right") || (d1 === "right" && d2 === "bottom"))
+  if (
+    (d1 === "bottom" && d2 === "right") ||
+    (d1 === "right" && d2 === "bottom")
+  )
     return 135;
   if ((d1 === "bottom" && d2 === "left") || (d1 === "left" && d2 === "bottom"))
     return 225;
   if ((d1 === "top" && d2 === "left") || (d1 === "left" && d2 === "top"))
     return 315;
 
-  return 180;
+  return 180; // Default
 }
 
 /**
  * Parse percentage string to 0-1
- * @param {string} value
- * @returns {number}
  */
-function parsePercent(value) {
+function parsePercent(value: string): number {
   if (value.endsWith("%")) {
     return parseFloat(value) / 100;
   }
@@ -628,17 +667,18 @@ function parsePercent(value) {
 
 /**
  * Parse CSS box-shadow to Figma effects array
- * @param {string | null} boxShadow
- * @returns {import('./types').FigmaEffect[]}
+ * Handles: multiple shadows, inset shadows
  */
-function parseBoxShadowToEffects(boxShadow) {
+export function parseBoxShadowToEffects(
+  boxShadow: string | null
+): FigmaEffect[] {
   if (!boxShadow || boxShadow === "none") {
     return [];
   }
 
-  /** @type {import('./types').FigmaEffect[]} */
-  const effects = [];
+  const effects: FigmaEffect[] = [];
 
+  // Split multiple shadows (comma-separated, respect parentheses)
   const shadows = splitMultipleBackgrounds(boxShadow);
 
   for (const shadow of shadows) {
@@ -653,20 +693,18 @@ function parseBoxShadowToEffects(boxShadow) {
 
 /**
  * Parse single box-shadow
- * @param {string} shadow
- * @returns {import('./types').FigmaEffect | null}
+ * Format: [inset] offset-x offset-y [blur-radius] [spread-radius] color
  */
-function parseSingleShadow(shadow) {
+function parseSingleShadow(shadow: string): FigmaEffect | null {
   if (!shadow || shadow === "none") return null;
-
-  console.log(`[BOX-SHADOW DEBUG] Input: "${shadow}"`);
 
   const isInset = shadow.toLowerCase().includes("inset");
   let cleanShadow = shadow.replace(/inset/gi, "").trim();
 
-  let color = null;
+  // Extract color first (can be at start or end)
+  let color: FigmaColor | null = null;
 
-  // Try to find color
+  // Try to find color at the end (most common)
   const colorPatterns = [
     /rgba?\s*\([^)]+\)\s*$/i,
     /hsla?\s*\([^)]+\)\s*$/i,
@@ -678,26 +716,38 @@ function parseSingleShadow(shadow) {
     const match = cleanShadow.match(pattern);
     if (match) {
       color = parseColorToFigma(match[0].trim());
-      console.log(`[BOX-SHADOW DEBUG] Found color: "${match[0]}" → ${JSON.stringify(color)}`);
       cleanShadow = cleanShadow.slice(0, match.index).trim();
       break;
     }
   }
 
+  // If no color at end, try start
   if (!color) {
-    color = { r: 0, g: 0, b: 0, a: 0.25 };
-    console.log(`[BOX-SHADOW DEBUG] No color found, using default black 25%`);
+    for (const pattern of colorPatterns) {
+      const startPattern = new RegExp(
+        "^" + pattern.source.replace(/\$/, ""),
+        "i"
+      );
+      const match = cleanShadow.match(startPattern);
+      if (match) {
+        color = parseColorToFigma(match[0].trim());
+        cleanShadow = cleanShadow.slice(match[0].length).trim();
+        break;
+      }
+    }
   }
 
-  // Parse numeric values
+  // Default color if not found
+  if (!color) {
+    color = { r: 0, g: 0, b: 0, a: 0.25 };
+  }
+
+  // Parse numeric values: offset-x offset-y [blur] [spread]
   const values = cleanShadow.match(/-?[\d.]+(?:px)?/g);
-  console.log(`[BOX-SHADOW DEBUG] cleanShadow: "${cleanShadow}", values: ${JSON.stringify(values)}`);
   if (!values || values.length < 2) return null;
 
   const nums = values.map((v) => parseFloat(v.replace("px", "")));
   const [offsetX, offsetY, blur = 0, spread = 0] = nums;
-
-  console.log(`[BOX-SHADOW DEBUG] Parsed: offsetX=${offsetX}, offsetY=${offsetY}, blur=${blur}, spread=${spread}`);
 
   return {
     type: isInset ? "INNER_SHADOW" : "DROP_SHADOW",
@@ -715,17 +765,18 @@ function parseSingleShadow(shadow) {
 
 /**
  * Parse CSS backdrop-filter to Figma effects
- * @param {string | null} backdropFilter
- * @returns {import('./types').FigmaEffect[]}
+ * Handles: blur(), saturate(), etc.
  */
-function parseBackdropFilterToEffects(backdropFilter) {
+export function parseBackdropFilterToEffects(
+  backdropFilter: string | null
+): FigmaEffect[] {
   if (!backdropFilter || backdropFilter === "none") {
     return [];
   }
 
-  /** @type {import('./types').FigmaEffect[]} */
-  const effects = [];
+  const effects: FigmaEffect[] = [];
 
+  // Extract blur value
   const blurMatch = backdropFilter.match(/blur\s*\(\s*([\d.]+)(?:px)?\s*\)/i);
   if (blurMatch) {
     effects.push({
@@ -744,37 +795,30 @@ function parseBackdropFilterToEffects(backdropFilter) {
 
 /**
  * Parse CSS borders to Figma strokes array
- * @param {string | null} borderWidth
- * @param {string | null} borderColor
- * @param {string | null} borderStyle
- * @param {string | null} [borderTop]
- * @param {string | null} [borderRight]
- * @param {string | null} [borderBottom]
- * @param {string | null} [borderLeft]
- * @param {Map<string, string>} [resolvedVariables]
- * @returns {import('./types').FigmaStroke[]}
  */
-function parseBordersToStrokes(
-  borderWidth,
-  borderColor,
-  borderStyle,
-  borderTop,
-  borderRight,
-  borderBottom,
-  borderLeft,
-  resolvedVariables = new Map()
-) {
-  /** @type {import('./types').FigmaStroke[]} */
-  const strokes = [];
+export function parseBordersToStrokes(
+  borderWidth: string | null,
+  borderColor: string | null,
+  borderStyle: string | null,
+  // Individual sides (optional)
+  borderTop?: string | null,
+  borderRight?: string | null,
+  borderBottom?: string | null,
+  borderLeft?: string | null,
+  resolvedVariables: Map<string, string> = new Map()
+): FigmaStroke[] {
+  const strokes: FigmaStroke[] = [];
 
+  // Check for individual side borders first
   const hasSideBorders = borderTop || borderRight || borderBottom || borderLeft;
 
   if (hasSideBorders) {
+    // Parse each side separately
     const sides = [
-      { css: borderTop, side: "top" },
-      { css: borderRight, side: "right" },
-      { css: borderBottom, side: "bottom" },
-      { css: borderLeft, side: "left" },
+      { css: borderTop, side: "top" as const },
+      { css: borderRight, side: "right" as const },
+      { css: borderBottom, side: "bottom" as const },
+      { css: borderLeft, side: "left" as const },
     ];
 
     for (const { css, side } of sides) {
@@ -795,6 +839,7 @@ function parseBordersToStrokes(
     return strokes;
   }
 
+  // Use shorthand border properties
   const width = parseFloat(borderWidth || "0");
   if (width <= 0) return strokes;
 
@@ -816,14 +861,15 @@ function parseBordersToStrokes(
 }
 
 /**
- * Parse border shorthand
- * @param {string} border
- * @param {Map<string, string>} resolvedVariables
- * @returns {import('./types').FigmaStroke | null}
+ * Parse border shorthand (e.g., "2px solid red")
  */
-function parseBorderShorthand(border, resolvedVariables) {
+function parseBorderShorthand(
+  border: string,
+  resolvedVariables: Map<string, string>
+): FigmaStroke | null {
   const resolved = resolveCSSVariables(border, resolvedVariables);
 
+  // Match: width style color
   const match = resolved.match(
     /^([\d.]+)(?:px)?\s+(solid|dashed|dotted|double|none)\s+(.+)$/i
   );
@@ -845,11 +891,9 @@ function parseBorderShorthand(border, resolvedVariables) {
 }
 
 /**
- * Map CSS border-style to Figma
- * @param {string | null} style
- * @returns {'SOLID' | 'DASHED' | 'DOTTED'}
+ * Map CSS border-style to Figma stroke style
  */
-function mapBorderStyle(style) {
+function mapBorderStyle(style: string | null): "SOLID" | "DASHED" | "DOTTED" {
   switch (style?.toLowerCase()) {
     case "dashed":
       return "DASHED";
@@ -866,29 +910,21 @@ function mapBorderStyle(style) {
 
 /**
  * Resolve CSS variables in a string
- * @param {string} value
- * @param {Map<string, string>} variables
- * @returns {string}
  */
-function resolveCSSVariables(value, variables) {
+export function resolveCSSVariables(
+  value: string,
+  variables: Map<string, string>
+): string {
   if (!value.includes("var(")) return value;
 
+  // Replace var(--name) with resolved value
   return value.replace(
     /var\(\s*--([^,)]+)(?:\s*,\s*([^)]+))?\s*\)/gi,
     (match, name, fallback) => {
       const resolved = variables.get(`--${name}`);
       if (resolved) return resolved;
       if (fallback) return fallback.trim();
-      return match;
+      return match; // Keep original if can't resolve
     }
   );
 }
-
-module.exports = {
-  parseColorToFigma,
-  parseBackgroundToFills,
-  parseBoxShadowToEffects,
-  parseBackdropFilterToEffects,
-  parseBordersToStrokes,
-  resolveCSSVariables,
-};

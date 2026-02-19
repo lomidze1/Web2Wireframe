@@ -7,10 +7,12 @@
  * - Use getMatchedStylesForNode only for nodes with gradients/variables
  */
 
+import type { CDPClientInterface } from "./types";
+
 /**
  * Properties we need for wireframe extraction
  */
-const SNAPSHOT_COMPUTED_STYLES = [
+export const SNAPSHOT_COMPUTED_STYLES = [
   // Layout
   "display",
   "position",
@@ -46,7 +48,6 @@ const SNAPSHOT_COMPUTED_STYLES = [
   "margin-left",
 
   // Background
-  "background",
   "background-color",
   "background-image",
   "background-size",
@@ -101,63 +102,132 @@ const SNAPSHOT_COMPUTED_STYLES = [
 ];
 
 /**
- * @typedef {Object} ParsedSnapshotNode
- * @property {number} index
- * @property {number} backendNodeId
- * @property {number} nodeType
- * @property {string} nodeName
- * @property {number} parentIndex
- * @property {Record<string, string>} attributes
- * @property {{x: number, y: number, width: number, height: number} | null} bounds
- * @property {Record<string, string>} computedStyles
- * @property {string} textContent
- * @property {boolean} isClickable
- * @property {boolean} needsMatchedStyles
+ * DOMSnapshot document result
  */
+export interface SnapshotDocument {
+  documentURL: { index: number };
+  title: { index: number };
+  baseURL: { index: number };
+  contentLanguage: { index: number };
+  encodingName: { index: number };
+  publicId: { index: number };
+  systemId: { index: number };
+  frameId: { index: number };
+  nodes: SnapshotNodeTree;
+  layout: SnapshotLayout;
+  textBoxes: SnapshotTextBoxes;
+  scrollOffsetX: number;
+  scrollOffsetY: number;
+  contentWidth: number;
+  contentHeight: number;
+}
+
+export interface SnapshotNodeTree {
+  parentIndex: number[];
+  nodeType: number[];
+  shadowRootType?: { index: number; value: number }[];
+  nodeName: number[];
+  nodeValue: number[];  // ArrayOfStrings format (index in strings array, -1 if no value)
+  backendNodeId: number[];
+  attributes: number[][];
+  textValue?: { index: number; value: number }[];
+  inputValue?: { index: number; value: number }[];
+  inputChecked?: { index: number; value: boolean }[];
+  optionSelected?: { index: number; value: boolean }[];
+  contentDocumentIndex?: { index: number; value: number }[];
+  pseudoType?: { index: number; value: number }[];
+  pseudoIdentifier?: { index: number; value: number }[];
+  isClickable?: number[]; // RareBooleanData - just array of indices where true
+  currentSourceURL?: { index: number; value: number }[];
+  originURL?: { index: number; value: number }[];
+}
+
+export interface SnapshotLayout {
+  nodeIndex: number[];
+  styles: number[][];
+  bounds: number[][];
+  text: number[];
+  stackingContexts: { index: number }[];
+  paintOrders?: number[];
+  offsetRects?: number[][];
+  scrollRects?: number[][];
+  clientRects?: number[][];
+  blendedBackgroundColors?: number[];
+  textColorOpacities?: number[];
+}
+
+export interface SnapshotTextBoxes {
+  layoutIndex: number[];
+  bounds: number[][];
+  start: number[];
+  length: number[];
+}
+
+export interface CaptureSnapshotResult {
+  documents: SnapshotDocument[];
+  strings: string[];
+}
 
 /**
- * @typedef {Object} CaptureSnapshotResult
- * @property {Object[]} documents
- * @property {string[]} strings
+ * Parsed node from snapshot
  */
+export interface ParsedSnapshotNode {
+  index: number;
+  backendNodeId: number;
+  nodeType: number;
+  nodeName: string;
+  parentIndex: number;
+  attributes: Record<string, string>;
+  // Layout info
+  bounds: { x: number; y: number; width: number; height: number } | null;
+  // Computed styles
+  computedStyles: Record<string, string>;
+  // Text content
+  textContent: string;
+  // Flags
+  isClickable: boolean;
+  needsMatchedStyles: boolean; // Has gradient/variable that needs CSS.getMatchedStylesForNode
+}
 
 /**
  * Capture page snapshot using DOMSnapshot.captureSnapshot
  * This is ONE CDP call that gets everything!
- * @param {import('./client').CDPClient} client
- * @returns {Promise<CaptureSnapshotResult>}
  */
-async function captureSnapshot(client) {
-  const result = await client.send("DOMSnapshot.captureSnapshot", {
-    computedStyles: SNAPSHOT_COMPUTED_STYLES,
-    includeDOMRects: true,
-    includePaintOrder: true,
-    includeBlendedBackgroundColors: true,
-    includeTextColorOpacities: true,
-  });
+export async function captureSnapshot(
+  client: CDPClientInterface
+): Promise<CaptureSnapshotResult> {
+  const result = await client.send<CaptureSnapshotResult>(
+    "DOMSnapshot.captureSnapshot",
+    {
+      computedStyles: SNAPSHOT_COMPUTED_STYLES,
+      includeDOMRects: true,
+      includePaintOrder: true,
+      includeBlendedBackgroundColors: true,
+      includeTextColorOpacities: true,
+    }
+  );
 
   return result;
 }
 
 /**
  * Parse snapshot into usable node structures
- * @param {CaptureSnapshotResult} snapshot
- * @returns {{nodes: ParsedSnapshotNode[], strings: string[], nodesByBackendId: Map<number, ParsedSnapshotNode>}}
  */
-function parseSnapshot(snapshot) {
+export function parseSnapshot(snapshot: CaptureSnapshotResult): {
+  nodes: ParsedSnapshotNode[];
+  strings: string[];
+  nodesByBackendId: Map<number, ParsedSnapshotNode>;
+} {
   const { documents, strings } = snapshot;
   const doc = documents[0]; // Main document
-  /** @type {ParsedSnapshotNode[]} */
-  const nodes = [];
-  /** @type {Map<number, ParsedSnapshotNode>} */
-  const nodesByBackendId = new Map();
+  const nodes: ParsedSnapshotNode[] = [];
+  const nodesByBackendId = new Map<number, ParsedSnapshotNode>();
 
   const { nodes: nodeTree, layout } = doc;
   const nodeCount = nodeTree.parentIndex.length;
 
   // Build layout index map (nodeIndex -> layoutIndex)
-  /** @type {Map<number, number>} */
-  const layoutByNodeIndex = new Map();
+  const layoutByNodeIndex = new Map<number, number>();
   for (let i = 0; i < layout.nodeIndex.length; i++) {
     layoutByNodeIndex.set(layout.nodeIndex[i], i);
   }
@@ -170,8 +240,7 @@ function parseSnapshot(snapshot) {
     const parentIndex = nodeTree.parentIndex[i];
 
     // Parse attributes
-    /** @type {Record<string, string>} */
-    const attributes = {};
+    const attributes: Record<string, string> = {};
     const attrIndices = nodeTree.attributes[i] || [];
     for (let j = 0; j < attrIndices.length; j += 2) {
       const name = strings[attrIndices[j]];
@@ -180,10 +249,9 @@ function parseSnapshot(snapshot) {
     }
 
     // Get layout info
-    /** @type {{x: number, y: number, width: number, height: number} | null} */
-    let bounds = null;
-    /** @type {Record<string, string>} */
-    const computedStyles = {};
+    let bounds: { x: number; y: number; width: number; height: number } | null =
+      null;
+    const computedStyles: Record<string, string> = {};
     let textContent = "";
 
     const layoutIndex = layoutByNodeIndex.get(i);
@@ -209,25 +277,27 @@ function parseSnapshot(snapshot) {
         }
       }
 
-      // Text content from layout
+      // Text content from layout (rendered text)
       const textIndex = layout.text[layoutIndex];
       if (textIndex !== undefined && textIndex >= 0) {
         textContent = strings[textIndex] || "";
       }
     }
 
-    // For TEXT_NODEs (nodeType 3), get text from nodeValue
-    if (nodeType === 3) {
+    // For TEXT_NODEs (nodeType 3), get text from nodeValue (ArrayOfStrings format)
+    if (nodeType === 3 && nodeTree.nodeValue) {
+      // nodeValue is ArrayOfStrings: direct index lookup, -1 means no value
       const nodeValueIndex = nodeTree.nodeValue[i];
       if (nodeValueIndex !== undefined && nodeValueIndex >= 0) {
         textContent = strings[nodeValueIndex] || "";
       }
     }
 
-    // For input/textarea, get value from inputValue
+    // For input/textarea elements, get value from inputValue
     if (
       nodeTree.inputValue &&
-      (nodeName.toLowerCase() === "input" || nodeName.toLowerCase() === "textarea")
+      (nodeName.toLowerCase() === "input" ||
+        nodeName.toLowerCase() === "textarea")
     ) {
       const inputEntry = nodeTree.inputValue.find((entry) => entry.index === i);
       if (inputEntry && inputEntry.value >= 0) {
@@ -235,7 +305,8 @@ function parseSnapshot(snapshot) {
       }
     }
 
-    // Check if clickable
+    // Check if clickable (isClickable is RareBooleanData - array of indices where true)
+    // Use Array.from to ensure it's a proper array, as CDP might return array-like object
     const clickableIndices = nodeTree.isClickable
       ? Array.from(nodeTree.isClickable)
       : [];
@@ -249,8 +320,7 @@ function parseSnapshot(snapshot) {
       bgImage.includes("var(") ||
       bgColor.includes("var(");
 
-    /** @type {ParsedSnapshotNode} */
-    const parsedNode = {
+    const parsedNode: ParsedSnapshotNode = {
       index: i,
       backendNodeId,
       nodeType,
@@ -273,12 +343,11 @@ function parseSnapshot(snapshot) {
 
 /**
  * Build element tree from parsed snapshot nodes
- * @param {ParsedSnapshotNode[]} nodes
- * @returns {Map<number, number[]>}
  */
-function buildTreeFromSnapshot(nodes) {
-  /** @type {Map<number, number[]>} */
-  const childrenMap = new Map();
+export function buildTreeFromSnapshot(
+  nodes: ParsedSnapshotNode[]
+): Map<number, number[]> {
+  const childrenMap = new Map<number, number[]>();
 
   for (const node of nodes) {
     const parentIdx = node.parentIndex;
@@ -286,7 +355,7 @@ function buildTreeFromSnapshot(nodes) {
       if (!childrenMap.has(parentIdx)) {
         childrenMap.set(parentIdx, []);
       }
-      childrenMap.get(parentIdx).push(node.index);
+      childrenMap.get(parentIdx)!.push(node.index);
     }
   }
 
@@ -295,10 +364,11 @@ function buildTreeFromSnapshot(nodes) {
 
 /**
  * Find nodes that need CSS.getMatchedStylesForNode
- * @param {ParsedSnapshotNode[]} nodes
- * @returns {ParsedSnapshotNode[]}
+ * (nodes with gradients, CSS variables, hover states, glassmorphism)
  */
-function findNodesNeedingMatchedStyles(nodes) {
+export function findNodesNeedingMatchedStyles(
+  nodes: ParsedSnapshotNode[]
+): ParsedSnapshotNode[] {
   return nodes.filter((node) => {
     // Skip non-element nodes
     if (node.nodeType !== 1) return false;
@@ -307,64 +377,75 @@ function findNodesNeedingMatchedStyles(nodes) {
     if (!node.bounds || node.bounds.width < 1 || node.bounds.height < 1)
       return false;
 
-    // Always include HTML and BODY - they often have background gradients via shorthand
-    const tag = node.nodeName;
-    if (tag === "html" || tag === "body") return true;
-
-    // Check for gradients or CSS variables in background-image OR background shorthand
+    // Check for gradients or CSS variables in background
     const bgImage = node.computedStyles["background-image"] || "";
     const bgColor = node.computedStyles["background-color"] || "";
-    const bgShorthand = node.computedStyles["background"] || "";
 
-    if (bgImage.includes("gradient") || bgShorthand.includes("gradient")) return true;
-    if (bgImage.includes("var(") || bgColor.includes("var(") || bgShorthand.includes("var(")) return true;
+    if (bgImage.includes("gradient")) return true;
+    if (bgImage.includes("var(") || bgColor.includes("var(")) return true;
 
-    // Interactive elements
+    // Check for interactive elements that might have hover states
+    const tag = node.nodeName;
     if (tag === "button" || tag === "a") return true;
     if (node.attributes.role === "button") return true;
 
     // Include semantic container elements (often have margin: auto centering)
-    if (tag === "section" || tag === "main" || tag === "article" || tag === "aside") return true;
+    if (
+      tag === "section" ||
+      tag === "main" ||
+      tag === "article" ||
+      tag === "aside"
+    )
+      return true;
     if (tag === "header" || tag === "footer" || tag === "nav") return true;
 
     // Include divs with common container class names (might have margin: auto)
     const className = (node.attributes.class || "").toLowerCase();
-    if (tag === "div" && (
-      className.includes("container") ||
-      className.includes("wrapper") ||
-      className.includes("content") ||
-      className.includes("inner") ||
-      className.includes("main")
-    )) return true;
+    if (
+      tag === "div" &&
+      (className.includes("container") ||
+        className.includes("wrapper") ||
+        className.includes("content") ||
+        className.includes("inner") ||
+        className.includes("main"))
+    )
+      return true;
 
     // IMPORTANT: Check for potential margin: auto centering on ANY element
     // If computed marginLeft equals marginRight and both > 0, likely has margin: auto
     const marginLeft = parseFloat(node.computedStyles["margin-left"] || "0");
     const marginRight = parseFloat(node.computedStyles["margin-right"] || "0");
-    if (marginLeft > 0 && marginRight > 0 && Math.abs(marginLeft - marginRight) < 2) {
+    if (
+      marginLeft > 0 &&
+      marginRight > 0 &&
+      Math.abs(marginLeft - marginRight) < 2
+    ) {
       return true; // Likely centered with margin: auto
     }
 
-    // Check for any non-none box-shadow (need matched styles for accurate values)
+    // Check for box-shadow with CSS variable
     const boxShadow = node.computedStyles["box-shadow"] || "";
-    if (boxShadow && boxShadow !== "none") return true;
+    if (boxShadow.includes("var(")) return true;
 
-    // Backdrop-filter (glassmorphism)
+    // Check for backdrop-filter (glassmorphism effects)
     const backdropFilter = node.computedStyles["backdrop-filter"] || "";
     if (backdropFilter && backdropFilter !== "none") return true;
 
-    // Semi-transparent backgrounds
+    // Check for semi-transparent backgrounds (might be glassmorphism)
     if (bgColor.includes("rgba") && !bgColor.includes("rgba(0, 0, 0, 0)")) {
+      // Check if it's semi-transparent (alpha < 1)
       const alphaMatch = bgColor.match(/rgba\([^)]+,\s*([\d.]+)\)/);
       if (alphaMatch && parseFloat(alphaMatch[1]) < 1) {
         return true;
       }
     }
 
-    // Non-zero borders
+    // Check for borders (to get exact border-width from matched rules)
+    // The computed border-width often has subpixel values (e.g., 1.11111px instead of 1px)
     const borderWidth = node.computedStyles["border-width"] || "";
     const borderTop = node.computedStyles["border-top-width"] || "";
     if (borderWidth || borderTop) {
+      // Check if there's a non-zero border
       const width = parseFloat(borderWidth) || parseFloat(borderTop);
       if (width > 0) return true;
     }
@@ -375,18 +456,19 @@ function findNodesNeedingMatchedStyles(nodes) {
 
 /**
  * Get nodeId from backendNodeId (needed for CSS.getMatchedStylesForNode)
- * @param {import('./client').CDPClient} client
- * @param {number[]} backendNodeIds
- * @returns {Promise<Map<number, number>>}
  */
-async function resolveNodeIds(client, backendNodeIds) {
-  /** @type {Map<number, number>} */
-  const nodeIdMap = new Map();
+export async function resolveNodeIds(
+  client: CDPClientInterface,
+  backendNodeIds: number[]
+): Promise<Map<number, number>> {
+  const nodeIdMap = new Map<number, number>();
 
+  // Batch resolve using DOM.pushNodesByBackendIdsToFrontend
   try {
-    const result = await client.send("DOM.pushNodesByBackendIdsToFrontend", {
-      backendNodeIds,
-    });
+    const result = await client.send<{ nodeIds: number[] }>(
+      "DOM.pushNodesByBackendIdsToFrontend",
+      { backendNodeIds }
+    );
 
     for (let i = 0; i < backendNodeIds.length; i++) {
       if (result.nodeIds[i] > 0) {
@@ -399,12 +481,3 @@ async function resolveNodeIds(client, backendNodeIds) {
 
   return nodeIdMap;
 }
-
-module.exports = {
-  SNAPSHOT_COMPUTED_STYLES,
-  captureSnapshot,
-  parseSnapshot,
-  buildTreeFromSnapshot,
-  findNodesNeedingMatchedStyles,
-  resolveNodeIds,
-};

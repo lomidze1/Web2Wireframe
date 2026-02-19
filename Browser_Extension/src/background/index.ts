@@ -5,59 +5,61 @@
  * NEW EFFICIENT APPROACH:
  * 1. DOMSnapshot.captureSnapshot - ONE call for entire page (layout + computed styles)
  * 2. CSS.getMatchedStylesForNode - ONLY for nodes with gradients/variables (10-20 calls, not 500+)
+ *
+ * Uses shared-extraction package for unified extraction logic.
  */
 
+// Browser-specific CDP client (local - uses chrome.debugger)
 import { createCDPClient, CDPClient } from "./cdp/client";
 import { getDocument, getScrollDimensions } from "./cdp/dom";
+import { extractFonts } from "./cdp/fonts";
+
+// Shared extraction logic (unified with Plugin_Backend)
 import {
-  getMatchedStylesForNode,
-  extractPropertyFromMatchedRules,
-  extractPseudoStyles,
-  extractCSSVariables,
-  extractBackgroundFromCSS,
-  type CSSOMBackground,
-} from "./cdp/css";
-import {
+  // Snapshot
   captureSnapshot,
   parseSnapshot,
   findNodesNeedingMatchedStyles,
   resolveNodeIds,
   type ParsedSnapshotNode,
-} from "./cdp/snapshot";
-import { extractFonts } from "./cdp/fonts";
-import type {
-  ExtractedElement,
-  CaptureResult,
-  CapturedFrame,
-  CaptureOptions,
-  ExtensionMessage,
-  CDPMatchedStyles,
-  SelectionBounds,
-} from "@/shared/types";
-import { DEFAULT_CAPTURE_OPTIONS } from "@/shared/types";
-import {
-  SKIP_TAGS,
-  TEXT_TAGS,
-  DEFAULT_SETTINGS,
-  STORAGE_KEYS,
-} from "@/shared/constants";
-import {
+  // CSS
+  getMatchedStylesForNode,
+  extractPropertyFromMatchedRules,
+  extractCSSVariables,
+  extractBackgroundFromCSS,
+  type CSSOMBackground,
+  // Style parsers
+  parseBackgroundToFills,
+  parseBoxShadowToEffects,
+  parseBackdropFilterToEffects,
+  parseBordersToStrokes,
+  // Utils
   parseColor,
   isGradient,
   parseBorderRadius,
   generateId,
   getSemanticName,
-  analyzeColorsFromTree,
-} from "@/shared/utils";
-import {
-  parseBackgroundToFills,
-  parseBoxShadowToEffects,
-  parseBackdropFilterToEffects,
-  parseBordersToStrokes,
-} from "@/shared/style-parsers";
+  getLayoutMode,
+  getLayoutSizing,
+  // Constants
+  SKIP_TAGS,
+  TEXT_TAGS,
+  MEDIA_TAGS,
+  // Types
+  type ExtractedElement,
+  type CaptureResult,
+  type CapturedFrame,
+  type CaptureOptions,
+  type CDPMatchedStyles,
+  DEFAULT_CAPTURE_OPTIONS,
+  // Tree builder
+  buildElementTree,
+} from "shared-extraction";
 
-// Media tags that become placeholders
-const MEDIA_TAGS = ["img", "video", "iframe", "picture", "canvas"] as const;
+// Browser extension-specific types (local)
+import type { ExtensionMessage, SelectionBounds } from "@/shared/types";
+import { DEFAULT_SETTINGS, STORAGE_KEYS } from "@/shared/constants";
+import { analyzeColorsFromTree } from "@/shared/utils";
 
 // Current capture state
 let isCapturing = false;
@@ -127,7 +129,6 @@ chrome.runtime.onMessage.addListener(
 
     // Legacy handler - kept for compatibility
     if (message.type === "ELEMENT_PICKED") {
-      console.log("[W2W] ELEMENT_PICKED received:", message.selector, message.bounds);
       handleCaptureElement(
         message.tabId,
         message.selector,
@@ -135,13 +136,11 @@ chrome.runtime.onMessage.addListener(
         message.options,
       )
         .then(async (result) => {
-          console.log("[W2W] Element capture complete, auto-downloading...");
           // Auto-download since popup is closed
           await autoDownloadResult(result, message.tabId, "element");
           sendResponse({ success: true, data: result });
         })
         .catch((error) => {
-          console.error("[W2W] Element capture error:", error);
           sendResponse({ success: false, error: error.message });
         });
       return true;
@@ -161,8 +160,6 @@ async function startInspectMode(
 ): Promise<void> {
   // Cancel any existing inspect mode
   await cancelInspectMode();
-
-  console.log("[W2W] Starting CDP Inspect Mode for tab:", tabId);
 
   try {
     // Create CDP client with Overlay domain
@@ -189,7 +186,6 @@ async function startInspectMode(
     // Listen for element selection
     client.on("Overlay.inspectNodeRequested", async (params: unknown) => {
       const { backendNodeId } = params as { backendNodeId: number };
-      console.log("[W2W] Element selected via Inspect Mode, backendNodeId:", backendNodeId);
 
       // Disable inspect mode first
       await client.send("Overlay.setInspectMode", {
@@ -205,10 +201,9 @@ async function startInspectMode(
           inspectModeOptions,
           client,
         );
-        console.log("[W2W] Element capture complete, auto-downloading...");
         await autoDownloadResult(result, tabId, "element");
-      } catch (error) {
-        console.error("[W2W] Element capture error:", error);
+      } catch {
+        // Element capture error - silent
       } finally {
         // Cleanup inspect mode
         await cancelInspectMode();
@@ -217,7 +212,6 @@ async function startInspectMode(
 
     // Listen for inspect mode cancelled (user pressed ESC or clicked outside)
     client.on("Overlay.inspectModeCanceled", async () => {
-      console.log("[W2W] Inspect mode cancelled by user");
       await cancelInspectMode();
     });
 
@@ -227,13 +221,10 @@ async function startInspectMode(
       highlightConfig,
     });
 
-    console.log("[W2W] Inspect Mode active - hover over elements to highlight");
-
     // Inject a small UI for cancel button (in content script)
     await injectSelectionUI(tabId);
 
   } catch (error) {
-    console.error("[W2W] Failed to start inspect mode:", error);
     await cancelInspectMode();
     throw error;
   }
@@ -244,7 +235,6 @@ async function startInspectMode(
  */
 async function cancelInspectMode(): Promise<void> {
   if (inspectModeClient) {
-    console.log("[W2W] Cancelling Inspect Mode");
     try {
       // Disable inspect mode
       await inspectModeClient.send("Overlay.setInspectMode", {
@@ -521,17 +511,26 @@ async function handleCapturePage(
       // Extract body original CSS
       const bodyOriginalCSS = await extractBackgroundFromCSS(client, "body");
 
-      // Build element tree
+      // Build element tree (uses shared-extraction unified logic)
       updateProgress(baseProgress + progressPerViewport * 0.7, "Building tree...");
       const tree = buildElementTree(
         nodes,
         nodesByBackendId,
         matchedStylesMap,
-        targetViewport,
-        cssVariablesMap,
-        bodyOriginalCSS,
-        browserDpr,
+        {
+          viewportWidth: targetViewport,
+          cssVariablesMap,
+          bodyOriginalCSS,
+          browserDpr,
+        }
       );
+
+      // DEBUG: Log _list_wflxa_58 element for comparison
+      const debugElement = findElementByClass(tree, "_list_wflxa_58");
+      if (debugElement) {
+        console.log("[Browser Extension] _list_wflxa_58:");
+        console.log(JSON.stringify(debugElement, null, 2));
+      }
 
       frames.push({
         viewport: {
@@ -1186,7 +1185,8 @@ function buildElementTreeFromBounds(
     // Collect text
     let aggregatedText = node.textContent || "";
     if (!aggregatedText) {
-      if (tag === "li") {
+      // For <li> and <a> tags, collect text recursively from all inline children
+      if (tag === "li" || tag === "a") {
         aggregatedText = collectAllInlineTextFromSubtree(node.index, subtreeNodes, childrenMap);
       } else {
         aggregatedText = collectDirectTextFromSubtree(node.index, subtreeNodes, childrenMap);
@@ -1213,7 +1213,8 @@ function buildElementTreeFromBounds(
 
     // For <li>, <a>, or elements needing wrapper: don't put text on frame, we'll add synthetic child
     const isListItemWithText = tag === "li" && !!finalText;
-    const isLinkWithText = tag === "a" && isLeaf && !!finalText;
+    // For <a> tags: don't require isLeaf - collect text recursively even if it has inline children like <span>
+    const isLinkWithText = tag === "a" && !!finalText;
     const needsSyntheticTextChild = isListItemWithText || shouldBeFrameWithTextChild || isLinkWithText;
     const frameTextContent = needsSyntheticTextChild ? "" : finalText;
 
@@ -1302,43 +1303,51 @@ function buildElementTreeFromBounds(
     }
 
     // For <li> elements: add synthetic text child (with bullet offset)
+    // Note: Don't require element.children.length === 0 because ::before pseudo-elements
+    // are already added as children, but we still need the text content
     if (isListItemWithText && finalText) {
-      const bulletWidth = padding.left || 16;
-      const syntheticTextChild: ExtractedElement = {
-        id: generateId(),
-        type: "text",
-        tag: "#text",
-        name: "Text",
-        x: bulletWidth,
-        y: 0,
-        width: Math.max(10, width - bulletWidth - padding.right),
-        height: height,
-        position: "relative",
-        layoutMode: "NONE",
-        itemSpacing: 0,
-        padding: { top: 0, right: 0, bottom: 0, left: 0 },
-        fills: [],
-        strokes: [],
-        effects: [],
-        backgroundColor: null,
-        backgroundGradient: null,
-        textColor,
-        borderColor: null,
-        borderWidth: 0,
-        borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
-        boxShadow: null,
-        fontFamily,
-        fontSize,
-        fontWeight,
-        lineHeight,
-        letterSpacing,
-        textAlign,
-        textContent: finalText,
-        opacity: 1,
-        isPlaceholder: false,
-        children: [],
-      };
-      element.children.push(syntheticTextChild);
+      // Check if we already have a text child (avoid duplicates)
+      const hasTextChild = element.children.some(
+        (c) => c.type === "text" && c.tag === "#text"
+      );
+      if (!hasTextChild) {
+        const bulletWidth = padding.left || 16;
+        const syntheticTextChild: ExtractedElement = {
+          id: generateId(),
+          type: "text",
+          tag: "#text",
+          name: "Text",
+          x: bulletWidth,
+          y: 0,
+          width: Math.max(10, width - bulletWidth - padding.right),
+          height: height,
+          position: "relative",
+          layoutMode: "NONE",
+          itemSpacing: 0,
+          padding: { top: 0, right: 0, bottom: 0, left: 0 },
+          fills: [],
+          strokes: [],
+          effects: [],
+          backgroundColor: null,
+          backgroundGradient: null,
+          textColor,
+          borderColor: null,
+          borderWidth: 0,
+          borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+          boxShadow: null,
+          fontFamily,
+          fontSize,
+          fontWeight,
+          lineHeight,
+          letterSpacing,
+          textAlign,
+          textContent: finalText,
+          opacity: 1,
+          isPlaceholder: false,
+          children: [],
+        };
+        element.children.push(syntheticTextChild);
+      }
     }
 
     // Smart wrapping: For text elements that need Frame wrapper (padding, bg, border, etc.)
@@ -1381,44 +1390,52 @@ function buildElementTreeFromBounds(
       element.children.push(syntheticTextChild);
     }
 
-    // For <a> (link) elements with text: always create synthetic text child
+    // For <a> (link) elements with text: create synthetic text child
     // Links remain Frames so they can have styling, but need text child inside
+    // Note: Don't require element.children.length === 0 because some links may have
+    // pseudo-elements or other children, but we still need the text content
     if (isLinkWithText && finalText) {
-      const syntheticTextChild: ExtractedElement = {
-        id: generateId(),
-        type: "text",
-        tag: "#text",
-        name: "Text",
-        x: 0,
-        y: 0,
-        width: Math.max(10, width - padding.left - padding.right),
-        height: Math.max(10, height - padding.top - padding.bottom),
-        position: "relative",
-        layoutMode: "NONE",
-        itemSpacing: 0,
-        padding: { top: 0, right: 0, bottom: 0, left: 0 },
-        fills: [],
-        strokes: [],
-        effects: [],
-        backgroundColor: null,
-        backgroundGradient: null,
-        textColor,
-        borderColor: null,
-        borderWidth: 0,
-        borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
-        boxShadow: null,
-        fontFamily,
-        fontSize,
-        fontWeight,
-        lineHeight,
-        letterSpacing,
-        textAlign,
-        textContent: finalText,
-        opacity: 1,
-        isPlaceholder: false,
-        children: [],
-      };
-      element.children.push(syntheticTextChild);
+      // Check if we already have a text child (avoid duplicates)
+      const hasTextChild = element.children.some(
+        (c) => c.type === "text" && c.tag === "#text"
+      );
+      if (!hasTextChild) {
+        const syntheticTextChild: ExtractedElement = {
+          id: generateId(),
+          type: "text",
+          tag: "#text",
+          name: "Text",
+          x: 0,
+          y: 0,
+          width: Math.max(10, width - padding.left - padding.right),
+          height: Math.max(10, height - padding.top - padding.bottom),
+          position: "relative",
+          layoutMode: "NONE",
+          itemSpacing: 0,
+          padding: { top: 0, right: 0, bottom: 0, left: 0 },
+          fills: [],
+          strokes: [],
+          effects: [],
+          backgroundColor: null,
+          backgroundGradient: null,
+          textColor,
+          borderColor: null,
+          borderWidth: 0,
+          borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
+          boxShadow: null,
+          fontFamily,
+          fontSize,
+          fontWeight,
+          lineHeight,
+          letterSpacing,
+          textAlign,
+          textContent: finalText,
+          opacity: 1,
+          isPlaceholder: false,
+          children: [],
+        };
+        element.children.push(syntheticTextChild);
+      }
     }
 
     return element;
@@ -1608,916 +1625,6 @@ function createEmptyElement(width: number, height: number): ExtractedElement {
 }
 
 /**
- * Collect DIRECT text content from immediate TEXT_NODE children only
- * This avoids duplication: h2 gets "$0 ", span gets "/forever" separately
- *
- * For <h2>$0 <span>/forever</span></h2>:
- * - h2 collects "$0 " (direct TEXT_NODE only, preserving trailing space)
- * - span collects "/forever" (its own TEXT_NODE)
- */
-function collectDirectText(
-  nodeIndex: number,
-  nodes: ParsedSnapshotNode[],
-  childrenMap: Map<number, number[]>,
-): string {
-  const node = nodes[nodeIndex];
-  if (!node) return "";
-
-  const childIndices = childrenMap.get(nodeIndex) || [];
-  const textParts: string[] = [];
-  let hasElementChildren = false;
-
-  for (const childIdx of childIndices) {
-    const child = nodes[childIdx];
-    // Only collect TEXT_NODEs (nodeType === 3), not element children
-    if (child && child.nodeType === 3 && child.textContent) {
-      textParts.push(child.textContent);
-    }
-    // Track if there are element children (for whitespace preservation)
-    if (child && child.nodeType === 1) {
-      hasElementChildren = true;
-    }
-  }
-
-  // Join text parts
-  let result = textParts.join("");
-
-  // Normalize: collapse multiple whitespace to single space, convert newlines
-  result = result.replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ");
-
-  // If there are element children (inline elements), preserve boundary whitespace
-  // This keeps "$0 " as "$0 " when followed by <span>/forever</span>
-  if (hasElementChildren) {
-    // Only trim leading whitespace, keep trailing for inline element flow
-    result = result.replace(/^\s+/, "");
-  } else {
-    // No element children - safe to trim both ends
-    result = result.trim();
-  }
-
-  return result;
-}
-
-/**
- * Recursively collect ALL text from inline elements
- * Used for <li> elements that may have nested inline content (span, strong, em, etc.)
- */
-function collectAllInlineText(
-  nodeIndex: number,
-  nodes: ParsedSnapshotNode[],
-  childrenMap: Map<number, number[]>,
-): string {
-  const node = nodes[nodeIndex];
-  if (!node) return "";
-
-  // TEXT_NODE - return its content
-  if (node.nodeType === 3) {
-    return node.textContent || "";
-  }
-
-  // ELEMENT_NODE - collect from children recursively
-  const childIndices = childrenMap.get(nodeIndex) || [];
-  const textParts: string[] = [];
-
-  for (const childIdx of childIndices) {
-    const childText = collectAllInlineText(childIdx, nodes, childrenMap);
-    if (childText) {
-      textParts.push(childText);
-    }
-  }
-
-  let result = textParts.join(" ");
-  result = result
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/ {2,}/g, " ")
-    .trim();
-  return result;
-}
-
-/**
- * Check if element is a "leaf" text element (has no element children)
- */
-function isLeafElement(
-  nodeIndex: number,
-  nodes: ParsedSnapshotNode[],
-  childrenMap: Map<number, number[]>,
-): boolean {
-  const childIndices = childrenMap.get(nodeIndex) || [];
-
-  for (const childIdx of childIndices) {
-    const child = nodes[childIdx];
-    // If has any ELEMENT_NODE child, it's not a leaf
-    if (child && child.nodeType === 1) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-/**
- * Build element tree from snapshot nodes
- * NOTE: Text/color/font transformation moved to Plugin (import-time)
- */
-function buildElementTree(
-  nodes: ParsedSnapshotNode[],
-  _nodesByBackendId: Map<number, ParsedSnapshotNode>,
-  matchedStylesMap: Map<number, CDPMatchedStyles>,
-  viewportWidth: number,
-  cssVariablesMap: Map<string, string> = new Map(),
-  bodyOriginalCSS: {
-    background: string | null;
-    backgroundImage: string | null;
-    backgroundColor: string | null;
-    selector: string;
-  } | null = null,
-  browserDpr: number = 1, // Browser devicePixelRatio for scaling bounds to CSS pixels
-): ExtractedElement {
-  // Find body node
-  const bodyNode = nodes.find((n) => n.nodeName === "body");
-  if (!bodyNode) {
-    throw new Error("Could not find body element");
-  }
-
-  // Build children map
-  const childrenMap = new Map<number, number[]>();
-  for (const node of nodes) {
-    if (node.parentIndex >= 0) {
-      if (!childrenMap.has(node.parentIndex)) {
-        childrenMap.set(node.parentIndex, []);
-      }
-      childrenMap.get(node.parentIndex)!.push(node.index);
-    }
-  }
-
-  // Recursive tree builder
-  function buildNode(
-    node: ParsedSnapshotNode,
-    parentX: number,
-    parentY: number,
-    depth: number,
-  ): ExtractedElement | null {
-    const MAX_DEPTH = 15;
-    if (depth > MAX_DEPTH) return null;
-
-    const tag = node.nodeName;
-
-    // Skip non-element nodes
-    if (node.nodeType !== 1) return null;
-
-    // Skip unwanted tags
-    if (SKIP_TAGS.includes(tag as (typeof SKIP_TAGS)[number])) return null;
-
-    // Skip invisible nodes
-    if (!node.bounds || node.bounds.width < 1 || node.bounds.height < 1)
-      return null;
-
-    // =========================================================================
-    // SCALE BOUNDS BY devicePixelRatio to convert to CSS pixels
-    // Browser zoom affects bounds (e.g., 90% zoom = bounds * 0.9)
-    // We divide by browserDpr to get actual CSS pixel values
-    // =========================================================================
-    const scaledBounds = {
-      x: node.bounds.x / browserDpr,
-      y: node.bounds.y / browserDpr,
-      width: node.bounds.width / browserDpr,
-      height: node.bounds.height / browserDpr,
-    };
-
-    const { x, y } = scaledBounds;
-    const computedStyles = node.computedStyles;
-
-    const width = scaledBounds.width;
-    const height = scaledBounds.height;
-    const matchedStyles = matchedStylesMap.get(node.backendNodeId) || null;
-
-    // Determine element type
-    const isMedia =
-      MEDIA_TAGS.includes(tag as (typeof MEDIA_TAGS)[number]) ||
-      Boolean(computedStyles["background-image"]?.includes("url("));
-    const isText = TEXT_TAGS.includes(tag as (typeof TEXT_TAGS)[number]);
-
-    // =========================================================================
-    // EXTRACT STYLES - Use matched styles for gradients, computed for rest
-    // =========================================================================
-
-    // Use CSS variables map for resolving var(--name) references
-    const resolvedVariables = cssVariablesMap;
-
-    // Get background values from matched styles (preserves original CSS)
-    let backgroundImage: string | null = null;
-    let backgroundShorthand: string | null = null;
-
-    // SPECIAL CASE: For body element, prefer CSSOM-extracted original CSS
-    // CDP returns partially computed values (circle→50% 50%), CSSOM gives original
-    if (tag === "body" && bodyOriginalCSS) {
-      backgroundShorthand = bodyOriginalCSS.background;
-      backgroundImage = bodyOriginalCSS.backgroundImage;
-    } else if (matchedStyles) {
-      backgroundImage = extractPropertyFromMatchedRules(
-        matchedStyles,
-        "background-image",
-      );
-      backgroundShorthand = extractPropertyFromMatchedRules(
-        matchedStyles,
-        "background",
-      );
-    }
-
-    // Get background-color from computed styles
-    const computedBgColor = computedStyles["background-color"];
-    const bgColorForFills =
-      computedBgColor &&
-      computedBgColor !== "transparent" &&
-      computedBgColor !== "rgba(0, 0, 0, 0)"
-        ? computedBgColor
-        : null;
-
-    // =========================================================================
-    // NEW: Parse to Figma-ready fills[] (supports multiple backgrounds)
-    // =========================================================================
-    const fills = parseBackgroundToFills(
-      backgroundShorthand || backgroundImage,
-      bgColorForFills,
-      resolvedVariables,
-      { width, height }, // Pass element dimensions for gradient transform calculation
-    );
-
-    // Legacy fields (backward compatibility)
-    let backgroundColor: string | null = null;
-    let backgroundGradient: string | null = null;
-
-    if (backgroundImage && isGradient(backgroundImage)) {
-      backgroundGradient = backgroundImage;
-    } else if (backgroundShorthand && isGradient(backgroundShorthand)) {
-      backgroundGradient = backgroundShorthand;
-    }
-    if (!backgroundGradient && bgColorForFills) {
-      backgroundColor = parseColor(bgColorForFills);
-    }
-
-    // Text color
-    const textColor = parseColor(computedStyles["color"]);
-
-    // =========================================================================
-    // NEW: Parse borders to Figma-ready strokes[]
-    // =========================================================================
-    const strokes = parseBordersToStrokes(
-      computedStyles["border-width"],
-      computedStyles["border-color"],
-      computedStyles["border-style"],
-      computedStyles["border-top"],
-      computedStyles["border-right"],
-      computedStyles["border-bottom"],
-      computedStyles["border-left"],
-      resolvedVariables,
-    );
-
-    // Legacy border fields
-    const borderColor = parseColor(computedStyles["border-color"]);
-    const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
-    const borderRadius = parseBorderRadius(
-      computedStyles["border-radius"] || "0",
-    );
-
-    // =========================================================================
-    // NEW: Parse box-shadow + backdrop-filter to Figma-ready effects[]
-    // =========================================================================
-    let boxShadow: string | null = null;
-    if (matchedStyles) {
-      const matchedShadow = extractPropertyFromMatchedRules(
-        matchedStyles,
-        "box-shadow",
-      );
-      if (matchedShadow && matchedShadow !== "none") {
-        boxShadow = matchedShadow;
-      }
-    }
-    if (!boxShadow && computedStyles["box-shadow"] !== "none") {
-      boxShadow = computedStyles["box-shadow"] || null;
-    }
-
-    const shadowEffects = parseBoxShadowToEffects(boxShadow);
-
-    // Backdrop filter (glassmorphism)
-    let backdropFilter: string | null = null;
-    if (matchedStyles) {
-      backdropFilter = extractPropertyFromMatchedRules(
-        matchedStyles,
-        "backdrop-filter",
-      );
-    }
-    if (!backdropFilter) {
-      backdropFilter = computedStyles["backdrop-filter"] || null;
-    }
-
-    const blurEffects = parseBackdropFilterToEffects(backdropFilter);
-
-    // Combine all effects
-    const effects = [...shadowEffects, ...blurEffects];
-
-    // Typography
-    const fontFamily = (computedStyles["font-family"] || "Inter")
-      .split(",")[0]
-      ?.replace(/['"]/g, "")
-      .trim();
-    const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
-    const fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
-    const lineHeight = computedStyles["line-height"] || "normal";
-    const letterSpacing =
-      parseFloat(computedStyles["letter-spacing"] || "0") || 0;
-    const textAlign = computedStyles["text-align"] || "left";
-
-    // Layout
-    const padding = {
-      top: parseInt(computedStyles["padding-top"]) || 0,
-      right: parseInt(computedStyles["padding-right"]) || 0,
-      bottom: parseInt(computedStyles["padding-bottom"]) || 0,
-      left: parseInt(computedStyles["padding-left"]) || 0,
-    };
-
-    const gapStr = computedStyles["gap"] || computedStyles["row-gap"] || "0";
-    const itemSpacing = parseInt(gapStr) || 0;
-
-    // Layout Alignment (for Auto Layout)
-    const justifyContent = computedStyles["justify-content"] || undefined;
-    const alignItems = computedStyles["align-items"] || undefined;
-    const flexWrap = computedStyles["flex-wrap"] || undefined;
-
-    // Child-level flex properties
-    // Figma only supports 0 or 1 for layoutGrow
-    const flexGrowValue = parseFloat(computedStyles["flex-grow"] || "0") || 0;
-    const layoutGrow: 0 | 1 | undefined = flexGrowValue > 0 ? 1 : undefined;
-    const alignSelf = computedStyles["align-self"];
-    const layoutAlign: "STRETCH" | "INHERIT" | undefined =
-      alignSelf === "stretch" ? "STRETCH" : undefined;
-
-    // Sizing mode extraction (for Figma layoutSizingHorizontal/Vertical)
-    const layoutSizing = getLayoutSizing(
-      computedStyles,
-      flexGrowValue,
-      alignSelf,
-    );
-
-    const opacity = parseFloat(computedStyles.opacity || "1") || 1;
-
-    // CSS Positioning (for sticky headers, fixed elements, etc.)
-    const cssPosition = computedStyles[
-      "position"
-    ] as ExtractedElement["position"];
-    const position =
-      cssPosition && cssPosition !== "static" ? cssPosition : undefined;
-    const zIndexStr = computedStyles["z-index"];
-    const zIndex =
-      zIndexStr && zIndexStr !== "auto" ? parseInt(zIndexStr) : undefined;
-
-    // Detect horizontal centering (margin: 0 auto)
-    let horizontallyCentered = false;
-    if (matchedStyles) {
-      const marginLeft = extractPropertyFromMatchedRules(matchedStyles, "margin-left");
-      const marginRight = extractPropertyFromMatchedRules(matchedStyles, "margin-right");
-      const marginShorthand = extractPropertyFromMatchedRules(matchedStyles, "margin");
-
-      if (marginShorthand && /\bauto\b/i.test(marginShorthand)) {
-        horizontallyCentered = true;
-      } else if (marginLeft === "auto" || marginRight === "auto") {
-        horizontallyCentered = true;
-      }
-    }
-
-    // Extract hover styles for interactive elements
-    let hoverStyles: Record<string, string> | null = null;
-    if (
-      matchedStyles &&
-      (tag === "button" || tag === "a" || node.attributes.role === "button")
-    ) {
-      hoverStyles = extractPseudoStyles(matchedStyles, "hover");
-    }
-
-    // =========================================================================
-    // AGGREGATE TEXT - collect direct TEXT_NODE children only (avoid duplication)
-    // =========================================================================
-    let aggregatedText = node.textContent || "";
-
-    // If no direct text, collect from children
-    if (!aggregatedText) {
-      // For <li> elements, collect ALL text including nested inline elements
-      // This fixes the issue where <li>Some <strong>bold</strong> text</li> loses text
-      if (tag === "li") {
-        aggregatedText = collectAllInlineText(node.index, nodes, childrenMap);
-      } else {
-        // For other elements, only collect immediate TEXT_NODE children (avoid duplication)
-        aggregatedText = collectDirectText(node.index, nodes, childrenMap);
-      }
-    }
-
-    // Determine if this element should be treated as a text element
-    // Either: in TEXT_TAGS OR is a leaf element (no element children) with text
-    // NOTE: <a> tags are excluded - they remain frames with centered text children
-    const isLeaf = isLeafElement(node.index, nodes, childrenMap);
-
-    // Text transformation moved to Plugin (import-time)
-    // Here we always capture original text
-    const finalText = aggregatedText;
-
-    // Smart wrapping: Check if this would be text but has styles Figma Text can't support
-    const wouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
-    const requiresWrapper = wouldBeText && needsFrameWrapper(padding, fills, strokes, effects, borderRadius);
-
-    // Final decision: only be Text if no wrapper needed
-    const shouldBeText = wouldBeText && !requiresWrapper;
-    const shouldBeFrameWithTextChild = wouldBeText && requiresWrapper;
-
-    // Determine element type for Figma
-    let elementType: "frame" | "text" | "placeholder" = "frame";
-    if (isMedia) {
-      elementType = "placeholder";
-    } else if (shouldBeText && finalText) {
-      elementType = "text";
-    }
-
-    // For <li>, <a>, or elements needing wrapper: don't put text on frame, we'll add synthetic child
-    const isListItemWithText = tag === "li" && !!finalText;
-    const isLinkWithText = tag === "a" && isLeaf && !!finalText;
-    const needsSyntheticTextChild = isListItemWithText || shouldBeFrameWithTextChild || isLinkWithText;
-    const frameTextContent = needsSyntheticTextChild ? "" : finalText;
-
-    // Build element
-    const element: ExtractedElement = {
-      id: generateId(),
-      type: elementType,
-      tag,
-      className: node.attributes["class"] || undefined,
-      name: getSemanticName(tag, node.attributes),
-      x: x - parentX,
-      y: y - parentY,
-      width: Math.ceil(width),
-      height: Math.ceil(height),
-      position,
-      zIndex,
-      layoutMode: getLayoutMode(computedStyles, tag),
-      itemSpacing,
-      padding,
-      // Layout Alignment (for Auto Layout)
-      justifyContent,
-      alignItems,
-      flexWrap,
-      // Child-level flex properties
-      layoutGrow,
-      layoutAlign,
-      layoutSizingHorizontal: layoutSizing.horizontal,
-      layoutSizingVertical: layoutSizing.vertical,
-      // NEW: Figma-ready arrays (multiple layers)
-      fills,
-      strokes,
-      effects,
-      // Legacy fields (backward compatibility)
-      backgroundColor,
-      backgroundGradient,
-      textColor,
-      borderColor,
-      borderWidth,
-      borderRadius,
-      boxShadow,
-      fontFamily,
-      fontSize,
-      fontWeight,
-      lineHeight,
-      letterSpacing,
-      textAlign,
-      textContent: frameTextContent,
-      opacity,
-      isPlaceholder: isMedia,
-      horizontallyCentered: horizontallyCentered || undefined,
-      children: [],
-      hoverStyles: hoverStyles || undefined,
-    };
-
-    // Process children
-    const childIndices = childrenMap.get(node.index) || [];
-    for (const childIdx of childIndices) {
-      const childNode = nodes[childIdx];
-      if (childNode) {
-        // Skip children that are completely outside viewport (horizontal overflow)
-        // Scale bounds.x by browserDpr before comparing with viewportWidth (CSS pixels)
-        if (
-          childNode.bounds &&
-          childNode.bounds.x / browserDpr >= viewportWidth
-        ) {
-          continue;
-        }
-
-        const childElement = buildNode(childNode, x, y, depth + 1);
-        if (childElement && childElement.width > 3 && childElement.height > 3) {
-          // Clip child width if it extends beyond viewport
-          if (childElement.x + childElement.width > viewportWidth) {
-            childElement.width = Math.max(0, viewportWidth - childElement.x);
-          }
-          element.children.push(childElement);
-        }
-      }
-    }
-
-    // Auto-upgrade parent alignment if any child is horizontally centered
-    // This converts CSS "margin: 0 auto" centering to Figma Auto Layout
-    if (element.children.length > 0) {
-      const hasCenteredChild = element.children.some(
-        (child) => child.horizontallyCentered
-      );
-
-      if (hasCenteredChild) {
-        // If no layout, convert to VERTICAL
-        if (element.layoutMode === "NONE") {
-          element.layoutMode = "VERTICAL";
-          element.justifyContent = "normal"; // Keep vertical positioning as-is
-        }
-        // For VERTICAL layout, center horizontally (cross-axis)
-        if (element.layoutMode === "VERTICAL") {
-          element.alignItems = "center";
-        }
-      }
-    }
-
-    // For <li> elements: add synthetic text child for the text content (with bullet offset)
-    // This creates the structure: <li>(frame) -> [::before(text "•"), #text(text "actual content")]
-    if (isListItemWithText && finalText) {
-      // Calculate text position - after the bullet (::before pseudo-element)
-      // The bullet is typically positioned at the left with padding
-      const bulletWidth = padding.left || 16; // Bullet area
-
-      const syntheticTextChild: ExtractedElement = {
-        id: generateId(),
-        type: "text",
-        tag: "#text",
-        name: "Text",
-        x: bulletWidth,
-        y: 0,
-        width: Math.max(10, width - bulletWidth - padding.right),
-        height: height,
-        position: "relative",
-        layoutMode: "NONE",
-        itemSpacing: 0,
-        padding: { top: 0, right: 0, bottom: 0, left: 0 },
-        justifyContent: "normal",
-        alignItems: "normal",
-        flexWrap: "nowrap",
-        fills: [],
-        strokes: [],
-        effects: [],
-        backgroundColor: null,
-        backgroundGradient: null,
-        textColor,
-        borderColor: null,
-        borderWidth: 0,
-        borderRadius: {
-          topLeft: 0,
-          topRight: 0,
-          bottomRight: 0,
-          bottomLeft: 0,
-        },
-        boxShadow: null,
-        fontFamily,
-        fontSize,
-        fontWeight,
-        lineHeight,
-        letterSpacing,
-        textAlign,
-        textContent: finalText,
-        opacity: 1,
-        isPlaceholder: false,
-        children: [],
-      };
-
-      element.children.push(syntheticTextChild);
-    }
-
-    // Smart wrapping: For text elements that need Frame wrapper (padding, bg, border, etc.)
-    // Create Frame with styles + Text child inside (text-only styles)
-    if (shouldBeFrameWithTextChild && finalText) {
-      const syntheticTextChild: ExtractedElement = {
-        id: generateId(),
-        type: "text",
-        tag: "#text",
-        name: "Text",
-        x: 0,
-        y: 0,
-        width: Math.max(10, width - padding.left - padding.right),
-        height: Math.max(10, height - padding.top - padding.bottom),
-        position: "relative",
-        layoutMode: "NONE",
-        itemSpacing: 0,
-        padding: { top: 0, right: 0, bottom: 0, left: 0 },
-        justifyContent: "normal",
-        alignItems: "normal",
-        flexWrap: "nowrap",
-        fills: [],
-        strokes: [],
-        effects: [],
-        backgroundColor: null,
-        backgroundGradient: null,
-        textColor,
-        borderColor: null,
-        borderWidth: 0,
-        borderRadius: {
-          topLeft: 0,
-          topRight: 0,
-          bottomRight: 0,
-          bottomLeft: 0,
-        },
-        boxShadow: null,
-        fontFamily,
-        fontSize,
-        fontWeight,
-        lineHeight,
-        letterSpacing,
-        textAlign,
-        textContent: finalText,
-        opacity: 1,
-        isPlaceholder: false,
-        children: [],
-      };
-
-      element.children.push(syntheticTextChild);
-    }
-
-    // For <a> (link) elements with text: always create synthetic text child
-    // Links remain Frames so they can have styling, but need text child inside
-    if (isLinkWithText && finalText) {
-      const syntheticTextChild: ExtractedElement = {
-        id: generateId(),
-        type: "text",
-        tag: "#text",
-        name: "Text",
-        x: 0,
-        y: 0,
-        width: Math.max(10, width - padding.left - padding.right),
-        height: Math.max(10, height - padding.top - padding.bottom),
-        position: "relative",
-        layoutMode: "NONE",
-        itemSpacing: 0,
-        padding: { top: 0, right: 0, bottom: 0, left: 0 },
-        justifyContent: "normal",
-        alignItems: "normal",
-        flexWrap: "nowrap",
-        fills: [],
-        strokes: [],
-        effects: [],
-        backgroundColor: null,
-        backgroundGradient: null,
-        textColor,
-        borderColor: null,
-        borderWidth: 0,
-        borderRadius: {
-          topLeft: 0,
-          topRight: 0,
-          bottomRight: 0,
-          bottomLeft: 0,
-        },
-        boxShadow: null,
-        fontFamily,
-        fontSize,
-        fontWeight,
-        lineHeight,
-        letterSpacing,
-        textAlign,
-        textContent: finalText,
-        opacity: 1,
-        isPlaceholder: false,
-        children: [],
-      };
-      element.children.push(syntheticTextChild);
-    }
-
-    return element;
-  }
-
-  const tree = buildNode(bodyNode, 0, 0, 0);
-  if (!tree) {
-    throw new Error("Failed to build element tree");
-  }
-
-  // Get actual body width from CDP (before overriding)
-  const actualBodyWidth = bodyNode.bounds ? bodyNode.bounds.width / browserDpr : viewportWidth;
-
-  // =========================================================================
-  // RECALCULATE X POSITIONS FOR ABSOLUTE MODE
-  // Problem: CDP returns bounds for the user's CURRENT browser viewport
-  // but we're creating a frame at TARGET viewportWidth (e.g., 1440px)
-  // Solution: Recalculate X for centered elements: x = (viewportWidth - width) / 2
-  // =========================================================================
-  if (actualBodyWidth !== viewportWidth && Math.abs(actualBodyWidth - viewportWidth) > 1) {
-    function recalculateXPositions(element: ExtractedElement, parentWidth: number): void {
-      // For centered elements, recalculate X based on target viewport
-      if (element.horizontallyCentered && element.width < parentWidth) {
-        const newX = Math.round((parentWidth - element.width) / 2);
-        element.x = newX;
-      }
-
-      // Recursively process children
-      for (const child of element.children) {
-        // Children are positioned relative to their parent
-        // For centered children, use element's width as parent width
-        recalculateXPositions(child, element.width);
-      }
-    }
-
-    // Start with body's direct children using viewportWidth
-    for (const child of tree.children) {
-      recalculateXPositions(child, viewportWidth);
-    }
-  }
-
-  // Override body width to viewport width (fixes scrollWidth being larger)
-  tree.width = viewportWidth;
-
-  return tree;
-}
-
-/**
- * Get layout mode from computed styles
- * @param tag - HTML tag name for special handling (ul, ol, li)
- */
-function getLayoutMode(
-  computedStyles: Record<string, string>,
-  tag?: string,
-): "NONE" | "HORIZONTAL" | "VERTICAL" {
-  const display = computedStyles.display;
-
-  // Flexbox
-  if (display === "flex" || display === "inline-flex") {
-    const flexDirection = computedStyles["flex-direction"];
-    return flexDirection === "column" || flexDirection === "column-reverse"
-      ? "VERTICAL"
-      : "HORIZONTAL";
-  }
-
-  // Grid
-  if (display === "grid" || display === "inline-grid") {
-    const gridAutoFlow = computedStyles["grid-auto-flow"];
-    if (gridAutoFlow?.includes("column")) {
-      return "HORIZONTAL";
-    }
-
-    const gridColumns = computedStyles["grid-template-columns"];
-    if (gridColumns && gridColumns !== "none") {
-      // auto-fit/auto-fill grids are responsive - treat as HORIZONTAL (wrap)
-      if (
-        gridColumns.includes("auto-fit") ||
-        gridColumns.includes("auto-fill")
-      ) {
-        return "HORIZONTAL";
-      }
-
-      // Check if multiple columns by counting column values
-      // Handle repeat(N, ...) - expand to count
-      const normalizedColumns = gridColumns
-        .replace(/repeat\s*\(\s*(\d+)\s*,/g, (_, count) => {
-          return Array(parseInt(count)).fill("1fr").join(" ") + " ";
-        })
-        .trim();
-
-      // Count distinct column definitions (px, fr, %, auto values)
-      const columnCount = normalizedColumns
-        .split(/\s+/)
-        .filter((v) => v && v !== "none" && !v.includes("(")).length;
-
-      if (columnCount > 1) {
-        return "HORIZONTAL";
-      }
-    }
-
-    return "VERTICAL";
-  }
-
-  // Inline elements
-  if (display === "inline" || display === "inline-block") {
-    return "HORIZONTAL";
-  }
-
-  // List containers should use VERTICAL auto layout
-  if (tag === "ul" || tag === "ol") {
-    return "VERTICAL";
-  }
-
-  // List items with default display should use HORIZONTAL for inline content
-  if (display === "list-item") {
-    return "HORIZONTAL";
-  }
-
-  return "NONE";
-}
-
-/**
- * Determine Figma sizing mode from CSS properties
- * Returns { horizontal, vertical } with values: FIXED | HUG | FILL
- *
- * Rules:
- * - flex-grow > 0 on primary axis → FILL
- * - align-self: stretch on counter axis → FILL (stretch)
- * - width/height: auto with content → HUG
- * - width/height: 100% or fill-available → FILL
- * - explicit px value → FIXED
- */
-function getLayoutSizing(
-  computedStyles: Record<string, string>,
-  flexGrow: number,
-  alignSelf: string | undefined,
-): {
-  horizontal: "FIXED" | "HUG" | "FILL" | undefined;
-  vertical: "FIXED" | "HUG" | "FILL" | undefined;
-} {
-  const display = computedStyles.display;
-  const flexDirection = computedStyles["flex-direction"];
-  const width = computedStyles.width;
-  const height = computedStyles.height;
-
-  let horizontal: "FIXED" | "HUG" | "FILL" | undefined = undefined;
-  let vertical: "FIXED" | "HUG" | "FILL" | undefined = undefined;
-
-  // Determine if this is a flex/grid child (would support FILL)
-  // We can't directly know parent's display, but flex-grow > 0 implies flex child
-  const isFlexChild = flexGrow > 0 || alignSelf;
-
-  // Check flex-grow for primary axis FILL
-  if (flexGrow > 0) {
-    // Determine which axis flex-grow applies to based on parent's flex-direction
-    // If we're a flex child with flex-grow, we fill the primary axis
-    // Default flex-direction is row, so horizontal is primary axis
-    if (flexDirection === "column" || flexDirection === "column-reverse") {
-      vertical = "FILL";
-    } else {
-      horizontal = "FILL";
-    }
-  }
-
-  // Check align-self: stretch for counter axis FILL
-  if (alignSelf === "stretch") {
-    // Stretch applies to counter axis
-    if (flexDirection === "column" || flexDirection === "column-reverse") {
-      if (!horizontal) horizontal = "FILL";
-    } else {
-      if (!vertical) vertical = "FILL";
-    }
-  }
-
-  // Check explicit width
-  if (!horizontal) {
-    if (
-      width === "auto" ||
-      width === "fit-content" ||
-      width === "max-content" ||
-      width === "min-content"
-    ) {
-      // Auto width with auto-layout parent would be HUG
-      // But only if this element itself has auto-layout (to have children to hug)
-      if (
-        display === "flex" ||
-        display === "inline-flex" ||
-        display === "grid" ||
-        display === "inline-grid"
-      ) {
-        horizontal = "HUG";
-      }
-    } else if (width === "100%" || width?.includes("fill-available")) {
-      if (isFlexChild) {
-        horizontal = "FILL";
-      }
-    }
-    // explicit px value = FIXED (default, no need to set)
-  }
-
-  // Check explicit height
-  if (!vertical) {
-    if (
-      height === "auto" ||
-      height === "fit-content" ||
-      height === "max-content" ||
-      height === "min-content"
-    ) {
-      // Auto height typically means HUG content
-      if (
-        display === "flex" ||
-        display === "inline-flex" ||
-        display === "grid" ||
-        display === "inline-grid"
-      ) {
-        vertical = "HUG";
-      }
-    } else if (height === "100%" || height?.includes("fill-available")) {
-      if (isFlexChild) {
-        vertical = "FILL";
-      }
-    }
-    // explicit px value = FIXED (default, no need to set)
-  }
-
-  return { horizontal, vertical };
-}
-
-// NOTE: generateLoremIpsum and getSemanticPlaceholder moved to Plugin_Frontend
-// (Import-time transformation instead of capture-time)
-
-/**
  * Categorize a CSS variable based on its name and value
  */
 function categorizeCSSVariable(name: string, value: string): string {
@@ -2628,18 +1735,15 @@ async function autoDownloadResult(
       filename: filename,
       saveAs: false, // Auto-save to downloads folder
     });
-
-    console.log("[W2W] Download initiated:", filename);
-  } catch (error) {
-    console.error("[W2W] Auto-download failed:", error);
+  } catch {
     // Fallback: try to open in new tab for manual save
     try {
       const jsonString = JSON.stringify(result, null, 2);
       const blob = new Blob([jsonString], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       await chrome.tabs.create({ url, active: true });
-    } catch (e) {
-      console.error("[W2W] Fallback also failed:", e);
+    } catch {
+      // Silent fail
     }
   }
 }
@@ -2696,6 +1800,20 @@ async function updateSettings(settings: object) {
   await chrome.storage.local.set({
     [STORAGE_KEYS.SETTINGS]: { ...current, ...settings },
   });
+}
+
+/**
+ * DEBUG: Find element by class name in tree (recursive)
+ */
+function findElementByClass(element: ExtractedElement, className: string): ExtractedElement | null {
+  if (element.className?.includes(className)) {
+    return element;
+  }
+  for (const child of element.children) {
+    const found = findElementByClass(child, className);
+    if (found) return found;
+  }
+  return null;
 }
 
 // Extension loaded

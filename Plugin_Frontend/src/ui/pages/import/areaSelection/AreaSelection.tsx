@@ -11,6 +11,7 @@ import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
 import { transformFramesData } from "../../../shared/transformData";
+import { prepareFramesForAbsoluteMode } from "../../../shared/absoluteModeRenderer";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -71,59 +72,7 @@ interface FigmaEffect {
   blurRadius?: number;
 }
 
-// Types matching Browser_Extension's CaptureResult
-interface ExtractedElement {
-  id: string;
-  type: "frame" | "text" | "placeholder";
-  tag: string;
-  name: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  // CSS Positioning
-  position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
-  layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL";
-  itemSpacing: number;
-  padding: { top: number; right: number; bottom: number; left: number };
-  // Layout Alignment (for Auto Layout) - CSS values
-  justifyContent?: string;  // CSS justify-content value
-  alignItems?: string;      // CSS align-items value
-  flexWrap?: string;        // CSS flex-wrap value
-  // Child-level flex properties
-  layoutGrow?: 0 | 1;       // flex-grow: 0 = fixed, 1 = fill
-  layoutAlign?: "STRETCH" | "INHERIT";  // align-self: stretch
-  // Sizing mode (how element sizes itself)
-  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
-  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
-  // NEW: Figma-ready arrays (multiple layers support)
-  fills?: FigmaFill[];
-  strokes?: FigmaStroke[];
-  effects?: FigmaEffect[];
-  // LEGACY: Keep for backward compatibility
-  backgroundColor: string | null;
-  backgroundGradient: string | null;
-  textColor: string | null;
-  borderColor: string | null;
-  borderWidth: number;
-  borderRadius: {
-    topLeft: number;
-    topRight: number;
-    bottomRight: number;
-    bottomLeft: number;
-  };
-  boxShadow: string | null;
-  fontFamily: string;
-  fontSize: number;
-  fontWeight: number;
-  lineHeight: number | string;
-  letterSpacing: number;
-  textAlign: string;
-  textContent: string;
-  opacity: number;
-  isPlaceholder: boolean;
-  children: ExtractedElement[];
-}
+// ExtractedElement is imported from shared/absoluteModeRenderer.ts
 
 // CSS Variable extracted from the page
 interface ExtractedCSSVariable {
@@ -154,7 +103,7 @@ interface MultiFrameCaptureResult {
   url: string;
   title: string;
   timestamp: number;
-  frames: Array<{ viewport: { width: number; height: number }; tree: ExtractedElement }>;
+  frames: Array<{ viewport: { width: number; height: number }; tree: unknown }>;
   fonts: unknown[];
   assets: unknown[];
   stylesheets: unknown[];
@@ -175,7 +124,7 @@ interface SingleViewportCaptureResult {
     textMode: "semantic" | "lorem" | "website";
     variableMode?: "preserve" | "resolve";
   };
-  tree: ExtractedElement;
+  tree: unknown;
   fonts: unknown[];
   assets: unknown[];
   stylesheets: unknown[];
@@ -187,7 +136,7 @@ interface UnifiedCaptureResult {
   url: string;
   title: string;
   timestamp: number;
-  frames: Array<{ viewport: { width: number; height: number }; tree: ExtractedElement }>;
+  frames: Array<{ viewport: { width: number; height: number }; tree: unknown }>;
   fonts: unknown[];
   assets: unknown[];
   stylesheets: unknown[];
@@ -238,80 +187,11 @@ function toUnifiedFormat(data: MultiFrameCaptureResult | SingleViewportCaptureRe
   return null;
 }
 
-// WireframeNode format expected by main.ts
-interface WireframeNode {
-  id: string;
-  name: string;
-  type: "frame" | "text" | "placeholder";
-  tag: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  // CSS Positioning (for absolute elements like ::before/::after)
-  position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
-  layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
-  itemSpacing: number;
-  padding: { top: number; right: number; bottom: number; left: number };
-  // Layout Alignment (for Auto Layout) - CSS values
-  justifyContent?: string;  // CSS justify-content value
-  alignItems?: string;      // CSS align-items value
-  flexWrap?: string;        // CSS flex-wrap value
-  // Child-level flex properties
-  layoutGrow?: 0 | 1;       // flex-grow: 0 = fixed, 1 = fill
-  layoutAlign?: "STRETCH" | "INHERIT";  // align-self: stretch
-  // Sizing mode (how element sizes itself)
-  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
-  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
-  // NEW: Figma-ready arrays (multiple layers support)
-  fills?: FigmaFill[];
-  strokes?: FigmaStroke[];
-  effects?: FigmaEffect[];
-  // LEGACY: Keep for backward compatibility
-  backgroundColor: string | null;
-  backgroundGradient: string | null;
-  textColor: string;
-  borderColor: string | null;
-  borderWidth: number;
-  borderRadius: number;
-  opacity: number;
-  textContent: string;
-  fontSize: number;
-  fontWeight: number;
-  fontFamily: string;
-  textAlign: string;
-  lineHeight: number | string;
-  letterSpacing: number;
-  isPlaceholder: boolean;
-  children: WireframeNode[];
-}
-
 // Import state
 interface ImportState {
   status: "idle" | "loading" | "success" | "error";
   message: string;
 }
-
-// Text tags that are primarily text content
-const TEXT_TAGS = [
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "p",
-  "span",
-  "a",
-  "li",
-  "label",
-  "button",
-  "strong",
-  "em",
-  "b",
-  "i",
-  "small",
-];
 
 /**
  * Decompress gzip data using DecompressionStream
@@ -330,90 +210,6 @@ async function decompressGzip(compressedData: ArrayBuffer): Promise<Uint8Array> 
   const response = new Response(decompressedStream);
   const arrayBuffer = await response.arrayBuffer();
   return new Uint8Array(arrayBuffer);
-}
-
-/**
- * Convert ExtractedElement to WireframeNode format
- */
-function convertToWireframeNode(
-  element: ExtractedElement,
-  pluginColors: { text: string; surface: string }
-): WireframeNode {
-  // Use the type already set by the Extension (CDP extraction sets this correctly)
-  // Fallback logic only if type is not set
-  let type: "frame" | "text" | "placeholder" = element.type || "frame";
-
-  // If type wasn't set, try to determine it (fallback for legacy data)
-  if (!element.type) {
-    if (element.isPlaceholder) {
-      type = "placeholder";
-    } else if (TEXT_TAGS.includes(element.tag) && element.textContent) {
-      type = "text";
-    }
-  }
-
-  // Calculate average border radius
-  const avgRadius = element.borderRadius
-    ? Math.round(
-        (element.borderRadius.topLeft +
-          element.borderRadius.topRight +
-          element.borderRadius.bottomRight +
-          element.borderRadius.bottomLeft) /
-          4
-      )
-    : 0;
-
-  // Recursively convert children
-  const children = element.children.map((child) =>
-    convertToWireframeNode(child, pluginColors)
-  );
-
-  return {
-    id: element.id,
-    name: element.name || element.tag,
-    type,
-    tag: element.tag,
-    x: element.x,
-    y: element.y,
-    width: element.width,
-    height: element.height,
-    // CSS Positioning (for absolute elements like ::before/::after)
-    position: element.position,
-    layoutMode: element.layoutMode,
-    itemSpacing: element.itemSpacing || 0,
-    padding: element.padding || { top: 0, right: 0, bottom: 0, left: 0 },
-    // Layout Alignment (for Auto Layout) - pass through from Extension
-    justifyContent: element.justifyContent,
-    alignItems: element.alignItems,
-    flexWrap: element.flexWrap,
-    // Child-level flex properties
-    layoutGrow: element.layoutGrow,
-    layoutAlign: element.layoutAlign,
-    // Sizing mode
-    layoutSizingHorizontal: element.layoutSizingHorizontal,
-    layoutSizingVertical: element.layoutSizingVertical,
-    // NEW: Figma-ready arrays (pass through from Extension)
-    fills: element.fills,
-    strokes: element.strokes,
-    effects: element.effects,
-    // LEGACY: Keep for backward compatibility
-    backgroundColor: element.backgroundColor,
-    backgroundGradient: element.backgroundGradient,
-    textColor: element.textColor || pluginColors.text,
-    borderColor: element.borderColor,
-    borderWidth: element.borderWidth || 0,
-    borderRadius: avgRadius,
-    opacity: element.opacity ?? 1,
-    textContent: element.textContent || "",
-    fontSize: element.fontSize || 14,
-    fontWeight: element.fontWeight || 400,
-    fontFamily: element.fontFamily || "Inter",
-    textAlign: element.textAlign || "left",
-    lineHeight: element.lineHeight || "normal",
-    letterSpacing: element.letterSpacing || 0,
-    isPlaceholder: element.isPlaceholder,
-    children,
-  };
 }
 
 export default function AreaSelection() {
@@ -521,20 +317,15 @@ export default function AreaSelection() {
       }
     );
 
-    // Convert all frames to wireframe format
+    // Convert all frames to wireframe format using shared function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const framesData = transformedFrames.map((frame: any) => {
-      const wireframeTree = convertToWireframeNode(frame.tree, {
+    const framesData = prepareFramesForAbsoluteMode(
+      transformedFrames as any,
+      {
         text: config.pluginColors.text,
         surface: config.pluginColors.surface,
-      });
-
-      return {
-        viewportWidth: frame.viewport.width,
-        viewportHeight: frame.viewport.height,
-        tree: wireframeTree,
-      };
-    });
+      }
+    );
 
     // Send to Figma main thread with all options
     parent.postMessage(
