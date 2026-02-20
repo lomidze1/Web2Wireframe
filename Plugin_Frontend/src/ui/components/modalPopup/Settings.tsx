@@ -100,7 +100,6 @@ export default function Settings({
 
   // Toggle viewport selection
   const toggleViewport = (viewport: string, event?: Event) => {
-    console.log("[Settings] toggleViewport called:", viewport);
     if (event) {
       event.stopPropagation();
       event.preventDefault();

@@ -235,18 +235,6 @@ export function convertToWireframeNode(
   // Fallback logic only if type is not set
   let type: "frame" | "text" | "placeholder" = element.type || "frame";
 
-  // DEBUG: Log text elements to trace conversion
-  if (element.type === "text" || (element.textContent && element.textContent.trim())) {
-    console.log("[absoluteModeRenderer] Converting element:", {
-      id: element.id,
-      originalType: element.type,
-      finalType: type,
-      tag: element.tag,
-      textContent: element.textContent?.substring(0, 50),
-      hasChildren: element.children?.length > 0,
-    });
-  }
-
   // If type wasn't set, try to determine it (fallback for legacy/external JSON data)
   if (!element.type) {
     if (element.isPlaceholder) {

@@ -1,0 +1,427 @@
+/**
+ * Color utilities for wireframe rendering
+ * Handles color conversion, role determination, and contrast checking
+ */
+
+import type {
+  ColorRole,
+  FigmaFill,
+  RenderContext,
+  RenderWireframeData,
+} from "../types";
+
+// ============================================================================
+// Color Conversion
+// ============================================================================
+
+/**
+ * Convert hex color to Figma RGB (0-1 range)
+ * Supports 6-digit (#RRGGBB) and 8-digit (#RRGGBBAA) hex
+ */
+export function hexToFigmaRGB(hex: string): RGB {
+  if (!hex || hex === "transparent" || hex === "null") {
+    return { r: 0.96, g: 0.96, b: 0.96 }; // Default light gray
+  }
+
+  const cleanHex = hex.replace("#", "");
+
+  // Handle 8-digit hex (with alpha) - extract first 6 digits
+  const colorHex = cleanHex.length === 8 ? cleanHex.slice(0, 6) : cleanHex;
+
+  const result = /^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(colorHex);
+
+  if (!result) {
+    return { r: 0.96, g: 0.96, b: 0.96 };
+  }
+
+  return {
+    r: parseInt(result[1], 16) / 255,
+    g: parseInt(result[2], 16) / 255,
+    b: parseInt(result[3], 16) / 255,
+  };
+}
+
+/**
+ * Parse CSS color to Figma RGB (handles hex, rgb, rgba)
+ */
+export function cssColorToFigmaRGB(
+  color: string
+): { color: RGB; opacity: number } | null {
+  if (!color || color === "transparent") return null;
+
+  // Handle hex (6 or 8 digit)
+  if (color.startsWith("#")) {
+    const cleanHex = color.replace("#", "");
+    let opacity = 1;
+
+    // 8-digit hex has alpha in last 2 characters
+    if (cleanHex.length === 8) {
+      opacity = parseInt(cleanHex.slice(6, 8), 16) / 255;
+    }
+
+    return { color: hexToFigmaRGB(color), opacity };
+  }
+
+  // Handle rgb/rgba
+  const rgbMatch = color.match(
+    /rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/i
+  );
+  if (rgbMatch) {
+    const [, r, g, b, a] = rgbMatch;
+    return {
+      color: {
+        r: parseInt(r) / 255,
+        g: parseInt(g) / 255,
+        b: parseInt(b) / 255,
+      },
+      opacity: a !== undefined ? parseFloat(a) : 1,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Convert Figma RGB (0-1 range) to hex color string
+ */
+export function figmaRGBToHex(color: RGB): string {
+  const r = Math.round(color.r * 255);
+  const g = Math.round(color.g * 255);
+  const b = Math.round(color.b * 255);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+/**
+ * Normalize color value for style lookup (lowercase, consistent format)
+ */
+export function normalizeColorForLookup(color: string): string {
+  if (!color) return "";
+  const trimmed = color.trim().toLowerCase();
+
+  // For hex colors, ensure consistent format
+  if (trimmed.startsWith("#")) {
+    // Convert 3-digit to 6-digit if needed
+    if (trimmed.length === 4) {
+      const r = trimmed[1];
+      const g = trimmed[2];
+      const b = trimmed[3];
+      return `#${r}${r}${g}${g}${b}${b}`;
+    }
+    return trimmed;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Resolve CSS variables in a string (e.g., gradient or color)
+ */
+export function resolveCSSVariables(
+  value: string,
+  variableValueMap: Map<string, string>
+): string {
+  if (!value || !value.includes("var(")) return value;
+
+  // Replace all var(--name) with resolved values
+  return value.replace(
+    /var\(\s*(--[\w-]+)\s*(?:,\s*([^)]+))?\)/g,
+    (match, varName, fallback) => {
+      const resolved = variableValueMap.get(varName);
+      if (resolved) return resolved;
+      if (fallback) return fallback.trim();
+      return match; // Keep original if not found
+    }
+  );
+}
+
+// ============================================================================
+// Color Analysis
+// ============================================================================
+
+/**
+ * Check if a color is "light" (closer to white than black)
+ */
+export function isLightColorValue(color: {
+  r: number;
+  g: number;
+  b: number;
+}): boolean {
+  // Using relative luminance formula
+  const luminance = 0.299 * color.r + 0.587 * color.g + 0.114 * color.b;
+  return luminance > 0.5; // Threshold at 50%
+}
+
+/**
+ * Check if a color is "saturated" (colorful, not gray/white/black)
+ * Saturated colors indicate "highlighted" or "featured" elements in wireframe context
+ */
+export function isSaturatedColor(color: {
+  r: number;
+  g: number;
+  b: number;
+}): boolean {
+  // Calculate saturation using HSL-like approach
+  const max = Math.max(color.r, color.g, color.b);
+  const min = Math.min(color.r, color.g, color.b);
+  const diff = max - min;
+
+  // If max is 0, it's black - not saturated
+  if (max === 0) return false;
+
+  // Saturation = (max - min) / max
+  const saturation = diff / max;
+
+  // Also check that it's not too dark or too light
+  const luminance = 0.299 * color.r + 0.587 * color.g + 0.114 * color.b;
+  const isNotTooExtreme = luminance > 0.1 && luminance < 0.9;
+
+  // Consider saturated if saturation > 30% and not extreme luminance
+  return saturation > 0.3 && isNotTooExtreme;
+}
+
+/**
+ * Check if two colors are too similar (same or very close)
+ * Uses a tolerance threshold to catch colors that look the same visually
+ */
+export function colorsAreTooSimilar(
+  color1: { r: number; g: number; b: number } | null | undefined,
+  color2: { r: number; g: number; b: number } | null | undefined,
+  tolerance: number = 0.05
+): boolean {
+  if (!color1 || !color2) return false;
+
+  const rDiff = Math.abs(color1.r - color2.r);
+  const gDiff = Math.abs(color1.g - color2.g);
+  const bDiff = Math.abs(color1.b - color2.b);
+
+  // If all channels are within tolerance, colors are too similar
+  return rDiff < tolerance && gDiff < tolerance && bDiff < tolerance;
+}
+
+/**
+ * Check if an element is highlighted/active/featured based on className
+ * Used to detect pricing cards, featured sections, etc.
+ */
+export function isHighlightedElement(className?: string): boolean {
+  if (!className) return false;
+  const classLower = className.toLowerCase();
+  return /\b(active|featured|popular|highlighted|selected|primary|recommended|best|pro|premium|enterprise)\b/.test(
+    classLower
+  );
+}
+
+// ============================================================================
+// Color Role Determination
+// ============================================================================
+
+/**
+ * Determine the color role based on element context
+ * Used when colorMode is "plugin" to map any color to 5 plugin colors
+ *
+ * CRITICAL RULE: "text" role is ONLY for actual text elements!
+ * Fill/background elements should NEVER use "text" color
+ */
+export function determineColorRole(
+  elementType: "text" | "fill" | "stroke",
+  tag?: string,
+  isLightColor?: boolean,
+  _parentBackgroundIsLight?: boolean,
+  className?: string
+): ColorRole {
+  // Strokes/borders ALWAYS use text color (#11151A) in plugin mode
+  if (elementType === "stroke") {
+    return "text";
+  }
+
+  // Text elements ONLY use text color
+  if (elementType === "text") {
+    return "text";
+  }
+
+  // FILL colors - NEVER return "text" role here!
+  if (tag) {
+    const tagLower = tag.toLowerCase();
+
+    // Buttons, links, CTAs use accent
+    if (
+      ["button", "a", "input[type=submit]", "input[type=button]"].includes(
+        tagLower
+      )
+    ) {
+      return "accent";
+    }
+
+    // Header/Footer - use background to stand out
+    if (["header", "footer"].includes(tagLower)) {
+      return "background";
+    }
+
+    // Sections use surface or background
+    if (["section"].includes(tagLower)) {
+      return isLightColor ? "background" : "surface";
+    }
+
+    // Cards, containers - check for highlighted/active state
+    if (
+      [
+        "div",
+        "article",
+        "aside",
+        "main",
+        "nav",
+        "form",
+        "ul",
+        "ol",
+        "li",
+      ].includes(tagLower)
+    ) {
+      if (!isLightColor && isHighlightedElement(className)) {
+        return "secondary";
+      }
+      return isLightColor ? "background" : "surface";
+    }
+
+    // Body/html use background
+    if (["body", "html"].includes(tagLower)) {
+      return "background";
+    }
+  }
+
+  // Default: light colors → background, dark colors → surface
+  return isLightColor ? "background" : "surface";
+}
+
+/**
+ * Get the appropriate plugin color for an element
+ */
+export function getPluginColorForRole(
+  role: ColorRole,
+  pluginColors: RenderWireframeData["pluginColors"]
+): string {
+  const colorMap: Record<ColorRole, string> = {
+    text: pluginColors.text,
+    background: pluginColors.background,
+    secondary: pluginColors.secondary,
+    surface: pluginColors.surface,
+    accent: pluginColors.accent,
+  };
+  return colorMap[role] || pluginColors.surface;
+}
+
+/**
+ * Get an alternative plugin color when child would match parent background
+ */
+export function getAlternativePluginColor(
+  currentRole: ColorRole,
+  pluginColors: RenderWireframeData["pluginColors"],
+  parentBgColor: { r: number; g: number; b: number } | null | undefined
+): string {
+  if (!parentBgColor) return getPluginColorForRole(currentRole, pluginColors);
+
+  const currentColorHex = getPluginColorForRole(currentRole, pluginColors);
+  const currentColorRgb = cssColorToFigmaRGB(currentColorHex);
+  if (!currentColorRgb) return currentColorHex;
+
+  // Check if current color matches parent
+  if (!colorsAreTooSimilar(currentColorRgb.color, parentBgColor)) {
+    return currentColorHex;
+  }
+
+  // Color conflicts with parent - find alternative
+  const isParentLight = isLightColorValue(parentBgColor);
+
+  if (isParentLight) {
+    const lightAlternatives: ColorRole[] = [
+      "surface",
+      "accent",
+      "background",
+      "secondary",
+    ];
+    for (const altRole of lightAlternatives) {
+      if (altRole === currentRole) continue;
+      const altHex = getPluginColorForRole(altRole, pluginColors);
+      const altRgb = cssColorToFigmaRGB(altHex);
+      if (altRgb && !colorsAreTooSimilar(altRgb.color, parentBgColor)) {
+        return altHex;
+      }
+    }
+    return pluginColors.secondary;
+  } else {
+    const darkAlternatives: ColorRole[] = ["text", "secondary", "accent"];
+    for (const altRole of darkAlternatives) {
+      if (altRole === currentRole) continue;
+      const altHex = getPluginColorForRole(altRole, pluginColors);
+      const altRgb = cssColorToFigmaRGB(altHex);
+      if (altRgb && !colorsAreTooSimilar(altRgb.color, parentBgColor)) {
+        return altHex;
+      }
+    }
+    return pluginColors.surface;
+  }
+}
+
+// ============================================================================
+// Text Color Utilities
+// ============================================================================
+
+/**
+ * Determine the appropriate text color based on background
+ * Uses WCAG contrast checking to ensure readability
+ */
+export function getTextColorForBackground(
+  bgColor: { r: number; g: number; b: number } | null,
+  pluginColors: RenderWireframeData["pluginColors"]
+): string {
+  if (!bgColor) {
+    return pluginColors.text;
+  }
+
+  const bgIsLight = isLightColorValue(bgColor);
+  return bgIsLight ? pluginColors.text : pluginColors.background;
+}
+
+/**
+ * Determine the text color for a node
+ * SIMPLIFIED: All text uses the text color (black) for consistency
+ */
+export function getSmartTextColor(
+  _node: { tag?: string; fills?: FigmaFill[] },
+  context: RenderContext,
+  _isLink: boolean = false
+): string {
+  return context.pluginColors.text;
+}
+
+/**
+ * Get the dominant color from Figma Paint[] array
+ * Used to track the ACTUAL applied color for parent-child contrast detection
+ */
+export function getDominantColorFromPaints(
+  paints: Paint[] | undefined
+): { r: number; g: number; b: number } | null {
+  if (!paints || paints.length === 0) return null;
+
+  for (const paint of paints) {
+    if (paint.type === "SOLID") {
+      return { r: paint.color.r, g: paint.color.g, b: paint.color.b };
+    }
+
+    // For gradients, use the first stop color
+    if (
+      (paint.type === "GRADIENT_LINEAR" ||
+        paint.type === "GRADIENT_RADIAL" ||
+        paint.type === "GRADIENT_ANGULAR") &&
+      paint.gradientStops &&
+      paint.gradientStops.length > 0
+    ) {
+      const firstStop = paint.gradientStops[0];
+      return {
+        r: firstStop.color.r,
+        g: firstStop.color.g,
+        b: firstStop.color.b,
+      };
+    }
+  }
+
+  return null;
+}

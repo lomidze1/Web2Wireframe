@@ -163,7 +163,6 @@ export default function AIGenerated({
   );
 
   const handleOpen = useCallback((item: WireframeItem) => {
-    console.log("Opening AI wireframe:", item.name);
     parent.postMessage(
       { pluginMessage: { type: "open-wireframe", data: item } },
       "*"

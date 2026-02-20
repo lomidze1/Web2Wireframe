@@ -16,14 +16,7 @@ export default function HTML() {
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
 
   const handleGenerate = () => {
-    console.log("Generating wireframe from HTML:", {
-      htmlCode,
-      cssCode,
-      viewports: settings.localViewports,
-      colorMode: settings.localColorMode,
-      fontMode: settings.localFontMode,
-      textMode: settings.localTextMode,
-    });
+    // TODO: Implement HTML wireframe generation
   };
 
   return (

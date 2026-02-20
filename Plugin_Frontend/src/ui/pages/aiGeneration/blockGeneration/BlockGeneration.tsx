@@ -206,11 +206,7 @@ export default function BlockGeneration({ onBack }: BlockGenerationProps) {
     setIsGenerating(true);
     setTimeout(() => {
       setIsGenerating(false);
-      console.log("Generating Block wireframe...", {
-        density,
-        viewports,
-        selectedBlock,
-      });
+      // TODO: Implement AI block generation
     }, 2000);
   }, [density, viewports, selectedBlock]);
 

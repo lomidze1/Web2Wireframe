@@ -134,8 +134,6 @@ export default function WebImported({ onNavigateToImport }: WebImportedProps) {
   );
 
   const handleOpen = useCallback((item: WireframeItem) => {
-    console.log("Opening wireframe:", item.name);
-    // In real app: send message to Figma to open/insert wireframe
     parent.postMessage(
       { pluginMessage: { type: "open-wireframe", data: item } },
       "*"

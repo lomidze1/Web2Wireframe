@@ -275,13 +275,7 @@ export default function PageGeneration({ onBack }: PageGenerationProps) {
     setIsGenerating(true);
     setTimeout(() => {
       setIsGenerating(false);
-      console.log("Generating Page wireframe...", {
-        density,
-        viewports,
-        selectedPage,
-        selectedSections,
-        notes,
-      });
+      // TODO: Implement AI page generation
     }, 2000);
   }, [density, viewports, selectedPage, selectedSections, notes]);
 

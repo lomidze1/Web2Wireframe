@@ -9,12 +9,15 @@
     "@create-figma-plugin/build": "^4.0.3",
     "@create-figma-plugin/tsconfig": "^4.0.3",
     "@figma/plugin-typings": "1.109.0",
-    "typescript": ">=5"
+    "typescript": ">=5",
+    "vitest": "^3.0.0"
   },
   "scripts": {
     "dev": "build-figma-plugin --typecheck --watch",
     "build": "build-figma-plugin --typecheck --minify",
-    "watch": "build-figma-plugin --typecheck --watch"
+    "watch": "build-figma-plugin --typecheck --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "figma-plugin": {
     "editorType": [

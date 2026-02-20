@@ -42,12 +42,7 @@ export default function Screenshot() {
   };
 
   const handleGenerate = () => {
-    console.log("Generating wireframe:", {
-      viewports: settings.localViewports,
-      colorMode: settings.localColorMode,
-      fontMode: settings.localFontMode,
-      textMode: settings.localTextMode,
-    });
+    // TODO: Implement screenshot wireframe generation
   };
 
   return (

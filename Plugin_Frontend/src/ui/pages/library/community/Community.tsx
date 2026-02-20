@@ -177,22 +177,17 @@ export default function Community() {
 
   // Handlers
   const handleUse = useCallback((item: CommunityWireframe) => {
-    console.log("Using community wireframe:", item.name);
-    // In real app: download and insert into Figma
     parent.postMessage(
       { pluginMessage: { type: "use-community-wireframe", data: item } },
       "*"
     );
   }, []);
 
-  const handlePreview = useCallback((item: CommunityWireframe) => {
-    console.log("Preview wireframe:", item.name);
-    // In real app: show preview modal
+  const handlePreview = useCallback((_item: CommunityWireframe) => {
+    // TODO: Show preview modal
   }, []);
 
   const handleContribute = useCallback(() => {
-    console.log("Opening contribute modal");
-    // In real app: open modal to publish wireframe
     alert("Publishing wireframes to Community will be available soon!");
   }, []);
 
