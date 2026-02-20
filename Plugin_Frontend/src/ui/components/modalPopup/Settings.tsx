@@ -27,6 +27,8 @@ interface CollapsibleState {
   fonts: boolean;
   pluginFonts: boolean;
   text: boolean;
+  cssVariables: boolean;
+  layoutMode: boolean;
 }
 
 // localStorage key for collapsed states
@@ -40,6 +42,8 @@ const DEFAULT_COLLAPSED: CollapsibleState = {
   fonts: true,
   pluginFonts: true,
   text: true,
+  cssVariables: true,
+  layoutMode: true,
 };
 
 // Safe localStorage helpers
@@ -1020,6 +1024,154 @@ export default function Settings({
                             <span>
                               Keep the website's original text with its original
                               size/length.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </Fragment>
+                  )}
+                </div>
+
+                {/* CSS Variables - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.cssVariables ? styles.configSectionActive : ""}`}
+                >
+                  <div
+                    class={styles.configTitleCollapsible}
+                    onClick={() => toggleCollapse("cssVariables")}
+                  >
+                    <span>CSS Variables</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.cssVariables ? "" : styles.collapseArrowOpen}`}
+                    >
+                      ▾
+                    </span>
+                  </div>
+                  {!collapsed.cssVariables && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Control how CSS color variables are handled in Figma.
+                      </div>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.cssVariablesDefault === "direct"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-css-variables"
+                            value="direct"
+                            checked={config.cssVariablesDefault === "direct"}
+                            onChange={() =>
+                              updateConfig({ cssVariablesDefault: "direct" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Direct Colors</strong>
+                            <span>
+                              Apply colors directly to elements without creating
+                              Figma styles.
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.cssVariablesDefault === "styles"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-css-variables"
+                            value="styles"
+                            checked={config.cssVariablesDefault === "styles"}
+                            onChange={() =>
+                              updateConfig({ cssVariablesDefault: "styles" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Create Figma Styles</strong>
+                            <span>
+                              Generate reusable color styles from CSS variables
+                              for design system consistency.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </Fragment>
+                  )}
+                </div>
+
+                {/* Layout Mode - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.layoutMode ? styles.configSectionActive : ""}`}
+                >
+                  <div
+                    class={styles.configTitleCollapsible}
+                    onClick={() => toggleCollapse("layoutMode")}
+                  >
+                    <span>Layout Mode</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.layoutMode ? "" : styles.collapseArrowOpen}`}
+                    >
+                      ▾
+                    </span>
+                  </div>
+                  {!collapsed.layoutMode && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Choose how elements are positioned in Figma frames.
+                      </div>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.layoutModeDefault === "autoLayout"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-layout-mode"
+                            value="autoLayout"
+                            checked={config.layoutModeDefault === "autoLayout"}
+                            onChange={() =>
+                              updateConfig({ layoutModeDefault: "autoLayout" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Auto Layout (Editable)</strong>
+                            <span>
+                              Use Figma's Auto Layout for flexible, responsive
+                              designs that are easy to edit.
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.layoutModeDefault === "absolute"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-layout-mode"
+                            value="absolute"
+                            checked={config.layoutModeDefault === "absolute"}
+                            onChange={() =>
+                              updateConfig({ layoutModeDefault: "absolute" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Absolute (Pixel-perfect)</strong>
+                            <span>
+                              Position elements with exact pixel coordinates
+                              matching the original website layout.
                             </span>
                           </div>
                         </label>
