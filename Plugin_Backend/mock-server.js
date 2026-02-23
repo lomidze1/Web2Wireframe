@@ -213,9 +213,4 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 Web2Wireframe Mock API running on port ${PORT}`);
-  console.log(`📍 Health check: curl http://localhost:${PORT}/api/health`);
-  console.log(
-    `📍 Test import: curl -X POST http://localhost:${PORT}/api/import-url -H 'Content-Type: application/json' -d '{\"userId\":\"test\",\"sourceUrl\":\"https://example.com\",\"viewports\":[1440],\"colorMode\":\"plugin-colors\"}'`
-  );
 });

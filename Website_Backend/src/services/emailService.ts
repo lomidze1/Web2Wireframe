@@ -21,7 +21,6 @@ export const sendSupportEmail = async (payload: EmailPayload) => {
       );
     }
 
-    console.log(`[Email] Support ticket sent. ID: ${result.data?.id}`);
     return { success: true, emailId: result.data?.id };
   } catch (error) {
     console.error("[Email] Failed to send support email:", error);

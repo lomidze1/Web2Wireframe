@@ -89,31 +89,10 @@ async function extractDOMTreeWithCDP(page, options = {}) {
       browserDpr: 1, // Puppeteer always uses deviceScaleFactor: 1
     });
 
-    // DEBUG: Log _list_wflxa_58 element for comparison
-    const debugElement = findElementByClass(tree, "_list_wflxa_58");
-    if (debugElement) {
-      console.log("[URL Import] _list_wflxa_58:");
-      console.log(JSON.stringify(debugElement, null, 2));
-    }
-
     return tree;
   } finally {
     await client.detach();
   }
-}
-
-/**
- * Find element by class name in tree (recursive)
- */
-function findElementByClass(element, className) {
-  if (element.className?.includes(className)) {
-    return element;
-  }
-  for (const child of element.children || []) {
-    const found = findElementByClass(child, className);
-    if (found) return found;
-  }
-  return null;
 }
 
 module.exports = {

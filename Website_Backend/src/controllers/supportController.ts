@@ -13,7 +13,6 @@ import {
 } from "../services/emailService.js";
 import {
   getClientIp,
-  getUserAgent,
   getCurrentTimestamp,
   generateTicketId,
 } from "../services/ipService.js";
@@ -54,7 +53,6 @@ export const submitSupportTicket = asyncHandler(
 
     // Gather metadata
     const ipAddress = getClientIp(req);
-    const userAgent = getUserAgent(req);
     const timestamp = getCurrentTimestamp();
     const ticketId = generateTicketId();
 
@@ -144,10 +142,6 @@ export const submitSupportTicket = asyncHandler(
       },
     } as ApiResponse);
 
-    // Log for debugging (never log sensitive data in production)
-    console.log(
-      `[Support] Ticket ${ticketId} submitted by ${input.email} (${planResult.tier}) - UA: ${userAgent}`
-    );
   }
 );
 

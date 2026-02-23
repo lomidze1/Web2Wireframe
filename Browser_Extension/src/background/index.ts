@@ -562,13 +562,6 @@ async function handleCapturePage(
         }
       );
 
-      // DEBUG: Log _list_wflxa_58 element for comparison
-      const debugElement = findElementByClass(tree, "_list_wflxa_58");
-      if (debugElement) {
-        console.log("[Browser Extension] _list_wflxa_58:");
-        console.log(JSON.stringify(debugElement, null, 2));
-      }
-
       frames.push({
         viewport: {
           width: targetViewport,
@@ -1895,20 +1888,6 @@ async function updateSettings(settings: object) {
   await chrome.storage.local.set({
     [STORAGE_KEYS.SETTINGS]: { ...current, ...settings },
   });
-}
-
-/**
- * DEBUG: Find element by class name in tree (recursive)
- */
-function findElementByClass(element: ExtractedElement, className: string): ExtractedElement | null {
-  if (element.className?.includes(className)) {
-    return element;
-  }
-  for (const child of element.children) {
-    const found = findElementByClass(child, className);
-    if (found) return found;
-  }
-  return null;
 }
 
 // Extension loaded

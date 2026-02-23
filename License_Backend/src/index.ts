@@ -205,7 +205,6 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`License backend listening on ${host}:${port}`);
 });
 
 declare global {

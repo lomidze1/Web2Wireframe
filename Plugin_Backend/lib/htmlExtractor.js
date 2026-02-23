@@ -112,8 +112,7 @@ async function renderWebsite(url, viewportWidth = 1440, options = {}) {
       deviceScaleFactor: 1,  // Keep consistent scale
     });
 
-    // Extract tree using CDP (NEW!)
-    console.log("[htmlExtractor] Using CDP extraction...");
+    // Extract tree using CDP
     const tree = await extractDOMTreeWithCDP(page, {
       textMode,
       colorMode,
@@ -150,7 +149,6 @@ async function createWireframeData(url, viewports, options = {}) {
 
   for (const viewport of viewports) {
     try {
-      console.log(`Processing viewport: ${viewport}px`);
       const { tree, pageHeight, pageWidth } = await renderWebsite(url, viewport, options);
       frames.push({ viewportWidth: pageWidth, viewportHeight: pageHeight, tree });
     } catch (error) {

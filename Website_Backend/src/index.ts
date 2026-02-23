@@ -1,7 +1,6 @@
 import express, {
   type Request,
   type Response,
-  type NextFunction,
 } from "express";
 import cors from "cors";
 import session from "express-session";
@@ -56,12 +55,6 @@ app.use(
   }),
 );
 
-// Request logging
-app.use((req: Request, _res: Response, next: NextFunction) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  next();
-});
-
 // Root-level health check (required by Render)
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
@@ -101,11 +94,6 @@ app.use(errorHandler);
 // Start server
 const PORT = config.server.port;
 app.listen(PORT, () => {
-  console.log(
-    `[${new Date().toISOString()}] Support API listening on port ${PORT}`,
-  );
-  console.log(`Environment: ${config.server.nodeEnv}`);
-  console.log(`Allowed origins: ${config.cors.allowedOrigins.join(", ")}`);
 });
 
 export default app;

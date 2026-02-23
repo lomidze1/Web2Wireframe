@@ -1032,14 +1032,6 @@ export function buildElementTree(
     // Count text lines from browser (from textBoxes.length)
     const browserLineCount = countTextLines(node.index, nodes, childrenMap);
 
-    // DEBUG: Log textBoxes info for text elements
-    if (elementType === "text") {
-      const childIndices = childrenMap.get(node.index) || [];
-      const hasTextBoxes = childIndices.some(idx => nodes[idx]?.textBoxes?.length);
-      const parentHasTextBoxes = node.textBoxes && node.textBoxes.length > 0;
-      console.log(`[browserLineCount] tag=${tag}, text="${finalText?.slice(0, 30)}...", browserLineCount=${browserLineCount}, hasChildTextBoxes=${hasTextBoxes}, parentHasTextBoxes=${parentHasTextBoxes}`);
-    }
-
     // Set browserLineCount for text elements
     if (elementType === "text" && browserLineCount > 0) {
       element.browserLineCount = browserLineCount;
@@ -1049,9 +1041,9 @@ export function buildElementTree(
     // Note: Don't require element.children.length === 0 because ::before pseudo-elements
     // are already added as children, but we still need the text content
     if (isListItemWithText && finalText) {
-      // Check if we already have a text child (avoid duplicates)
+      // Check if we already have a text child with the same content (avoid duplicates)
       const hasTextChild = element.children.some(
-        (c) => c.type === "text" && c.tag === "#text"
+        (c) => c.type === "text" && c.textContent?.trim() === finalText?.trim()
       );
       if (!hasTextChild) {
         // Use textBounds if available, otherwise fallback to calculated position
@@ -1161,11 +1153,20 @@ export function buildElementTree(
     // Note: Don't require element.children.length === 0 because some links may have
     // pseudo-elements or other children, but we still need the text content
     if (isLinkWithText && finalText) {
-      // Check if we already have a text child (avoid duplicates)
-      const hasTextChild = element.children.some(
-        (c) => c.type === "text" && c.tag === "#text"
-      );
-      if (!hasTextChild) {
+      // Recursively check if any descendant already has the same text (avoid duplicates)
+      // This handles cases like <a><div><span>Text</span></div></a> where text is nested
+      const hasTextInDescendants = (children: ExtractedElement[]): boolean => {
+        for (const c of children) {
+          if (c.type === "text" && c.textContent?.trim() === finalText?.trim()) {
+            return true;
+          }
+          if (c.children?.length > 0 && hasTextInDescendants(c.children)) {
+            return true;
+          }
+        }
+        return false;
+      };
+      if (!hasTextInDescendants(element.children)) {
         // Use textBounds if available for exact positioning
         const textWidth = textBounds ? textBounds.width : width - padding.left - padding.right;
         const textX = textBounds ? textBounds.x : padding.left;

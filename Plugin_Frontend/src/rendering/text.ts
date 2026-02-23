@@ -332,6 +332,18 @@ export async function createTextNode(
       }
     }
 
+    // Apply segment font weight if different from node's weight
+    let segStyle = "Regular";
+    if (segment.fontWeight >= 600) segStyle = "Bold";
+    else if (segment.fontWeight >= 500) segStyle = "Medium";
+    if (segStyle !== mainFontStyle) {
+      try {
+        textNode.fontName = { family: usedFontFamily, style: segStyle };
+      } catch {
+        // Keep default
+      }
+    }
+
     // Apply text decoration (underline, strikethrough) for single segment
     if (segment.textDecoration) {
       const figmaDecoration =

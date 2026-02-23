@@ -30,7 +30,6 @@ let mongoConnected = false;
 mongoose
   .connect(process.env.MONGODB_URI || "mongodb://localhost:27017/web2wireframe")
   .then(() => {
-    console.log("MongoDB connected");
     mongoConnected = true;
   })
   .catch((err) => {
@@ -128,9 +127,6 @@ app.post("/api/import-url", async (req, res) => {
       });
     }
 
-    console.log(`[Import] Starting import for ${sourceUrl}`);
-    console.log(`[Import] Options: viewports=${viewports}, colorMode=${colorMode}, textMode=${textMode}`);
-
     // Merge custom plugin colors with defaults
     const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
 
@@ -174,20 +170,9 @@ app.post("/api/import-url", async (req, res) => {
         });
         await wireframe.save();
         wireframeId = wireframe._id;
-        console.log(`[Import] Saved wireframe to database: ${wireframeId}`);
       } catch (dbError) {
         console.warn("[Import] Failed to save wireframe to database:", dbError.message);
       }
-    }
-
-    console.log(`[Import] Successfully generated ${frames.length} frame(s)`);
-
-    // DEBUG: Quick fills check
-    if (frames[0]?.tree) {
-      const countFills = (n) => (n.fills?.length || 0) + (n.children || []).reduce((acc, c) => acc + countFills(c), 0);
-      console.log(`[FILLS] Total: ${countFills(frames[0].tree)}, Root: ${frames[0].tree.fills?.length || 0}`);
-    } else {
-      console.log(`[FILLS] No tree in frame!`);
     }
 
     res.json({
@@ -452,8 +437,6 @@ app.post("/api/import-cdp", async (req, res) => {
       expires: Date.now() + 10 * 60 * 1000, // 10 minutes
     });
 
-    console.log(`[CDP Import] Stored pending import: ${importId} from ${captureData.url}`);
-
     res.json({
       success: true,
       importId,
@@ -495,8 +478,6 @@ app.get("/api/pending-import", (req, res) => {
 
   // Remove from pending (one-time fetch)
   pendingCDPImports.delete(latestId);
-
-  console.log(`[CDP Import] Delivered pending import: ${latestId}`);
 
   res.json({
     success: true,
@@ -553,8 +534,6 @@ app.use((req, res) => {
 
 const PORT = process.env.API_PORT || 3002;
 app.listen(PORT, () => {
-  console.log(`Web2Wireframe API running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
 });
 
 // For Vercel
