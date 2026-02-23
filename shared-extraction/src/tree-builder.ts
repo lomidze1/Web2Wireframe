@@ -389,7 +389,7 @@ function countTextLines(
  * @param parentBoundsRaw - Parent's raw bounds from CDP (NOT scaled)
  * @param browserDpr - Device pixel ratio for scaling
  */
-function collectTextBoxes(
+export function collectTextBoxes(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
   childrenMap: Map<number, number[]>,
@@ -405,6 +405,11 @@ function collectTextBoxes(
 
   for (const childIdx of childIndices) {
     const child = nodes[childIdx];
+    // Skip ::before/::after pseudo-elements — their text boxes (e.g. bullet "•")
+    // would pull minX to 0, causing the real text to get wrong x position
+    if (child && child.nodeName && child.nodeName.startsWith("::")) {
+      continue;
+    }
     // Look at TEXT_NODEs and elements with textBoxes
     if (child && child.textBoxes && child.textBoxes.length > 0) {
       for (const box of child.textBoxes) {
@@ -1049,9 +1054,18 @@ export function buildElementTree(
         // Use textBounds if available, otherwise fallback to calculated position
         const bulletWidth = padding.left || 16;
         const textWidth = textBounds ? textBounds.width : width - bulletWidth - padding.right;
-        const textX = textBounds ? textBounds.x : bulletWidth;
+        let textX = textBounds ? textBounds.x : bulletWidth;
         const textY = textBounds ? textBounds.y : 0;
         const textHeight = textBounds ? textBounds.height : height;
+
+        // Safety: if ::before child exists and textX < padding.left, the text
+        // should start after the bullet area (padding.left)
+        const hasPseudoBefore = element.children.some(
+          (c) => c.tag === "::before"
+        );
+        if (hasPseudoBefore && textX < (padding.left || 0)) {
+          textX = padding.left || bulletWidth;
+        }
 
         // Add bullet character to styled segments (for proper bullet rendering)
         const bulletChar = getBulletCharacter(listStyleType || "disc");

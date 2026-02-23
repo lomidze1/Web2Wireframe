@@ -405,8 +405,9 @@ export async function createTextNode(
   // 1. Get browser measurements
   // 2. Measure Figma HUG width
   // 3. If difference ≤1px → use HUG width as FIXED, browser height
-  // 4. If text is wider → try font-size reduction (max 1-2px)
+  // 4. If text is wider AND single-line → try font-size reduction (max 1px)
   // 5. If still doesn't fit single line → truncate text
+  // 6. If text is wider AND multi-line → use browser dimensions (no font change)
   // =========================================================================
 
   const browserWidth = Math.max(node.width, 1);
@@ -441,57 +442,45 @@ export async function createTextNode(
     textNode.textAutoResize = "NONE";
   } else if (widthDiff > 1) {
     // Text is WIDER in Figma than browser (font metrics differ)
-    // Try font-size reduction (max 1-2px)
-    let adjusted = false;
 
-    for (let reduction = 1; reduction <= 2; reduction++) {
-      const newFontSize = originalFontSize - reduction;
-      if (newFontSize < 8) continue; // Don't go below 8px
+    if (browserLineCount > 1) {
+      // Multi-line text → don't reduce font size, just use browser dimensions
+      textNode.resize(browserWidth, browserHeight);
+      textNode.textAutoResize = "NONE";
+    } else {
+      // Single-line text: try font-size reduction (max 1px)
+      let adjusted = false;
+      const newFontSize = originalFontSize - 1;
 
-      // Apply new font size
-      textNode.fontSize = newFontSize;
-      textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+      if (newFontSize >= 8) {
+        textNode.fontSize = newFontSize;
+        textNode.textAutoResize = "WIDTH_AND_HEIGHT";
 
-      const newHugWidth = textNode.width;
-      const newHugHeight = textNode.height;
+        const newHugWidth = textNode.width;
+        const newHugHeight = textNode.height;
 
-      // Check if now fits within browser width (1px tolerance)
-      if (newHugWidth <= browserWidth + 1) {
-        // Fits! Use new width, browser height
-        textNode.resize(Math.max(newHugWidth, browserWidth), browserHeight);
-        textNode.textAutoResize = "NONE";
-        adjusted = true;
-        break;
-      }
-
-      // For single-line text: check if still renders as ~1 line
-      if (browserLineCount === 1) {
-        // Estimate line count from height ratio
-        const heightRatio = newHugHeight / browserHeight;
-        if (heightRatio <= 1.3) {
-          // Still approximately 1 line - acceptable
-          textNode.resize(newHugWidth, browserHeight);
+        // Check if now fits within browser width (1px tolerance)
+        if (newHugWidth <= browserWidth + 1) {
+          textNode.resize(Math.max(newHugWidth, browserWidth), browserHeight);
           textNode.textAutoResize = "NONE";
           adjusted = true;
-          break;
+        } else {
+          // Check if still renders as ~1 line
+          const heightRatio = newHugHeight / browserHeight;
+          if (heightRatio <= 1.3) {
+            textNode.resize(newHugWidth, browserHeight);
+            textNode.textAutoResize = "NONE";
+            adjusted = true;
+          }
         }
       }
-    }
 
-    if (!adjusted) {
-      // Font-size reduction didn't help enough
-      // Restore original font size
-      textNode.fontSize = originalFontSize;
-
-      if (browserLineCount === 1) {
-        // Single-line text that doesn't fit → TRUNCATE
+      if (!adjusted) {
+        // Font-size reduction didn't help → restore and truncate
+        textNode.fontSize = originalFontSize;
         textNode.resize(browserWidth, browserHeight);
         textNode.textAutoResize = "NONE";
         textNode.textTruncation = "ENDING";
-      } else {
-        // Multi-line text → just use browser dimensions
-        textNode.resize(browserWidth, browserHeight);
-        textNode.textAutoResize = "NONE";
       }
     }
   } else {
