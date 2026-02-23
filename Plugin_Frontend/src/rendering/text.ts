@@ -91,6 +91,36 @@ export function collectTextSegments(node: WireframeNode): TextSegment[] {
 }
 
 // ============================================================================
+// Block-Level Element Detection
+// ============================================================================
+
+const BLOCK_LEVEL_TAGS = new Set([
+  "h1", "h2", "h3", "h4", "h5", "h6",
+  "p", "div", "li", "blockquote",
+  "section", "article", "header", "footer", "main", "nav",
+  "figcaption", "dd", "dt", "td", "th", "caption",
+]);
+
+/**
+ * Detect if a node is a block-level element whose browserWidth
+ * represents the container width, not the text content width.
+ *
+ * Block elements take 100% parent width by default (display: block).
+ * Their text is positioned via text-align, so shrinking to HUG width
+ * would break center/right alignment and change line wrapping.
+ */
+export function isBlockLevelElement(node: WireframeNode): boolean {
+  const display = node.computedStyles?.["display"];
+  if (display === "block" || display === "list-item") {
+    return true;
+  }
+  if (node.tag && BLOCK_LEVEL_TAGS.has(node.tag.toLowerCase())) {
+    return true;
+  }
+  return false;
+}
+
+// ============================================================================
 // Text Node Creation
 // ============================================================================
 
@@ -454,8 +484,20 @@ export async function createTextNode(
     }
   } else {
     // Text is NARROWER in Figma than browser
-    // Use HUG width (narrower), browser height
-    textNode.resize(hugWidth, browserHeight);
+    const isBlock = isBlockLevelElement(node);
+    const hasNonLeftAlign = node.textAlign === "center"
+      || node.textAlign === "right"
+      || node.textAlign === "justify";
+
+    if (isBlock || hasNonLeftAlign) {
+      // Block elements: browserWidth is the container width, not text width.
+      // Keeping it preserves text-align behavior and correct line wrapping.
+      // Non-left-aligned text: needs container width for proper positioning.
+      textNode.resize(browserWidth, browserHeight);
+    } else {
+      // Inline/flex elements: HUG width is more accurate
+      textNode.resize(hugWidth, browserHeight);
+    }
     textNode.textAutoResize = "NONE";
   }
 
