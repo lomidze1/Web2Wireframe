@@ -210,6 +210,33 @@ export async function createTextNode(
 
   // Apply range-specific styling if there are multiple segments
   if (segments.length > 1) {
+    // Apply base text color to the entire text node first.
+    // This ensures separator spaces between segments don't retain
+    // Figma's default #000000 color (which appears as a phantom black).
+    let baseTextColor: string = node.textColor || "#333333";
+    if (context?.colorMode === "plugin") {
+      baseTextColor = getSmartTextColor(node, context, false);
+    }
+    const baseColorParsed = cssColorToFigmaRGB(baseTextColor);
+    if (baseColorParsed) {
+      let baseLinkedStyle: PaintStyle | undefined;
+      if (context && context.variableMode === "styles") {
+        const normalizedBase = normalizeColorForLookup(baseTextColor);
+        baseLinkedStyle = context.colorStyleMap.get(normalizedBase);
+      }
+      if (baseLinkedStyle) {
+        textNode.fillStyleId = baseLinkedStyle.id;
+      } else {
+        textNode.fills = [
+          {
+            type: "SOLID",
+            color: baseColorParsed.color,
+            opacity: context?.colorMode === "plugin" ? 1.0 : baseColorParsed.opacity,
+          },
+        ];
+      }
+    }
+
     let charIndex = 0;
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx];

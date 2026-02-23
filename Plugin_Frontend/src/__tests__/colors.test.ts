@@ -8,12 +8,17 @@ import {
   cssColorToFigmaRGB,
   figmaRGBToHex,
   normalizeColorForLookup,
+  resolveCSSVariables,
   isLightColorValue,
   isSaturatedColor,
   colorsAreTooSimilar,
   isHighlightedElement,
   determineColorRole,
   getPluginColorForRole,
+  getAlternativePluginColor,
+  getTextColorForBackground,
+  getSmartTextColor,
+  getDominantColorFromPaints,
 } from "../rendering/colors";
 
 // ============================================================================
@@ -297,5 +302,221 @@ describe("getPluginColorForRole", () => {
 
   it("falls back to surface for unknown role", () => {
     expect(getPluginColorForRole("unknown" as any, pluginColors)).toBe("#f5f5f5");
+  });
+});
+
+// ============================================================================
+// resolveCSSVariables
+// ============================================================================
+
+describe("resolveCSSVariables", () => {
+  it("resolves a single CSS variable", () => {
+    const map = new Map([["--primary", "#ff0000"]]);
+    expect(resolveCSSVariables("var(--primary)", map)).toBe("#ff0000");
+  });
+
+  it("resolves multiple CSS variables in a string", () => {
+    const map = new Map([
+      ["--color-start", "#ff0000"],
+      ["--color-end", "#0000ff"],
+    ]);
+    const input = "linear-gradient(var(--color-start), var(--color-end))";
+    expect(resolveCSSVariables(input, map)).toBe(
+      "linear-gradient(#ff0000, #0000ff)"
+    );
+  });
+
+  it("uses fallback value when variable is not found", () => {
+    const map = new Map<string, string>();
+    expect(resolveCSSVariables("var(--missing, #abcdef)", map)).toBe("#abcdef");
+  });
+
+  it("keeps original var() when neither resolved nor fallback exists", () => {
+    const map = new Map<string, string>();
+    expect(resolveCSSVariables("var(--missing)", map)).toBe("var(--missing)");
+  });
+
+  it("returns input unchanged when no var() present", () => {
+    const map = new Map([["--foo", "bar"]]);
+    expect(resolveCSSVariables("#ff0000", map)).toBe("#ff0000");
+  });
+
+  it("returns empty/falsy input unchanged", () => {
+    const map = new Map<string, string>();
+    expect(resolveCSSVariables("", map)).toBe("");
+  });
+});
+
+// ============================================================================
+// getAlternativePluginColor
+// ============================================================================
+
+describe("getAlternativePluginColor", () => {
+  const pluginColors = {
+    text: "#11151A",
+    background: "#F1F2F0",
+    secondary: "#1f3a5f",
+    surface: "#f5f5f5",
+    accent: "#3b82f6",
+  };
+
+  it("returns current role color when no parent background", () => {
+    expect(getAlternativePluginColor("surface", pluginColors, null)).toBe(
+      "#f5f5f5"
+    );
+    expect(getAlternativePluginColor("accent", pluginColors, undefined)).toBe(
+      "#3b82f6"
+    );
+  });
+
+  it("returns current role color when it does not conflict with parent", () => {
+    // Dark parent, surface is light → no conflict
+    const darkParent = { r: 0.1, g: 0.1, b: 0.1 };
+    expect(getAlternativePluginColor("surface", pluginColors, darkParent)).toBe(
+      "#f5f5f5"
+    );
+  });
+
+  it("returns alternative color when current role conflicts with light parent", () => {
+    // Parent is very similar to surface (#f5f5f5 ≈ { r: 0.96, g: 0.96, b: 0.96 })
+    const lightParent = { r: 0.96, g: 0.96, b: 0.96 };
+    const result = getAlternativePluginColor("surface", pluginColors, lightParent);
+    // Should not return surface since it conflicts
+    expect(result).not.toBe("#f5f5f5");
+  });
+
+  it("returns alternative color when current role conflicts with dark parent", () => {
+    // Parent is very similar to text (#11151A ≈ { r: 0.067, g: 0.082, b: 0.102 })
+    const darkParent = { r: 0.067, g: 0.082, b: 0.102 };
+    const result = getAlternativePluginColor("text", pluginColors, darkParent);
+    // Should not return text since it conflicts
+    expect(result).not.toBe("#11151A");
+  });
+
+  it("returns correct color for each role when no conflict", () => {
+    // Distinctly different parent
+    const redParent = { r: 1, g: 0, b: 0 };
+    expect(getAlternativePluginColor("text", pluginColors, redParent)).toBe("#11151A");
+    expect(getAlternativePluginColor("background", pluginColors, redParent)).toBe("#F1F2F0");
+    expect(getAlternativePluginColor("accent", pluginColors, redParent)).toBe("#3b82f6");
+  });
+});
+
+// ============================================================================
+// getTextColorForBackground
+// ============================================================================
+
+describe("getTextColorForBackground", () => {
+  const pluginColors = {
+    text: "#11151A",
+    background: "#F1F2F0",
+    secondary: "#1f3a5f",
+    surface: "#f5f5f5",
+    accent: "#3b82f6",
+  };
+
+  it("returns text color for null background", () => {
+    expect(getTextColorForBackground(null, pluginColors)).toBe("#11151A");
+  });
+
+  it("returns text color for light backgrounds", () => {
+    expect(
+      getTextColorForBackground({ r: 1, g: 1, b: 1 }, pluginColors)
+    ).toBe("#11151A");
+  });
+
+  it("returns background color for dark backgrounds", () => {
+    expect(
+      getTextColorForBackground({ r: 0, g: 0, b: 0 }, pluginColors)
+    ).toBe("#F1F2F0");
+  });
+
+  it("uses luminance threshold at 0.5", () => {
+    // Just above threshold → light → text color
+    expect(
+      getTextColorForBackground({ r: 0.6, g: 0.6, b: 0.6 }, pluginColors)
+    ).toBe("#11151A");
+    // Just below threshold → dark → background color
+    expect(
+      getTextColorForBackground({ r: 0.3, g: 0.3, b: 0.3 }, pluginColors)
+    ).toBe("#F1F2F0");
+  });
+});
+
+// ============================================================================
+// getSmartTextColor
+// ============================================================================
+
+describe("getSmartTextColor", () => {
+  it("always returns pluginColors.text regardless of input", () => {
+    const context = {
+      pluginColors: {
+        text: "#11151A",
+        background: "#F1F2F0",
+        secondary: "#1f3a5f",
+        surface: "#f5f5f5",
+        accent: "#3b82f6",
+      },
+    } as any;
+
+    expect(getSmartTextColor({ tag: "p" }, context)).toBe("#11151A");
+    expect(getSmartTextColor({ tag: "a" }, context, true)).toBe("#11151A");
+    expect(getSmartTextColor({ tag: "h1" }, context, false)).toBe("#11151A");
+    expect(getSmartTextColor({}, context)).toBe("#11151A");
+  });
+});
+
+// ============================================================================
+// getDominantColorFromPaints
+// ============================================================================
+
+describe("getDominantColorFromPaints", () => {
+  it("returns null for undefined/empty paints", () => {
+    expect(getDominantColorFromPaints(undefined)).toBeNull();
+    expect(getDominantColorFromPaints([])).toBeNull();
+  });
+
+  it("extracts color from solid paint", () => {
+    const paints = [
+      { type: "SOLID", color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+    ] as any;
+    expect(getDominantColorFromPaints(paints)).toEqual({ r: 1, g: 0, b: 0 });
+  });
+
+  it("extracts first stop from linear gradient", () => {
+    const paints = [
+      {
+        type: "GRADIENT_LINEAR",
+        gradientStops: [
+          { position: 0, color: { r: 1, g: 0, b: 0, a: 1 } },
+          { position: 1, color: { r: 0, g: 0, b: 1, a: 1 } },
+        ],
+      },
+    ] as any;
+    expect(getDominantColorFromPaints(paints)).toEqual({ r: 1, g: 0, b: 0 });
+  });
+
+  it("extracts first stop from radial gradient", () => {
+    const paints = [
+      {
+        type: "GRADIENT_RADIAL",
+        gradientStops: [
+          { position: 0, color: { r: 0, g: 1, b: 0, a: 1 } },
+        ],
+      },
+    ] as any;
+    expect(getDominantColorFromPaints(paints)).toEqual({ r: 0, g: 1, b: 0 });
+  });
+
+  it("returns first solid paint in multi-paint array", () => {
+    const paints = [
+      { type: "SOLID", color: { r: 0.5, g: 0.5, b: 0.5 }, opacity: 1 },
+      { type: "SOLID", color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+    ] as any;
+    expect(getDominantColorFromPaints(paints)).toEqual({
+      r: 0.5,
+      g: 0.5,
+      b: 0.5,
+    });
   });
 });

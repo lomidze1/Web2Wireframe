@@ -212,8 +212,8 @@ export default function Web() {
         setPendingRenderData(renderData);
         setShowVariablesModal(true);
       } else {
-        // No CSS variables - proceed directly with "direct" mode
-        sendToFigma(renderData, "direct");
+        // No CSS variables - use the user's configured default
+        sendToFigma(renderData, settings.localCssVariablesMode);
       }
     } catch (error) {
       console.error("Import error:", error);
