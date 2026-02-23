@@ -156,6 +156,9 @@ export interface WireframeNode {
   letterSpacing: number;
   browserLineCount?: number;        // Number of lines from browser (from CDP textBoxes.length)
 
+  // Raw computed styles passthrough (filtered non-default values)
+  computedStyles?: Record<string, string>;
+
   // Media
   isPlaceholder: boolean;
 

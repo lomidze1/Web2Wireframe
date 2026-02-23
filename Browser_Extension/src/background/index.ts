@@ -1060,6 +1060,60 @@ function buildElementTreeFromBounds(
   const rootX = rootNode.bounds!.x / browserDpr;
   const rootY = rootNode.bounds!.y / browserDpr;
 
+  // CSS default values for filtering (keep only non-default values)
+  const CSS_DEFAULT_VALUES: Record<string, string[]> = {
+    "display": ["inline"],
+    "position": ["static"],
+    "opacity": ["1"],
+    "visibility": ["visible"],
+    "overflow": ["visible"],
+    "z-index": ["auto"],
+    "flex-grow": ["0"],
+    "flex-shrink": ["1"],
+    "flex-basis": ["auto"],
+    "flex-direction": ["row"],
+    "flex-wrap": ["nowrap"],
+    "justify-content": ["normal"],
+    "align-items": ["normal"],
+    "align-self": ["auto"],
+    "text-decoration": ["none", "none solid rgb(0, 0, 0)"],
+    "text-transform": ["none"],
+    "font-style": ["normal"],
+    "text-align": ["start"],
+    "list-style-type": ["disc"],
+    "list-style-position": ["outside"],
+    "transform": ["none"],
+    "filter": ["none"],
+    "backdrop-filter": ["none"],
+    "box-shadow": ["none"],
+    "background-image": ["none"],
+    "background-size": ["auto", "auto auto"],
+    "background-position": ["0% 0%"],
+    "background-repeat": ["repeat"],
+    "border-style": ["none"],
+    "grid-template-columns": ["none"],
+    "grid-template-rows": ["none"],
+    "grid-auto-flow": ["row"],
+  };
+
+  function filterDefaultStyles(styles: Record<string, string>): Record<string, string> {
+    const filtered: Record<string, string> = {};
+    for (const [prop, value] of Object.entries(styles)) {
+      if (!value || value === "") continue;
+      if (value === "0px" || value === "0" || value === "0px 0px" || value === "normal") {
+        const isTypography = prop === "letter-spacing" || prop === "line-height";
+        if (!isTypography) continue;
+      }
+      const defaults = CSS_DEFAULT_VALUES[prop];
+      if (defaults && defaults.includes(value)) continue;
+      if (value === "rgba(0, 0, 0, 0)" || value === "transparent") {
+        if (prop.includes("background") || prop.includes("border-color")) continue;
+      }
+      filtered[prop] = value;
+    }
+    return filtered;
+  }
+
   // Recursive tree builder starting from selected element
   function buildNode(
     node: ParsedSnapshotNode,
@@ -1298,6 +1352,7 @@ function buildElementTreeFromBounds(
       isPlaceholder: isMedia,
       horizontallyCentered: horizontallyCentered || undefined,
       children: [],
+      computedStyles: filterDefaultStyles(computedStyles),
     };
 
     // Process children from subtree only
@@ -1379,6 +1434,7 @@ function buildElementTreeFromBounds(
           letterSpacing,
           textAlign,
           textContent: finalText,
+          computedStyles: element.computedStyles,
           opacity: 1,
           isPlaceholder: false,
           children: [],
@@ -1420,6 +1476,7 @@ function buildElementTreeFromBounds(
         letterSpacing,
         textAlign,
         textContent: finalText,
+        computedStyles: element.computedStyles,
         opacity: 1,
         isPlaceholder: false,
         children: [],
@@ -1467,6 +1524,7 @@ function buildElementTreeFromBounds(
           letterSpacing,
           textAlign,
           textContent: finalText,
+          computedStyles: element.computedStyles,
           opacity: 1,
           isPlaceholder: false,
           children: [],

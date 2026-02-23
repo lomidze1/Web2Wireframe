@@ -182,6 +182,8 @@ export interface ExtractedElement {
   matchedRules?: CDPCSSRule[];
   // Hover/Interactive styles (for buttons, links)
   hoverStyles?: Record<string, string>;
+  // Raw computed styles passthrough (filtered non-default values)
+  computedStyles?: Record<string, string>;
   // Children
   children: ExtractedElement[];
 }

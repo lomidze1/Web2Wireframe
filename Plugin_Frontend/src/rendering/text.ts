@@ -45,8 +45,16 @@ export function collectTextSegments(node: WireframeNode): TextSegment[] {
     }));
   }
 
-  // FALLBACK: Old method for backward compatibility
+  // FALLBACK: Old method with computedStyles fallback for textDecoration
   const segments: TextSegment[] = [];
+
+  // Helper: extract textDecoration from computedStyles
+  function getTextDecoration(styles?: Record<string, string>): "underline" | "line-through" | undefined {
+    const raw = styles?.["text-decoration"] || styles?.["text-decoration-line"] || "";
+    if (raw.includes("underline")) return "underline";
+    if (raw.includes("line-through")) return "line-through";
+    return undefined;
+  }
 
   // Add parent text content if exists (may be partial)
   if (node.textContent && node.textContent.trim() !== "") {
@@ -55,6 +63,7 @@ export function collectTextSegments(node: WireframeNode): TextSegment[] {
       color: node.textColor || "#333333",
       fontWeight: node.fontWeight || 400,
       fontSize: node.fontSize || 14,
+      textDecoration: getTextDecoration(node.computedStyles),
     });
   }
 
@@ -72,6 +81,7 @@ export function collectTextSegments(node: WireframeNode): TextSegment[] {
           color: child.textColor || node.textColor || "#333333",
           fontWeight: child.fontWeight || node.fontWeight || 400,
           fontSize: child.fontSize || node.fontSize || 14,
+          textDecoration: getTextDecoration(child.computedStyles),
         });
       }
     }

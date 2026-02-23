@@ -137,6 +137,7 @@ export interface ExtractedElement {
   isPlaceholder: boolean;
   overflow?: "visible" | "hidden" | "scroll" | "auto";
   horizontallyCentered?: boolean;
+  computedStyles?: Record<string, string>;
   children: ExtractedElement[];
 }
 
@@ -199,6 +200,7 @@ export interface WireframeNode {
   lineHeight: number | string;
   letterSpacing: number;
   browserLineCount?: number;
+  computedStyles?: Record<string, string>;
   isPlaceholder: boolean;
   children: WireframeNode[];
 }
@@ -337,6 +339,7 @@ export function convertToWireframeNode(
     lineHeight: element.lineHeight || "normal",
     letterSpacing: element.letterSpacing || 0,
     browserLineCount: element.browserLineCount,
+    computedStyles: element.computedStyles,
     isPlaceholder: element.isPlaceholder,
     children,
   };

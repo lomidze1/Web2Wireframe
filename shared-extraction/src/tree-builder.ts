@@ -443,6 +443,70 @@ function collectTextBoxes(
   };
 }
 
+// ============================================================================
+// CSS DEFAULT VALUES FILTER
+// ============================================================================
+
+const CSS_DEFAULT_VALUES: Record<string, string[]> = {
+  "display": ["inline"],
+  "position": ["static"],
+  "opacity": ["1"],
+  "visibility": ["visible"],
+  "overflow": ["visible"],
+  "z-index": ["auto"],
+  "flex-grow": ["0"],
+  "flex-shrink": ["1"],
+  "flex-basis": ["auto"],
+  "flex-direction": ["row"],
+  "flex-wrap": ["nowrap"],
+  "justify-content": ["normal"],
+  "align-items": ["normal"],
+  "align-self": ["auto"],
+  "text-decoration": ["none", "none solid rgb(0, 0, 0)"],
+  "text-transform": ["none"],
+  "font-style": ["normal"],
+  "text-align": ["start"],
+  "list-style-type": ["disc"],
+  "list-style-position": ["outside"],
+  "transform": ["none"],
+  "filter": ["none"],
+  "backdrop-filter": ["none"],
+  "box-shadow": ["none"],
+  "background-image": ["none"],
+  "background-size": ["auto", "auto auto"],
+  "background-position": ["0% 0%"],
+  "background-repeat": ["repeat"],
+  "border-style": ["none"],
+  "grid-template-columns": ["none"],
+  "grid-template-rows": ["none"],
+  "grid-auto-flow": ["row"],
+};
+
+/**
+ * Filter out CSS default values to keep JSON compact.
+ * Keeps only non-default, meaningful values (~15-25 properties per element).
+ */
+export function filterDefaultStyles(styles: Record<string, string>): Record<string, string> {
+  const filtered: Record<string, string> = {};
+  for (const [prop, value] of Object.entries(styles)) {
+    if (!value || value === "") continue;
+    // Skip zero-value dimensional properties (but keep typography zeros)
+    if (value === "0px" || value === "0" || value === "0px 0px" || value === "normal") {
+      const isTypography = prop === "letter-spacing" || prop === "line-height";
+      if (!isTypography) continue;
+    }
+    // Skip known defaults
+    const defaults = CSS_DEFAULT_VALUES[prop];
+    if (defaults && defaults.includes(value)) continue;
+    // Skip transparent/empty colors for backgrounds and borders
+    if (value === "rgba(0, 0, 0, 0)" || value === "transparent") {
+      if (prop.includes("background") || prop.includes("border-color")) continue;
+    }
+    filtered[prop] = value;
+  }
+  return filtered;
+}
+
 /**
  * Create a synthetic text child element
  *
@@ -459,6 +523,7 @@ function collectTextBoxes(
  * @param xOffset - X position relative to parent (from textBoxes or calculated)
  * @param yOffset - Y position relative to parent (from textBoxes or 0)
  * @param browserLineCount - Number of lines from browser (from textBoxes.length)
+ * @param computedStyles - Filtered computed styles passthrough
  */
 function createSyntheticTextChild(
   width: number,
@@ -473,7 +538,8 @@ function createSyntheticTextChild(
   textContent: string,
   xOffset: number = 0,
   yOffset: number = 0,
-  browserLineCount?: number
+  browserLineCount?: number,
+  computedStyles?: Record<string, string>
 ): ExtractedElement {
   return {
     id: generateId(),
@@ -514,6 +580,7 @@ function createSyntheticTextChild(
     textAlign,
     textContent,
     browserLineCount,
+    computedStyles,
     opacity: 1,
     isPlaceholder: false,
     children: [],
@@ -915,6 +982,7 @@ export function buildElementTree(
       horizontallyCentered: horizontallyCentered || undefined,
       children: [],
       hoverStyles: hoverStyles || undefined,
+      computedStyles: filterDefaultStyles(computedStyles),
     };
 
     // Process children
@@ -1043,7 +1111,8 @@ export function buildElementTree(
           fullTextWithBullet,
           textX,
           textY,
-          browserLineCount
+          browserLineCount,
+          element.computedStyles
         );
 
         // Add styled segments to the text child
@@ -1076,7 +1145,8 @@ export function buildElementTree(
         finalText,
         textX,
         textY,
-        browserLineCount
+        browserLineCount,
+        element.computedStyles
       );
 
       // Pass through styled segments if available
@@ -1115,7 +1185,8 @@ export function buildElementTree(
           finalText,
           textX,
           textY,
-          browserLineCount
+          browserLineCount,
+          element.computedStyles
         );
 
         // Pass through styled segments if available

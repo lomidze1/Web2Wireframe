@@ -348,6 +348,10 @@ export interface ExtractedElement {
   matchedRules?: CDPCSSRule[];
   hoverStyles?: Record<string, string>;
 
+  // Raw computed styles passthrough (filtered non-default values)
+  // Provides fallback access to any CSS property on the rendering side
+  computedStyles?: Record<string, string>;
+
   // Children
   children: ExtractedElement[];
 }

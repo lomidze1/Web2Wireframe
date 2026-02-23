@@ -125,6 +125,7 @@ export {
 
 export {
   buildElementTree,
+  filterDefaultStyles,
   type BuildTreeOptions,
   type BodyOriginalCSS,
 } from "./tree-builder";
