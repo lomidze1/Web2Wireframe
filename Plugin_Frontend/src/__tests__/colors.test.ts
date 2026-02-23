@@ -124,6 +124,47 @@ describe("normalizeColorForLookup", () => {
   it("returns empty string for falsy input", () => {
     expect(normalizeColorForLookup("")).toBe("");
   });
+
+  it("strips alpha from 8-digit hex", () => {
+    expect(normalizeColorForLookup("#ff0000ff")).toBe("#ff0000");
+    expect(normalizeColorForLookup("#00ff0080")).toBe("#00ff00");
+    expect(normalizeColorForLookup("#AABBCCDD")).toBe("#aabbcc");
+  });
+
+  it("converts rgb() to hex", () => {
+    expect(normalizeColorForLookup("rgb(255, 0, 0)")).toBe("#ff0000");
+    expect(normalizeColorForLookup("rgb(0, 255, 0)")).toBe("#00ff00");
+    expect(normalizeColorForLookup("rgb(0, 0, 255)")).toBe("#0000ff");
+    expect(normalizeColorForLookup("rgb(33, 37, 41)")).toBe("#212529");
+  });
+
+  it("converts rgba() to hex (ignoring alpha)", () => {
+    expect(normalizeColorForLookup("rgba(255, 0, 0, 0.5)")).toBe("#ff0000");
+    expect(normalizeColorForLookup("rgba(33, 37, 41, 1)")).toBe("#212529");
+    expect(normalizeColorForLookup("rgba(59, 130, 246, 0.12)")).toBe("#3b82f6");
+  });
+
+  it("ensures rgb and hex normalize to the same key", () => {
+    // This is the critical bug fix test: CSS variable values stored as rgb()
+    // must match hex keys in colorStyleMap
+    const hexKey = normalizeColorForLookup("#212529");
+    const rgbKey = normalizeColorForLookup("rgb(33, 37, 41)");
+    expect(hexKey).toBe(rgbKey);
+
+    const hexKey2 = normalizeColorForLookup("#3b82f6");
+    const rgbKey2 = normalizeColorForLookup("rgb(59, 130, 246)");
+    expect(hexKey2).toBe(rgbKey2);
+  });
+
+  it("handles rgb() with varying whitespace", () => {
+    expect(normalizeColorForLookup("rgb( 255 , 0 , 0 )")).toBe("#ff0000");
+    expect(normalizeColorForLookup("rgb(255,0,0)")).toBe("#ff0000");
+  });
+
+  it("returns non-color strings as-is (lowercased)", () => {
+    expect(normalizeColorForLookup("transparent")).toBe("transparent");
+    expect(normalizeColorForLookup("inherit")).toBe("inherit");
+  });
 });
 
 // ============================================================================

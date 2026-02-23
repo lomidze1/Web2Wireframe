@@ -92,22 +92,41 @@ export function figmaRGBToHex(color: RGB): string {
 }
 
 /**
- * Normalize color value for style lookup (lowercase, consistent format)
+ * Normalize color value for style lookup.
+ * ALWAYS converts to lowercase 6-digit hex (#rrggbb) for consistent matching.
+ * This ensures rgb(), rgba(), 3-digit hex, 8-digit hex, and 6-digit hex
+ * all normalize to the same key when they represent the same color.
  */
 export function normalizeColorForLookup(color: string): string {
   if (!color) return "";
   const trimmed = color.trim().toLowerCase();
 
-  // For hex colors, ensure consistent format
+  // Handle hex colors
   if (trimmed.startsWith("#")) {
-    // Convert 3-digit to 6-digit if needed
-    if (trimmed.length === 4) {
-      const r = trimmed[1];
-      const g = trimmed[2];
-      const b = trimmed[3];
+    const cleanHex = trimmed.slice(1);
+    // Convert 3-digit to 6-digit
+    if (cleanHex.length === 3) {
+      const r = cleanHex[0];
+      const g = cleanHex[1];
+      const b = cleanHex[2];
       return `#${r}${r}${g}${g}${b}${b}`;
     }
+    // Strip alpha from 8-digit hex, keep first 6
+    if (cleanHex.length === 8) {
+      return `#${cleanHex.slice(0, 6)}`;
+    }
     return trimmed;
+  }
+
+  // Convert rgb/rgba to hex for consistent lookup
+  const rgbMatch = trimmed.match(
+    /rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*[\d.]+\s*)?\)/
+  );
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1]);
+    const g = parseInt(rgbMatch[2]);
+    const b = parseInt(rgbMatch[3]);
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
   }
 
   return trimmed;

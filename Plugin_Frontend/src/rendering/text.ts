@@ -39,6 +39,7 @@ export function collectTextSegments(node: WireframeNode): TextSegment[] {
       fontWeight: seg.fontWeight || node.fontWeight || 400,
       fontSize: seg.fontSize || node.fontSize || 14,
       fontFamily: seg.fontFamily,
+      fontFamilyList: seg.fontFamilyList,
       isLink: seg.isLink,
       tag: seg.tag,
       textDecoration: seg.textDecoration,
@@ -121,6 +122,61 @@ export function isBlockLevelElement(node: WireframeNode): boolean {
 }
 
 // ============================================================================
+// Text Style Linking
+// ============================================================================
+
+/**
+ * Link a TextStyle to a single-segment text node.
+ * MUST be called AFTER all property modifications (fontSize, lineHeight, etc.)
+ * because setting textStyleId applies the style's values and any subsequent
+ * property change would detach the style.
+ *
+ * Skips linking when:
+ * - Multi-segment nodes (TextStyle would override per-range formatting)
+ * - Node has custom letterSpacing (TextStyle resets to 0, causing text reflow)
+ * - Node has custom lineHeight (TextStyle resets to AUTO, changing layout)
+ */
+function linkTextStyleIfApplicable(
+  textNode: TextNode,
+  node: WireframeNode,
+  segments: TextSegment[],
+  usedFontFamily: string,
+  context?: RenderContext
+): void {
+  if (
+    !context ||
+    context.variableMode !== "styles" ||
+    !context.textStyleMap ||
+    segments.length !== 1
+  ) {
+    return;
+  }
+
+  // Skip TextStyle linking if node has custom letterSpacing or lineHeight.
+  // Setting textStyleId resets ALL text properties to the style's defaults,
+  // which would destroy letterSpacing (reset to 0) and lineHeight (reset to AUTO).
+  if (node.letterSpacing && node.letterSpacing !== 0) {
+    return;
+  }
+  if (node.lineHeight && node.lineHeight !== "normal") {
+    return;
+  }
+
+  const weight = segments[0].fontWeight || node.fontWeight || 400;
+  const styleStr = weight >= 600 ? "Bold" : weight >= 500 ? "Medium" : "Regular";
+  const actualFontSize = textNode.fontSize as number;
+  const tsKey = `${usedFontFamily}-${styleStr}-${actualFontSize}`;
+  const textStyle = context.textStyleMap.get(tsKey);
+  if (textStyle) {
+    try {
+      textNode.textStyleId = textStyle.id;
+    } catch {
+      // Style linking failed, continue with direct properties
+    }
+  }
+}
+
+// ============================================================================
 // Text Node Creation
 // ============================================================================
 
@@ -159,23 +215,44 @@ export async function createTextNode(
     else fontsToLoad.add("Regular");
   }
 
-  // Prefer node's fontFamily, then context fontFamily, then Inter as fallback
-  const targetFont = node.fontFamily || fontFamily;
+  // In plugin mode: always use the configured plugin font
+  // In website mode: prefer node's extracted fontFamily, then context fontFamily
+  const targetFont = context?.fontMode === "plugin"
+    ? fontFamily
+    : (node.fontFamily || fontFamily);
   let usedFontFamily = targetFont;
   const fontStyles = Array.from(fontsToLoad);
+  const fallbackList = (context?.fontMode === "website" && node.fontFamilyList) || [];
+
   try {
     for (const style of fontStyles) {
       await figma.loadFontAsync({ family: targetFont, style });
     }
   } catch {
-    try {
-      usedFontFamily = "Inter";
-      for (const style of fontStyles) {
-        await figma.loadFontAsync({ family: "Inter", style });
+    let loaded = false;
+    // Try each font in the CSS fallback chain
+    for (const fallback of fallbackList) {
+      if (fallback === targetFont) continue;
+      try {
+        for (const style of fontStyles) {
+          await figma.loadFontAsync({ family: fallback, style });
+        }
+        usedFontFamily = fallback;
+        loaded = true;
+        break;
+      } catch { /* try next fallback */ }
+    }
+    // Final fallback: Inter
+    if (!loaded) {
+      try {
+        usedFontFamily = "Inter";
+        for (const style of fontStyles) {
+          await figma.loadFontAsync({ family: "Inter", style });
+        }
+      } catch {
+        await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+        usedFontFamily = "Inter";
       }
-    } catch {
-      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
-      usedFontFamily = "Inter";
     }
   }
 
@@ -290,14 +367,40 @@ export async function createTextNode(
         }
       }
 
-      // Apply segment font weight
+      // Apply segment font weight + per-segment font family
       let segStyle = "Regular";
       if (segment.fontWeight >= 600) segStyle = "Bold";
       else if (segment.fontWeight >= 500) segStyle = "Medium";
 
+      const segFontFamily = context?.fontMode === "plugin"
+        ? usedFontFamily
+        : (segment.fontFamily || usedFontFamily);
+
+      let resolvedSegFont = segFontFamily;
+      if (segFontFamily !== usedFontFamily) {
+        try {
+          await figma.loadFontAsync({ family: segFontFamily, style: segStyle });
+        } catch {
+          // Try segment fallback list
+          let segLoaded = false;
+          if (segment.fontFamilyList) {
+            for (const fb of segment.fontFamilyList) {
+              if (fb === segFontFamily) continue;
+              try {
+                await figma.loadFontAsync({ family: fb, style: segStyle });
+                resolvedSegFont = fb;
+                segLoaded = true;
+                break;
+              } catch { /* next */ }
+            }
+          }
+          if (!segLoaded) resolvedSegFont = usedFontFamily;
+        }
+      }
+
       try {
         textNode.setRangeFontName(startIdx, endIdx, {
-          family: usedFontFamily,
+          family: resolvedSegFont,
           style: segStyle,
         });
       } catch {
@@ -451,6 +554,8 @@ export async function createTextNode(
   // Special cases: always HUG
   if (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow || isInlineElement) {
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+    // Link TextStyle LAST (after all property modifications)
+    linkTextStyleIfApplicable(textNode, node, segments, usedFontFamily, context);
     return textNode;
   }
 
@@ -475,39 +580,54 @@ export async function createTextNode(
       textNode.resize(browserWidth, browserHeight);
       textNode.textAutoResize = "NONE";
     } else {
-      // Single-line text: try font-size reduction (max 1px)
-      let adjusted = false;
-      const newFontSize = originalFontSize - 1;
+      // Single-line text: HUG is wider than browser width
+      const parentW = context?.parentWidth || 0;
 
-      if (newFontSize >= 8) {
-        textNode.fontSize = newFontSize;
-        textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+      if (parentW > 0 && hugWidth <= parentW) {
+        // HUG fits within parent container — use HUG width (no truncation needed)
+        // This prevents unnecessary text wrapping when plugin font is slightly wider
+        textNode.resize(hugWidth, browserHeight);
+        textNode.textAutoResize = "NONE";
+      } else {
+        // HUG exceeds parent OR no parent info: try font-size reduction (max 1px)
+        let adjusted = false;
+        const newFontSize = originalFontSize - 1;
 
-        const newHugWidth = textNode.width;
-        const newHugHeight = textNode.height;
+        if (newFontSize >= 8) {
+          textNode.fontSize = newFontSize;
+          textNode.textAutoResize = "WIDTH_AND_HEIGHT";
 
-        // Check if now fits within browser width (1px tolerance)
-        if (newHugWidth <= browserWidth + 1) {
-          textNode.resize(Math.max(newHugWidth, browserWidth), browserHeight);
-          textNode.textAutoResize = "NONE";
-          adjusted = true;
-        } else {
-          // Check if still renders as ~1 line
-          const heightRatio = newHugHeight / browserHeight;
-          if (heightRatio <= 1.3) {
+          const newHugWidth = textNode.width;
+          const newHugHeight = textNode.height;
+
+          // Check if now fits within browser width (1px tolerance)
+          if (newHugWidth <= browserWidth + 1) {
+            textNode.resize(Math.max(newHugWidth, browserWidth), browserHeight);
+            textNode.textAutoResize = "NONE";
+            adjusted = true;
+          } else if (parentW > 0 && newHugWidth <= parentW) {
+            // After reduction, fits within parent — accept it
             textNode.resize(newHugWidth, browserHeight);
             textNode.textAutoResize = "NONE";
             adjusted = true;
+          } else {
+            // Check if still renders as ~1 line
+            const heightRatio = newHugHeight / browserHeight;
+            if (heightRatio <= 1.3) {
+              textNode.resize(newHugWidth, browserHeight);
+              textNode.textAutoResize = "NONE";
+              adjusted = true;
+            }
           }
         }
-      }
 
-      if (!adjusted) {
-        // Font-size reduction didn't help → restore and truncate
-        textNode.fontSize = originalFontSize;
-        textNode.resize(browserWidth, browserHeight);
-        textNode.textAutoResize = "NONE";
-        textNode.textTruncation = "ENDING";
+        if (!adjusted) {
+          // Font-size reduction didn't help → restore and truncate
+          textNode.fontSize = originalFontSize;
+          textNode.resize(browserWidth, browserHeight);
+          textNode.textAutoResize = "NONE";
+          textNode.textTruncation = "ENDING";
+        }
       }
     }
   } else {
@@ -528,6 +648,10 @@ export async function createTextNode(
     }
     textNode.textAutoResize = "NONE";
   }
+
+  // Link TextStyle LAST (after all property modifications including sizing)
+  // Uses actual textNode.fontSize which may have been reduced by sizing logic
+  linkTextStyleIfApplicable(textNode, node, segments, usedFontFamily, context);
 
   return textNode;
 }
@@ -582,7 +706,7 @@ export async function createTextWithBackground(
     );
     if (paints.length > 0) {
       frame.fills = paints;
-      linkFillStyleIfAvailable(frame, context);
+      linkFillStyleIfAvailable(frame, context, node.fills);
     } else {
       frame.fills = [];
     }

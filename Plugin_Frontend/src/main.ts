@@ -30,6 +30,8 @@ import {
   normalizeColorForLookup,
   createColorStylesFromVariables,
   createPluginColorStyles,
+  createWebsiteColorStyles,
+  createTextStyles,
   createWireframeFrame,
 } from "./rendering";
 
@@ -40,8 +42,21 @@ import {
 export default function () {
   showUI({ width: 400, height: 600 });
 
+  // Pending render state for font fallback popup flow
+  let pendingRenderData: { data: RenderWireframeData; executeRender: (font: string) => Promise<void> } | null = null;
+
   // Listen for messages from UI
   figma.ui.onmessage = async (msg) => {
+    // Handle font fallback choice from popup
+    if (msg.type === "font-fallback-choice") {
+      if (pendingRenderData) {
+        const { executeRender } = pendingRenderData;
+        pendingRenderData = null;
+        await executeRender(msg.data.chosenFont);
+      }
+      return;
+    }
+
     // Handle render-wireframe message
     if (msg.type === "render-wireframe") {
       const data = msg.data as RenderWireframeData;
@@ -73,7 +88,7 @@ export default function () {
 
       // Determine font family based on fontMode
       const websiteFont = frames[0]?.tree?.fontFamily || "Inter";
-      const fontFamily =
+      const initialFontFamily =
         effectiveFontMode === "plugin"
           ? pluginFont || "Montserrat"
           : websiteFont;
@@ -85,6 +100,9 @@ export default function () {
         });
         return;
       }
+
+      // Extract rendering into a function for font fallback flow
+      const executeRender = async (fontFamily: string) => {
 
       logger.info("Creating wireframe", {
         frameCount: frames.length,
@@ -150,26 +168,52 @@ export default function () {
           } catch (err) {
             logger.warn("Failed to create plugin color styles", { error: err });
           }
-        } else if (cssVariables && cssVariables.length > 0) {
-          figma.notify("Creating color styles from CSS variables...", {
-            timeout: 1500,
-          });
+        } else {
+          // Website color mode: create styles from ALL colors in the tree
+          figma.notify("Creating website color styles...", { timeout: 1500 });
+
+          // Step 1: CSS variable styles first (highest naming priority)
+          if (cssVariables && cssVariables.length > 0) {
+            try {
+              const cssVarStyleMap = await createColorStylesFromVariables(
+                cssVariables,
+                sourceUrl
+              );
+              logger.info("Created CSS variable color styles", {
+                styleCount: cssVarStyleMap.size,
+              });
+
+              for (const variable of cssVariables) {
+                const normalizedValue = normalizeColorForLookup(variable.value);
+                const style = cssVarStyleMap.get(variable.name);
+                if (style && normalizedValue) {
+                  colorStyleMap.set(normalizedValue, style);
+                }
+              }
+            } catch (err) {
+              logger.warn("Failed to create CSS variable styles", { error: err });
+            }
+          }
+
+          // Step 2: Collect ALL website colors and create styles for remaining
           try {
-            const styleMap = await createColorStylesFromVariables(
-              cssVariables,
+            const websiteStyleMap = await createWebsiteColorStyles(
+              frames,
+              cssVariables || [],
               sourceUrl
             );
-            logger.info("Created color styles", { styleCount: styleMap.size });
+            logger.info("Created website color styles", {
+              styleCount: websiteStyleMap.size,
+            });
 
-            for (const variable of cssVariables) {
-              const normalizedValue = normalizeColorForLookup(variable.value);
-              const style = styleMap.get(variable.name);
-              if (style && normalizedValue) {
-                colorStyleMap.set(normalizedValue, style);
+            websiteStyleMap.forEach((style, hex) => {
+              if (!colorStyleMap.has(hex)) {
+                // CSS variable styles take priority
+                colorStyleMap.set(hex, style);
               }
-            }
+            });
           } catch (err) {
-            logger.warn("Failed to create color styles", { error: err });
+            logger.warn("Failed to create website color styles", { error: err });
           }
         }
       }
@@ -186,6 +230,31 @@ export default function () {
         colorMode: effectiveColorMode,
         fontMode: effectiveFontMode,
       };
+
+      // Create text styles if "Create Figma Styles" is enabled
+      if (variableMode === "styles") {
+        figma.ui.postMessage({
+          type: "render-progress",
+          data: {
+            step: "Creating text styles...",
+            percent: 18,
+          },
+        });
+
+        try {
+          const textStyleMap = await createTextStyles(
+            frames,
+            fontFamily,
+            effectiveFontMode
+          );
+          renderContext.textStyleMap = textStyleMap;
+          logger.info("Created text styles", {
+            styleCount: textStyleMap.size,
+          });
+        } catch (err) {
+          logger.warn("Failed to create text styles", { error: err });
+        }
+      }
 
       // Send "analyzing structure" progress
       figma.ui.postMessage({
@@ -354,6 +423,34 @@ export default function () {
           },
         });
       }
+      }; // end executeRender
+
+      // Pre-render font availability check (website font mode only)
+      if (effectiveFontMode === "website") {
+        let fontAvailable = true;
+        try {
+          await figma.loadFontAsync({ family: initialFontFamily, style: "Regular" });
+        } catch {
+          fontAvailable = false;
+        }
+
+        if (!fontAvailable) {
+          const fallbackList = frames[0]?.tree?.fontFamilyList || [];
+          const nextFallback = fallbackList.find((f: string) => f !== initialFontFamily) || "Inter";
+          pendingRenderData = { data, executeRender };
+          figma.ui.postMessage({
+            type: "font-not-available",
+            data: {
+              missingFont: initialFontFamily,
+              nextFallback,
+              pluginDefault: pluginFont || "Montserrat",
+            },
+          });
+          return; // Wait for user choice via font-fallback-choice message
+        }
+      }
+
+      await executeRender(initialFontFamily);
     }
 
     // Handle open-wireframe message from Library

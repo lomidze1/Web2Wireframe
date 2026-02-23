@@ -213,6 +213,7 @@ function collectStyledText(
     fontWeight: number;
     fontSize: number;
     fontFamily: string;
+    fontFamilyList?: string[];
     textDecoration?: "underline" | "line-through" | "none";
   }
 ): StyledTextSegment[] {
@@ -236,6 +237,7 @@ function collectStyledText(
           fontWeight: parentStyles.fontWeight,
           fontSize: parentStyles.fontSize,
           fontFamily: parentStyles.fontFamily,
+          fontFamilyList: parentStyles.fontFamilyList,
           tag: node.nodeName,
           textDecoration: parentStyles.textDecoration,
         });
@@ -250,8 +252,12 @@ function collectStyledText(
         const childColor = parseColor(child.computedStyles["color"]) || parentStyles.color;
         const childFontWeight = parseInt(child.computedStyles["font-weight"] || "0") || parentStyles.fontWeight;
         const childFontSize = parseInt(child.computedStyles["font-size"] || "0") || parentStyles.fontSize;
-        const childFontFamily = (child.computedStyles["font-family"] || parentStyles.fontFamily)
-          .split(",")[0]?.replace(/['"]/g, "").trim();
+        const childFontFamilyRaw = child.computedStyles["font-family"] || parentStyles.fontFamily;
+        const childFontFamilyList = childFontFamilyRaw
+          .split(",")
+          .map((f: string) => f.replace(/['"]/g, "").trim())
+          .filter((f: string) => f.length > 0);
+        const childFontFamily = childFontFamilyList[0] || parentStyles.fontFamily;
 
         // Parse text-decoration
         const rawTextDecoration = child.computedStyles["text-decoration"] ||
@@ -271,6 +277,7 @@ function collectStyledText(
           fontWeight: childFontWeight,
           fontSize: childFontSize,
           fontFamily: childFontFamily,
+          fontFamilyList: childFontFamilyList,
           textDecoration: childTextDecoration,
         };
 
@@ -781,10 +788,12 @@ export function buildElementTree(
     const effects = [...shadowEffects, ...blurEffects];
 
     // Typography
-    const fontFamily = (computedStyles["font-family"] || "Inter")
-      .split(",")[0]
-      ?.replace(/['"]/g, "")
-      .trim();
+    const fontFamilyRaw = computedStyles["font-family"] || "Inter";
+    const fontFamilyList = fontFamilyRaw
+      .split(",")
+      .map((f: string) => f.replace(/['"]/g, "").trim())
+      .filter((f: string) => f.length > 0);
+    const fontFamily = fontFamilyList[0] || "Inter";
     const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
     const fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
     const lineHeight = computedStyles["line-height"] || "normal";
@@ -899,6 +908,7 @@ export function buildElementTree(
         fontWeight,
         fontSize,
         fontFamily,
+        fontFamilyList,
         textDecoration: parentTextDecoration,
       };
       styledSegments = collectStyledText(node.index, nodes, childrenMap, parentStyles);
@@ -974,6 +984,7 @@ export function buildElementTree(
       borderRadius,
       boxShadow,
       fontFamily,
+      fontFamilyList,
       fontSize,
       fontWeight,
       lineHeight,
@@ -1120,6 +1131,7 @@ export function buildElementTree(
           browserLineCount,
           element.computedStyles
         );
+        textChild.fontFamilyList = fontFamilyList;
 
         // Add styled segments to the text child
         if (textWithBulletSegments.length > 0) {
@@ -1154,6 +1166,7 @@ export function buildElementTree(
         browserLineCount,
         element.computedStyles
       );
+      textChild.fontFamilyList = fontFamilyList;
 
       // Pass through styled segments if available
       if (styledSegments.length > 0) {
@@ -1203,6 +1216,8 @@ export function buildElementTree(
           browserLineCount,
           element.computedStyles
         );
+
+        textChild.fontFamilyList = fontFamilyList;
 
         // Pass through styled segments if available
         if (styledSegments.length > 0) {

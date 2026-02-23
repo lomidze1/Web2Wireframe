@@ -5,6 +5,7 @@ import styles from "./BrowserExtension.css";
 import ImportOptionsModal, {
   type UnifiedImportOptions,
 } from "../../../components/modalPopup/ImportOptionsModal";
+import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForAbsoluteMode, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -49,6 +50,13 @@ export default function BrowserExtension() {
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
+  // Font fallback modal state
+  const [showFontModal, setShowFontModal] = useState(false);
+  const [fontModalData, setFontModalData] = useState<{
+    missingFont: string;
+    nextFallback: string;
+    pluginDefault: string;
+  } | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { config } = useConfig();
@@ -181,6 +189,11 @@ export default function BrowserExtension() {
         // Handled by render-progress with isComplete
       }
 
+      if (msg.type === "font-not-available") {
+        setFontModalData(msg.data);
+        setShowFontModal(true);
+      }
+
       if (msg.type === "wireframe-error") {
         setShowRenderingLoader(false);
         setRenderingProgress(undefined);
@@ -194,6 +207,20 @@ export default function BrowserExtension() {
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
   }, []);
+
+  const handleFontFallbackChoice = (_choice: string, chosenFont: string) => {
+    setShowFontModal(false);
+    setFontModalData(null);
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "font-fallback-choice",
+          data: { chosenFont },
+        },
+      },
+      "*"
+    );
+  };
 
   /**
    * Send wireframe data to Figma with unified options
@@ -229,6 +256,7 @@ export default function BrowserExtension() {
             sourceUrl: data.sourceUrl,
             localStyles: data.localStyles,
             pluginColors: config.pluginColors,
+            pluginFont: config.pluginFont,
             cssVariables: data.cssVariables || [],
             variableMode: options.cssVariablesMode,
             layoutMode: options.layoutMode,
@@ -377,6 +405,15 @@ export default function BrowserExtension() {
         onCancel={handleOptionsCancel}
         sourceUrl={pendingData?.sourceUrl}
         hasCssVariables={hasCssVariables}
+      />
+
+      {/* Font Fallback Modal */}
+      <FontFallbackModal
+        isOpen={showFontModal}
+        missingFont={fontModalData?.missingFont || ""}
+        nextFallback={fontModalData?.nextFallback || ""}
+        pluginDefault={fontModalData?.pluginDefault || "Montserrat"}
+        onChoice={handleFontFallbackChoice}
       />
 
       {/* Rendering Loader Overlay */}

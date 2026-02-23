@@ -256,6 +256,7 @@ export interface StyledTextSegment {
   fontWeight: number;
   fontSize: number;
   fontFamily?: string;
+  fontFamilyList?: string[];  // Full CSS font-family fallback chain
   isLink?: boolean;         // Is this an <a> element?
   tag?: string;             // Original tag (span, a, strong, etc.)
   textDecoration?: "underline" | "line-through" | "none";  // CSS text-decoration
@@ -322,6 +323,7 @@ export interface ExtractedElement {
 
   // Typography
   fontFamily: string;
+  fontFamilyList?: string[];  // Full CSS font-family fallback chain
   fontSize: number;
   fontWeight: number;
   lineHeight: number | string;

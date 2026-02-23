@@ -1215,7 +1215,12 @@ function buildElementTreeFromBounds(
     const effects = [...shadowEffects, ...blurEffects];
 
     // Typography
-    const fontFamily = (computedStyles["font-family"] || "Inter").split(",")[0]?.replace(/['"]/g, "").trim();
+    const fontFamilyRaw = computedStyles["font-family"] || "Inter";
+    const fontFamilyList = fontFamilyRaw
+      .split(",")
+      .map((f: string) => f.replace(/['"]/g, "").trim())
+      .filter((f: string) => f.length > 0);
+    const fontFamily = fontFamilyList[0] || "Inter";
     const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
     const fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
     const lineHeight = computedStyles["line-height"] || "normal";
@@ -1335,6 +1340,7 @@ function buildElementTreeFromBounds(
       borderRadius,
       boxShadow,
       fontFamily,
+      fontFamilyList,
       fontSize,
       fontWeight,
       lineHeight,

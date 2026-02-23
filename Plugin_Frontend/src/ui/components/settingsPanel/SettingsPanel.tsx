@@ -216,7 +216,7 @@ export default function SettingsPanel({
                   )
                 }
               >
-                <option value="direct">Direct Colors</option>
+                <option value="direct">Direct Value</option>
                 <option value="styles">Create Figma Styles</option>
               </select>
             </div>

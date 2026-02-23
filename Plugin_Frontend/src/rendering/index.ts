@@ -53,9 +53,13 @@ export {
 export {
   linkFillStyleIfAvailable,
   linkStrokeStyleIfAvailable,
+  paintKeyFromFigmaFill,
+  paintKeyFromPaint,
   isColorValue,
   createColorStylesFromVariables,
   createPluginColorStyles,
+  createWebsiteColorStyles,
+  createTextStyles,
 } from "./styles";
 
 // Text node creation

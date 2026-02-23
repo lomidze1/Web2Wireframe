@@ -46,8 +46,8 @@ export default function VariablesChoiceModal({
             >
               <div class={styles.variablesOptionIcon}>🔲</div>
               <div class={styles.variablesOptionContent}>
-                <strong>Direct Colors</strong>
-                <span>Apply resolved color values directly to elements</span>
+                <strong>Direct Value</strong>
+                <span>Apply values directly to elements without Figma styles</span>
               </div>
             </button>
           </div>

@@ -250,7 +250,7 @@ export async function createNodeInFigma(
     );
     if (paints.length > 0) {
       frame.fills = paints;
-      linkFillStyleIfAvailable(frame, context);
+      linkFillStyleIfAvailable(frame, context, node.fills);
     } else {
       frame.fills = [];
     }
@@ -336,10 +336,11 @@ export async function createNodeInFigma(
     const currentBgColor = getDominantColorFromPaints(frame.fills as Paint[]);
     const effectiveParentBg = currentBgColor || context.parentBackgroundColor;
 
-    // Create child context with parent background tracking
+    // Create child context with parent background and width tracking
     const childContext: RenderContext = {
       ...context,
       parentBackgroundColor: effectiveParentBg,
+      parentWidth: node.width,
     };
 
     for (const child of node.children) {
@@ -683,7 +684,7 @@ export async function createWireframeFrame(
       );
       if (rootFills.length > 0) {
         wireframeFrame.fills = rootFills;
-        linkFillStyleIfAvailable(wireframeFrame, context);
+        linkFillStyleIfAvailable(wireframeFrame, context, frameData.tree.fills);
       } else {
         wireframeFrame.fills = [
           {
@@ -718,6 +719,7 @@ export async function createWireframeFrame(
     const childContext: RenderContext = {
       ...context,
       parentBackgroundColor: rootBgColor,
+      parentWidth: frameData.viewportWidth,
     };
 
     for (const child of frameData.tree.children) {

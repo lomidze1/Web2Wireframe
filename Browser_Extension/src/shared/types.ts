@@ -165,6 +165,7 @@ export interface ExtractedElement {
 
   // Typography
   fontFamily: string;
+  fontFamilyList?: string[];
   fontSize: number;
   fontWeight: number;
   lineHeight: number | string;

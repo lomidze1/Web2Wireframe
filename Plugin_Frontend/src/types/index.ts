@@ -151,6 +151,7 @@ export interface WireframeNode {
   fontSize: number;
   fontWeight: number;
   fontFamily: string;
+  fontFamilyList?: string[];         // Full CSS font-family fallback chain
   textAlign: string;
   lineHeight: number | string;
   letterSpacing: number;
@@ -216,8 +217,12 @@ export interface RenderContext {
   // Import options
   colorMode: "plugin" | "website";
   fontMode: "plugin" | "website";
+  // Text style linking map (typography key → TextStyle)
+  textStyleMap?: Map<string, TextStyle>;
   // Parent background tracking for child-parent contrast
   parentBackgroundColor?: { r: number; g: number; b: number } | null;
+  // Parent container width for text sizing decisions
+  parentWidth?: number;
 }
 
 /**
@@ -238,6 +243,7 @@ export interface TextSegment {
   fontWeight: number;
   fontSize: number;
   fontFamily?: string;
+  fontFamilyList?: string[];  // Full CSS font-family fallback chain for this segment
   isLink?: boolean;  // Is this an <a> element?
   tag?: string;      // Original tag (span, a, strong, etc.)
   textDecoration?: "underline" | "line-through" | "none";  // CSS text-decoration

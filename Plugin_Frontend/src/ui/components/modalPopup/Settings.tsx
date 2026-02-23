@@ -1070,9 +1070,9 @@ export default function Settings({
                             }
                           />
                           <div class={styles.radioLabel}>
-                            <strong>Direct Colors</strong>
+                            <strong>Direct Value</strong>
                             <span>
-                              Apply colors directly to elements without creating
+                              Apply values directly to elements without creating
                               Figma styles.
                             </span>
                           </div>

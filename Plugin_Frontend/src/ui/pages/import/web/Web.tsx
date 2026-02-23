@@ -8,6 +8,7 @@ import SettingsPanel from "../../../components/settingsPanel";
 import VariablesChoiceModal, {
   type VariableMode,
 } from "../../../components/modalPopup/VariablesChoiceModal";
+import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -48,6 +49,13 @@ export default function Web() {
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
+  // Font fallback modal state
+  const [showFontModal, setShowFontModal] = useState(false);
+  const [fontModalData, setFontModalData] = useState<{
+    missingFont: string;
+    nextFallback: string;
+    pluginDefault: string;
+  } | null>(null);
 
   // Use shared hook for all settings logic
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
@@ -73,6 +81,11 @@ export default function Web() {
             setPendingRenderData(null);
           }, 10000); // Show success state for 10 seconds
         }
+      }
+
+      if (msg.type === "font-not-available") {
+        setFontModalData(msg.data);
+        setShowFontModal(true);
       }
 
       if (msg.type === "wireframe-error") {
@@ -110,6 +123,7 @@ export default function Web() {
             sourceUrl: data.sourceUrl,
             localStyles: data.localStyles,
             pluginColors: data.pluginColors,
+            pluginFont: config.pluginFont,
             cssVariables: data.cssVariables || [],
             variableMode, // "styles" or "direct"
             colorMode: data.colorMode,
@@ -131,6 +145,20 @@ export default function Web() {
     if (pendingRenderData) {
       sendToFigma(pendingRenderData, mode);
     }
+  };
+
+  const handleFontFallbackChoice = (_choice: string, chosenFont: string) => {
+    setShowFontModal(false);
+    setFontModalData(null);
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "font-fallback-choice",
+          data: { chosenFont },
+        },
+      },
+      "*"
+    );
   };
 
   const handleImport = async () => {
@@ -298,6 +326,15 @@ export default function Web() {
       <VariablesChoiceModal
         isOpen={showVariablesModal}
         onChoice={handleVariableChoice}
+      />
+
+      {/* Font Fallback Modal */}
+      <FontFallbackModal
+        isOpen={showFontModal}
+        missingFont={fontModalData?.missingFont || ""}
+        nextFallback={fontModalData?.nextFallback || ""}
+        pluginDefault={fontModalData?.pluginDefault || "Montserrat"}
+        onChoice={handleFontFallbackChoice}
       />
 
       {/* Rendering Loader Overlay */}

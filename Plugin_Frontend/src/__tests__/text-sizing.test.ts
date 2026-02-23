@@ -360,3 +360,559 @@ describe("Case C sizing decision logic", () => {
     });
   });
 });
+
+// ============================================================================
+// parentWidth-based sizing decision (Case B: HUG wider than browser)
+// ============================================================================
+
+describe("parentWidth-based sizing decision", () => {
+  // Tests the decision logic for when HUG width > browser width (single-line text).
+  // If HUG fits within parent container, use HUG width (no truncation).
+  // If HUG exceeds parent, try font-size reduction then truncate.
+
+  interface SizingInput {
+    hugWidth: number;
+    browserWidth: number;
+    browserHeight: number;
+    browserLineCount: number;
+    parentWidth: number;
+    originalFontSize: number;
+  }
+
+  type SizingResult =
+    | { action: "useHug"; width: number }
+    | { action: "useBrowser" }
+    | { action: "tryReduction" };
+
+  /**
+   * Pure-function simulation of the Case B sizing decision in createTextNode.
+   * This mirrors the logic at text.ts lines 562-618.
+   */
+  function caseBSizingDecision(input: SizingInput): SizingResult {
+    const { hugWidth, browserWidth, browserLineCount, parentWidth } = input;
+    const widthDiff = hugWidth - browserWidth;
+
+    // Not Case B: HUG is same or narrower than browser
+    if (widthDiff <= 1) {
+      return { action: "useHug", width: hugWidth };
+    }
+
+    // Case B: HUG wider than browser
+    if (browserLineCount > 1) {
+      // Multi-line: use browser dimensions
+      return { action: "useBrowser" };
+    }
+
+    // Single-line: check parentWidth
+    if (parentWidth > 0 && hugWidth <= parentWidth) {
+      // HUG fits within parent — use HUG width
+      return { action: "useHug", width: hugWidth };
+    }
+
+    // HUG exceeds parent or no parent info
+    return { action: "tryReduction" };
+  }
+
+  describe("single-line text: HUG fits within parent", () => {
+    it("uses HUG width when HUG <= parentWidth", () => {
+      // Plugin font is slightly wider (150px HUG vs 130px browser)
+      // but parent container is 300px, so it fits fine
+      const result = caseBSizingDecision({
+        hugWidth: 150,
+        browserWidth: 130,
+        browserHeight: 20,
+        browserLineCount: 1,
+        parentWidth: 300,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useHug", width: 150 });
+    });
+
+    it("uses HUG width when HUG exactly equals parentWidth", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 300,
+        browserWidth: 250,
+        browserHeight: 20,
+        browserLineCount: 1,
+        parentWidth: 300,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useHug", width: 300 });
+    });
+
+    it("prevents truncation for Montserrat (wider font) nav text", () => {
+      // Real-world: "How It Works" in Montserrat is wider than Space Grotesk
+      // Browser: 100px, HUG: 120px, parent nav container: 306px
+      const result = caseBSizingDecision({
+        hugWidth: 120,
+        browserWidth: 100,
+        browserHeight: 21,
+        browserLineCount: 1,
+        parentWidth: 306,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useHug", width: 120 });
+    });
+  });
+
+  describe("single-line text: HUG exceeds parent", () => {
+    it("tries font reduction when HUG > parentWidth", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 350,
+        browserWidth: 300,
+        browserHeight: 20,
+        browserLineCount: 1,
+        parentWidth: 320,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "tryReduction" });
+    });
+
+    it("tries font reduction when no parent info (parentWidth = 0)", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 200,
+        browserWidth: 150,
+        browserHeight: 20,
+        browserLineCount: 1,
+        parentWidth: 0,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "tryReduction" });
+    });
+  });
+
+  describe("multi-line text always uses browser dimensions", () => {
+    it("uses browser width for multi-line text regardless of parent", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 500,
+        browserWidth: 340,
+        browserHeight: 52,
+        browserLineCount: 2,
+        parentWidth: 1000,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useBrowser" });
+    });
+
+    it("uses browser width for 3-line text", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 800,
+        browserWidth: 340,
+        browserHeight: 78,
+        browserLineCount: 3,
+        parentWidth: 500,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useBrowser" });
+    });
+  });
+
+  describe("width difference within tolerance", () => {
+    it("uses HUG when difference is exactly 1px", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 201,
+        browserWidth: 200,
+        browserHeight: 20,
+        browserLineCount: 1,
+        parentWidth: 300,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useHug", width: 201 });
+    });
+
+    it("uses HUG when HUG equals browser width", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 200,
+        browserWidth: 200,
+        browserHeight: 20,
+        browserLineCount: 1,
+        parentWidth: 300,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useHug", width: 200 });
+    });
+  });
+});
+
+// ============================================================================
+// TextStyle linking decision logic
+// ============================================================================
+
+describe("TextStyle linking decision logic", () => {
+  // Tests the conditions for linkTextStyleIfApplicable.
+  // TextStyle can only be linked for single-segment text nodes when:
+  // 1. variableMode === "styles"
+  // 2. textStyleMap is present and has matching key
+  // 3. segments.length === 1
+  // 4. node has NO custom letterSpacing (non-zero)
+  // 5. node has NO custom lineHeight (not "normal" / not undefined)
+
+  interface TextStyleInput {
+    variableMode: string;
+    hasTextStyleMap: boolean;
+    segmentCount: number;
+    fontFamily: string;
+    fontWeight: number;
+    fontSize: number;
+    letterSpacing?: number;
+    lineHeight?: string | number;
+  }
+
+  /** Generate the TextStyle map key (mirrors text.ts logic) */
+  function getTextStyleKey(
+    fontFamily: string,
+    fontWeight: number,
+    fontSize: number
+  ): string {
+    const styleStr =
+      fontWeight >= 600 ? "Bold" : fontWeight >= 500 ? "Medium" : "Regular";
+    return `${fontFamily}-${styleStr}-${fontSize}`;
+  }
+
+  /** Check if TextStyle linking conditions are met (mirrors text.ts logic) */
+  function shouldLinkTextStyle(input: TextStyleInput): boolean {
+    if (
+      input.variableMode !== "styles" ||
+      !input.hasTextStyleMap ||
+      input.segmentCount !== 1
+    ) {
+      return false;
+    }
+    // Skip if node has custom letterSpacing (would be destroyed by TextStyle)
+    if (input.letterSpacing && input.letterSpacing !== 0) {
+      return false;
+    }
+    // Skip if node has custom lineHeight (would be destroyed by TextStyle)
+    if (input.lineHeight && input.lineHeight !== "normal") {
+      return false;
+    }
+    return true;
+  }
+
+  describe("TextStyle key generation", () => {
+    it("generates key for Bold weight (>=600)", () => {
+      expect(getTextStyleKey("Space Grotesk", 700, 16)).toBe(
+        "Space Grotesk-Bold-16"
+      );
+      expect(getTextStyleKey("Space Grotesk", 600, 24)).toBe(
+        "Space Grotesk-Bold-24"
+      );
+      expect(getTextStyleKey("Montserrat", 900, 32)).toBe(
+        "Montserrat-Bold-32"
+      );
+    });
+
+    it("generates key for Medium weight (500-599)", () => {
+      expect(getTextStyleKey("Inter", 500, 14)).toBe("Inter-Medium-14");
+      expect(getTextStyleKey("Inter", 550, 16)).toBe("Inter-Medium-16");
+    });
+
+    it("generates key for Regular weight (<500)", () => {
+      expect(getTextStyleKey("Space Grotesk", 400, 16)).toBe(
+        "Space Grotesk-Regular-16"
+      );
+      expect(getTextStyleKey("Space Grotesk", 300, 13)).toBe(
+        "Space Grotesk-Regular-13"
+      );
+      expect(getTextStyleKey("Inter", 100, 12)).toBe("Inter-Regular-12");
+    });
+  });
+
+  describe("linking conditions", () => {
+    it("allows linking for single-segment text with styles mode", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+        })
+      ).toBe(true);
+    });
+
+    it("blocks linking when variableMode is direct", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "direct",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+        })
+      ).toBe(false);
+    });
+
+    it("blocks linking when no textStyleMap", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: false,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+        })
+      ).toBe(false);
+    });
+
+    it("blocks linking for multi-segment text (e.g. '$0 /forever')", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 2,
+          fontFamily: "Space Grotesk",
+          fontWeight: 700,
+          fontSize: 24,
+        })
+      ).toBe(false);
+    });
+
+    it("blocks linking for 3+ segment text", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 3,
+          fontFamily: "Inter",
+          fontWeight: 400,
+          fontSize: 14,
+        })
+      ).toBe(false);
+    });
+  });
+
+  describe("real-world scenarios", () => {
+    it("links single heading text", () => {
+      const key = getTextStyleKey("Space Grotesk", 700, 32);
+      expect(key).toBe("Space Grotesk-Bold-32");
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 700,
+          fontSize: 32,
+        })
+      ).toBe(true);
+    });
+
+    it("does NOT link price text '$12 /month' (2 segments)", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 2,
+          fontFamily: "Space Grotesk",
+          fontWeight: 700,
+          fontSize: 24,
+        })
+      ).toBe(false);
+    });
+
+    it("does NOT link banner text with email link (2 segments)", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 2,
+          fontFamily: "Space Grotesk",
+          fontWeight: 700,
+          fontSize: 24,
+        })
+      ).toBe(false);
+    });
+
+    it("links single list item text", () => {
+      const key = getTextStyleKey("Space Grotesk", 400, 16);
+      expect(key).toBe("Space Grotesk-Regular-16");
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+        })
+      ).toBe(true);
+    });
+  });
+
+  describe("letterSpacing and lineHeight protection", () => {
+    it("blocks linking when letterSpacing is non-zero", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+          letterSpacing: -0.5,
+        })
+      ).toBe(false);
+    });
+
+    it("blocks linking when letterSpacing is positive", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 700,
+          fontSize: 24,
+          letterSpacing: 1.2,
+        })
+      ).toBe(false);
+    });
+
+    it("allows linking when letterSpacing is 0", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+          letterSpacing: 0,
+        })
+      ).toBe(true);
+    });
+
+    it("allows linking when letterSpacing is undefined", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+          letterSpacing: undefined,
+        })
+      ).toBe(true);
+    });
+
+    it("blocks linking when lineHeight is a pixel value", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+          lineHeight: "24px",
+        })
+      ).toBe(false);
+    });
+
+    it("blocks linking when lineHeight is a numeric ratio", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+          lineHeight: 1.5,
+        })
+      ).toBe(false);
+    });
+
+    it("blocks linking when lineHeight is a percentage", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Inter",
+          fontWeight: 400,
+          fontSize: 14,
+          lineHeight: "150%",
+        })
+      ).toBe(false);
+    });
+
+    it("allows linking when lineHeight is 'normal'", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+          lineHeight: "normal",
+        })
+      ).toBe(true);
+    });
+
+    it("allows linking when lineHeight is undefined", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+          lineHeight: undefined,
+        })
+      ).toBe(true);
+    });
+
+    it("blocks linking when BOTH letterSpacing and lineHeight are set", () => {
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 700,
+          fontSize: 32,
+          letterSpacing: -0.8,
+          lineHeight: "40px",
+        })
+      ).toBe(false);
+    });
+
+    it("real-world: nav text with letter-spacing does NOT link TextStyle", () => {
+      // Prevents text reflow: "How It Works" with letter-spacing: -0.5px
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 400,
+          fontSize: 16,
+          letterSpacing: -0.5,
+        })
+      ).toBe(false);
+    });
+
+    it("real-world: heading with line-height does NOT link TextStyle", () => {
+      // Prevents layout shift: heading with line-height: 1.2
+      expect(
+        shouldLinkTextStyle({
+          variableMode: "styles",
+          hasTextStyleMap: true,
+          segmentCount: 1,
+          fontFamily: "Space Grotesk",
+          fontWeight: 700,
+          fontSize: 48,
+          lineHeight: 1.2,
+        })
+      ).toBe(false);
+    });
+  });
+});

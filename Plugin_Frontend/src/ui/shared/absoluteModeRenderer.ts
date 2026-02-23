@@ -124,6 +124,7 @@ export interface ExtractedElement {
   };
   boxShadow?: string | null;
   fontFamily: string;
+  fontFamilyList?: string[];
   fontSize: number;
   fontWeight: number;
   lineHeight: number | string;
@@ -196,6 +197,7 @@ export interface WireframeNode {
   fontSize: number;
   fontWeight: number;
   fontFamily: string;
+  fontFamilyList?: string[];
   textAlign: string;
   lineHeight: number | string;
   letterSpacing: number;
@@ -335,6 +337,7 @@ export function convertToWireframeNode(
     fontSize: element.fontSize || 14,
     fontWeight: element.fontWeight || 400,
     fontFamily: element.fontFamily || "Inter",
+    fontFamilyList: element.fontFamilyList,
     textAlign: element.textAlign || "left",
     lineHeight: element.lineHeight || "normal",
     letterSpacing: element.letterSpacing || 0,
