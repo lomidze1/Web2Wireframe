@@ -71,6 +71,18 @@ interface FigmaEffect {
   blurRadius?: number;
 }
 
+/** Styled text segment for inline elements with different styles */
+export interface StyledTextSegment {
+  text: string;
+  color: string | null;
+  fontWeight: number;
+  fontSize: number;
+  fontFamily?: string;
+  isLink?: boolean;
+  tag?: string;
+  textDecoration?: "underline" | "line-through" | "none";
+}
+
 // ============================================================================
 // EXTRACTED ELEMENT (from CDP / Browser Extension)
 // ============================================================================
@@ -118,6 +130,9 @@ export interface ExtractedElement {
   letterSpacing: number;
   textAlign: string;
   textContent: string;
+  browserLineCount?: number;
+  styledSegments?: StyledTextSegment[];
+  listStyleType?: string;
   opacity: number;
   isPlaceholder: boolean;
   overflow?: "visible" | "hidden" | "scroll" | "auto";
@@ -175,12 +190,15 @@ export interface WireframeNode {
   justifySelf?: string;
   margin?: { top: number; right: number; bottom: number; left: number };
   textContent: string;
+  styledSegments?: StyledTextSegment[];
+  listStyleType?: string;
   fontSize: number;
   fontWeight: number;
   fontFamily: string;
   textAlign: string;
   lineHeight: number | string;
   letterSpacing: number;
+  browserLineCount?: number;
   isPlaceholder: boolean;
   children: WireframeNode[];
 }
@@ -310,12 +328,15 @@ export function convertToWireframeNode(
     overflow: element.overflow,
     horizontallyCentered: element.horizontallyCentered,
     textContent: element.textContent || "",
+    styledSegments: element.styledSegments,
+    listStyleType: element.listStyleType,
     fontSize: element.fontSize || 14,
     fontWeight: element.fontWeight || 400,
     fontFamily: element.fontFamily || "Inter",
     textAlign: element.textAlign || "left",
     lineHeight: element.lineHeight || "normal",
     letterSpacing: element.letterSpacing || 0,
+    browserLineCount: element.browserLineCount,
     isPlaceholder: element.isPlaceholder,
     children,
   };

@@ -146,12 +146,15 @@ export interface WireframeNode {
 
   // Text
   textContent: string;
+  styledSegments?: TextSegment[];  // Inline elements with different styles
+  listStyleType?: string;           // Bullet type for <li> elements
   fontSize: number;
   fontWeight: number;
   fontFamily: string;
   textAlign: string;
   lineHeight: number | string;
   letterSpacing: number;
+  browserLineCount?: number;        // Number of lines from browser (from CDP textBoxes.length)
 
   // Media
   isPlaceholder: boolean;
@@ -225,12 +228,16 @@ export type ColorRole =
   | "surface" // #AAB5C3 - Cards, containers
   | "accent"; // #AFC6DC - Buttons, links, CTAs
 
-// Text segment for tracking styled ranges
+// Text segment for tracking styled ranges (inline elements with different styles)
 export interface TextSegment {
   text: string;
-  color: string;
+  color: string | null;
   fontWeight: number;
   fontSize: number;
+  fontFamily?: string;
+  isLink?: boolean;  // Is this an <a> element?
+  tag?: string;      // Original tag (span, a, strong, etc.)
+  textDecoration?: "underline" | "line-through" | "none";  // CSS text-decoration
 }
 
 // Color stop for gradient parsing

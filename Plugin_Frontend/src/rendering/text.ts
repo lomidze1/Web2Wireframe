@@ -24,8 +24,28 @@ import { linkFillStyleIfAvailable, linkStrokeStyleIfAvailable } from "./styles";
 /**
  * Collect all text segments from a node and its inline children
  * Handles parent text content and inline text children (like <a> inside <h2>)
+ *
+ * Priority:
+ * 1. Use pre-extracted styledSegments if available (from CDP extraction)
+ * 2. Fall back to old method (parent + inline children)
  */
 export function collectTextSegments(node: WireframeNode): TextSegment[] {
+  // NEW: Use pre-extracted styled segments if available
+  // These come from CDP extraction and preserve exact inline element styles
+  if (node.styledSegments && node.styledSegments.length > 0) {
+    return node.styledSegments.map(seg => ({
+      text: seg.text,
+      color: seg.color || node.textColor || "#333333",
+      fontWeight: seg.fontWeight || node.fontWeight || 400,
+      fontSize: seg.fontSize || node.fontSize || 14,
+      fontFamily: seg.fontFamily,
+      isLink: seg.isLink,
+      tag: seg.tag,
+      textDecoration: seg.textDecoration,
+    }));
+  }
+
+  // FALLBACK: Old method for backward compatibility
   const segments: TextSegment[] = [];
 
   // Add parent text content if exists (may be partial)
@@ -123,9 +143,9 @@ export async function createTextNode(
   textNode.fontName = { family: usedFontFamily, style: mainFontStyle };
 
   // Combine all text content
-  // In plugin colors mode, add whitespace separator between nested segments
+  // Add whitespace separator between segments when missing (ensures proper spacing)
   let fullText: string;
-  if (context?.colorMode === "plugin" && segments.length > 1) {
+  if (segments.length > 1) {
     fullText = segments
       .map((s, i) => {
         const text = s.text;
@@ -154,9 +174,9 @@ export async function createTextNode(
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx];
 
-      // Account for added separator space in plugin mode
+      // Account for added separator space between segments
       let addedSeparator = 0;
-      if (context?.colorMode === "plugin" && segIdx > 0) {
+      if (segIdx > 0) {
         const prevText = segments[segIdx - 1].text;
         const prevEndsWithSpace = /\s$/.test(prevText);
         const thisStartsWithSpace = /^\s/.test(segment.text);
@@ -172,10 +192,10 @@ export async function createTextNode(
       if (startIdx >= endIdx) continue;
 
       // Apply segment color
-      let segmentColorToUse = segment.color;
+      let segmentColorToUse: string = segment.color || node.textColor || "#333333";
       if (context?.colorMode === "plugin") {
-        const tagLower = node.tag?.toLowerCase() || "";
-        const isLink = tagLower === "a";
+        const tagLower = segment.tag?.toLowerCase() || node.tag?.toLowerCase() || "";
+        const isLink = segment.isLink || tagLower === "a";
         segmentColorToUse = getSmartTextColor(node, context, isLink);
       }
       const colorWithOpacity = cssColorToFigmaRGB(segmentColorToUse);
@@ -225,14 +245,28 @@ export async function createTextNode(
           Math.max(segment.fontSize, 8)
         );
       }
+
+      // Apply text decoration (underline, strikethrough)
+      if (segment.textDecoration) {
+        const figmaDecoration =
+          segment.textDecoration === "underline" ? "UNDERLINE" :
+          segment.textDecoration === "line-through" ? "STRIKETHROUGH" : "NONE";
+        if (figmaDecoration !== "NONE") {
+          try {
+            textNode.setRangeTextDecoration(startIdx, endIdx, figmaDecoration);
+          } catch {
+            // Keep default
+          }
+        }
+      }
     }
   } else {
     // Single segment - apply simple styling
     const segment = segments[0];
-    let singleColorToUse = segment.color;
+    let singleColorToUse: string = segment.color || node.textColor || "#333333";
     if (context?.colorMode === "plugin") {
-      const tagLower = node.tag?.toLowerCase() || "";
-      const isLink = tagLower === "a";
+      const tagLower = segment.tag?.toLowerCase() || node.tag?.toLowerCase() || "";
+      const isLink = segment.isLink || tagLower === "a";
       singleColorToUse = getSmartTextColor(node, context, isLink);
     }
     const colorWithOpacity = cssColorToFigmaRGB(singleColorToUse);
@@ -255,6 +289,16 @@ export async function createTextNode(
               context?.colorMode === "plugin" ? 1.0 : colorWithOpacity.opacity,
           },
         ];
+      }
+    }
+
+    // Apply text decoration (underline, strikethrough) for single segment
+    if (segment.textDecoration) {
+      const figmaDecoration =
+        segment.textDecoration === "underline" ? "UNDERLINE" :
+        segment.textDecoration === "line-through" ? "STRIKETHROUGH" : "NONE";
+      if (figmaDecoration !== "NONE") {
+        textNode.textDecoration = figmaDecoration;
       }
     }
   }
@@ -303,35 +347,106 @@ export async function createTextNode(
     textNode.letterSpacing = { value: node.letterSpacing, unit: "PIXELS" };
   }
 
-  // Set text box size and auto-resize behavior
+  // =========================================================================
+  // SMART TEXT SIZING LOGIC
+  // =========================================================================
+  // 1. Get browser measurements
+  // 2. Measure Figma HUG width
+  // 3. If difference ≤1px → use HUG width as FIXED, browser height
+  // 4. If text is wider → try font-size reduction (max 1-2px)
+  // 5. If still doesn't fit single line → truncate text
+  // =========================================================================
+
+  const browserWidth = Math.max(node.width, 1);
+  const browserHeight = Math.max(node.height, 1);
+  const browserLineCount = node.browserLineCount || 1;
+  const originalFontSize = textNode.fontSize as number;
+
+  // Check for special cases that should always HUG
   const isSingleChar = fullText.length <= 2;
-  const isVeryNarrow = node.width < (node.fontSize || 14) * 1.5;
-  const inlineTags = [
-    "a",
-    "span",
-    "label",
-    "strong",
-    "em",
-    "b",
-    "i",
-    "code",
-    "small",
-    "mark",
-  ];
-  const isInlineElement =
-    node.tag && inlineTags.includes(node.tag.toLowerCase());
+  const isVeryNarrow = browserWidth < (node.fontSize || 14) * 1.5;
+  const inlineTags = ["span", "strong", "em", "b", "i", "code", "small", "mark"];
+  const isInlineElement = node.tag && inlineTags.includes(node.tag.toLowerCase());
 
-  const shouldHug =
-    node.layoutSizingHorizontal === "HUG" ||
-    isSingleChar ||
-    isVeryNarrow ||
-    isInlineElement;
-
-  if (shouldHug) {
+  // Special cases: always HUG
+  if (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow || isInlineElement) {
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+    return textNode;
+  }
+
+  // Step 1: Measure Figma's HUG dimensions
+  textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+  const hugWidth = textNode.width;
+  const hugHeight = textNode.height;
+
+  // Step 2: Compare HUG width with browser width
+  const widthDiff = hugWidth - browserWidth;
+
+  if (Math.abs(widthDiff) <= 1) {
+    // Same width (within 1px tolerance)
+    // Use HUG's width as FIXED, browser's height as FIXED
+    textNode.resize(hugWidth, browserHeight);
+    textNode.textAutoResize = "NONE";
+  } else if (widthDiff > 1) {
+    // Text is WIDER in Figma than browser (font metrics differ)
+    // Try font-size reduction (max 1-2px)
+    let adjusted = false;
+
+    for (let reduction = 1; reduction <= 2; reduction++) {
+      const newFontSize = originalFontSize - reduction;
+      if (newFontSize < 8) continue; // Don't go below 8px
+
+      // Apply new font size
+      textNode.fontSize = newFontSize;
+      textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+
+      const newHugWidth = textNode.width;
+      const newHugHeight = textNode.height;
+
+      // Check if now fits within browser width (1px tolerance)
+      if (newHugWidth <= browserWidth + 1) {
+        // Fits! Use new width, browser height
+        textNode.resize(Math.max(newHugWidth, browserWidth), browserHeight);
+        textNode.textAutoResize = "NONE";
+        adjusted = true;
+        break;
+      }
+
+      // For single-line text: check if still renders as ~1 line
+      if (browserLineCount === 1) {
+        // Estimate line count from height ratio
+        const heightRatio = newHugHeight / browserHeight;
+        if (heightRatio <= 1.3) {
+          // Still approximately 1 line - acceptable
+          textNode.resize(newHugWidth, browserHeight);
+          textNode.textAutoResize = "NONE";
+          adjusted = true;
+          break;
+        }
+      }
+    }
+
+    if (!adjusted) {
+      // Font-size reduction didn't help enough
+      // Restore original font size
+      textNode.fontSize = originalFontSize;
+
+      if (browserLineCount === 1) {
+        // Single-line text that doesn't fit → TRUNCATE
+        textNode.resize(browserWidth, browserHeight);
+        textNode.textAutoResize = "NONE";
+        textNode.textTruncation = "ENDING";
+      } else {
+        // Multi-line text → just use browser dimensions
+        textNode.resize(browserWidth, browserHeight);
+        textNode.textAutoResize = "NONE";
+      }
+    }
   } else {
-    textNode.resize(Math.max(node.width, 1), Math.max(node.height, 1));
-    textNode.textAutoResize = "HEIGHT";
+    // Text is NARROWER in Figma than browser
+    // Use HUG width (narrower), browser height
+    textNode.resize(hugWidth, browserHeight);
+    textNode.textAutoResize = "NONE";
   }
 
   return textNode;

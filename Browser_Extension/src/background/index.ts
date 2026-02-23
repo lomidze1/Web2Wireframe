@@ -467,8 +467,45 @@ async function handleCapturePage(
       await client.send("Page.reload", { ignoreCache: false });
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      // Scroll for lazy content
+      // Scroll for lazy content (must happen before scrollbar measurement)
       await autoScrollPage(client);
+
+      // Scrollbar compensation (html.to.design approach):
+      // After content is loaded, measure actual layout viewport and adjust
+      const layoutMetrics = await client.send<{
+        layoutViewport: { clientWidth: number; clientHeight: number };
+      }>("Page.getLayoutMetrics", {});
+
+      const actualLayoutWidth = layoutMetrics.layoutViewport.clientWidth;
+      const scrollbarWidth = targetViewport - actualLayoutWidth;
+
+      if (scrollbarWidth > 0) {
+        // Method 1: Increase viewport by scrollbar width so layout = targetViewport
+        await client.send("Emulation.setDeviceMetricsOverride", {
+          width: targetViewport + scrollbarWidth,
+          height: targetHeight,
+          deviceScaleFactor: 1 / browserDpr,
+          mobile: targetViewport <= 768,
+          screenWidth: targetViewport + scrollbarWidth,
+          screenHeight: targetHeight,
+          positionX: 0,
+          positionY: 0,
+          screenOrientation: { angle: 0, type: "landscapePrimary" },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+
+      // Method 2: CSS injection to hide scrollbar (backup - ensures no scrollbar affects layout)
+      await client.send("Runtime.evaluate", {
+        expression: `
+          const style = document.createElement('style');
+          style.id = '__w2w_hide_scrollbar';
+          style.textContent = 'html { scrollbar-width: none !important; } html::-webkit-scrollbar { display: none !important; }';
+          document.head.appendChild(style);
+        `,
+        awaitPromise: false,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Get dimensions
       const dimensions = await getScrollDimensions(client);

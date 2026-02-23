@@ -5,8 +5,8 @@
  * Used by both Browser Extension and Plugin_Backend.
  */
 
-import type { ExtractedElement, CDPMatchedStyles } from "./types";
-import type { ParsedSnapshotNode } from "./snapshot";
+import type { ExtractedElement, CDPMatchedStyles, StyledTextSegment } from "./types";
+import type { ParsedSnapshotNode, TextBoxInfo } from "./snapshot";
 import { extractPropertyFromMatchedRules, extractPseudoStyles } from "./css";
 import {
   parseBackgroundToFills,
@@ -185,7 +185,280 @@ function isLeafElement(
 }
 
 /**
+ * Inline tags that should be collected as styled segments (not as separate elements)
+ */
+const INLINE_TAGS = [
+  "a", "span", "strong", "em", "b", "i", "u", "s", "small", "mark",
+  "sub", "sup", "code", "kbd", "var", "abbr", "cite", "q", "del", "ins",
+];
+
+/**
+ * Collect styled text segments from element and its inline children
+ * This preserves individual styles for each inline element
+ *
+ * @example
+ * <h2>Questions? Email us at <a>support@example.com</a></h2>
+ * Returns:
+ * [
+ *   { text: "Questions? Email us at ", color: "#000", fontWeight: 700, fontSize: 24, tag: "h2" },
+ *   { text: "support@example.com", color: "#0066cc", fontWeight: 700, fontSize: 24, tag: "a", isLink: true }
+ * ]
+ */
+function collectStyledText(
+  nodeIndex: number,
+  nodes: ParsedSnapshotNode[],
+  childrenMap: Map<number, number[]>,
+  parentStyles: {
+    color: string | null;
+    fontWeight: number;
+    fontSize: number;
+    fontFamily: string;
+    textDecoration?: "underline" | "line-through" | "none";
+  }
+): StyledTextSegment[] {
+  const node = nodes[nodeIndex];
+  if (!node) return [];
+
+  const segments: StyledTextSegment[] = [];
+  const childIndices = childrenMap.get(nodeIndex) || [];
+
+  for (const childIdx of childIndices) {
+    const child = nodes[childIdx];
+    if (!child) continue;
+
+    // TEXT_NODE - use parent styles
+    if (child.nodeType === 3) {
+      const text = child.textContent || "";
+      if (text.trim()) {
+        segments.push({
+          text: text,
+          color: parentStyles.color,
+          fontWeight: parentStyles.fontWeight,
+          fontSize: parentStyles.fontSize,
+          fontFamily: parentStyles.fontFamily,
+          tag: node.nodeName,
+          textDecoration: parentStyles.textDecoration,
+        });
+      }
+    }
+    // Element node - check if inline
+    else if (child.nodeType === 1) {
+      const tag = child.nodeName.toLowerCase();
+
+      if (INLINE_TAGS.includes(tag)) {
+        // Get this element's computed styles
+        const childColor = parseColor(child.computedStyles["color"]) || parentStyles.color;
+        const childFontWeight = parseInt(child.computedStyles["font-weight"] || "0") || parentStyles.fontWeight;
+        const childFontSize = parseInt(child.computedStyles["font-size"] || "0") || parentStyles.fontSize;
+        const childFontFamily = (child.computedStyles["font-family"] || parentStyles.fontFamily)
+          .split(",")[0]?.replace(/['"]/g, "").trim();
+
+        // Parse text-decoration
+        const rawTextDecoration = child.computedStyles["text-decoration"] ||
+                                  child.computedStyles["text-decoration-line"] || "";
+        let childTextDecoration: "underline" | "line-through" | "none" | undefined = parentStyles.textDecoration;
+        if (rawTextDecoration.includes("underline")) {
+          childTextDecoration = "underline";
+        } else if (rawTextDecoration.includes("line-through")) {
+          childTextDecoration = "line-through";
+        } else if (rawTextDecoration === "none") {
+          childTextDecoration = "none";
+        }
+
+        // Recursively collect text from this inline element
+        const childStyles = {
+          color: childColor,
+          fontWeight: childFontWeight,
+          fontSize: childFontSize,
+          fontFamily: childFontFamily,
+          textDecoration: childTextDecoration,
+        };
+
+        const childSegments = collectStyledText(childIdx, nodes, childrenMap, childStyles);
+
+        // Mark segments from inline elements with their tag
+        for (const seg of childSegments) {
+          segments.push({
+            ...seg,
+            tag: tag,
+            isLink: tag === "a",
+            textDecoration: seg.textDecoration || childTextDecoration,
+          });
+        }
+      } else {
+        // Non-inline element - skip (will be processed as separate element)
+      }
+    }
+  }
+
+  return segments;
+}
+
+/**
+ * Get bullet character based on list-style-type
+ */
+function getBulletCharacter(listStyleType: string, index: number = 0): string {
+  switch (listStyleType) {
+    case "disc":
+      return "•";
+    case "circle":
+      return "○";
+    case "square":
+      return "■";
+    case "decimal":
+      return `${index + 1}.`;
+    case "decimal-leading-zero":
+      return `${String(index + 1).padStart(2, "0")}.`;
+    case "lower-alpha":
+    case "lower-latin":
+      return `${String.fromCharCode(97 + (index % 26))}.`;
+    case "upper-alpha":
+    case "upper-latin":
+      return `${String.fromCharCode(65 + (index % 26))}.`;
+    case "lower-roman":
+      return `${toRoman(index + 1).toLowerCase()}.`;
+    case "upper-roman":
+      return `${toRoman(index + 1)}.`;
+    case "none":
+      return "";
+    default:
+      return "•"; // Default to disc
+  }
+}
+
+/**
+ * Convert number to Roman numeral
+ */
+function toRoman(num: number): string {
+  const romanNumerals: [number, string][] = [
+    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
+    [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
+    [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]
+  ];
+  let result = "";
+  for (const [value, numeral] of romanNumerals) {
+    while (num >= value) {
+      result += numeral;
+      num -= value;
+    }
+  }
+  return result;
+}
+
+/**
+ * Count text lines from textBoxes
+ * Each textBox represents one rendered line of text
+ *
+ * @param nodeIndex - Index of parent element
+ * @param nodes - All parsed nodes
+ * @param childrenMap - Map of nodeIndex -> children indices
+ * @returns Number of text lines (from textBoxes.length)
+ */
+function countTextLines(
+  nodeIndex: number,
+  nodes: ParsedSnapshotNode[],
+  childrenMap: Map<number, number[]>
+): number {
+  let totalLines = 0;
+
+  // Check direct TEXT_NODE children
+  const childIndices = childrenMap.get(nodeIndex) || [];
+  for (const childIdx of childIndices) {
+    const child = nodes[childIdx];
+    if (child && child.textBoxes && child.textBoxes.length > 0) {
+      totalLines += child.textBoxes.length;
+    }
+  }
+
+  // Also check if parent element itself has textBoxes (for inline elements)
+  const parentNode = nodes[nodeIndex];
+  if (parentNode && parentNode.textBoxes && parentNode.textBoxes.length > 0) {
+    totalLines += parentNode.textBoxes.length;
+  }
+
+  return totalLines || 1; // Default to 1 line if no textBoxes found
+}
+
+/**
+ * Collect textBoxes from direct TEXT_NODE children
+ * Returns combined bounds of all text boxes (relative to parent, scaled by DPR)
+ *
+ * @param nodeIndex - Index of parent element
+ * @param nodes - All parsed nodes
+ * @param childrenMap - Map of nodeIndex -> children indices
+ * @param parentBoundsRaw - Parent's raw bounds from CDP (NOT scaled)
+ * @param browserDpr - Device pixel ratio for scaling
+ */
+function collectTextBoxes(
+  nodeIndex: number,
+  nodes: ParsedSnapshotNode[],
+  childrenMap: Map<number, number[]>,
+  parentBoundsRaw: { x: number; y: number; width: number; height: number },
+  browserDpr: number = 1
+): { x: number; y: number; width: number; height: number } | null {
+  const childIndices = childrenMap.get(nodeIndex) || [];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let hasTextBoxes = false;
+
+  for (const childIdx of childIndices) {
+    const child = nodes[childIdx];
+    // Look at TEXT_NODEs and elements with textBoxes
+    if (child && child.textBoxes && child.textBoxes.length > 0) {
+      for (const box of child.textBoxes) {
+        hasTextBoxes = true;
+        minX = Math.min(minX, box.x);
+        minY = Math.min(minY, box.y);
+        maxX = Math.max(maxX, box.x + box.width);
+        maxY = Math.max(maxY, box.y + box.height);
+      }
+    }
+  }
+
+  // Also check if parent element itself has textBoxes (for inline elements)
+  const parentNode = nodes[nodeIndex];
+  if (parentNode && parentNode.textBoxes && parentNode.textBoxes.length > 0) {
+    for (const box of parentNode.textBoxes) {
+      hasTextBoxes = true;
+      minX = Math.min(minX, box.x);
+      minY = Math.min(minY, box.y);
+      maxX = Math.max(maxX, box.x + box.width);
+      maxY = Math.max(maxY, box.y + box.height);
+    }
+  }
+
+  if (!hasTextBoxes) {
+    return null;
+  }
+
+  // Convert absolute coordinates to relative (from parent's top-left)
+  // and scale by browserDpr (since textBoxes are raw CDP values)
+  return {
+    x: (minX - parentBoundsRaw.x) / browserDpr,
+    y: (minY - parentBoundsRaw.y) / browserDpr,
+    width: (maxX - minX) / browserDpr,
+    height: (maxY - minY) / browserDpr,
+  };
+}
+
+/**
  * Create a synthetic text child element
+ *
+ * @param width - Text element width (from textBoxes or calculated)
+ * @param height - Text element height
+ * @param textColor - Text color
+ * @param fontFamily - Font family
+ * @param fontSize - Font size
+ * @param fontWeight - Font weight
+ * @param lineHeight - Line height
+ * @param letterSpacing - Letter spacing
+ * @param textAlign - Text alignment
+ * @param textContent - Actual text content
+ * @param xOffset - X position relative to parent (from textBoxes or calculated)
+ * @param yOffset - Y position relative to parent (from textBoxes or 0)
+ * @param browserLineCount - Number of lines from browser (from textBoxes.length)
  */
 function createSyntheticTextChild(
   width: number,
@@ -198,7 +471,9 @@ function createSyntheticTextChild(
   letterSpacing: number,
   textAlign: string,
   textContent: string,
-  xOffset: number = 0
+  xOffset: number = 0,
+  yOffset: number = 0,
+  browserLineCount?: number
 ): ExtractedElement {
   return {
     id: generateId(),
@@ -206,7 +481,7 @@ function createSyntheticTextChild(
     tag: "#text",
     name: "Text",
     x: xOffset,
-    y: 0,
+    y: yOffset,
     width: Math.max(10, width),
     height: Math.max(10, height),
     position: "relative",
@@ -238,6 +513,7 @@ function createSyntheticTextChild(
     letterSpacing,
     textAlign,
     textContent,
+    browserLineCount,
     opacity: 1,
     isPlaceholder: false,
     children: [],
@@ -511,6 +787,20 @@ export function buildElementTree(
 
     // Aggregate text
     let aggregatedText = node.textContent || "";
+    let styledSegments: StyledTextSegment[] = [];
+
+    // Check if element has inline children that need styled segments
+    const hasInlineChildren = (childrenMap.get(node.index) || []).some(childIdx => {
+      const child = nodes[childIdx];
+      return child && child.nodeType === 1 && INLINE_TAGS.includes(child.nodeName.toLowerCase());
+    });
+
+    // Text-containing tags that should collect styled segments
+    const TEXT_CONTENT_TAGS = [
+      "h1", "h2", "h3", "h4", "h5", "h6",
+      "p", "span", "li", "a", "label", "button",
+      "strong", "em", "b", "i", "small",
+    ];
 
     if (!aggregatedText) {
       if (tag === "li" || tag === "a") {
@@ -519,6 +809,38 @@ export function buildElementTree(
         aggregatedText = collectDirectText(node.index, nodes, childrenMap);
       }
     }
+
+    // Collect styled segments for elements with inline children
+    if (hasInlineChildren && TEXT_CONTENT_TAGS.includes(tag)) {
+      // Parse parent's text-decoration
+      const rawTextDecoration = computedStyles["text-decoration"] ||
+                                computedStyles["text-decoration-line"] || "";
+      let parentTextDecoration: "underline" | "line-through" | "none" | undefined;
+      if (rawTextDecoration.includes("underline")) {
+        parentTextDecoration = "underline";
+      } else if (rawTextDecoration.includes("line-through")) {
+        parentTextDecoration = "line-through";
+      }
+
+      const parentStyles = {
+        color: textColor,
+        fontWeight,
+        fontSize,
+        fontFamily,
+        textDecoration: parentTextDecoration,
+      };
+      styledSegments = collectStyledText(node.index, nodes, childrenMap, parentStyles);
+
+      // Also update aggregatedText from styled segments (full text)
+      if (styledSegments.length > 0) {
+        aggregatedText = styledSegments.map(seg => seg.text).join("");
+      }
+    }
+
+    // Get list-style-type for <li> elements
+    const listStyleType = tag === "li"
+      ? (computedStyles["list-style-type"] || "disc")
+      : undefined;
 
     const isLeaf = isLeafElement(node.index, nodes, childrenMap);
     const finalText = aggregatedText;
@@ -586,6 +908,8 @@ export function buildElementTree(
       letterSpacing,
       textAlign,
       textContent: frameTextContent,
+      styledSegments: styledSegments.length > 0 ? styledSegments : undefined,
+      listStyleType,
       opacity,
       isPlaceholder: isMedia,
       horizontallyCentered: horizontallyCentered || undefined,
@@ -631,6 +955,28 @@ export function buildElementTree(
       }
     }
 
+    // Get real text bounds from textBoxes (if available)
+    // This gives us the actual rendered text position and size
+    const textBounds = node.bounds
+      ? collectTextBoxes(node.index, nodes, childrenMap, node.bounds, browserDpr)
+      : null;
+
+    // Count text lines from browser (from textBoxes.length)
+    const browserLineCount = countTextLines(node.index, nodes, childrenMap);
+
+    // DEBUG: Log textBoxes info for text elements
+    if (elementType === "text") {
+      const childIndices = childrenMap.get(node.index) || [];
+      const hasTextBoxes = childIndices.some(idx => nodes[idx]?.textBoxes?.length);
+      const parentHasTextBoxes = node.textBoxes && node.textBoxes.length > 0;
+      console.log(`[browserLineCount] tag=${tag}, text="${finalText?.slice(0, 30)}...", browserLineCount=${browserLineCount}, hasChildTextBoxes=${hasTextBoxes}, parentHasTextBoxes=${parentHasTextBoxes}`);
+    }
+
+    // Set browserLineCount for text elements
+    if (elementType === "text" && browserLineCount > 0) {
+      element.browserLineCount = browserLineCount;
+    }
+
     // Add synthetic text child for list items
     // Note: Don't require element.children.length === 0 because ::before pseudo-elements
     // are already added as children, but we still need the text content
@@ -640,31 +986,53 @@ export function buildElementTree(
         (c) => c.type === "text" && c.tag === "#text"
       );
       if (!hasTextChild) {
+        // Use textBounds if available, otherwise fallback to calculated position
         const bulletWidth = padding.left || 16;
-        element.children.push(
-          createSyntheticTextChild(
-            width - bulletWidth - padding.right,
-            height,
-            textColor,
-            fontFamily,
-            fontSize,
-            fontWeight,
-            lineHeight,
-            letterSpacing,
-            textAlign,
-            finalText,
-            bulletWidth
-          )
-        );
-      }
-    }
+        const textWidth = textBounds ? textBounds.width : width - bulletWidth - padding.right;
+        const textX = textBounds ? textBounds.x : bulletWidth;
+        const textY = textBounds ? textBounds.y : 0;
+        const textHeight = textBounds ? textBounds.height : height;
 
-    // Add synthetic text child for wrapped text elements
-    if (shouldBeFrameWithTextChild && finalText) {
-      element.children.push(
-        createSyntheticTextChild(
-          width - padding.left - padding.right,
-          height - padding.top - padding.bottom,
+        // Add bullet character to styled segments (for proper bullet rendering)
+        const bulletChar = getBulletCharacter(listStyleType || "disc");
+        const bulletSpacing = "  "; // Two spaces between bullet and text
+
+        // Create styled segments with bullet
+        let textWithBulletSegments: StyledTextSegment[] = [];
+        if (bulletChar) {
+          // Add bullet as first segment
+          textWithBulletSegments.push({
+            text: bulletChar + bulletSpacing,
+            color: textColor,
+            fontWeight,
+            fontSize,
+            fontFamily,
+            tag: "::marker",
+          });
+
+          // Add text segments
+          if (styledSegments.length > 0) {
+            textWithBulletSegments.push(...styledSegments);
+          } else {
+            textWithBulletSegments.push({
+              text: finalText,
+              color: textColor,
+              fontWeight,
+              fontSize,
+              fontFamily,
+              tag: "li",
+            });
+          }
+        }
+
+        // Create text child with full text (including bullet)
+        const fullTextWithBullet = bulletChar
+          ? bulletChar + bulletSpacing + finalText
+          : finalText;
+
+        const textChild = createSyntheticTextChild(
+          textWidth,
+          textHeight,
           textColor,
           fontFamily,
           fontSize,
@@ -672,9 +1040,51 @@ export function buildElementTree(
           lineHeight,
           letterSpacing,
           textAlign,
-          finalText
-        )
+          fullTextWithBullet,
+          textX,
+          textY,
+          browserLineCount
+        );
+
+        // Add styled segments to the text child
+        if (textWithBulletSegments.length > 0) {
+          textChild.styledSegments = textWithBulletSegments;
+        }
+
+        element.children.push(textChild);
+      }
+    }
+
+    // Add synthetic text child for wrapped text elements (buttons, etc.)
+    if (shouldBeFrameWithTextChild && finalText) {
+      // Use textBounds if available for exact positioning
+      const textWidth = textBounds ? textBounds.width : width - padding.left - padding.right;
+      const textX = textBounds ? textBounds.x : padding.left;
+      const textY = textBounds ? textBounds.y : padding.top;
+      const textHeight = textBounds ? textBounds.height : height - padding.top - padding.bottom;
+
+      const textChild = createSyntheticTextChild(
+        textWidth,
+        textHeight,
+        textColor,
+        fontFamily,
+        fontSize,
+        fontWeight,
+        lineHeight,
+        letterSpacing,
+        textAlign,
+        finalText,
+        textX,
+        textY,
+        browserLineCount
       );
+
+      // Pass through styled segments if available
+      if (styledSegments.length > 0) {
+        textChild.styledSegments = styledSegments;
+      }
+
+      element.children.push(textChild);
     }
 
     // Add synthetic text child for links
@@ -686,20 +1096,34 @@ export function buildElementTree(
         (c) => c.type === "text" && c.tag === "#text"
       );
       if (!hasTextChild) {
-        element.children.push(
-          createSyntheticTextChild(
-            width - padding.left - padding.right,
-            height - padding.top - padding.bottom,
-            textColor,
-            fontFamily,
-            fontSize,
-            fontWeight,
-            lineHeight,
-            letterSpacing,
-            textAlign,
-            finalText
-          )
+        // Use textBounds if available for exact positioning
+        const textWidth = textBounds ? textBounds.width : width - padding.left - padding.right;
+        const textX = textBounds ? textBounds.x : padding.left;
+        const textY = textBounds ? textBounds.y : padding.top;
+        const textHeight = textBounds ? textBounds.height : height - padding.top - padding.bottom;
+
+        const textChild = createSyntheticTextChild(
+          textWidth,
+          textHeight,
+          textColor,
+          fontFamily,
+          fontSize,
+          fontWeight,
+          lineHeight,
+          letterSpacing,
+          textAlign,
+          finalText,
+          textX,
+          textY,
+          browserLineCount
         );
+
+        // Pass through styled segments if available
+        if (styledSegments.length > 0) {
+          textChild.styledSegments = styledSegments;
+        }
+
+        element.children.push(textChild);
       }
     }
 
@@ -709,34 +1133,6 @@ export function buildElementTree(
   const tree = buildNode(bodyNode, 0, 0, 0);
   if (!tree) {
     throw new Error("Failed to build element tree");
-  }
-
-  // Recalculate X positions for centered elements
-  const actualBodyWidth = bodyNode.bounds
-    ? bodyNode.bounds.width / browserDpr
-    : viewportWidth;
-
-  if (
-    actualBodyWidth !== viewportWidth &&
-    Math.abs(actualBodyWidth - viewportWidth) > 1
-  ) {
-    function recalculateXPositions(
-      element: ExtractedElement,
-      parentWidth: number
-    ): void {
-      if (element.horizontallyCentered && element.width < parentWidth) {
-        const newX = Math.round((parentWidth - element.width) / 2);
-        element.x = newX;
-      }
-
-      for (const child of element.children) {
-        recalculateXPositions(child, element.width);
-      }
-    }
-
-    for (const child of tree.children) {
-      recalculateXPositions(child, viewportWidth);
-    }
   }
 
   // Override body width to viewport

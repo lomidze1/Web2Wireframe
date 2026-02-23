@@ -242,6 +242,26 @@ export interface FigmaEffect {
 }
 
 // ============================================================================
+// STYLED TEXT SEGMENT
+// ============================================================================
+
+/**
+ * A styled text segment for inline elements with different styles.
+ * Used for cases like <h2>Text <a>link</a> more text</h2>
+ * where "link" has a different color.
+ */
+export interface StyledTextSegment {
+  text: string;
+  color: string | null;     // CSS color value
+  fontWeight: number;
+  fontSize: number;
+  fontFamily?: string;
+  isLink?: boolean;         // Is this an <a> element?
+  tag?: string;             // Original tag (span, a, strong, etc.)
+  textDecoration?: "underline" | "line-through" | "none";  // CSS text-decoration
+}
+
+// ============================================================================
 // EXTRACTED ELEMENT (Main output format)
 // ============================================================================
 
@@ -308,6 +328,15 @@ export interface ExtractedElement {
   letterSpacing: number;
   textAlign: string;
   textContent: string;
+
+  // Browser line count (from CDP textBoxes.length - real rendered line count)
+  browserLineCount?: number;
+
+  // Styled text segments (for inline elements with different styles)
+  styledSegments?: StyledTextSegment[];
+
+  // List styling (for <li> elements)
+  listStyleType?: string;  // bullet, disc, decimal, etc.
 
   // States
   opacity: number;

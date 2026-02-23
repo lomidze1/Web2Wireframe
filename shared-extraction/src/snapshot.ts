@@ -169,6 +169,18 @@ export interface CaptureSnapshotResult {
 }
 
 /**
+ * Text box info from CDP textBoxes (real rendered text bounds)
+ */
+export interface TextBoxInfo {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  start: number;  // Character start index in text
+  length: number; // Character length
+}
+
+/**
  * Parsed node from snapshot
  */
 export interface ParsedSnapshotNode {
@@ -184,6 +196,8 @@ export interface ParsedSnapshotNode {
   computedStyles: Record<string, string>;
   // Text content
   textContent: string;
+  // Text boxes (real rendered text bounds from CDP)
+  textBoxes?: TextBoxInfo[];
   // Flags
   isClickable: boolean;
   needsMatchedStyles: boolean; // Has gradient/variable that needs CSS.getMatchedStylesForNode
@@ -204,6 +218,7 @@ export async function captureSnapshot(
       includePaintOrder: true,
       includeBlendedBackgroundColors: true,
       includeTextColorOpacities: true,
+      includeTextBoxes: true, // Real text bounds for line count detection
     }
   );
 
@@ -223,13 +238,39 @@ export function parseSnapshot(snapshot: CaptureSnapshotResult): {
   const nodes: ParsedSnapshotNode[] = [];
   const nodesByBackendId = new Map<number, ParsedSnapshotNode>();
 
-  const { nodes: nodeTree, layout } = doc;
+  const { nodes: nodeTree, layout, textBoxes } = doc;
   const nodeCount = nodeTree.parentIndex.length;
 
   // Build layout index map (nodeIndex -> layoutIndex)
   const layoutByNodeIndex = new Map<number, number>();
   for (let i = 0; i < layout.nodeIndex.length; i++) {
     layoutByNodeIndex.set(layout.nodeIndex[i], i);
+  }
+
+  // Build textBoxes map (layoutIndex -> TextBoxInfo[])
+  // CDP textBoxes gives us real rendered text bounds
+  const textBoxesByLayoutIndex = new Map<number, TextBoxInfo[]>();
+  if (textBoxes && textBoxes.layoutIndex) {
+    for (let i = 0; i < textBoxes.layoutIndex.length; i++) {
+      const layoutIdx = textBoxes.layoutIndex[i];
+      const boundsArr = textBoxes.bounds[i];
+
+      if (boundsArr && boundsArr.length >= 4) {
+        const textBox: TextBoxInfo = {
+          x: boundsArr[0],
+          y: boundsArr[1],
+          width: boundsArr[2],
+          height: boundsArr[3],
+          start: textBoxes.start[i] || 0,
+          length: textBoxes.length[i] || 0,
+        };
+
+        if (!textBoxesByLayoutIndex.has(layoutIdx)) {
+          textBoxesByLayoutIndex.set(layoutIdx, []);
+        }
+        textBoxesByLayoutIndex.get(layoutIdx)!.push(textBox);
+      }
+    }
   }
 
   // Parse each node
@@ -320,6 +361,15 @@ export function parseSnapshot(snapshot: CaptureSnapshotResult): {
       bgImage.includes("var(") ||
       bgColor.includes("var(");
 
+    // Get textBoxes for this node (if available)
+    let nodeTextBoxes: TextBoxInfo[] | undefined;
+    if (layoutIndex !== undefined) {
+      const boxes = textBoxesByLayoutIndex.get(layoutIndex);
+      if (boxes && boxes.length > 0) {
+        nodeTextBoxes = boxes;
+      }
+    }
+
     const parsedNode: ParsedSnapshotNode = {
       index: i,
       backendNodeId,
@@ -330,6 +380,7 @@ export function parseSnapshot(snapshot: CaptureSnapshotResult): {
       bounds,
       computedStyles,
       textContent,
+      textBoxes: nodeTextBoxes,
       isClickable,
       needsMatchedStyles,
     };

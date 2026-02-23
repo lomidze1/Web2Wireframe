@@ -46,6 +46,7 @@ export type {
   FigmaStroke,
   FigmaEffect,
   ExtractedElement,
+  StyledTextSegment,
   CapturedFrame,
   CaptureResult,
   CaptureOptions,
@@ -76,6 +77,7 @@ export {
   type SnapshotNodeTree,
   type SnapshotLayout,
   type ParsedSnapshotNode,
+  type TextBoxInfo,
 } from "./snapshot";
 
 // ============================================================================
