@@ -212,17 +212,25 @@ export function parseBackgroundToFills(
 ): FigmaFill[] {
   const fills: FigmaFill[] = [];
 
-  // Resolve CSS variables in the background string
-  const resolvedBackground = background
-    ? resolveCSSVariables(background, resolvedVariables)
-    : null;
+  if (background) {
+    // Split ORIGINAL layers before resolving — preserve var() inside gradients
+    const layers = splitMultipleBackgrounds(background);
 
-  if (resolvedBackground) {
-    // Split multiple backgrounds (comma-separated, but respect parentheses)
-    const layers = splitMultipleBackgrounds(resolvedBackground);
+    for (const rawLayer of layers) {
+      const layer = rawLayer.trim();
 
-    for (const layer of layers) {
-      const fill = parseBackgroundLayer(layer.trim(), elementDimensions);
+      // If entire layer is a bare var() reference, resolve it fully
+      // (e.g., "var(--gradient-bg)" → "linear-gradient(...)")
+      const topLevelVar = extractCSSVariableName(layer);
+      const resolvedLayer = topLevelVar
+        ? resolveCSSVariables(layer, resolvedVariables)
+        : layer;
+
+      const fill = parseBackgroundLayer(
+        resolvedLayer,
+        elementDimensions,
+        resolvedVariables
+      );
       if (fill) {
         fills.push(fill);
       }
@@ -287,16 +295,17 @@ function splitMultipleBackgrounds(background: string): string[] {
  */
 function parseBackgroundLayer(
   layer: string,
-  elementDimensions?: ElementDimensions
+  elementDimensions?: ElementDimensions,
+  resolvedVariables?: Map<string, string>
 ): FigmaFill | null {
   // Linear gradient
   if (layer.includes("linear-gradient")) {
-    return parseLinearGradient(layer);
+    return parseLinearGradient(layer, resolvedVariables);
   }
 
   // Radial gradient
   if (layer.includes("radial-gradient")) {
-    const fill = parseRadialGradient(layer);
+    const fill = parseRadialGradient(layer, resolvedVariables);
     if (fill && elementDimensions) {
       // Store element dimensions for transform calculation in Figma
       fill.elementWidth = elementDimensions.width;
@@ -307,7 +316,7 @@ function parseBackgroundLayer(
 
   // Conic gradient
   if (layer.includes("conic-gradient")) {
-    return parseConicGradient(layer);
+    return parseConicGradient(layer, resolvedVariables);
   }
 
   // URL (image) → placeholder
@@ -320,8 +329,11 @@ function parseBackgroundLayer(
     };
   }
 
-  // Solid color
-  const color = parseColorToFigma(layer);
+  // Solid color — resolve any remaining var() for plain color values
+  const resolvedLayer = resolvedVariables
+    ? resolveCSSVariables(layer, resolvedVariables)
+    : layer;
+  const color = parseColorToFigma(resolvedLayer);
   if (color) {
     return {
       type: "SOLID",
@@ -338,7 +350,10 @@ function parseBackgroundLayer(
  * Parse linear-gradient to Figma fill
  * Handles: deg, to direction, color stops with positions
  */
-function parseLinearGradient(gradient: string): FigmaFill | null {
+function parseLinearGradient(
+  gradient: string,
+  resolvedVariables?: Map<string, string>
+): FigmaFill | null {
   // Extract content inside linear-gradient(...)
   const match = gradient.match(/linear-gradient\s*\(\s*(.+)\s*\)/i);
   if (!match) return null;
@@ -367,7 +382,7 @@ function parseLinearGradient(gradient: string): FigmaFill | null {
   }
 
   // Parse color stops
-  const stops = parseColorStops(colorStopsStr);
+  const stops = parseColorStops(colorStopsStr, resolvedVariables);
 
   if (stops.length < 2) return null;
 
@@ -392,7 +407,10 @@ function parseLinearGradient(gradient: string): FigmaFill | null {
  *       OR explicit: <length> | <length> <length> | <percentage> <percentage>
  * Position: at X Y (default: at 50% 50%)
  */
-function parseRadialGradient(gradient: string): FigmaFill | null {
+function parseRadialGradient(
+  gradient: string,
+  resolvedVariables?: Map<string, string>
+): FigmaFill | null {
   const match = gradient.match(/radial-gradient\s*\(\s*(.+)\s*\)/i);
   if (!match) return null;
 
@@ -465,7 +483,7 @@ function parseRadialGradient(gradient: string): FigmaFill | null {
     }
   }
 
-  const stops = parseColorStops(remaining);
+  const stops = parseColorStops(remaining, resolvedVariables);
   if (stops.length < 2) return null;
 
   return {
@@ -488,6 +506,7 @@ function looksLikeColor(str: string): boolean {
     trimmed.startsWith("#") ||
     trimmed.startsWith("rgb") ||
     trimmed.startsWith("hsl") ||
+    trimmed.startsWith("var(") ||
     /^(transparent|white|black|red|green|blue|gray|grey|orange|yellow|purple|pink)$/i.test(
       trimmed
     )
@@ -497,7 +516,10 @@ function looksLikeColor(str: string): boolean {
 /**
  * Parse conic-gradient to Figma fill
  */
-function parseConicGradient(gradient: string): FigmaFill | null {
+function parseConicGradient(
+  gradient: string,
+  resolvedVariables?: Map<string, string>
+): FigmaFill | null {
   const match = gradient.match(/conic-gradient\s*\(\s*(.+)\s*\)/i);
   if (!match) return null;
 
@@ -526,7 +548,7 @@ function parseConicGradient(gradient: string): FigmaFill | null {
   // Remove leading comma if present
   colorStopsStr = colorStopsStr.replace(/^,\s*/, "");
 
-  const stops = parseColorStops(colorStopsStr);
+  const stops = parseColorStops(colorStopsStr, resolvedVariables);
   if (stops.length < 2) return null;
 
   return {
@@ -546,16 +568,33 @@ function parseConicGradient(gradient: string): FigmaFill | null {
  * IMPORTANT: When encountering `transparent`, we use the adjacent color's RGB
  * with alpha=0, instead of black. This ensures smooth Figma gradient display.
  */
-function parseColorStops(stopsStr: string): FigmaGradientStop[] {
+function parseColorStops(
+  stopsStr: string,
+  resolvedVariables?: Map<string, string>
+): FigmaGradientStop[] {
   const stops: FigmaGradientStop[] = [];
   const transparentIndices: number[] = [];
 
-  // Split by comma, but respect parentheses (for rgb/rgba/hsl)
+  // Split by comma, but respect parentheses (for rgb/rgba/hsl/var)
   const parts = splitMultipleBackgrounds(stopsStr);
 
   for (let i = 0; i < parts.length; i++) {
-    const part = parts[i].trim();
-    if (!part) continue;
+    const rawPart = parts[i].trim();
+    if (!rawPart) continue;
+
+    // Extract CSS variable name BEFORE resolving
+    let cssVariableName: string | undefined;
+    if (resolvedVariables && rawPart.includes("var(")) {
+      // Strip trailing position (e.g., "var(--color) 50%" → "var(--color)")
+      const rawPosMatch = rawPart.match(/^(.+?)\s+([\d.]+%?)$/);
+      const colorPart = rawPosMatch ? rawPosMatch[1].trim() : rawPart;
+      cssVariableName = extractCSSVariableName(colorPart) || undefined;
+    }
+
+    // Resolve var() references for color parsing
+    const part = resolvedVariables
+      ? resolveCSSVariables(rawPart, resolvedVariables)
+      : rawPart;
 
     // Skip parts that are just positions (no color) - defensive against parsing errors
     if (/^[\d.]+%?$/.test(part)) {
@@ -587,7 +626,7 @@ function parseColorStops(stopsStr: string): FigmaGradientStop[] {
     // Allow transparent colors in gradient stops (they create fade effects)
     const color = parseColorToFigma(colorStr, true);
     if (color) {
-      stops.push({ color, position });
+      stops.push({ color, position, cssVariableName });
       if (isTransparent) {
         transparentIndices.push(stops.length - 1);
       }

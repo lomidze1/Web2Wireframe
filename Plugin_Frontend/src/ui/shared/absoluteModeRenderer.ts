@@ -26,6 +26,7 @@ interface FigmaColor {
 interface FigmaGradientStop {
   color: FigmaColor;
   position: number;
+  cssVariableName?: string;
 }
 
 /** Fill layer - supports solid, gradient, image placeholder */

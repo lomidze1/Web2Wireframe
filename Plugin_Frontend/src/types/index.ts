@@ -14,6 +14,7 @@ export interface FigmaColor {
 export interface FigmaGradientStop {
   color: FigmaColor;
   position: number; // 0-1
+  cssVariableName?: string; // e.g. "--glass-bg"
 }
 
 /** Radial gradient shape */

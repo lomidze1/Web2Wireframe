@@ -573,10 +573,9 @@ export async function createUnifiedWebsiteColorStyles(
   // PASS 3: Create auto-named styles for paints NOT covered by CSS variables
   // =========================================================================
 
-  // Helper: for gradient fills, try to build a name from stop colors
+  // Reverse lookup: hex→variable name (fallback for when extraction doesn't have var())
   const paintKeyToVarName = new Map<string, string>();
-  for (const [varName, style] of Array.from(variableStyleMap)) {
-    // Build reverse lookup for gradient stop naming
+  for (const [varName] of Array.from(variableStyleMap)) {
     const variable = cssVariables.find((v) => v.name === varName);
     if (variable) {
       const parsed = cssColorToFigmaRGB(variable.value);
@@ -600,24 +599,35 @@ export async function createUnifiedWebsiteColorStyles(
   function gradientVarName(
     fillType: string,
     angle: number | undefined,
-    stops: FigmaGradientStop[],
-    keyToVar: Map<string, string>
+    stops: FigmaGradientStop[]
   ): string | null {
     if (!stops || stops.length === 0) return null;
+
+    // Strategy 1: Direct read from per-stop cssVariableName (tracked at extraction)
     const names: string[] = [];
     for (const stop of stops) {
-      const hex = figmaColorToHex(stop.color);
-      const norm = normalizeColorForLookup(hex);
-      const effectiveA = stop.color.a;
-      const stopKey =
-        effectiveA >= 0.99
-          ? norm
-          : `${norm}@${Math.round(effectiveA * 100)}`;
-      const matched = keyToVar.get(stopKey);
-      if (matched) {
-        if (!names.includes(matched)) names.push(matched);
+      if (stop.cssVariableName && !names.includes(stop.cssVariableName)) {
+        names.push(stop.cssVariableName);
       }
     }
+
+    // Strategy 2: Fallback — reverse-match stop hex colors to CSS variables
+    if (names.length === 0) {
+      for (const stop of stops) {
+        const hex = figmaColorToHex(stop.color);
+        const norm = normalizeColorForLookup(hex);
+        const effectiveA = stop.color.a;
+        const stopKey =
+          effectiveA >= 0.99
+            ? norm
+            : `${norm}@${Math.round(effectiveA * 100)}`;
+        const matched = paintKeyToVarName.get(stopKey);
+        if (matched && !names.includes(matched)) {
+          names.push(matched);
+        }
+      }
+    }
+
     if (names.length === 0) return null;
 
     // Build descriptive name: gradient(--var1, --var2, 135deg)
@@ -663,7 +673,7 @@ export async function createUnifiedWebsiteColorStyles(
         fill.stops &&
         fill.stops.length >= 2
       ) {
-        const gradName = gradientVarName(fill.type, fill.angle, fill.stops, paintKeyToVarName);
+        const gradName = gradientVarName(fill.type, fill.angle, fill.stops);
         if (gradName) {
           styleName = `WEB/${gradName}`;
         } else {
@@ -693,7 +703,7 @@ export async function createUnifiedWebsiteColorStyles(
         fill.stops &&
         fill.stops.length >= 2
       ) {
-        const gradName = gradientVarName(fill.type, fill.angle, fill.stops, paintKeyToVarName);
+        const gradName = gradientVarName(fill.type, fill.angle, fill.stops);
         if (gradName) {
           styleName = `WEB/${gradName}`;
         } else {
@@ -717,7 +727,7 @@ export async function createUnifiedWebsiteColorStyles(
         fill.stops &&
         fill.stops.length >= 2
       ) {
-        const gradName = gradientVarName(fill.type, fill.angle, fill.stops, paintKeyToVarName);
+        const gradName = gradientVarName(fill.type, fill.angle, fill.stops);
         if (gradName) {
           styleName = `WEB/${gradName}`;
         } else {
