@@ -928,3 +928,20 @@ export function resolveCSSVariables(
     }
   );
 }
+
+/**
+ * Extract CSS variable name from a CSS value.
+ * Only matches when the ENTIRE value is a single var() reference.
+ * Returns null for complex values like `linear-gradient(var(--a), var(--b))`.
+ *
+ * Examples:
+ *   "var(--primary)"           → "--primary"
+ *   "var(--bg, #fff)"          → "--bg"
+ *   "#3b82f6"                  → null
+ *   "linear-gradient(var(--a))"→ null
+ */
+export function extractCSSVariableName(value: string): string | null {
+  if (!value || !value.includes("var(")) return null;
+  const match = value.trim().match(/^var\(\s*(--[\w-]+)\s*(?:,\s*[^)]+)?\s*\)$/);
+  return match ? match[1].trim() : null;
+}

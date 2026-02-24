@@ -17,7 +17,7 @@ import {
   paintKeyFromFigmaFill,
   paintKeyFromPaint,
 } from "../rendering/styles";
-import type { RenderContext, FigmaFill } from "../types";
+import type { RenderContext, FigmaFill, FigmaStroke } from "../types";
 
 // ============================================================================
 // Helpers
@@ -566,5 +566,265 @@ describe("linkStrokeStyleIfAvailable", () => {
       linkStrokeStyleIfAvailable(frame, ctx);
       expect(frame.strokeStyleId).toBe("border-style");
     });
+  });
+});
+
+// ============================================================================
+// Variable-First Linking (Strategy 0)
+// ============================================================================
+
+describe("Variable-first fill linking (Strategy 0)", () => {
+  it("links fill via cssVariable when variableStyleMap has matching entry", () => {
+    const frame = makeMockFrame({
+      fills: [{ type: "SOLID", color: { r: 0.231, g: 0.51, b: 0.965 }, opacity: 1 }],
+    });
+    const sourceFills: FigmaFill[] = [
+      {
+        type: "SOLID",
+        visible: true,
+        opacity: 1,
+        color: { r: 0.231, g: 0.51, b: 0.965, a: 1 },
+        cssVariable: "--primary",
+      },
+    ];
+    const ctx = makeContext();
+    ctx.variableStyleMap = new Map();
+    ctx.variableStyleMap.set("--primary", makeMockStyle("var-primary-style"));
+    // Also set hex-based style (should NOT be used — variable takes priority)
+    ctx.colorStyleMap.set("#3b82f6", makeMockStyle("hex-style"));
+
+    linkFillStyleIfAvailable(frame, ctx, sourceFills);
+    expect(frame.fillStyleId).toBe("var-primary-style");
+  });
+
+  it("falls back to hex matching when cssVariable not in variableStyleMap", () => {
+    const frame = makeMockFrame({
+      fills: [{ type: "SOLID", color: { r: 1, g: 0, b: 0 }, opacity: 1 }],
+    });
+    const sourceFills: FigmaFill[] = [
+      {
+        type: "SOLID",
+        visible: true,
+        opacity: 1,
+        color: { r: 1, g: 0, b: 0, a: 1 },
+        cssVariable: "--missing-var",
+      },
+    ];
+    const ctx = makeContext();
+    ctx.variableStyleMap = new Map(); // empty — no variable match
+    ctx.colorStyleMap.set("#ff0000", makeMockStyle("hex-red-style"));
+
+    linkFillStyleIfAvailable(frame, ctx, sourceFills);
+    expect(frame.fillStyleId).toBe("hex-red-style");
+  });
+
+  it("falls back to hex matching when sourceFill has no cssVariable", () => {
+    const frame = makeMockFrame({
+      fills: [{ type: "SOLID", color: { r: 0, g: 0, b: 1 }, opacity: 1 }],
+    });
+    const sourceFills: FigmaFill[] = [
+      {
+        type: "SOLID",
+        visible: true,
+        opacity: 1,
+        color: { r: 0, g: 0, b: 1, a: 1 },
+        // no cssVariable field
+      },
+    ];
+    const ctx = makeContext();
+    ctx.variableStyleMap = new Map();
+    ctx.variableStyleMap.set("--blue", makeMockStyle("var-blue-style"));
+    ctx.colorStyleMap.set("#0000ff", makeMockStyle("hex-blue-style"));
+
+    linkFillStyleIfAvailable(frame, ctx, sourceFills);
+    expect(frame.fillStyleId).toBe("hex-blue-style");
+  });
+
+  it("skips variable linking when variableStyleMap is undefined", () => {
+    const frame = makeMockFrame({
+      fills: [{ type: "SOLID", color: { r: 1, g: 0, b: 0 }, opacity: 1 }],
+    });
+    const sourceFills: FigmaFill[] = [
+      {
+        type: "SOLID",
+        visible: true,
+        opacity: 1,
+        color: { r: 1, g: 0, b: 0, a: 1 },
+        cssVariable: "--primary",
+      },
+    ];
+    const ctx = makeContext();
+    // No variableStyleMap set
+    ctx.colorStyleMap.set("#ff0000", makeMockStyle("hex-style"));
+
+    linkFillStyleIfAvailable(frame, ctx, sourceFills);
+    expect(frame.fillStyleId).toBe("hex-style");
+  });
+
+  it("skips variable linking for multi-fill (only works for single visible fill)", () => {
+    const frame = makeMockFrame({
+      fills: [
+        { type: "SOLID", color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+        { type: "SOLID", color: { r: 0, g: 0, b: 1 }, opacity: 1 },
+      ],
+    });
+    const sourceFills: FigmaFill[] = [
+      {
+        type: "SOLID",
+        visible: true,
+        opacity: 1,
+        color: { r: 1, g: 0, b: 0, a: 1 },
+        cssVariable: "--primary",
+      },
+      {
+        type: "SOLID",
+        visible: true,
+        opacity: 1,
+        color: { r: 0, g: 0, b: 1, a: 1 },
+        cssVariable: "--secondary",
+      },
+    ];
+    const ctx = makeContext();
+    ctx.variableStyleMap = new Map();
+    ctx.variableStyleMap.set("--primary", makeMockStyle("var-primary"));
+
+    linkFillStyleIfAvailable(frame, ctx, sourceFills);
+    // Multi-fill: Strategy 0 skips, falls through to compound key or Paint fallback
+    expect(frame.fillStyleId).toBe("");
+  });
+
+  it("two variables with same hex → elements link to their own variable", () => {
+    // Simulates --primary: #3b82f6 and --link-color: #3b82f6
+    const frame1 = makeMockFrame({
+      fills: [{ type: "SOLID", color: { r: 0.231, g: 0.51, b: 0.965 }, opacity: 1 }],
+    });
+    const sourceFills1: FigmaFill[] = [
+      {
+        type: "SOLID",
+        visible: true,
+        opacity: 1,
+        color: { r: 0.231, g: 0.51, b: 0.965, a: 1 },
+        cssVariable: "--primary",
+      },
+    ];
+
+    const frame2 = makeMockFrame({
+      fills: [{ type: "SOLID", color: { r: 0.231, g: 0.51, b: 0.965 }, opacity: 1 }],
+    });
+    const sourceFills2: FigmaFill[] = [
+      {
+        type: "SOLID",
+        visible: true,
+        opacity: 1,
+        color: { r: 0.231, g: 0.51, b: 0.965, a: 1 },
+        cssVariable: "--link-color",
+      },
+    ];
+
+    const ctx = makeContext();
+    ctx.variableStyleMap = new Map();
+    ctx.variableStyleMap.set("--primary", makeMockStyle("primary-style"));
+    ctx.variableStyleMap.set("--link-color", makeMockStyle("link-color-style"));
+
+    linkFillStyleIfAvailable(frame1, ctx, sourceFills1);
+    linkFillStyleIfAvailable(frame2, ctx, sourceFills2);
+
+    expect(frame1.fillStyleId).toBe("primary-style");
+    expect(frame2.fillStyleId).toBe("link-color-style");
+  });
+});
+
+describe("Variable-first stroke linking (Strategy 0)", () => {
+  it("links stroke via cssVariable when variableStyleMap has matching entry", () => {
+    const frame = makeMockFrame({
+      strokes: [
+        { type: "SOLID", color: { r: 0.898, g: 0.906, b: 0.922 }, opacity: 1 },
+      ],
+    });
+    const sourceStrokes: FigmaStroke[] = [
+      {
+        color: { r: 0.898, g: 0.906, b: 0.922, a: 1 },
+        weight: 1,
+        position: "INSIDE",
+        style: "SOLID",
+        cssVariable: "--border-color",
+      },
+    ];
+    const ctx = makeContext();
+    ctx.variableStyleMap = new Map();
+    ctx.variableStyleMap.set("--border-color", makeMockStyle("var-border-style"));
+    ctx.colorStyleMap.set("#e5e7eb", makeMockStyle("hex-border-style"));
+
+    linkStrokeStyleIfAvailable(frame, ctx, sourceStrokes);
+    expect(frame.strokeStyleId).toBe("var-border-style");
+  });
+
+  it("falls back to hex when stroke has no cssVariable", () => {
+    const frame = makeMockFrame({
+      strokes: [
+        { type: "SOLID", color: { r: 0.898, g: 0.906, b: 0.922 }, opacity: 1 },
+      ],
+    });
+    const sourceStrokes: FigmaStroke[] = [
+      {
+        color: { r: 0.898, g: 0.906, b: 0.922, a: 1 },
+        weight: 1,
+        position: "INSIDE",
+        style: "SOLID",
+        // no cssVariable
+      },
+    ];
+    const ctx = makeContext();
+    ctx.variableStyleMap = new Map();
+    ctx.colorStyleMap.set("#e5e7eb", makeMockStyle("hex-border-style"));
+
+    linkStrokeStyleIfAvailable(frame, ctx, sourceStrokes);
+    expect(frame.strokeStyleId).toBe("hex-border-style");
+  });
+
+  it("falls back to hex when cssVariable not found in variableStyleMap", () => {
+    const frame = makeMockFrame({
+      strokes: [
+        { type: "SOLID", color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+      ],
+    });
+    const sourceStrokes: FigmaStroke[] = [
+      {
+        color: { r: 1, g: 0, b: 0, a: 1 },
+        weight: 2,
+        position: "CENTER",
+        style: "SOLID",
+        cssVariable: "--nonexistent",
+      },
+    ];
+    const ctx = makeContext();
+    ctx.variableStyleMap = new Map(); // empty
+    ctx.colorStyleMap.set("#ff0000", makeMockStyle("hex-red-stroke"));
+
+    linkStrokeStyleIfAvailable(frame, ctx, sourceStrokes);
+    expect(frame.strokeStyleId).toBe("hex-red-stroke");
+  });
+
+  it("skips variable linking when variableStyleMap is undefined", () => {
+    const frame = makeMockFrame({
+      strokes: [
+        { type: "SOLID", color: { r: 1, g: 0, b: 0 }, opacity: 1 },
+      ],
+    });
+    const sourceStrokes: FigmaStroke[] = [
+      {
+        color: { r: 1, g: 0, b: 0, a: 1 },
+        weight: 1,
+        position: "INSIDE",
+        style: "SOLID",
+        cssVariable: "--border-color",
+      },
+    ];
+    const ctx = makeContext();
+    // No variableStyleMap set
+    ctx.colorStyleMap.set("#ff0000", makeMockStyle("hex-style"));
+
+    linkStrokeStyleIfAvailable(frame, ctx, sourceStrokes);
+    expect(frame.strokeStyleId).toBe("hex-style");
   });
 });

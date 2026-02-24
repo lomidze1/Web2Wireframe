@@ -14,6 +14,7 @@ import {
   hexToFigmaRGB,
   cssColorToFigmaRGB,
   normalizeColorForLookup,
+  paintKeyFromCSSColor,
   getDominantColorFromPaints,
   getSmartTextColor,
   isLightColorValue,
@@ -74,7 +75,7 @@ function applyFillToFrame(
 
   // Check if we should link to a style
   if (context.variableMode === "styles") {
-    const normalizedColor = normalizeColorForLookup(effectiveColor);
+    const normalizedColor = paintKeyFromCSSColor(effectiveColor);
     const linkedStyle = context.colorStyleMap.get(normalizedColor);
 
     if (linkedStyle) {
@@ -111,7 +112,7 @@ function applyStrokeToFrame(
 
   // Check if we should link to a style
   if (context.variableMode === "styles") {
-    const normalizedColor = normalizeColorForLookup(effectiveColor);
+    const normalizedColor = paintKeyFromCSSColor(effectiveColor);
     const linkedStyle = context.colorStyleMap.get(normalizedColor);
 
     if (linkedStyle) {
@@ -293,7 +294,7 @@ export async function createNodeInFigma(
     if (paints.length > 0) {
       frame.strokes = paints;
       frame.strokeWeight = weight;
-      linkStrokeStyleIfAvailable(frame, context);
+      linkStrokeStyleIfAvailable(frame, context, node.strokes);
     }
   }
   // LEGACY: Fallback to old borderColor/borderWidth fields
@@ -532,8 +533,8 @@ export async function createNodeInFigma(
       if (colorResult) {
         let styleLinked = false;
         if (context.variableMode === "styles") {
-          const normalizedColor = normalizeColorForLookup(textColorToUse);
-          const linkedStyle = context.colorStyleMap.get(normalizedColor);
+          const colorKey = paintKeyFromCSSColor(textColorToUse);
+          const linkedStyle = context.colorStyleMap.get(colorKey);
           if (linkedStyle) {
             textNode.fillStyleId = linkedStyle.id;
             styleLinked = true;

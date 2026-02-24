@@ -5,9 +5,6 @@ import styles from "./Web.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import SettingsPanel from "../../../components/settingsPanel";
-import VariablesChoiceModal, {
-  type VariableMode,
-} from "../../../components/modalPopup/VariablesChoiceModal";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import RenderingLoader, {
   type RenderingProgress,
@@ -25,8 +22,7 @@ interface ImportState {
   message: string;
 }
 
-// Pending render data (waiting for variable mode choice)
-interface PendingRenderData {
+interface RenderData {
   frames: unknown[];
   sourceUrl: string;
   localStyles?: unknown;
@@ -43,9 +39,6 @@ export default function Web() {
     status: "idle",
     message: "",
   });
-  const [showVariablesModal, setShowVariablesModal] = useState(false);
-  const [pendingRenderData, setPendingRenderData] =
-    useState<PendingRenderData | null>(null);
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
@@ -78,7 +71,6 @@ export default function Web() {
             setRenderingProgress(undefined);
             setImportState({ status: "idle", message: "" });
             setUrl("");
-            setPendingRenderData(null);
           }, 10000); // Show success state for 10 seconds
         }
       }
@@ -105,7 +97,7 @@ export default function Web() {
   /**
    * Send render message to Figma
    */
-  const sendToFigma = (data: PendingRenderData, variableMode: VariableMode) => {
+  const sendToFigma = (data: RenderData, variableMode: "styles" | "direct") => {
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({
@@ -135,16 +127,6 @@ export default function Web() {
       "*"
     );
     // Progress updates and completion are handled by the message listener
-  };
-
-  /**
-   * Handle variable mode choice from modal
-   */
-  const handleVariableChoice = (mode: VariableMode) => {
-    setShowVariablesModal(false);
-    if (pendingRenderData) {
-      sendToFigma(pendingRenderData, mode);
-    }
   };
 
   const handleFontFallbackChoice = (_choice: string, chosenFont: string) => {
@@ -220,7 +202,7 @@ export default function Web() {
       const data = await response.json();
 
       // Prepare render data
-      const renderData: PendingRenderData = {
+      const renderData: RenderData = {
         frames: data.wireframeData?.frames || [],
         sourceUrl: trimmedUrl,
         localStyles: data.localStyles,
@@ -231,18 +213,8 @@ export default function Web() {
         layoutMode: settings.localLayoutMode,
       };
 
-      // Check if CSS variables exist
-      const hasCSSVariables =
-        renderData.cssVariables && renderData.cssVariables.length > 0;
-
-      if (hasCSSVariables) {
-        // Show modal for user to choose
-        setPendingRenderData(renderData);
-        setShowVariablesModal(true);
-      } else {
-        // No CSS variables - use the user's configured default
-        sendToFigma(renderData, settings.localCssVariablesMode);
-      }
+      // Always use the user's configured CSS variables mode from settings
+      sendToFigma(renderData, settings.localCssVariablesMode);
     } catch (error) {
       console.error("Import error:", error);
       setImportState({
@@ -322,12 +294,6 @@ export default function Web() {
         {importState.status === "loading" ? "Importing..." : "Import"}
       </button>
 
-      {/* CSS Variables Choice Modal */}
-      <VariablesChoiceModal
-        isOpen={showVariablesModal}
-        onChoice={handleVariableChoice}
-      />
-
       {/* Font Fallback Modal */}
       <FontFallbackModal
         isOpen={showFontModal}
@@ -346,7 +312,6 @@ export default function Web() {
           setRenderingProgress(undefined);
           setImportState({ status: "idle", message: "" });
           setUrl("");
-          setPendingRenderData(null);
         }}
       />
     </div>

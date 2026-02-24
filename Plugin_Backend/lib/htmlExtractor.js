@@ -113,7 +113,7 @@ async function renderWebsite(url, viewportWidth = 1440, options = {}) {
     });
 
     // Extract tree using CDP
-    const tree = await extractDOMTreeWithCDP(page, {
+    const { tree, cssVariables } = await extractDOMTreeWithCDP(page, {
       textMode,
       colorMode,
       typographyMode,
@@ -124,7 +124,7 @@ async function renderWebsite(url, viewportWidth = 1440, options = {}) {
 
     await browser.close();
 
-    return { tree, pageHeight: dimensions.height, pageWidth: viewportWidth };
+    return { tree, cssVariables, pageHeight: dimensions.height, pageWidth: viewportWidth };
   } catch (error) {
     if (browser) await browser.close();
     console.error("Puppeteer error:", error);
@@ -138,7 +138,8 @@ async function renderWebsite(url, viewportWidth = 1440, options = {}) {
  * @deprecated Use extractDOMTreeWithCDP directly
  */
 async function extractDOMTree(page, options) {
-  return await extractDOMTreeWithCDP(page, options);
+  const { tree } = await extractDOMTreeWithCDP(page, options);
+  return tree;
 }
 
 /**
@@ -146,17 +147,22 @@ async function extractDOMTree(page, options) {
  */
 async function createWireframeData(url, viewports, options = {}) {
   const frames = [];
+  let collectedCSSVariables = [];
 
   for (const viewport of viewports) {
     try {
-      const { tree, pageHeight, pageWidth } = await renderWebsite(url, viewport, options);
+      const { tree, cssVariables, pageHeight, pageWidth } = await renderWebsite(url, viewport, options);
       frames.push({ viewportWidth: pageWidth, viewportHeight: pageHeight, tree });
+      // Take CSS variables from first viewport (same for all viewports)
+      if (cssVariables && cssVariables.length > 0 && collectedCSSVariables.length === 0) {
+        collectedCSSVariables = cssVariables;
+      }
     } catch (error) {
       console.error(`Error processing viewport ${viewport}:`, error);
     }
   }
 
-  return frames;
+  return { frames, cssVariables: collectedCSSVariables };
 }
 
 module.exports = { renderWebsite, extractDOMTree, createWireframeData };

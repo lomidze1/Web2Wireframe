@@ -89,7 +89,7 @@ async function extractDOMTreeWithCDP(page, options = {}) {
       browserDpr: 1, // Puppeteer always uses deviceScaleFactor: 1
     });
 
-    return tree;
+    return { tree, cssVariables };
   } finally {
     await client.detach();
   }

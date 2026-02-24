@@ -13,6 +13,7 @@ import {
   parseBoxShadowToEffects,
   parseBackdropFilterToEffects,
   parseBordersToStrokes,
+  extractCSSVariableName,
 } from "./style-parsers";
 import {
   parseColor,
@@ -713,6 +714,29 @@ export function buildElementTree(
         ? computedBgColor
         : null;
 
+    // Extract CSS variable references from matched rules (before resolving)
+    let bgVariableRef: string | null = null;
+    let bgColorVariableRef: string | null = null;
+    let textColorVariableRef: string | null = null;
+    let borderColorVariableRef: string | null = null;
+
+    if (matchedStyles) {
+      // background / background-image may contain var()
+      bgVariableRef = extractCSSVariableName(backgroundShorthand || backgroundImage || "");
+
+      // background-color from matched rules (computed value has no var())
+      const rawBgColor = extractPropertyFromMatchedRules(matchedStyles, "background-color");
+      bgColorVariableRef = extractCSSVariableName(rawBgColor || "");
+
+      // text color from matched rules
+      const rawColor = extractPropertyFromMatchedRules(matchedStyles, "color");
+      textColorVariableRef = extractCSSVariableName(rawColor || "");
+
+      // border-color from matched rules
+      const rawBorderColor = extractPropertyFromMatchedRules(matchedStyles, "border-color");
+      borderColorVariableRef = extractCSSVariableName(rawBorderColor || "");
+    }
+
     // Parse fills
     const fills = parseBackgroundToFills(
       backgroundShorthand || backgroundImage,
@@ -720,6 +744,12 @@ export function buildElementTree(
       resolvedVariables,
       { width, height }
     );
+
+    // Attach CSS variable reference to fills
+    const fillVarRef = bgVariableRef || bgColorVariableRef;
+    if (fillVarRef && fills.length > 0) {
+      fills[0].cssVariable = fillVarRef;
+    }
 
     // Legacy fields
     let backgroundColor: string | null = null;
@@ -748,6 +778,11 @@ export function buildElementTree(
       computedStyles["border-left"],
       resolvedVariables
     );
+
+    // Attach CSS variable reference to strokes
+    if (borderColorVariableRef && strokes.length > 0) {
+      strokes[0].cssVariable = borderColorVariableRef;
+    }
 
     // Legacy border fields
     const borderColor = parseColor(computedStyles["border-color"]);
@@ -999,6 +1034,7 @@ export function buildElementTree(
       children: [],
       hoverStyles: hoverStyles || undefined,
       computedStyles: filterDefaultStyles(computedStyles),
+      textColorVariable: textColorVariableRef || undefined,
     };
 
     // Process children

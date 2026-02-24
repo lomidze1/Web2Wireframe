@@ -209,6 +209,9 @@ export interface FigmaFill {
 
   // IMAGE → placeholder
   isImagePlaceholder?: boolean;
+
+  // CSS variable reference (e.g. "--primary-color") if this fill came from a var()
+  cssVariable?: string;
 }
 
 /** Stroke layer - border */
@@ -224,6 +227,9 @@ export interface FigmaStroke {
     bottom: boolean;
     left: boolean;
   };
+
+  // CSS variable reference (e.g. "--border-color") if this stroke came from a var()
+  cssVariable?: string;
 }
 
 /** Effect layer - shadow or blur */
@@ -353,6 +359,9 @@ export interface ExtractedElement {
   // Raw computed styles passthrough (filtered non-default values)
   // Provides fallback access to any CSS property on the rendering side
   computedStyles?: Record<string, string>;
+
+  // CSS variable reference for text color (e.g. "--text-primary")
+  textColorVariable?: string;
 
   // Children
   children: ExtractedElement[];

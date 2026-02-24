@@ -28,9 +28,8 @@ import type {
 } from "./types";
 import {
   normalizeColorForLookup,
-  createColorStylesFromVariables,
   createPluginColorStyles,
-  createWebsiteColorStyles,
+  createUnifiedWebsiteColorStyles,
   createTextStyles,
   createWireframeFrame,
 } from "./rendering";
@@ -128,6 +127,7 @@ export default function () {
       // Build context for rendering
       const colorStyleMap = new Map<string, PaintStyle>();
       const variableValueMap = new Map<string, string>();
+      let variableStyleMap: Map<string, PaintStyle> | undefined;
 
       // Populate variable value map
       if (cssVariables && cssVariables.length > 0) {
@@ -169,49 +169,23 @@ export default function () {
             logger.warn("Failed to create plugin color styles", { error: err });
           }
         } else {
-          // Website color mode: create styles from ALL colors in the tree
+          // Website color mode: unified variable-first style creation
           figma.notify("Creating website color styles...", { timeout: 1500 });
 
-          // Step 1: CSS variable styles first (highest naming priority)
-          if (cssVariables && cssVariables.length > 0) {
-            try {
-              const cssVarStyleMap = await createColorStylesFromVariables(
-                cssVariables,
-                sourceUrl
-              );
-              logger.info("Created CSS variable color styles", {
-                styleCount: cssVarStyleMap.size,
-              });
-
-              for (const variable of cssVariables) {
-                const normalizedValue = normalizeColorForLookup(variable.value);
-                const style = cssVarStyleMap.get(variable.name);
-                if (style && normalizedValue) {
-                  colorStyleMap.set(normalizedValue, style);
-                }
-              }
-            } catch (err) {
-              logger.warn("Failed to create CSS variable styles", { error: err });
-            }
-          }
-
-          // Step 2: Collect ALL website colors and create styles for remaining
           try {
-            const websiteStyleMap = await createWebsiteColorStyles(
+            const result = await createUnifiedWebsiteColorStyles(
               frames,
-              cssVariables || [],
-              sourceUrl
+              cssVariables || []
             );
-            logger.info("Created website color styles", {
-              styleCount: websiteStyleMap.size,
+            logger.info("Created unified website color styles", {
+              colorStyleCount: result.colorStyleMap.size,
+              variableStyleCount: result.variableStyleMap.size,
             });
 
-            websiteStyleMap.forEach((style, hex) => {
-              if (!colorStyleMap.has(hex)) {
-                // CSS variable styles take priority
-                colorStyleMap.set(hex, style);
-              }
+            result.colorStyleMap.forEach((style, key) => {
+              colorStyleMap.set(key, style);
             });
+            variableStyleMap = result.variableStyleMap;
           } catch (err) {
             logger.warn("Failed to create website color styles", { error: err });
           }
@@ -229,6 +203,7 @@ export default function () {
         variableValueMap,
         colorMode: effectiveColorMode,
         fontMode: effectiveFontMode,
+        variableStyleMap,
       };
 
       // Create text styles if "Create Figma Styles" is enabled

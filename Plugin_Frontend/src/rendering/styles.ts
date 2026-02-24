@@ -18,6 +18,7 @@ import {
   cssColorToFigmaRGB,
   figmaRGBToHex,
   normalizeColorForLookup,
+  paintKeyFromCSSColor,
 } from "./colors";
 import { calculateRadialGradientTransform } from "./gradients";
 import { logger } from "../utils/logger";
@@ -127,6 +128,18 @@ export function linkFillStyleIfAvailable(
   const fills = frame.fills as readonly Paint[];
   if (!fills || fills.length === 0) return;
 
+  // Strategy 0: Variable-first lookup (direct CSS variable → PaintStyle)
+  if (sourceFills && context.variableStyleMap) {
+    const visibleFills = sourceFills.filter((f) => f.visible);
+    if (visibleFills.length === 1 && visibleFills[0].cssVariable) {
+      const style = context.variableStyleMap.get(visibleFills[0].cssVariable);
+      if (style) {
+        frame.fillStyleId = style.id;
+        return;
+      }
+    }
+  }
+
   // Strategy 1: Use sourceFills to derive key (supports ALL paint types)
   if (sourceFills && sourceFills.length > 0) {
     const visibleFills = sourceFills.filter((f) => f.visible);
@@ -172,13 +185,26 @@ export function linkFillStyleIfAvailable(
  */
 export function linkStrokeStyleIfAvailable(
   frame: FrameNode,
-  context: RenderContext
+  context: RenderContext,
+  sourceStrokes?: import("../types").FigmaStroke[]
 ): void {
   if (context.variableMode !== "styles") return;
 
   const strokes = frame.strokes as readonly Paint[];
   if (!strokes || strokes.length === 0) return;
 
+  // Strategy 0: Variable-first lookup
+  if (sourceStrokes && sourceStrokes.length > 0 && context.variableStyleMap) {
+    if (sourceStrokes[0].cssVariable) {
+      const style = context.variableStyleMap.get(sourceStrokes[0].cssVariable);
+      if (style) {
+        frame.strokeStyleId = style.id;
+        return;
+      }
+    }
+  }
+
+  // Strategy 1: Fallback — derive key from applied Paint
   if (strokes.length === 1) {
     const key = paintKeyFromPaint(strokes[0]);
     if (key) {
@@ -228,76 +254,7 @@ export function isColorValue(value: string): boolean {
   return false;
 }
 
-/**
- * Create Figma color styles from CSS variables
- */
-export async function createColorStylesFromVariables(
-  cssVariables: ExtractedCSSVariable[],
-  sourceUrl: string
-): Promise<Map<string, PaintStyle>> {
-  const styleMap = new Map<string, PaintStyle>();
-
-  // Filter to only color variables
-  const colorVariables = cssVariables.filter(
-    (v) => v.category === "color" || isColorValue(v.value)
-  );
-
-  if (colorVariables.length === 0) {
-    return styleMap;
-  }
-
-  // Extract hostname for style naming
-  let hostname = "Website";
-  try {
-    hostname = new URL(sourceUrl).hostname.replace("www.", "").split(".")[0];
-    hostname = hostname.charAt(0).toUpperCase() + hostname.slice(1);
-  } catch {
-    // Use default
-  }
-
-  logger.info("Creating color styles from CSS variables", {
-    variableCount: colorVariables.length,
-  });
-
-  for (const variable of colorVariables) {
-    try {
-      const parsed = cssColorToFigmaRGB(variable.value);
-      if (!parsed) continue;
-
-      // Create style name: "Website / --variable-name"
-      const styleName = `${hostname} / ${variable.name}`;
-
-      // Check if style already exists
-      const existingStyles = figma.getLocalPaintStyles();
-      const existing = existingStyles.find((s) => s.name === styleName);
-
-      if (existing) {
-        styleMap.set(variable.name, existing);
-        continue;
-      }
-
-      // Create new paint style
-      const style = figma.createPaintStyle();
-      style.name = styleName;
-      style.paints = [
-        {
-          type: "SOLID",
-          color: parsed.color,
-          opacity: parsed.opacity,
-        },
-      ];
-
-      styleMap.set(variable.name, style);
-    } catch (err) {
-      logger.warn("Failed to create style for variable", {
-        variable: variable.name,
-        error: err,
-      });
-    }
-  }
-
-  return styleMap;
-}
+// createColorStylesFromVariables removed — replaced by createUnifiedWebsiteColorStyles
 
 /**
  * Create Figma color styles from plugin colors (for Plugin Colors mode)
@@ -372,17 +329,17 @@ export async function createPluginColorStyles(
 }
 
 // ============================================================================
-// Website Paint Styles (Solid + Semi-Transparent + Gradients)
+// Website Paint Styles — Unified Creation
 // ============================================================================
-
-const MAX_WEBSITE_PAINT_STYLES = 100;
 
 /**
  * Recursively collect ALL unique paints from the wireframe tree.
  * Collects: solid fills (opaque + semi-transparent), gradients, strokes, text colors.
  *
+ * Uses opacity-aware paint keys so semi-transparent colors are tracked separately.
+ *
  * @param paints  Map of paintKey → FigmaFill data (fills + strokes as synthetic fills)
- * @param textColors  Map of normalizedHex → hex (text colors, always opaque)
+ * @param textColors  Map of paintKey → CSS color string (text colors with opacity)
  */
 function collectAllPaintsFromTree(
   node: WireframeNode,
@@ -424,71 +381,60 @@ function collectAllPaintsFromTree(
     }
   }
 
-  // Collect from effects (shadow colors — opaque solid fills only)
+  // Collect from effects (shadow colors)
   if (node.effects) {
     for (const effect of node.effects) {
       if (effect.color) {
         const hex = figmaColorToHex(effect.color);
         const normalized = normalizeColorForLookup(hex);
-        if (normalized && normalized !== "transparent" && !paints.has(normalized)) {
-          paints.set(normalized, {
+        const effectiveOpacity = effect.color.a;
+        const key =
+          effectiveOpacity >= 0.99
+            ? normalized
+            : `${normalized}@${Math.round(effectiveOpacity * 100)}`;
+        if (key && key !== "transparent" && !paints.has(key)) {
+          paints.set(key, {
             type: "SOLID",
             visible: true,
-            opacity: 1,
-            color: effect.color,
+            opacity: effectiveOpacity >= 0.99 ? 1 : effectiveOpacity,
+            color: { r: effect.color.r, g: effect.color.g, b: effect.color.b, a: 1 },
           });
         }
       }
     }
   }
 
-  // Collect text colors (opaque hex, for text fill linking)
+  // Collect text colors with opacity-aware keys
   if (node.textColor) {
-    const parsed = cssColorToFigmaRGB(node.textColor);
-    if (parsed) {
-      const hex = figmaRGBToHex(parsed.color);
-      const normalized = normalizeColorForLookup(hex);
-      if (normalized && normalized !== "transparent") {
-        textColors.set(normalized, hex);
-      }
+    const key = paintKeyFromCSSColor(node.textColor);
+    if (key && key !== "transparent" && !paints.has(key)) {
+      textColors.set(key, node.textColor);
     }
   }
 
   if (node.styledSegments) {
     for (const seg of node.styledSegments) {
       if (seg.color) {
-        const parsed = cssColorToFigmaRGB(seg.color);
-        if (parsed) {
-          const hex = figmaRGBToHex(parsed.color);
-          const normalized = normalizeColorForLookup(hex);
-          if (normalized && normalized !== "transparent") {
-            textColors.set(normalized, hex);
-          }
+        const key = paintKeyFromCSSColor(seg.color);
+        if (key && key !== "transparent" && !paints.has(key)) {
+          textColors.set(key, seg.color);
         }
       }
     }
   }
 
-  // Collect legacy color fields
+  // Collect legacy color fields with opacity-aware keys
   if (node.backgroundColor) {
-    const parsed = cssColorToFigmaRGB(node.backgroundColor);
-    if (parsed) {
-      const hex = figmaRGBToHex(parsed.color);
-      const normalized = normalizeColorForLookup(hex);
-      if (normalized && normalized !== "transparent") {
-        textColors.set(normalized, hex);
-      }
+    const key = paintKeyFromCSSColor(node.backgroundColor);
+    if (key && key !== "transparent" && !paints.has(key)) {
+      textColors.set(key, node.backgroundColor);
     }
   }
 
   if (node.borderColor) {
-    const parsed = cssColorToFigmaRGB(node.borderColor);
-    if (parsed) {
-      const hex = figmaRGBToHex(parsed.color);
-      const normalized = normalizeColorForLookup(hex);
-      if (normalized && normalized !== "transparent") {
-        textColors.set(normalized, hex);
-      }
+    const key = paintKeyFromCSSColor(node.borderColor);
+    if (key && key !== "transparent" && !paints.has(key)) {
+      textColors.set(key, node.borderColor);
     }
   }
 
@@ -501,37 +447,105 @@ function collectAllPaintsFromTree(
 }
 
 /**
- * Create Figma PaintStyles from ALL unique paints in the wireframe tree.
- * Used when colorMode === "website" and variableMode === "styles".
+ * Create Figma PaintStyles for ALL unique colors in the wireframe tree.
+ * Unified function: replaces createColorStylesFromVariables + createWebsiteColorStyles.
  *
- * Supports:
- * - Solid opaque fills:          WEB/#RRGGBB  or  WEB/--var-name
- * - Solid semi-transparent:      WEB/#RRGGBB NN%
- * - Linear gradients:            WEB/Linear #start...#end
- * - Radial gradients:            WEB/Radial #start...#end
- * - Conic/Angular gradients:     WEB/Angular #start...#end
+ * Naming convention:
+ * - CSS variable colors:    WEB/--variable-name
+ * - Auto-generated colors:  WEB/--created-variable-01, WEB/--created-variable-02, ...
+ *
+ * Same hex+opacity = same style (reused via paintKey Map).
+ * All website styles use WEB/ prefix. Plugin styles use W2W/ prefix (unchanged).
  */
-export async function createWebsiteColorStyles(
+export async function createUnifiedWebsiteColorStyles(
   frames: WireframeFrame[],
-  cssVariables: ExtractedCSSVariable[],
-  sourceUrl: string
-): Promise<Map<string, PaintStyle>> {
-  const styleMap = new Map<string, PaintStyle>();
+  cssVariables: ExtractedCSSVariable[]
+): Promise<{ colorStyleMap: Map<string, PaintStyle>; variableStyleMap: Map<string, PaintStyle> }> {
+  const colorStyleMap = new Map<string, PaintStyle>();
+  const variableStyleMap = new Map<string, PaintStyle>();
 
-  // Step 1: Build reverse map from normalized hex -> CSS variable name
-  const hexToVarName = new Map<string, string>();
+  // Get existing styles once (avoid repeated queries)
+  const existingStyles = figma.getLocalPaintStyles();
+  let autoCounter = 0;
+
+  // Track styles created during THIS run (by name) to prevent duplicates
+  const createdStylesByName = new Map<string, PaintStyle>();
+
+  // Helper to create or update a PaintStyle
+  function createOrUpdateStyle(styleName: string, paints: Paint[]): PaintStyle {
+    // Check styles created in this run first
+    const justCreated = createdStylesByName.get(styleName);
+    if (justCreated) {
+      justCreated.paints = paints;
+      return justCreated;
+    }
+    // Check pre-existing styles
+    const existing = existingStyles.find((s) => s.name === styleName);
+    if (existing) {
+      existing.paints = paints;
+      createdStylesByName.set(styleName, existing);
+      return existing;
+    }
+    const style = figma.createPaintStyle();
+    style.name = styleName;
+    style.paints = paints;
+    createdStylesByName.set(styleName, style);
+    return style;
+  }
+
+  // =========================================================================
+  // PASS 1: Create PaintStyles for ALL color CSS variables
+  // Priority: variable names are preserved exactly as they appear on the website
+  // =========================================================================
+
   for (const variable of cssVariables) {
+    if (variable.category !== "color" && !isColorValue(variable.value)) continue;
     const parsed = cssColorToFigmaRGB(variable.value);
-    if (parsed) {
+    if (!parsed) continue;
+
+    try {
+      const styleName = `WEB/${variable.name}`;
+      const paints: Paint[] = [
+        {
+          type: "SOLID",
+          color: parsed.color,
+          opacity: parsed.opacity,
+        },
+      ];
+
+      const style = createOrUpdateStyle(styleName, paints);
+
+      // Store by variable name (for variable-first linking)
+      variableStyleMap.set(variable.name, style);
+
+      // Also store by paintKey (for hex-based fallback linking)
       const hex = figmaRGBToHex(parsed.color);
       const normalized = normalizeColorForLookup(hex);
-      if (normalized) {
-        hexToVarName.set(normalized, variable.name);
+      const paintKey =
+        parsed.opacity >= 0.99
+          ? normalized
+          : `${normalized}@${Math.round(parsed.opacity * 100)}`;
+      // First variable wins per paintKey (don't overwrite)
+      if (!colorStyleMap.has(paintKey)) {
+        colorStyleMap.set(paintKey, style);
       }
+    } catch (err) {
+      logger.warn("Failed to create CSS variable style", {
+        variable: variable.name,
+        error: err,
+      });
     }
   }
 
-  // Step 2: Collect ALL unique paints from all frame trees
+  logger.info("Pass 1: Created CSS variable styles", {
+    variableStyleCount: variableStyleMap.size,
+    colorStyleMapCount: colorStyleMap.size,
+  });
+
+  // =========================================================================
+  // PASS 2: Collect non-variable paints from tree
+  // =========================================================================
+
   const allPaints = new Map<string, FigmaFill>();
   const textColors = new Map<string, string>();
   for (const frame of frames) {
@@ -540,58 +554,102 @@ export async function createWebsiteColorStyles(
     }
   }
 
-  // Step 3: Add text colors as solid paint entries (if not already collected)
-  for (const [normalized, hex] of Array.from(textColors)) {
-    if (!allPaints.has(normalized)) {
-      const parsed = cssColorToFigmaRGB(hex);
+  // Add text colors as solid paint entries
+  for (const [key, cssColor] of Array.from(textColors)) {
+    if (!allPaints.has(key)) {
+      const parsed = cssColorToFigmaRGB(cssColor);
       if (parsed) {
-        allPaints.set(normalized, {
+        allPaints.set(key, {
           type: "SOLID",
           visible: true,
-          opacity: 1,
+          opacity: parsed.opacity,
           color: { r: parsed.color.r, g: parsed.color.g, b: parsed.color.b, a: 1 },
         });
       }
     }
   }
 
-  if (allPaints.size === 0) {
-    return styleMap;
+  // =========================================================================
+  // PASS 3: Create auto-named styles for paints NOT covered by CSS variables
+  // =========================================================================
+
+  // Helper: for gradient fills, try to build a name from stop colors
+  const paintKeyToVarName = new Map<string, string>();
+  for (const [varName, style] of Array.from(variableStyleMap)) {
+    // Build reverse lookup for gradient stop naming
+    const variable = cssVariables.find((v) => v.name === varName);
+    if (variable) {
+      const parsed = cssColorToFigmaRGB(variable.value);
+      if (parsed) {
+        const hex = figmaRGBToHex(parsed.color);
+        const normalized = normalizeColorForLookup(hex);
+        const pk =
+          parsed.opacity >= 0.99
+            ? normalized
+            : `${normalized}@${Math.round(parsed.opacity * 100)}`;
+        if (!paintKeyToVarName.has(pk)) {
+          paintKeyToVarName.set(pk, varName);
+        }
+      }
+    }
   }
 
-  logger.info("Creating website paint styles from tree", {
-    uniquePaints: allPaints.size,
-    cssVariableMatches: hexToVarName.size,
-  });
+  // Track gradient style names used in this run to prevent duplicates
+  const usedGradientNames = new Set<string>();
 
-  // Get existing styles once (avoid repeated queries)
-  const existingStyles = figma.getLocalPaintStyles();
-  let stylesCreated = 0;
+  function gradientVarName(
+    fillType: string,
+    angle: number | undefined,
+    stops: FigmaGradientStop[],
+    keyToVar: Map<string, string>
+  ): string | null {
+    if (!stops || stops.length === 0) return null;
+    const names: string[] = [];
+    for (const stop of stops) {
+      const hex = figmaColorToHex(stop.color);
+      const norm = normalizeColorForLookup(hex);
+      const effectiveA = stop.color.a;
+      const stopKey =
+        effectiveA >= 0.99
+          ? norm
+          : `${norm}@${Math.round(effectiveA * 100)}`;
+      const matched = keyToVar.get(stopKey);
+      if (matched) {
+        if (!names.includes(matched)) names.push(matched);
+      }
+    }
+    if (names.length === 0) return null;
 
-  // Step 4: Create PaintStyle for each unique paint
+    // Build descriptive name: gradient(--var1, --var2, 135deg)
+    const typePrefix =
+      fillType === "GRADIENT_RADIAL" ? "radial" :
+      fillType === "GRADIENT_CONIC" ? "conic" : "gradient";
+    const angleStr = angle != null ? `, ${Math.round(angle)}deg` : "";
+    let baseName = `${typePrefix}(${names.join(", ")}${angleStr})`;
+
+    // Deduplicate: if this exact name was already used, append suffix
+    if (usedGradientNames.has(baseName)) {
+      let suffix = 2;
+      while (usedGradientNames.has(`${baseName}-${suffix}`)) suffix++;
+      baseName = `${baseName}-${suffix}`;
+    }
+    usedGradientNames.add(baseName);
+    return baseName;
+  }
+
+  let newStylesCreated = 0;
   for (const [key, fill] of Array.from(allPaints)) {
-    if (stylesCreated >= MAX_WEBSITE_PAINT_STYLES) break;
+    // Skip if already covered by a CSS variable style
+    if (colorStyleMap.has(key)) continue;
 
     try {
       let styleName: string;
       let paints: Paint[];
 
       if (fill.type === "SOLID" && fill.color) {
-        const hex = figmaColorToHex(fill.color);
-        const normalized = normalizeColorForLookup(hex);
         const effectiveOpacity = fill.opacity * fill.color.a;
-        const varName = hexToVarName.get(normalized);
-
-        if (effectiveOpacity >= 0.99) {
-          styleName = varName
-            ? `WEB/${varName}`
-            : `WEB/${hex.toUpperCase()}`;
-        } else {
-          const pct = Math.round(effectiveOpacity * 100);
-          styleName = varName
-            ? `WEB/${varName} ${pct}%`
-            : `WEB/${hex.toUpperCase()} ${pct}%`;
-        }
+        autoCounter++;
+        styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
 
         paints = [
           {
@@ -605,11 +663,13 @@ export async function createWebsiteColorStyles(
         fill.stops &&
         fill.stops.length >= 2
       ) {
-        const firstHex = figmaColorToHex(fill.stops[0].color).toUpperCase();
-        const lastHex = figmaColorToHex(
-          fill.stops[fill.stops.length - 1].color
-        ).toUpperCase();
-        styleName = `WEB/Linear ${firstHex}...${lastHex}`;
+        const gradName = gradientVarName(fill.type, fill.angle, fill.stops, paintKeyToVarName);
+        if (gradName) {
+          styleName = `WEB/${gradName}`;
+        } else {
+          autoCounter++;
+          styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
+        }
 
         const angle = fill.angle || 180;
         const angleRad = ((angle - 90) * Math.PI) / 180;
@@ -620,12 +680,7 @@ export async function createWebsiteColorStyles(
             type: "GRADIENT_LINEAR",
             gradientStops: fill.stops.map((s: FigmaGradientStop) => ({
               position: s.position,
-              color: {
-                r: s.color.r,
-                g: s.color.g,
-                b: s.color.b,
-                a: s.color.a,
-              },
+              color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
             })),
             gradientTransform: [
               [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
@@ -638,11 +693,13 @@ export async function createWebsiteColorStyles(
         fill.stops &&
         fill.stops.length >= 2
       ) {
-        const firstHex = figmaColorToHex(fill.stops[0].color).toUpperCase();
-        const lastHex = figmaColorToHex(
-          fill.stops[fill.stops.length - 1].color
-        ).toUpperCase();
-        styleName = `WEB/Radial ${firstHex}...${lastHex}`;
+        const gradName = gradientVarName(fill.type, fill.angle, fill.stops, paintKeyToVarName);
+        if (gradName) {
+          styleName = `WEB/${gradName}`;
+        } else {
+          autoCounter++;
+          styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
+        }
 
         const radialTransform = calculateRadialGradientTransform(fill);
         paints = [
@@ -650,12 +707,7 @@ export async function createWebsiteColorStyles(
             type: "GRADIENT_RADIAL",
             gradientStops: fill.stops.map((s: FigmaGradientStop) => ({
               position: s.position,
-              color: {
-                r: s.color.r,
-                g: s.color.g,
-                b: s.color.b,
-                a: s.color.a,
-              },
+              color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
             })),
             gradientTransform: radialTransform,
           } as GradientPaint,
@@ -665,23 +717,20 @@ export async function createWebsiteColorStyles(
         fill.stops &&
         fill.stops.length >= 2
       ) {
-        const firstHex = figmaColorToHex(fill.stops[0].color).toUpperCase();
-        const lastHex = figmaColorToHex(
-          fill.stops[fill.stops.length - 1].color
-        ).toUpperCase();
-        styleName = `WEB/Angular ${firstHex}...${lastHex}`;
+        const gradName = gradientVarName(fill.type, fill.angle, fill.stops, paintKeyToVarName);
+        if (gradName) {
+          styleName = `WEB/${gradName}`;
+        } else {
+          autoCounter++;
+          styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
+        }
 
         paints = [
           {
             type: "GRADIENT_ANGULAR",
             gradientStops: fill.stops.map((s: FigmaGradientStop) => ({
               position: s.position,
-              color: {
-                r: s.color.r,
-                g: s.color.g,
-                b: s.color.b,
-                a: s.color.a,
-              },
+              color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
             })),
             gradientTransform: [
               [1, 0, 0],
@@ -693,20 +742,9 @@ export async function createWebsiteColorStyles(
         continue;
       }
 
-      // Check if style already exists
-      const existing = existingStyles.find((s) => s.name === styleName);
-      if (existing) {
-        styleMap.set(key, existing);
-        continue;
-      }
-
-      // Create new paint style
-      const style = figma.createPaintStyle();
-      style.name = styleName;
-      style.paints = paints;
-
-      styleMap.set(key, style);
-      stylesCreated++;
+      const style = createOrUpdateStyle(styleName, paints);
+      colorStyleMap.set(key, style);
+      newStylesCreated++;
     } catch (err) {
       logger.warn("Failed to create website paint style", {
         key,
@@ -715,14 +753,19 @@ export async function createWebsiteColorStyles(
     }
   }
 
-  return styleMap;
+  logger.info("Pass 3: Created auto-named styles for remaining paints", {
+    newStylesCreated,
+    totalColorStyles: colorStyleMap.size,
+  });
+
+  return { colorStyleMap, variableStyleMap };
 }
 
 // ============================================================================
 // Text Styles
 // ============================================================================
 
-const MAX_TEXT_STYLES = 30;
+const MAX_TEXT_STYLES = 50;
 
 /**
  * Map a numeric font weight to a Figma font style string
@@ -734,11 +777,64 @@ function fontWeightToStyle(weight: number): string {
 }
 
 /**
+ * Parse a node's lineHeight value to Figma LineHeight format.
+ * Handles: number (px), "NNpx", "NN%", ratio "1.5", "normal", undefined.
+ */
+export function parseFigmaLineHeight(
+  lineHeight: number | string | undefined
+): LineHeight {
+  if (!lineHeight || lineHeight === "normal") {
+    return { unit: "AUTO" };
+  }
+  if (typeof lineHeight === "number") {
+    if (lineHeight <= 0) return { unit: "AUTO" };
+    return { value: lineHeight, unit: "PIXELS" };
+  }
+  const str = String(lineHeight);
+  if (str.endsWith("%")) {
+    const pct = parseFloat(str);
+    if (!isNaN(pct) && pct > 0) return { value: pct, unit: "PERCENT" };
+  }
+  if (str.endsWith("px")) {
+    const px = parseFloat(str);
+    if (!isNaN(px) && px > 0) return { value: px, unit: "PIXELS" };
+  }
+  const num = parseFloat(str);
+  if (!isNaN(num) && num > 0) {
+    // Ratios < 10 → convert to percent (1.5 → 150%)
+    if (num < 10) return { value: num * 100, unit: "PERCENT" };
+    return { value: num, unit: "PIXELS" };
+  }
+  return { unit: "AUTO" };
+}
+
+/**
+ * Create a deterministic key segment from a Figma LineHeight.
+ * Returns "" for AUTO (omitted from key), or "lhNNpx" / "lhNNpct".
+ */
+export function lineHeightKeyStr(lh: LineHeight): string {
+  if ("value" in lh) {
+    const rounded = Math.round(lh.value);
+    return lh.unit === "PIXELS" ? `lh${rounded}` : `lh${rounded}pct`;
+  }
+  return "";
+}
+
+interface TypographyCombo {
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number;
+  lineHeight: LineHeight;
+  letterSpacing: number;
+}
+
+/**
  * Recursively collect unique typography combinations from the wireframe tree.
+ * Includes lineHeight and letterSpacing in the key for accurate TextStyle matching.
  */
 function collectTypographyFromTree(
   node: WireframeNode,
-  combos: Map<string, { fontFamily: string; fontSize: number; fontWeight: number }>,
+  combos: Map<string, TypographyCombo>,
   pluginFontFamily: string,
   fontMode: "plugin" | "website"
 ): void {
@@ -748,10 +844,14 @@ function collectTypographyFromTree(
     const fontSize = Math.max(node.fontSize || 14, 8);
     const fontWeight = node.fontWeight || 400;
     const styleStr = fontWeightToStyle(fontWeight);
-    const key = `${family}-${styleStr}-${fontSize}`;
+    const lh = parseFigmaLineHeight(node.lineHeight);
+    const lhKey = lineHeightKeyStr(lh);
+    const ls = Math.round((node.letterSpacing || 0) * 10) / 10;
+    const lsKey = ls !== 0 ? `ls${Math.round(ls * 10)}` : "";
+    const key = [family, styleStr, fontSize, lhKey, lsKey].filter(Boolean).join("-");
 
     if (!combos.has(key)) {
-      combos.set(key, { fontFamily: family, fontSize, fontWeight });
+      combos.set(key, { fontFamily: family, fontSize, fontWeight, lineHeight: lh, letterSpacing: ls });
     }
   }
 
@@ -767,8 +867,10 @@ function collectTypographyFromTree(
  * Create Figma TextStyles from unique typography combinations in the tree.
  *
  * Naming:
- * - Plugin mode: W2W/Montserrat-Bold-24
+ * - Plugin mode: W2W/Montserrat-Bold-24  (or W2W/Montserrat-Bold-24-lh36)
  * - Website mode: WEB/SpaceGrotesk-Bold-24
+ *
+ * TextStyles include lineHeight and letterSpacing so linking won't detach.
  */
 export async function createTextStyles(
   frames: WireframeFrame[],
@@ -777,8 +879,8 @@ export async function createTextStyles(
 ): Promise<Map<string, TextStyle>> {
   const textStyleMap = new Map<string, TextStyle>();
 
-  // Collect unique typography combos
-  const combos = new Map<string, { fontFamily: string; fontSize: number; fontWeight: number }>();
+  // Collect unique typography combos (including lineHeight + letterSpacing)
+  const combos = new Map<string, TypographyCombo>();
   for (const frame of frames) {
     if (frame.tree) {
       collectTypographyFromTree(frame.tree, combos, fontFamily, fontMode);
@@ -803,15 +905,24 @@ export async function createTextStyles(
     if (stylesCreated >= MAX_TEXT_STYLES) break;
 
     const styleStr = fontWeightToStyle(combo.fontWeight);
-    const styleName = `${prefix}/${combo.fontFamily}-${styleStr}-${combo.fontSize}`;
+    const lhKey = lineHeightKeyStr(combo.lineHeight);
+    const lsKey = combo.letterSpacing !== 0 ? `ls${Math.round(combo.letterSpacing * 10)}` : "";
+    const nameParts = [combo.fontFamily, styleStr, combo.fontSize, lhKey, lsKey].filter(Boolean);
+    const styleName = `${prefix}/${nameParts.join("-")}`;
 
     try {
       // Try to load the font first -- skip if unavailable
       await figma.loadFontAsync({ family: combo.fontFamily, style: styleStr });
 
-      // Check if style already exists
+      // Check if style already exists — update properties to match current data
       const existing = existingTextStyles.find((s) => s.name === styleName);
       if (existing) {
+        existing.fontName = { family: combo.fontFamily, style: styleStr };
+        existing.fontSize = combo.fontSize;
+        existing.lineHeight = combo.lineHeight;
+        if (combo.letterSpacing !== 0) {
+          existing.letterSpacing = { value: combo.letterSpacing, unit: "PIXELS" };
+        }
         textStyleMap.set(key, existing);
         continue;
       }
@@ -821,6 +932,10 @@ export async function createTextStyles(
       textStyle.name = styleName;
       textStyle.fontName = { family: combo.fontFamily, style: styleStr };
       textStyle.fontSize = combo.fontSize;
+      textStyle.lineHeight = combo.lineHeight;
+      if (combo.letterSpacing !== 0) {
+        textStyle.letterSpacing = { value: combo.letterSpacing, unit: "PIXELS" };
+      }
 
       textStyleMap.set(key, textStyle);
       stylesCreated++;

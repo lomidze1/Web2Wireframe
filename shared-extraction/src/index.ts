@@ -116,6 +116,7 @@ export {
   parseBackdropFilterToEffects,
   parseBordersToStrokes,
   resolveCSSVariables,
+  extractCSSVariableName,
   type ElementDimensions,
 } from "./style-parsers";
 

@@ -12,6 +12,7 @@ import {
   parseBackdropFilterToEffects,
   parseBordersToStrokes,
   resolveCSSVariables,
+  extractCSSVariableName,
 } from "../style-parsers";
 
 describe("parseColorToFigma", () => {
@@ -281,5 +282,99 @@ describe("resolveCSSVariables", () => {
   it("should return value unchanged if no var()", () => {
     const variables = new Map<string, string>();
     expect(resolveCSSVariables("#FF0000", variables)).toBe("#FF0000");
+  });
+});
+
+// ============================================================================
+// extractCSSVariableName
+// ============================================================================
+
+describe("extractCSSVariableName", () => {
+  describe("valid single var() references", () => {
+    it("should extract simple variable name", () => {
+      expect(extractCSSVariableName("var(--primary)")).toBe("--primary");
+    });
+
+    it("should extract variable with hyphens", () => {
+      expect(extractCSSVariableName("var(--bg-color-primary)")).toBe("--bg-color-primary");
+    });
+
+    it("should extract variable with underscores", () => {
+      expect(extractCSSVariableName("var(--text_color)")).toBe("--text_color");
+    });
+
+    it("should extract variable with numbers", () => {
+      expect(extractCSSVariableName("var(--color-100)")).toBe("--color-100");
+    });
+
+    it("should extract variable with fallback value", () => {
+      expect(extractCSSVariableName("var(--primary, #3b82f6)")).toBe("--primary");
+    });
+
+    it("should return null for fallback with nested parens (strict regex)", () => {
+      // rgb(255, 0, 0) contains ')' which breaks the simple regex — by design
+      expect(extractCSSVariableName("var(--bg, rgb(255, 0, 0))")).toBeNull();
+    });
+
+    it("should extract variable with simple hex fallback", () => {
+      expect(extractCSSVariableName("var(--bg, #fff)")).toBe("--bg");
+    });
+
+    it("should handle whitespace around variable name", () => {
+      expect(extractCSSVariableName("var(  --primary  )")).toBe("--primary");
+    });
+
+    it("should handle leading/trailing whitespace in value", () => {
+      expect(extractCSSVariableName("  var(--primary)  ")).toBe("--primary");
+    });
+  });
+
+  describe("returns null for non-variable values", () => {
+    it("should return null for plain hex color", () => {
+      expect(extractCSSVariableName("#3b82f6")).toBeNull();
+    });
+
+    it("should return null for rgb color", () => {
+      expect(extractCSSVariableName("rgb(59, 130, 246)")).toBeNull();
+    });
+
+    it("should return null for empty string", () => {
+      expect(extractCSSVariableName("")).toBeNull();
+    });
+
+    it("should return null for null-like values", () => {
+      expect(extractCSSVariableName(null as unknown as string)).toBeNull();
+      expect(extractCSSVariableName(undefined as unknown as string)).toBeNull();
+    });
+
+    it("should return null for 'none'", () => {
+      expect(extractCSSVariableName("none")).toBeNull();
+    });
+
+    it("should return null for named color", () => {
+      expect(extractCSSVariableName("red")).toBeNull();
+    });
+  });
+
+  describe("rejects complex values containing var()", () => {
+    it("should return null for gradient with var() inside", () => {
+      expect(extractCSSVariableName("linear-gradient(var(--start), var(--end))")).toBeNull();
+    });
+
+    it("should return null for calc() with var()", () => {
+      expect(extractCSSVariableName("calc(var(--spacing) * 2)")).toBeNull();
+    });
+
+    it("should return null for var() with prefix text", () => {
+      expect(extractCSSVariableName("1px solid var(--border-color)")).toBeNull();
+    });
+
+    it("should return null for multiple var() references", () => {
+      expect(extractCSSVariableName("var(--a) var(--b)")).toBeNull();
+    });
+
+    it("should return null for var() inside url()", () => {
+      expect(extractCSSVariableName("url(var(--image))")).toBeNull();
+    });
   });
 });

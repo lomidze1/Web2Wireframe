@@ -280,9 +280,42 @@ export function extractPropertyFromMatchedRules(
 
   if (result) return result;
 
-  // Check inherited styles (only for inheritable properties)
+  // Only check inherited rules for CSS-inheritable properties.
+  // Non-inheritable properties (background, border-*, etc.) must NOT
+  // leak from parent to child — that causes phantom fills/strokes.
+  const CSS_INHERITABLE_PROPERTIES = new Set([
+    "color",
+    "font-family",
+    "font-size",
+    "font-style",
+    "font-weight",
+    "font-variant",
+    "font",
+    "letter-spacing",
+    "line-height",
+    "text-align",
+    "text-indent",
+    "text-transform",
+    "word-spacing",
+    "white-space",
+    "direction",
+    "visibility",
+    "cursor",
+    "list-style",
+    "list-style-type",
+    "list-style-position",
+    "list-style-image",
+  ]);
+
+  if (!CSS_INHERITABLE_PROPERTIES.has(propertyName)) {
+    return null;
+  }
+
+  // Check inherited styles for inheritable properties only.
+  // Ordered from closest parent to furthest ancestor — first match wins.
   if (matchedStyles.inherited) {
     for (const inherited of matchedStyles.inherited) {
+      // 1) Inherited inline style (highest priority for this ancestor)
       if (inherited.inlineStyle?.cssProperties) {
         const prop = inherited.inlineStyle.cssProperties.find(
           (p) => p.name === propertyName
@@ -291,6 +324,24 @@ export function extractPropertyFromMatchedRules(
           const value = getOriginalValue(prop);
           if (value) return value;
         }
+      }
+
+      // 2) Inherited matched CSS rules (keep last = most specific for this ancestor)
+      if (inherited.matchedCSSRules) {
+        let inheritedResult: string | null = null;
+        for (const match of inherited.matchedCSSRules) {
+          if (match.rule.origin === "user-agent") continue;
+          const prop = match.rule.style.cssProperties.find(
+            (p) => p.name === propertyName
+          );
+          if (prop) {
+            const value = getOriginalValue(prop);
+            if (value) {
+              inheritedResult = value;
+            }
+          }
+        }
+        if (inheritedResult) return inheritedResult;
       }
     }
   }

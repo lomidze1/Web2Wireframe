@@ -11,11 +11,11 @@ import type {
 } from "../types";
 import {
   cssColorToFigmaRGB,
-  normalizeColorForLookup,
+  paintKeyFromCSSColor,
   getSmartTextColor,
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
-import { linkFillStyleIfAvailable, linkStrokeStyleIfAvailable } from "./styles";
+import { linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr } from "./styles";
 
 // ============================================================================
 // Text Segment Collection
@@ -131,10 +131,12 @@ export function isBlockLevelElement(node: WireframeNode): boolean {
  * because setting textStyleId applies the style's values and any subsequent
  * property change would detach the style.
  *
+ * TextStyles now include lineHeight and letterSpacing, so linking won't
+ * destroy those properties. The key includes lineHeight/letterSpacing
+ * to match the exact style.
+ *
  * Skips linking when:
  * - Multi-segment nodes (TextStyle would override per-range formatting)
- * - Node has custom letterSpacing (TextStyle resets to 0, causing text reflow)
- * - Node has custom lineHeight (TextStyle resets to AUTO, changing layout)
  */
 function linkTextStyleIfApplicable(
   textNode: TextNode,
@@ -152,24 +154,27 @@ function linkTextStyleIfApplicable(
     return;
   }
 
-  // Skip TextStyle linking if node has custom letterSpacing or lineHeight.
-  // Setting textStyleId resets ALL text properties to the style's defaults,
-  // which would destroy letterSpacing (reset to 0) and lineHeight (reset to AUTO).
-  if (node.letterSpacing && node.letterSpacing !== 0) {
-    return;
-  }
-  if (node.lineHeight && node.lineHeight !== "normal") {
-    return;
-  }
-
   const weight = segments[0].fontWeight || node.fontWeight || 400;
   const styleStr = weight >= 600 ? "Bold" : weight >= 500 ? "Medium" : "Regular";
   const actualFontSize = textNode.fontSize as number;
-  const tsKey = `${usedFontFamily}-${styleStr}-${actualFontSize}`;
+  const lh = parseFigmaLineHeight(node.lineHeight);
+  const lhKey = lineHeightKeyStr(lh);
+  const ls = Math.round((node.letterSpacing || 0) * 10) / 10;
+  const lsKey = ls !== 0 ? `ls${Math.round(ls * 10)}` : "";
+  const tsKey = [usedFontFamily, styleStr, actualFontSize, lhKey, lsKey].filter(Boolean).join("-");
   const textStyle = context.textStyleMap.get(tsKey);
   if (textStyle) {
     try {
       textNode.textStyleId = textStyle.id;
+
+      // Re-apply text decoration — setting textStyleId resets it to the
+      // style's default (NONE), but the original segment may have underline/etc.
+      if (segments[0].textDecoration) {
+        const deco =
+          segments[0].textDecoration === "underline" ? ("UNDERLINE" as const) :
+          segments[0].textDecoration === "line-through" ? ("STRIKETHROUGH" as const) : null;
+        if (deco) textNode.textDecoration = deco;
+      }
     } catch {
       // Style linking failed, continue with direct properties
     }
@@ -298,8 +303,15 @@ export async function createTextNode(
     if (baseColorParsed) {
       let baseLinkedStyle: PaintStyle | undefined;
       if (context && context.variableMode === "styles") {
-        const normalizedBase = normalizeColorForLookup(baseTextColor);
-        baseLinkedStyle = context.colorStyleMap.get(normalizedBase);
+        // Variable-first: try direct CSS variable lookup
+        if (context.variableStyleMap && node.textColorVariable) {
+          baseLinkedStyle = context.variableStyleMap.get(node.textColorVariable);
+        }
+        // Fallback: hex-based lookup
+        if (!baseLinkedStyle) {
+          const normalizedBase = paintKeyFromCSSColor(baseTextColor);
+          baseLinkedStyle = context.colorStyleMap.get(normalizedBase);
+        }
       }
       if (baseLinkedStyle) {
         textNode.fillStyleId = baseLinkedStyle.id;
@@ -347,7 +359,7 @@ export async function createTextNode(
         // Check if we should link to a style
         let linkedStyle: PaintStyle | undefined;
         if (context && context.variableMode === "styles") {
-          const normalizedColor = normalizeColorForLookup(segmentColorToUse);
+          const normalizedColor = paintKeyFromCSSColor(segmentColorToUse);
           linkedStyle = context.colorStyleMap.get(normalizedColor);
         }
 
@@ -444,8 +456,15 @@ export async function createTextNode(
     if (colorWithOpacity) {
       let linkedStyle: PaintStyle | undefined;
       if (context && context.variableMode === "styles") {
-        const normalizedColor = normalizeColorForLookup(singleColorToUse);
-        linkedStyle = context.colorStyleMap.get(normalizedColor);
+        // Variable-first: try direct CSS variable lookup
+        if (context.variableStyleMap && node.textColorVariable) {
+          linkedStyle = context.variableStyleMap.get(node.textColorVariable);
+        }
+        // Fallback: hex-based lookup
+        if (!linkedStyle) {
+          const normalizedColor = paintKeyFromCSSColor(singleColorToUse);
+          linkedStyle = context.colorStyleMap.get(normalizedColor);
+        }
       }
 
       if (linkedStyle) {

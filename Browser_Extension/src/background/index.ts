@@ -33,6 +33,7 @@ import {
   parseBoxShadowToEffects,
   parseBackdropFilterToEffects,
   parseBordersToStrokes,
+  extractCSSVariableName,
   // Utils
   parseColor,
   isGradient,
@@ -1155,12 +1156,34 @@ function buildElementTreeFromBounds(
     const bgColorForFills = computedBgColor && computedBgColor !== "transparent" &&
       computedBgColor !== "rgba(0, 0, 0, 0)" ? computedBgColor : null;
 
+    // Extract CSS variable references from matched rules (before resolving)
+    let bgVariableRef: string | null = null;
+    let bgColorVariableRef: string | null = null;
+    let textColorVariableRef: string | null = null;
+    let borderColorVariableRef: string | null = null;
+
+    if (matchedStyles) {
+      bgVariableRef = extractCSSVariableName(backgroundShorthand || backgroundImage || "");
+      const rawBgColor = extractPropertyFromMatchedRules(matchedStyles, "background-color");
+      bgColorVariableRef = extractCSSVariableName(rawBgColor || "");
+      const rawColor = extractPropertyFromMatchedRules(matchedStyles, "color");
+      textColorVariableRef = extractCSSVariableName(rawColor || "");
+      const rawBorderColor = extractPropertyFromMatchedRules(matchedStyles, "border-color");
+      borderColorVariableRef = extractCSSVariableName(rawBorderColor || "");
+    }
+
     const fills = parseBackgroundToFills(
       backgroundShorthand || backgroundImage,
       bgColorForFills,
       resolvedVariables,
       { width, height },
     );
+
+    // Attach CSS variable reference to fills
+    const fillVarRef = bgVariableRef || bgColorVariableRef;
+    if (fillVarRef && fills.length > 0) {
+      fills[0].cssVariable = fillVarRef;
+    }
 
     let backgroundColor: string | null = null;
     let backgroundGradient: string | null = null;
@@ -1185,6 +1208,11 @@ function buildElementTreeFromBounds(
       computedStyles["border-left"],
       resolvedVariables,
     );
+
+    // Attach CSS variable reference to strokes
+    if (borderColorVariableRef && strokes.length > 0) {
+      strokes[0].cssVariable = borderColorVariableRef;
+    }
 
     const borderColor = parseColor(computedStyles["border-color"]);
     const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
@@ -1352,6 +1380,7 @@ function buildElementTreeFromBounds(
       horizontallyCentered: horizontallyCentered || undefined,
       children: [],
       computedStyles: filterDefaultStyles(computedStyles),
+      textColorVariable: textColorVariableRef || undefined,
     };
 
     // Process children from subtree only

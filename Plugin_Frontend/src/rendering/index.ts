@@ -9,6 +9,7 @@ export {
   cssColorToFigmaRGB,
   figmaRGBToHex,
   normalizeColorForLookup,
+  paintKeyFromCSSColor,
   resolveCSSVariables,
   isLightColorValue,
   isSaturatedColor,
@@ -56,10 +57,11 @@ export {
   paintKeyFromFigmaFill,
   paintKeyFromPaint,
   isColorValue,
-  createColorStylesFromVariables,
   createPluginColorStyles,
-  createWebsiteColorStyles,
+  createUnifiedWebsiteColorStyles,
   createTextStyles,
+  parseFigmaLineHeight,
+  lineHeightKeyStr,
 } from "./styles";
 
 // Text node creation

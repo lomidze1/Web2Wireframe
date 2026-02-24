@@ -131,7 +131,7 @@ app.post("/api/import-url", async (req, res) => {
     const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
 
     // Generate wireframe data with nested tree structure
-    const frames = await createWireframeData(sourceUrl, viewports, {
+    const { frames, cssVariables } = await createWireframeData(sourceUrl, viewports, {
       colorMode,
       textMode,
       typographyMode,
@@ -187,6 +187,7 @@ app.post("/api/import-url", async (req, res) => {
       wireframeData: { frames },
       localStyles,
       pluginColors: finalPluginColors,
+      cssVariables: cssVariables || [],
     });
   } catch (error) {
     console.error("[Import] Error:", error);

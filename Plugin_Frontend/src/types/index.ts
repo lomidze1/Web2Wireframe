@@ -48,6 +48,8 @@ export interface FigmaFill {
   elementWidth?: number;
   elementHeight?: number;
   isImagePlaceholder?: boolean;
+  // CSS variable reference (e.g. "--primary-color") if this fill came from a var()
+  cssVariable?: string;
 }
 
 /** Stroke layer - border */
@@ -62,6 +64,8 @@ export interface FigmaStroke {
     bottom: boolean;
     left: boolean;
   };
+  // CSS variable reference (e.g. "--border-color") if this stroke came from a var()
+  cssVariable?: string;
 }
 
 /** Effect layer - shadow or blur */
@@ -160,6 +164,9 @@ export interface WireframeNode {
   // Raw computed styles passthrough (filtered non-default values)
   computedStyles?: Record<string, string>;
 
+  // CSS variable reference for text color (e.g. "--text-primary")
+  textColorVariable?: string;
+
   // Media
   isPlaceholder: boolean;
 
@@ -223,6 +230,8 @@ export interface RenderContext {
   parentBackgroundColor?: { r: number; g: number; b: number } | null;
   // Parent container width for text sizing decisions
   parentWidth?: number;
+  // Map from CSS variable name → PaintStyle (for variable-first linking)
+  variableStyleMap?: Map<string, PaintStyle>;
 }
 
 /**

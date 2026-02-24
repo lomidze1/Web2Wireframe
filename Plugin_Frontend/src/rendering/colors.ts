@@ -133,6 +133,24 @@ export function normalizeColorForLookup(color: string): string {
 }
 
 /**
+ * Convert a CSS color string to an opacity-aware paint key.
+ * Matches the key format produced by paintKeyFromFigmaFill in styles.ts.
+ *
+ * Examples:
+ *   "#3b82f6"                → "#3b82f6"
+ *   "rgba(255,255,255,0.65)" → "#ffffff@65"
+ *   "#ffffffa6"              → "#ffffff@65"
+ */
+export function paintKeyFromCSSColor(cssColor: string): string {
+  const parsed = cssColorToFigmaRGB(cssColor);
+  if (!parsed) return normalizeColorForLookup(cssColor);
+  const hex = figmaRGBToHex(parsed.color);
+  const normalized = normalizeColorForLookup(hex);
+  if (parsed.opacity >= 0.99) return normalized;
+  return `${normalized}@${Math.round(parsed.opacity * 100)}`;
+}
+
+/**
  * Resolve CSS variables in a string (e.g., gradient or color)
  */
 export function resolveCSSVariables(
