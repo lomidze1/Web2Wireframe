@@ -746,6 +746,11 @@ export function buildElementTree(
       // border-color from matched rules
       const rawBorderColor = extractPropertyFromMatchedRules(matchedStyles, "border-color");
       borderColorVariableRef = extractCSSVariableName(rawBorderColor || "");
+    } else if (tag === "body" && bodyOriginalCSS) {
+      // Body fallback: extract variable refs from bodyOriginalCSS
+      // (body often lacks matchedStyles but bodyOriginalCSS preserves var() syntax)
+      bgVariableRef = extractCSSVariableName(backgroundShorthand || backgroundImage || "");
+      bgColorVariableRef = extractCSSVariableName(bodyOriginalCSS.backgroundColor || "");
     }
 
     // Parse fills

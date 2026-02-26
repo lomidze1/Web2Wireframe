@@ -36,7 +36,29 @@ export async function createImagePlaceholderIcon(
   ) => {
     if (context.variableMode !== "styles") return;
     const normalizedColor = normalizeColorForLookup(iconColorHex);
-    const linkedStyle = context.colorStyleMap.get(normalizedColor);
+    let linkedStyle = context.colorStyleMap.get(normalizedColor);
+
+    // If no existing style, create one for this plugin-assigned icon color
+    if (!linkedStyle && normalizedColor) {
+      try {
+        const styleName = "WEB/--image-placeholder-icon";
+        const existingStyles = figma.getLocalPaintStyles();
+        const existing = existingStyles.find((s) => s.name === styleName);
+        if (existing) {
+          existing.paints = [{ type: "SOLID", color: iconColor }];
+          linkedStyle = existing;
+        } else {
+          const style = figma.createPaintStyle();
+          style.name = styleName;
+          style.paints = [{ type: "SOLID", color: iconColor }];
+          linkedStyle = style;
+        }
+        context.colorStyleMap.set(normalizedColor, linkedStyle);
+      } catch {
+        // Style creation failed
+      }
+    }
+
     if (linkedStyle) {
       if (isFill) {
         node.fillStyleId = linkedStyle.id;
@@ -125,7 +147,39 @@ export async function createPlaceholder(
   let styleLinked = false;
   if (context.variableMode === "styles") {
     const normalizedColor = normalizeColorForLookup(surfaceColor);
-    const linkedStyle = context.colorStyleMap.get(normalizedColor);
+    const opacity = context.colorMode === "plugin" ? 1.0 : 0.6;
+    // Build opacity-aware paint key (matches how styles are keyed)
+    const paintKey =
+      opacity >= 0.99
+        ? normalizedColor
+        : `${normalizedColor}@${Math.round(opacity * 100)}`;
+
+    // Try opacity-aware key first, then full-opacity key
+    let linkedStyle =
+      context.colorStyleMap.get(paintKey) ||
+      context.colorStyleMap.get(normalizedColor);
+
+    // If no existing style, create one for this plugin-assigned placeholder color
+    if (!linkedStyle && normalizedColor) {
+      try {
+        const styleName = "WEB/--image-placeholder";
+        const existingStyles = figma.getLocalPaintStyles();
+        const existing = existingStyles.find((s) => s.name === styleName);
+        if (existing) {
+          existing.paints = [{ type: "SOLID", color: surfaceRgb, opacity }];
+          linkedStyle = existing;
+        } else {
+          const style = figma.createPaintStyle();
+          style.name = styleName;
+          style.paints = [{ type: "SOLID", color: surfaceRgb, opacity }];
+          linkedStyle = style;
+        }
+        context.colorStyleMap.set(paintKey, linkedStyle);
+      } catch {
+        // Style creation failed — fall through to direct color
+      }
+    }
+
     if (linkedStyle) {
       placeholder.fillStyleId = linkedStyle.id;
       styleLinked = true;

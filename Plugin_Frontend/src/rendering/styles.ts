@@ -447,6 +447,96 @@ function collectAllPaintsFromTree(
 }
 
 /**
+ * Collect multi-fill combinations from the tree for compound PaintStyle creation.
+ * For nodes with 2+ visible non-placeholder fills, stores the fills keyed by compound key.
+ */
+function collectCompoundFillsFromTree(
+  node: WireframeNode,
+  compounds: Map<string, FigmaFill[]>
+): void {
+  if (node.fills) {
+    const visible = node.fills.filter(
+      (f) => f.visible && f.type !== "IMAGE_PLACEHOLDER"
+    );
+    if (visible.length > 1) {
+      const key = visible
+        .map((f) => paintKeyFromFigmaFill(f))
+        .filter(Boolean)
+        .join("+");
+      if (key && !compounds.has(key)) {
+        compounds.set(key, visible);
+      }
+    }
+  }
+  if (node.children) {
+    for (const child of node.children) {
+      collectCompoundFillsFromTree(child, compounds);
+    }
+  }
+}
+
+/**
+ * Convert a FigmaFill to a native Figma Paint object.
+ * Handles solid, linear/radial/conic gradients.
+ */
+function figmaFillToPaint(fill: FigmaFill): Paint | null {
+  if (fill.type === "SOLID" && fill.color) {
+    const effectiveOpacity = fill.opacity * fill.color.a;
+    return {
+      type: "SOLID",
+      color: { r: fill.color.r, g: fill.color.g, b: fill.color.b },
+      opacity: effectiveOpacity,
+    } as SolidPaint;
+  }
+
+  if (fill.type === "GRADIENT_LINEAR" && fill.stops && fill.stops.length >= 2) {
+    const angle = fill.angle || 180;
+    const angleRad = ((angle - 90) * Math.PI) / 180;
+    const cos = Math.cos(angleRad);
+    const sin = Math.sin(angleRad);
+    return {
+      type: "GRADIENT_LINEAR",
+      gradientStops: fill.stops.map((s: FigmaGradientStop) => ({
+        position: s.position,
+        color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
+      })),
+      gradientTransform: [
+        [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
+        [-sin, cos, 0.5 + sin * 0.5 - cos * 0.5],
+      ],
+    } as GradientPaint;
+  }
+
+  if (fill.type === "GRADIENT_RADIAL" && fill.stops && fill.stops.length >= 2) {
+    const radialTransform = calculateRadialGradientTransform(fill);
+    return {
+      type: "GRADIENT_RADIAL",
+      gradientStops: fill.stops.map((s: FigmaGradientStop) => ({
+        position: s.position,
+        color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
+      })),
+      gradientTransform: radialTransform,
+    } as GradientPaint;
+  }
+
+  if (fill.type === "GRADIENT_CONIC" && fill.stops && fill.stops.length >= 2) {
+    return {
+      type: "GRADIENT_ANGULAR",
+      gradientStops: fill.stops.map((s: FigmaGradientStop) => ({
+        position: s.position,
+        color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
+      })),
+      gradientTransform: [
+        [1, 0, 0],
+        [0, 1, 0],
+      ],
+    } as GradientPaint;
+  }
+
+  return null;
+}
+
+/**
  * Create Figma PaintStyles for ALL unique colors in the wireframe tree.
  * Unified function: replaces createColorStylesFromVariables + createWebsiteColorStyles.
  *
@@ -548,9 +638,11 @@ export async function createUnifiedWebsiteColorStyles(
 
   const allPaints = new Map<string, FigmaFill>();
   const textColors = new Map<string, string>();
+  const compoundFills = new Map<string, FigmaFill[]>();
   for (const frame of frames) {
     if (frame.tree) {
       collectAllPaintsFromTree(frame.tree, allPaints, textColors);
+      collectCompoundFillsFromTree(frame.tree, compoundFills);
     }
   }
 
@@ -767,6 +859,71 @@ export async function createUnifiedWebsiteColorStyles(
     newStylesCreated,
     totalColorStyles: colorStyleMap.size,
   });
+
+  // =========================================================================
+  // PASS 4: Create compound PaintStyles for multi-fill nodes
+  // Figma's fillStyleId is per-frame (all fills), so multi-fill frames need
+  // a single PaintStyle containing ALL their fills to be linkable.
+  // =========================================================================
+
+  let compoundStylesCreated = 0;
+  for (const [compoundKey, fills] of Array.from(compoundFills)) {
+    if (colorStyleMap.has(compoundKey)) continue;
+
+    try {
+      // Build compound name from individual fill info
+      const parts: string[] = [];
+      for (const fill of fills) {
+        if (fill.cssVariable) {
+          parts.push(fill.cssVariable);
+        } else if (
+          (fill.type === "GRADIENT_LINEAR" ||
+            fill.type === "GRADIENT_RADIAL" ||
+            fill.type === "GRADIENT_CONIC") &&
+          fill.stops &&
+          fill.stops.length >= 2
+        ) {
+          const gName = gradientVarName(fill.type, fill.angle, fill.stops);
+          const prefix =
+            fill.type === "GRADIENT_RADIAL" ? "radial" :
+            fill.type === "GRADIENT_CONIC" ? "conic" : "gradient";
+          parts.push(gName || prefix);
+        } else if (fill.type === "SOLID" && fill.color) {
+          parts.push(figmaColorToHex(fill.color));
+        } else {
+          parts.push("fill");
+        }
+      }
+
+      const styleName = `WEB/compound(${parts.join(", ")})`;
+
+      // Convert each fill to a native Figma Paint
+      // CSS order is top-to-bottom, Figma order is bottom-to-top → reverse
+      const paints: Paint[] = [];
+      for (const fill of fills) {
+        const paint = figmaFillToPaint(fill);
+        if (paint) paints.push(paint);
+      }
+
+      if (paints.length > 1) {
+        const style = createOrUpdateStyle(styleName, paints.reverse());
+        colorStyleMap.set(compoundKey, style);
+        compoundStylesCreated++;
+      }
+    } catch (err) {
+      logger.warn("Failed to create compound style", {
+        key: compoundKey,
+        error: err,
+      });
+    }
+  }
+
+  if (compoundStylesCreated > 0) {
+    logger.info("Pass 4: Created compound styles for multi-fill nodes", {
+      compoundStylesCreated,
+      totalColorStyles: colorStyleMap.size,
+    });
+  }
 
   return { colorStyleMap, variableStyleMap };
 }

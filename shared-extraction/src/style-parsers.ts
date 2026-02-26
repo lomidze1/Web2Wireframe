@@ -232,6 +232,10 @@ export function parseBackgroundToFills(
         resolvedVariables
       );
       if (fill) {
+        // Preserve CSS variable name on fills created from bare var() layers
+        if (topLevelVar) {
+          fill.cssVariable = topLevelVar;
+        }
         fills.push(fill);
       }
     }

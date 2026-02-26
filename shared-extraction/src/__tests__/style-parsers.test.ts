@@ -143,6 +143,48 @@ describe("parseBackgroundToFills", () => {
     expect(fills[0].color).toEqual({ r: 0, g: 0, b: 1, a: 1 });
   });
 
+  it("should set cssVariable on fills created from bare var() layers", () => {
+    const variables = new Map([["--bg", "#F7F8FB"]]);
+    const fills = parseBackgroundToFills(
+      "var(--bg)",
+      null,
+      variables
+    );
+    expect(fills).toHaveLength(1);
+    expect(fills[0].type).toBe("SOLID");
+    expect(fills[0].cssVariable).toBe("--bg");
+  });
+
+  it("should set cssVariable on the var() layer in a multi-layer background", () => {
+    const variables = new Map([["--bg", "#F7F8FB"]]);
+    const fills = parseBackgroundToFills(
+      "radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.08), transparent 28%), radial-gradient(circle at 80% 10%, rgba(36, 109, 255, 0.08), transparent 25%), var(--bg)",
+      null,
+      variables
+    );
+    expect(fills).toHaveLength(3);
+    // First two radial gradients: no cssVariable
+    expect(fills[0].type).toBe("GRADIENT_RADIAL");
+    expect(fills[0].cssVariable).toBeUndefined();
+    expect(fills[1].type).toBe("GRADIENT_RADIAL");
+    expect(fills[1].cssVariable).toBeUndefined();
+    // Third layer (from var(--bg)): cssVariable set
+    expect(fills[2].type).toBe("SOLID");
+    expect(fills[2].cssVariable).toBe("--bg");
+  });
+
+  it("should set cssVariable when var() resolves to a gradient", () => {
+    const variables = new Map([["--gradient-bg", "linear-gradient(180deg, #FF0000, #0000FF)"]]);
+    const fills = parseBackgroundToFills(
+      "var(--gradient-bg)",
+      null,
+      variables
+    );
+    expect(fills).toHaveLength(1);
+    expect(fills[0].type).toBe("GRADIENT_LINEAR");
+    expect(fills[0].cssVariable).toBe("--gradient-bg");
+  });
+
   it("should handle gradient with transparent stops", () => {
     const fills = parseBackgroundToFills(
       "linear-gradient(transparent, #FF0000)",

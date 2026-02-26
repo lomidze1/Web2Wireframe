@@ -292,7 +292,7 @@ export async function createTextNode(
 
   // Deferred per-range TextStyle links (multi-segment only).
   // Applied AFTER lineHeight/letterSpacing to prevent Figma from detaching styles.
-  const pendingTextStyleLinks: Array<{ startIdx: number; endIdx: number; styleId: string }> = [];
+  const pendingTextStyleLinks: Array<{ startIdx: number; endIdx: number; styleId: string; textDecoration?: string }> = [];
 
   // Apply range-specific styling if there are multiple segments
   if (segments.length > 1) {
@@ -446,7 +446,7 @@ export async function createTextNode(
         const tsKey = [resolvedSegFont, segStyleStr, segFontSize, lhKey, lsKey].filter(Boolean).join("-");
         const segTextStyle = context.textStyleMap.get(tsKey);
         if (segTextStyle) {
-          pendingTextStyleLinks.push({ startIdx, endIdx, styleId: segTextStyle.id });
+          pendingTextStyleLinks.push({ startIdx, endIdx, styleId: segTextStyle.id, textDecoration: segment.textDecoration });
         }
       }
 
@@ -599,6 +599,14 @@ export async function createTextNode(
     for (const link of pendingTextStyleLinks) {
       try {
         textNode.setRangeTextStyleId(link.startIdx, link.endIdx, link.styleId);
+        // Re-apply text decoration — setting textStyleId resets it to the
+        // style's default (NONE), but the original segment may have underline/etc.
+        if (link.textDecoration) {
+          const deco =
+            link.textDecoration === "underline" ? ("UNDERLINE" as const) :
+            link.textDecoration === "line-through" ? ("STRIKETHROUGH" as const) : null;
+          if (deco) textNode.setRangeTextDecoration(link.startIdx, link.endIdx, deco);
+        }
       } catch {
         // Style linking failed — font properties already set as fallback
       }
