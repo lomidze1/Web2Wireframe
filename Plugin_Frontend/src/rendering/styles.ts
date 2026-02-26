@@ -780,7 +780,7 @@ const MAX_TEXT_STYLES = 50;
 /**
  * Map a numeric font weight to a Figma font style string
  */
-function fontWeightToStyle(weight: number): string {
+export function fontWeightToStyle(weight: number): string {
   if (weight >= 600) return "Bold";
   if (weight >= 500) return "Medium";
   return "Regular";
@@ -830,7 +830,7 @@ export function lineHeightKeyStr(lh: LineHeight): string {
   return "";
 }
 
-interface TypographyCombo {
+export interface TypographyCombo {
   fontFamily: string;
   fontSize: number;
   fontWeight: number;
@@ -842,7 +842,7 @@ interface TypographyCombo {
  * Recursively collect unique typography combinations from the wireframe tree.
  * Includes lineHeight and letterSpacing in the key for accurate TextStyle matching.
  */
-function collectTypographyFromTree(
+export function collectTypographyFromTree(
   node: WireframeNode,
   combos: Map<string, TypographyCombo>,
   pluginFontFamily: string,
@@ -863,6 +863,22 @@ function collectTypographyFromTree(
     if (!combos.has(key)) {
       combos.set(key, { fontFamily: family, fontSize, fontWeight, lineHeight: lh, letterSpacing: ls });
     }
+
+    // Also collect from styledSegments (multi-segment text like "$12 /month")
+    if (node.styledSegments) {
+      for (const seg of node.styledSegments) {
+        if (seg.fontSize) {
+          const segFamily = fontMode === "plugin" ? pluginFontFamily : (seg.fontFamily || node.fontFamily || pluginFontFamily);
+          const segFontSize = Math.max(seg.fontSize || 14, 8);
+          const segFontWeight = seg.fontWeight || node.fontWeight || 400;
+          const segStyleStr = fontWeightToStyle(segFontWeight);
+          const segKey = [segFamily, segStyleStr, segFontSize, lhKey, lsKey].filter(Boolean).join("-");
+          if (!combos.has(segKey)) {
+            combos.set(segKey, { fontFamily: segFamily, fontSize: segFontSize, fontWeight: segFontWeight, lineHeight: lh, letterSpacing: ls });
+          }
+        }
+      }
+    }
   }
 
   // Recurse into children
@@ -877,8 +893,8 @@ function collectTypographyFromTree(
  * Create Figma TextStyles from unique typography combinations in the tree.
  *
  * Naming:
- * - Plugin mode: W2W/Montserrat-Bold-24  (or W2W/Montserrat-Bold-24-lh36)
- * - Website mode: WEB/SpaceGrotesk-Bold-24
+ * - Plugin mode: W2W/--Montserrat-Bold-24  (lh suffix only when disambiguating collisions)
+ * - Website mode: WEB/--SpaceGrotesk-Bold-24
  *
  * TextStyles include lineHeight and letterSpacing so linking won't detach.
  */
@@ -911,14 +927,34 @@ export async function createTextStyles(
   let stylesCreated = 0;
   const prefix = fontMode === "plugin" ? "W2W" : "WEB";
 
+  // Detect lineHeight collisions: same base key (font+style+size+ls) with different lineHeights.
+  // Only include lh in the display name when needed to disambiguate.
+  const baseKeyLhMap = new Map<string, Set<string>>();
+  for (const [, combo] of Array.from(combos)) {
+    const s = fontWeightToStyle(combo.fontWeight);
+    const ls = combo.letterSpacing !== 0 ? `ls${Math.round(combo.letterSpacing * 10)}` : "";
+    const base = [combo.fontFamily, s, combo.fontSize, ls].filter(Boolean).join("-");
+    const lh = lineHeightKeyStr(combo.lineHeight);
+    if (!baseKeyLhMap.has(base)) baseKeyLhMap.set(base, new Set());
+    baseKeyLhMap.get(base)!.add(lh);
+  }
+  const lhCollisionBases = new Set<string>();
+  for (const [base, lhSet] of Array.from(baseKeyLhMap)) {
+    if (lhSet.size > 1) lhCollisionBases.add(base);
+  }
+
   for (const [key, combo] of Array.from(combos)) {
     if (stylesCreated >= MAX_TEXT_STYLES) break;
 
     const styleStr = fontWeightToStyle(combo.fontWeight);
     const lhKey = lineHeightKeyStr(combo.lineHeight);
     const lsKey = combo.letterSpacing !== 0 ? `ls${Math.round(combo.letterSpacing * 10)}` : "";
-    const nameParts = [combo.fontFamily, styleStr, combo.fontSize, lhKey, lsKey].filter(Boolean);
-    const styleName = `${prefix}/${nameParts.join("-")}`;
+    const baseKey = [combo.fontFamily, styleStr, combo.fontSize, lsKey].filter(Boolean).join("-");
+    const needsLh = lhCollisionBases.has(baseKey);
+    const nameParts = [combo.fontFamily, styleStr, combo.fontSize];
+    if (needsLh && lhKey) nameParts.push(lhKey);
+    if (lsKey) nameParts.push(lsKey);
+    const styleName = `${prefix}/--${nameParts.join("-")}`;
 
     try {
       // Try to load the font first -- skip if unavailable

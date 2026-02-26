@@ -290,6 +290,10 @@ export async function createTextNode(
   // Apply base font size
   textNode.fontSize = Math.max(node.fontSize || 14, 8);
 
+  // Deferred per-range TextStyle links (multi-segment only).
+  // Applied AFTER lineHeight/letterSpacing to prevent Figma from detaching styles.
+  const pendingTextStyleLinks: Array<{ startIdx: number; endIdx: number; styleId: string }> = [];
+
   // Apply range-specific styling if there are multiple segments
   if (segments.length > 1) {
     // Apply base text color to the entire text node first.
@@ -410,6 +414,9 @@ export async function createTextNode(
         }
       }
 
+      // Always set font properties directly first.
+      // TextStyle linking is deferred to AFTER lineHeight/letterSpacing
+      // to prevent Figma from detaching the style when those props are set.
       try {
         textNode.setRangeFontName(startIdx, endIdx, {
           family: resolvedSegFont,
@@ -419,13 +426,28 @@ export async function createTextNode(
         // Keep default
       }
 
-      // Apply segment font size if different
       if (segment.fontSize && segment.fontSize !== node.fontSize) {
         textNode.setRangeFontSize(
           startIdx,
           endIdx,
           Math.max(segment.fontSize, 8)
         );
+      }
+
+      // Collect pending TextStyle links (applied after lineHeight/letterSpacing)
+      if (context && context.variableMode === "styles" && context.textStyleMap) {
+        const segWeight = segment.fontWeight || node.fontWeight || 400;
+        const segStyleStr = segWeight >= 600 ? "Bold" : segWeight >= 500 ? "Medium" : "Regular";
+        const segFontSize = Math.max(segment.fontSize || node.fontSize || 14, 8);
+        const lh = parseFigmaLineHeight(node.lineHeight);
+        const lhKey = lineHeightKeyStr(lh);
+        const ls = Math.round((node.letterSpacing || 0) * 10) / 10;
+        const lsKey = ls !== 0 ? `ls${Math.round(ls * 10)}` : "";
+        const tsKey = [resolvedSegFont, segStyleStr, segFontSize, lhKey, lsKey].filter(Boolean).join("-");
+        const segTextStyle = context.textStyleMap.get(tsKey);
+        if (segTextStyle) {
+          pendingTextStyleLinks.push({ startIdx, endIdx, styleId: segTextStyle.id });
+        }
       }
 
       // Apply text decoration (underline, strikethrough)
@@ -570,11 +592,25 @@ export async function createTextNode(
   const inlineTags = ["span", "strong", "em", "b", "i", "code", "small", "mark"];
   const isInlineElement = node.tag && inlineTags.includes(node.tag.toLowerCase());
 
+  // Helper: apply all deferred TextStyle links (multi-segment per-range + single-segment whole-node).
+  // MUST be called LAST — after lineHeight, letterSpacing, sizing, and fontSize changes.
+  const applyDeferredTextStyles = () => {
+    // Per-range links (multi-segment text)
+    for (const link of pendingTextStyleLinks) {
+      try {
+        textNode.setRangeTextStyleId(link.startIdx, link.endIdx, link.styleId);
+      } catch {
+        // Style linking failed — font properties already set as fallback
+      }
+    }
+    // Whole-node link (single-segment text)
+    linkTextStyleIfApplicable(textNode, node, segments, usedFontFamily, context);
+  };
+
   // Special cases: always HUG
   if (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow || isInlineElement) {
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
-    // Link TextStyle LAST (after all property modifications)
-    linkTextStyleIfApplicable(textNode, node, segments, usedFontFamily, context);
+    applyDeferredTextStyles();
     return textNode;
   }
 
@@ -679,9 +715,8 @@ export async function createTextNode(
     textNode.textAutoResize = "NONE";
   }
 
-  // Link TextStyle LAST (after all property modifications including sizing)
-  // Uses actual textNode.fontSize which may have been reduced by sizing logic
-  linkTextStyleIfApplicable(textNode, node, segments, usedFontFamily, context);
+  // Apply all deferred TextStyle links LAST (after sizing, lineHeight, letterSpacing)
+  applyDeferredTextStyles();
 
   return textNode;
 }
