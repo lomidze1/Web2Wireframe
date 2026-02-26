@@ -357,25 +357,36 @@ function toRoman(num: number): string {
  * Count text lines from textBoxes
  * Each textBox represents one rendered line of text
  *
+ * Skips pseudo-element children (::marker, ::before, ::after) because they
+ * render as separate Figma elements with their own width/height.
+ * Including their textBoxes would inflate the line count — e.g. a single-line
+ * <li> with a ::marker bullet would be counted as 2 lines instead of 1.
+ *
  * @param nodeIndex - Index of parent element
  * @param nodes - All parsed nodes
  * @param childrenMap - Map of nodeIndex -> children indices
  * @returns Number of text lines (from textBoxes.length)
  */
-function countTextLines(
+export function countTextLines(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
   childrenMap: Map<number, number[]>
 ): number {
   let totalLines = 0;
 
-  // Check direct TEXT_NODE children
+  // Check direct TEXT_NODE children, skip pseudo-elements
   const childIndices = childrenMap.get(nodeIndex) || [];
   for (const childIdx of childIndices) {
     const child = nodes[childIdx];
-    if (child && child.textBoxes && child.textBoxes.length > 0) {
-      totalLines += child.textBoxes.length;
-    }
+    if (!child || !child.textBoxes || child.textBoxes.length === 0) continue;
+
+    // Skip pseudo-elements — they render as separate Figma elements
+    // nodeType -1 = pseudo-element in DOMSnapshot
+    if (child.nodeType === -1) continue;
+    const name = child.nodeName?.toLowerCase() || "";
+    if (name === "::marker" || name === "::before" || name === "::after") continue;
+
+    totalLines += child.textBoxes.length;
   }
 
   // Also check if parent element itself has textBoxes (for inline elements)

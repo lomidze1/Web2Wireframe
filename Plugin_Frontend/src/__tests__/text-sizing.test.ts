@@ -387,6 +387,11 @@ describe("parentWidth-based sizing decision", () => {
   /**
    * Pure-function simulation of the Case B sizing decision in createTextNode.
    * This mirrors the logic at text.ts lines 562-618.
+   *
+   * Multi-line branch now checks hugWidth vs parentWidth (safety net):
+   * - |hugWidth - browserWidth| <= 1 → useHug (fonts nearly identical)
+   * - hugWidth > browserWidth AND fits in parent → useHug (prevent wrapping)
+   * - otherwise → useBrowser
    */
   function caseBSizingDecision(input: SizingInput): SizingResult {
     const { hugWidth, browserWidth, browserLineCount, parentWidth } = input;
@@ -399,7 +404,12 @@ describe("parentWidth-based sizing decision", () => {
 
     // Case B: HUG wider than browser
     if (browserLineCount > 1) {
-      // Multi-line: use browser dimensions
+      // Multi-line — still check if hugWidth fits
+      if (Math.abs(hugWidth - browserWidth) <= 1) {
+        return { action: "useHug", width: hugWidth };
+      } else if (hugWidth > browserWidth && parentWidth > 0 && hugWidth <= parentWidth) {
+        return { action: "useHug", width: hugWidth };
+      }
       return { action: "useBrowser" };
     }
 
@@ -481,8 +491,35 @@ describe("parentWidth-based sizing decision", () => {
     });
   });
 
-  describe("multi-line text always uses browser dimensions", () => {
-    it("uses browser width for multi-line text regardless of parent", () => {
+  describe("multi-line text: hugWidth check (safety net)", () => {
+    it("uses hugWidth when font metrics nearly identical (diff <= 1)", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 341,
+        browserWidth: 340,
+        browserHeight: 52,
+        browserLineCount: 2,
+        parentWidth: 1000,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useHug", width: 341 });
+    });
+
+    it("uses hugWidth when wider but fits in parent (list item bug fix)", () => {
+      // Real-world: "AI-powered generation" in list item
+      // browserLineCount inflated by ::marker textBox → counted as multi-line
+      // but hugWidth (187) fits in parent (340) → use hugWidth
+      const result = caseBSizingDecision({
+        hugWidth: 187,
+        browserWidth: 177.5,
+        browserHeight: 21,
+        browserLineCount: 2,
+        parentWidth: 340,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useHug", width: 187 });
+    });
+
+    it("uses browser width when hugWidth much larger (true multi-line)", () => {
       const result = caseBSizingDecision({
         hugWidth: 500,
         browserWidth: 340,
@@ -491,16 +528,30 @@ describe("parentWidth-based sizing decision", () => {
         parentWidth: 1000,
         originalFontSize: 16,
       });
-      expect(result).toEqual({ action: "useBrowser" });
+      // hugWidth (500) > browserWidth (340) AND fits in parent (1000)
+      // → uses hugWidth to prevent wrapping
+      expect(result).toEqual({ action: "useHug", width: 500 });
     });
 
-    it("uses browser width for 3-line text", () => {
+    it("uses browser width when hugWidth exceeds parent", () => {
       const result = caseBSizingDecision({
         hugWidth: 800,
         browserWidth: 340,
         browserHeight: 78,
         browserLineCount: 3,
         parentWidth: 500,
+        originalFontSize: 16,
+      });
+      expect(result).toEqual({ action: "useBrowser" });
+    });
+
+    it("uses browser width when no parent info", () => {
+      const result = caseBSizingDecision({
+        hugWidth: 500,
+        browserWidth: 340,
+        browserHeight: 52,
+        browserLineCount: 2,
+        parentWidth: 0,
         originalFontSize: 16,
       });
       expect(result).toEqual({ action: "useBrowser" });

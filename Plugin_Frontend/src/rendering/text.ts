@@ -595,8 +595,19 @@ export async function createTextNode(
     // Text is WIDER in Figma than browser (font metrics differ)
 
     if (browserLineCount > 1) {
-      // Multi-line text → don't reduce font size, just use browser dimensions
-      textNode.resize(browserWidth, browserHeight);
+      // Multi-line text — check if hugWidth is close or fits in parent
+      const parentWMulti = context?.parentWidth || 0;
+
+      if (Math.abs(hugWidth - browserWidth) <= 1) {
+        // Font metrics nearly identical — use hugWidth
+        textNode.resize(hugWidth, browserHeight);
+      } else if (hugWidth > browserWidth && parentWMulti > 0 && hugWidth <= parentWMulti) {
+        // Plugin font wider but fits in parent — use hugWidth to prevent wrapping
+        textNode.resize(hugWidth, browserHeight);
+      } else {
+        // hugWidth too large or no parent info — use browser dimensions
+        textNode.resize(browserWidth, browserHeight);
+      }
       textNode.textAutoResize = "NONE";
     } else {
       // Single-line text: HUG is wider than browser width
