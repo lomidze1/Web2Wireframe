@@ -23,18 +23,6 @@ interface CaptureState {
 // Default selected viewport (only 1440 selected by default)
 const DEFAULT_VIEWPORTS = [1440];
 
-/**
- * Extract domain from URL for filename
- */
-function getDomainFromUrl(url: string): string {
-  try {
-    const hostname = new URL(url).hostname;
-    return hostname.replace(/^www\./, "").replace(/\./g, "_");
-  } catch {
-    return "website";
-  }
-}
-
 export function App() {
   const [state, setState] = useState<CaptureState>({
     status: "idle",
@@ -94,11 +82,8 @@ export function App() {
           message: "Capture complete!",
           result: response.data,
         });
-
-        // Auto-download if save locally is selected
-        if (saveOption === "local" && response.data) {
-          handleDownload(response.data);
-        }
+        // Download is handled by background service worker (autoDownloadResult)
+        // This ensures JSON is saved even if popup closes during capture
       } else {
         throw new Error(response.error || "Capture failed");
       }
@@ -142,24 +127,6 @@ export function App() {
         error: error instanceof Error ? error.message : "Could not start selection. Please try again.",
       });
     }
-  };
-
-  const handleDownload = (data?: CaptureResult) => {
-    const result = data || state.result;
-    if (!result || !currentTab?.url) return;
-
-    const domain = getDomainFromUrl(currentTab.url);
-    const viewportLabel = viewports.join("_");
-    const filename = `${domain}_${viewportLabel}_wireframe.json`;
-    const jsonString = JSON.stringify(result, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const canCapture =

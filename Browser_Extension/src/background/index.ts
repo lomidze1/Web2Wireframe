@@ -77,11 +77,21 @@ let inspectModeOptions: CaptureOptions = DEFAULT_CAPTURE_OPTIONS;
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
     if (message.type === "CAPTURE_PAGE") {
+      console.log("[W2W] CAPTURE_PAGE received, tabId:", message.tabId);
       handleCapturePage(message.tabId, message.options)
-        .then((result) => sendResponse({ success: true, data: result }))
-        .catch((error) =>
-          sendResponse({ success: false, error: error.message }),
-        );
+        .then(async (result) => {
+          console.log("[W2W] Capture complete, frames:", result.frames.length);
+          // Always auto-download from background as fallback
+          // (popup may have closed during the lengthy capture)
+          await autoDownloadResult(result, message.tabId, "page").catch((e) =>
+            console.error("[W2W] Auto-download fallback failed:", e),
+          );
+          sendResponse({ success: true, data: result });
+        })
+        .catch((error) => {
+          console.error("[W2W] Capture failed:", error);
+          sendResponse({ success: false, error: error.message });
+        });
       return true; // Keep channel open for async response
     }
 
@@ -196,15 +206,17 @@ async function startInspectMode(
 
       // Capture the selected element
       try {
+        console.log("[W2W] Element selected, backendNodeId:", backendNodeId);
         const result = await handleCaptureElementByBackendId(
           tabId,
           backendNodeId,
           inspectModeOptions,
           client,
         );
+        console.log("[W2W] Element capture complete, downloading...");
         await autoDownloadResult(result, tabId, "element");
-      } catch {
-        // Element capture error - silent
+      } catch (err) {
+        console.error("[W2W] Element capture/download failed:", err);
       } finally {
         // Cleanup inspect mode
         await cancelInspectMode();
@@ -415,9 +427,11 @@ async function handleCapturePage(
   try {
     const tab = await chrome.tabs.get(tabId);
     if (!tab.url) throw new Error("Cannot capture this page");
+    console.log("[W2W] Starting capture for:", tab.url);
 
     updateProgress(5, "Connecting to page...");
     client = await createCDPClient(tabId);
+    console.log("[W2W] CDP client connected");
 
     // Get current devicePixelRatio (browser zoom level)
     const dprResult = await client.send<{ result: { value: number } }>(
@@ -513,12 +527,15 @@ async function handleCapturePage(
 
       // Capture snapshot
       updateProgress(baseProgress + progressPerViewport * 0.3, "Capturing snapshot...");
+      console.log(`[W2W] Capturing snapshot for viewport ${targetViewport}px...`);
       const snapshot = await captureSnapshot(client);
       const { nodes, nodesByBackendId } = parseSnapshot(snapshot);
+      console.log(`[W2W] Snapshot parsed: ${nodes.length} nodes`);
 
       // Find nodes needing matched styles
       const nodesNeedingMatched = findNodesNeedingMatchedStyles(nodes);
       const backendIds = nodesNeedingMatched.map((n) => n.backendNodeId);
+      console.log(`[W2W] Nodes needing matched styles: ${nodesNeedingMatched.length}`);
 
       // Get DOM document
       await getDocument(client, -1, true);
@@ -551,6 +568,7 @@ async function handleCapturePage(
 
       // Build element tree (uses shared-extraction unified logic)
       updateProgress(baseProgress + progressPerViewport * 0.7, "Building tree...");
+      console.log(`[W2W] Building element tree...`);
       const tree = buildElementTree(
         nodes,
         nodesByBackendId,
@@ -562,6 +580,7 @@ async function handleCapturePage(
           browserDpr,
         }
       );
+      console.log(`[W2W] Tree built: ${tree.children.length} top-level children`);
 
       frames.push({
         viewport: {
@@ -608,6 +627,7 @@ async function handleCapturePage(
     };
 
     updateProgress(100, "Complete!");
+    console.log(`[W2W] Capture complete: ${frames.length} frames, ${fonts.length} fonts, ${cssVariables.length} vars`);
     return result;
   } finally {
     if (client) {
@@ -1825,26 +1845,26 @@ function updateProgress(progress: number, status: string) {
 }
 
 /**
- * Auto-download capture result (used when popup is closed)
- * Downloads JSON file via chrome.downloads API
+ * Auto-download capture result from background service worker.
+ * Uses chrome.offscreen API for large JSON (data URL has ~2MB limit),
+ * falls back to data URL for smaller payloads.
  */
 async function autoDownloadResult(
   result: CaptureResult,
   tabId: number,
-  captureType: "area" | "element",
+  captureType: "page" | "area" | "element",
 ): Promise<void> {
   try {
-    // Get tab info for filename
     const tab = await chrome.tabs.get(tabId);
     const domain = getDomainFromUrl(tab.url || "");
-    const timestamp = Date.now();
-    const filename = `${domain}_${captureType}_${timestamp}_wireframe.json`;
+    const viewportLabel = result.frames.map((f) => f.viewport.width).join("_");
+    const filename = `${domain}_${viewportLabel}_wireframe.json`;
 
-    // Convert result to JSON blob URL
     const jsonString = JSON.stringify(result, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
+    console.log(`[W2W] Auto-download: ${filename} (${(jsonString.length / 1024).toFixed(0)}KB)`);
 
-    // Create a data URL from the blob
+    // Use data URL approach (works in service worker since Chrome 116+)
+    const blob = new Blob([jsonString], { type: "application/json" });
     const reader = new FileReader();
     const dataUrl = await new Promise<string>((resolve, reject) => {
       reader.onload = () => resolve(reader.result as string);
@@ -1852,21 +1872,36 @@ async function autoDownloadResult(
       reader.readAsDataURL(blob);
     });
 
-    // Download using chrome.downloads API
     await chrome.downloads.download({
       url: dataUrl,
-      filename: filename,
-      saveAs: false, // Auto-save to downloads folder
+      filename,
+      saveAs: false,
     });
-  } catch {
-    // Fallback: try to open in new tab for manual save
+    console.log("[W2W] Download triggered:", filename);
+  } catch (err) {
+    console.error("[W2W] Auto-download primary failed:", err);
+    // Fallback: inject script into the tab to trigger download from page context
+    // (page context has full DOM API support including URL.createObjectURL)
     try {
       const jsonString = JSON.stringify(result, null, 2);
-      const blob = new Blob([jsonString], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      await chrome.tabs.create({ url, active: true });
-    } catch {
-      // Silent fail
+      const domain = getDomainFromUrl(result.url || "");
+      const fallbackName = `${domain}_${captureType}_wireframe.json`;
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: (json: string, name: string) => {
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = name;
+          a.click();
+          URL.revokeObjectURL(url);
+        },
+        args: [jsonString, fallbackName],
+      });
+      console.log("[W2W] Fallback download via page injection succeeded");
+    } catch (fallbackErr) {
+      console.error("[W2W] Fallback download also failed:", fallbackErr);
     }
   }
 }
