@@ -722,10 +722,10 @@ export async function createUnifiedWebsiteColorStyles(
 
     if (names.length === 0) return null;
 
-    // Build descriptive name: gradient(--var1, --var2, 135deg)
+    // Build descriptive name: --gradient(--var1, --var2, 135deg)
     const typePrefix =
-      fillType === "GRADIENT_RADIAL" ? "radial" :
-      fillType === "GRADIENT_CONIC" ? "conic" : "gradient";
+      fillType === "GRADIENT_RADIAL" ? "--radial" :
+      fillType === "GRADIENT_CONIC" ? "--conic" : "--gradient";
     const angleStr = angle != null ? `, ${Math.round(angle)}deg` : "";
     let baseName = `${typePrefix}(${names.join(", ")}${angleStr})`;
 
@@ -885,8 +885,8 @@ export async function createUnifiedWebsiteColorStyles(
         ) {
           const gName = gradientVarName(fill.type, fill.angle, fill.stops);
           const prefix =
-            fill.type === "GRADIENT_RADIAL" ? "radial" :
-            fill.type === "GRADIENT_CONIC" ? "conic" : "gradient";
+            fill.type === "GRADIENT_RADIAL" ? "--radial" :
+            fill.type === "GRADIENT_CONIC" ? "--conic" : "--gradient";
           parts.push(gName || prefix);
         } else if (fill.type === "SOLID" && fill.color) {
           parts.push(figmaColorToHex(fill.color));
