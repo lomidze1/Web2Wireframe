@@ -84,64 +84,96 @@ const SEMANTIC_PLACEHOLDERS: Record<string, string> = {
   details: "Details text",
 };
 
+const LOREM_WORDS = [
+  "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit",
+  "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et", "dolore",
+  "magna", "aliqua", "enim", "ad", "minim", "veniam", "quis", "nostrud",
+  "exercitation", "ullamco", "laboris", "nisi", "aliquip", "ex", "ea", "commodo",
+  "consequat", "duis", "aute", "irure", "in", "reprehenderit", "voluptate",
+  "velit", "esse", "cillum", "fugiat", "nulla", "pariatur", "excepteur", "sint",
+  "occaecat", "cupidatat", "non", "proident", "sunt", "culpa", "qui", "officia",
+  "deserunt", "mollit", "anim", "id", "est", "laborum",
+];
+
 /**
- * Generate Lorem Ipsum text with EXACT character count matching the original
- * This preserves the visual length/density of the original text in wireframes
+ * Approximate relative character widths for proportional (sans-serif) fonts.
+ * Used to detect when a Lorem replacement would be visually wider than
+ * the original text, so we can trim 1 character to prevent overflow.
  */
-function generateLoremIpsum(originalLength: number): string {
-  if (originalLength <= 0) return "";
+const CHAR_WIDTH: Record<string, number> = {
+  // Lowercase — narrow
+  i: 0.25, j: 0.25, l: 0.25, f: 0.30, t: 0.33, r: 0.35,
+  // Lowercase — medium-narrow
+  s: 0.45, c: 0.48, z: 0.45, x: 0.48,
+  // Lowercase — medium
+  a: 0.53, b: 0.55, d: 0.55, e: 0.52, g: 0.55, h: 0.55, k: 0.50,
+  n: 0.55, o: 0.55, p: 0.55, q: 0.55, u: 0.55, v: 0.50, y: 0.50,
+  // Lowercase — wide
+  m: 0.83, w: 0.75,
+  // Uppercase — narrow
+  I: 0.28, J: 0.45, F: 0.50, E: 0.53, L: 0.50, T: 0.55,
+  // Uppercase — medium
+  A: 0.63, B: 0.60, C: 0.60, D: 0.65, G: 0.65, H: 0.65, K: 0.60,
+  N: 0.65, O: 0.67, P: 0.58, Q: 0.67, R: 0.60, S: 0.55, U: 0.65,
+  V: 0.60, X: 0.58, Y: 0.58, Z: 0.55,
+  // Uppercase — wide
+  M: 0.83, W: 0.88,
+};
 
-  const loremWords = [
-    "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit",
-    "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et", "dolore",
-    "magna", "aliqua", "enim", "ad", "minim", "veniam", "quis", "nostrud",
-    "exercitation", "ullamco", "laboris", "nisi", "aliquip", "ex", "ea", "commodo",
-    "consequat", "duis", "aute", "irure", "in", "reprehenderit", "voluptate",
-    "velit", "esse", "cillum", "fugiat", "nulla", "pariatur", "excepteur", "sint",
-    "occaecat", "cupidatat", "non", "proident", "sunt", "culpa", "qui", "officia",
-    "deserunt", "mollit", "anim", "id", "est", "laborum",
-  ];
+/** Estimate the visual width of a string using per-character width table */
+export function estimateTextWidth(text: string): number {
+  let width = 0;
+  for (const ch of text) {
+    width += CHAR_WIDTH[ch] ?? 0.50;
+  }
+  return width;
+}
 
-  // Build text by adding words until we reach or exceed target length
-  const result: string[] = [];
-  let currentLength = 0;
-  let wordIndex = 0;
+/**
+ * Generate Lorem Ipsum that preserves all non-alphabetic characters in place.
+ * Only alphabetic runs ([a-zA-Z]+) are replaced with Lorem words; symbols,
+ * numbers, punctuation, spaces, and other characters stay exactly where they were.
+ *
+ * If the Lorem replacement for a word is estimated to be visually wider than
+ * the original word, 1 character is trimmed from the end to prevent overflow.
+ *
+ * Examples:
+ *   "$12 /month"     → "$12 /lorem"
+ *   "Hello, World!"  → "Lorem, Ipsum!"
+ *   "$99"            → "$99"           (no letters → unchanged)
+ *   "Read more →"    → "Lorem ipsu →"
+ *   "Pricing"        → "Loremi"        (trimmed: "Loremip" would be wider)
+ */
+export function generateLoremPreservingSymbols(originalText: string): string {
+  if (!originalText) return "";
+  if (!/[a-zA-Z]/.test(originalText)) return originalText;
 
-  while (currentLength < originalLength) {
-    const word = loremWords[wordIndex % loremWords.length];
-    const formattedWord = wordIndex === 0
-      ? word.charAt(0).toUpperCase() + word.slice(1)
-      : word;
+  let wordIdx = 0;
 
-    // Calculate what length would be after adding this word
-    const separator = result.length > 0 ? " " : "";
-    const newLength = currentLength + separator.length + formattedWord.length;
+  return originalText.replace(/[a-zA-Z]+/g, (match) => {
+    const target = match.length;
+    let replacement = "";
 
-    if (newLength <= originalLength) {
-      result.push(formattedWord);
-      currentLength = newLength;
-    } else {
-      // We need to add a partial word or just padding to reach exact length
-      const remainingChars = originalLength - currentLength;
-      if (remainingChars > 0) {
-        if (result.length > 0) {
-          // Add space + partial word
-          const partialWord = formattedWord.slice(0, remainingChars - 1);
-          if (partialWord.length > 0) {
-            result.push(partialWord);
-          }
-        } else {
-          // First word, just truncate
-          result.push(formattedWord.slice(0, remainingChars));
-        }
-      }
-      break;
+    // Fill replacement with Lorem words until we reach the target length
+    while (replacement.length < target) {
+      const word = LOREM_WORDS[wordIdx % LOREM_WORDS.length];
+      wordIdx++;
+      const remaining = target - replacement.length;
+      replacement += word.length <= remaining ? word : word.slice(0, remaining);
     }
 
-    wordIndex++;
-  }
+    // Match original capitalization of first letter
+    if (match[0] === match[0].toUpperCase() && match[0] !== match[0].toLowerCase()) {
+      replacement = replacement.charAt(0).toUpperCase() + replacement.slice(1);
+    }
 
-  return result.join(" ");
+    // If Lorem replacement is estimated to be visually wider, trim 1 char to prevent overflow
+    if (replacement.length > 1 && estimateTextWidth(replacement) > estimateTextWidth(match)) {
+      replacement = replacement.slice(0, -1);
+    }
+
+    return replacement;
+  });
 }
 
 /**
@@ -314,7 +346,7 @@ function transformTextInElement(
   if (transformed.textContent && transformed.type === "text") {
     switch (textMode) {
       case "lorem":
-        transformed.textContent = generateLoremIpsum(transformed.textContent.length);
+        transformed.textContent = generateLoremPreservingSymbols(transformed.textContent);
         break;
       case "semantic":
         transformed.textContent = getSemanticPlaceholder(
@@ -336,9 +368,14 @@ function transformTextInElement(
       transformed.styledSegments = transformed.styledSegments.map((seg) => {
         const segClone = { ...seg };
         switch (textMode) {
-          case "lorem":
-            segClone.text = generateLoremIpsum(seg.text.length);
+          case "lorem": {
+            const segTag = seg.tag?.toLowerCase() || "";
+            const isPseudo = segTag === "::marker" || segTag === "::before" || segTag === "::after";
+            // Preserve single-char pseudo-element content (bullets: •, -, ▸, etc.)
+            if (isPseudo && seg.text.trim().length <= 1) break;
+            segClone.text = generateLoremPreservingSymbols(seg.text);
             break;
+          }
           case "semantic":
             segClone.text = getSemanticPlaceholder(
               seg.tag || transformed.tag || "",
