@@ -895,7 +895,7 @@ export async function createUnifiedWebsiteColorStyles(
         }
       }
 
-      const styleName = `WEB/compound(${parts.join(", ")})`;
+      const styleName = `WEB/--compound(${parts.join(", ")})`;
 
       // Convert each fill to a native Figma Paint
       // CSS order is top-to-bottom, Figma order is bottom-to-top → reverse
