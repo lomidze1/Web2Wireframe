@@ -4,6 +4,7 @@ import { useState, useEffect } from "preact/hooks";
 import styles from "./Web.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { transformFramesData } from "../../../shared/transformData";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import RenderingLoader, {
@@ -201,9 +202,20 @@ export default function Web() {
 
       const data = await response.json();
 
+      // Transform text content based on selected text mode (semantic, lorem, etc.)
+      const rawFrames = data.wireframeData?.frames || [];
+      const frames = transformFramesData(
+        rawFrames as Parameters<typeof transformFramesData>[0],
+        {
+          colorMode: settings.localColorMode,
+          fontMode: settings.localFontMode,
+          textMode: settings.localTextMode,
+        }
+      );
+
       // Prepare render data
       const renderData: RenderData = {
-        frames: data.wireframeData?.frames || [],
+        frames,
         sourceUrl: trimmedUrl,
         localStyles: data.localStyles,
         pluginColors: data.pluginColors || config.pluginColors,

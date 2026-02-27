@@ -10,29 +10,78 @@
 import type { ColorMode, FontMode, TextMode } from "../components/modalPopup/ImportOptionsModal";
 
 /**
- * Semantic placeholder text based on HTML tag type
+ * Semantic placeholder text based on HTML tag type.
+ * Covers all standard HTML text-containing elements.
+ * Each tag gets a unique, informative placeholder to avoid a sea of "Text".
  */
 const SEMANTIC_PLACEHOLDERS: Record<string, string> = {
+  // Headings
   h1: "Page Title",
   h2: "Section Heading",
   h3: "Subsection Heading",
   h4: "Group Heading",
   h5: "Minor Heading",
   h6: "Small Heading",
+
+  // Block text
   p: "Body text paragraph with sample content.",
+  blockquote: "Quote",
+  address: "Contact info",
+  figcaption: "Caption text",
+
+  // Code / technical
+  pre: "Code snippet",
+  code: "Code snippet",
+  kbd: "Code snippet",
+  samp: "Code snippet",
+  var: "Code snippet",
+
+  // Inline formatting (differentiated by role)
   span: "Text",
+  strong: "Bold text",
+  b: "Bold text",
+  em: "Emphasis",
+  i: "Emphasis",
+  u: "Inline text",
+  s: "Inline text",
+  del: "Inline text",
+  ins: "Inline text",
+  mark: "Highlight",
+  small: "Fine print",
+  sub: "Script",
+  sup: "Script",
+  abbr: "Inline text",
+  dfn: "Inline text",
+  cite: "Quote",
+  q: "Quote",
+  time: "Time",
+  data: "Time",
+
+  // Links & interactive
   a: "Link",
   button: "Button",
   label: "Label",
-  li: "•",  // Bullet point for list items
+  legend: "Label",
+  option: "Option",
+  output: "Result",
+
+  // Lists
+  li: "List item",
+  dt: "Term",
+  dd: "Definition text",
+
+  // Tables
   td: "Cell",
   th: "Header",
+  caption: "Table Caption",
+
+  // Form
   input: "Input field",
   textarea: "Text area content",
-  small: "Fine print",
-  strong: "Text",  // Generic text instead of "Important"
-  em: "Text",      // Generic text instead of "Emphasized"
-  blockquote: "Quote text here...",
+
+  // Interactive
+  summary: "Summary",
+  details: "Details text",
 };
 
 /**
@@ -104,61 +153,115 @@ function isPricePattern(text: string): boolean {
 }
 
 /**
- * Check if text contains a price with period/unit (e.g., "/forever", "/month")
+ * Check if text contains a price WITH period/unit (e.g., "$0 /forever", "$12 /month").
+ * Requires a number before the period indicator — standalone "/month" won't match.
  */
 function hasPricePeriod(text: string): boolean {
-  return /\/\s*(forever|month|year|week|day|mo|yr|wk|annual|quarterly)/i.test(text);
+  return /[$€£¥₹]?\s*\d+([.,]\d+)?\s*\/\s*(forever|month|year|week|day|mo|yr|wk|annual|quarterly)/i.test(text.trim());
 }
 
 /**
- * Get semantic placeholder based on tag name and context
+ * Context passed down during recursive text transformation.
+ * Tracks parent element and page section for context-aware placeholders.
+ */
+interface TransformContext {
+  parentTag: string;
+  sectionTag?: string;
+  parentIsLogo?: boolean;
+}
+
+/** Section-level HTML tags that define page regions */
+const SECTION_TAGS = new Set(["header", "footer", "nav", "main", "aside", "section", "article"]);
+
+/** Parent tags whose children inherit the parent's semantic meaning */
+const PARENT_OVERRIDES: Record<string, string> = {
+  li: "List item",
+  button: "Button",
+  a: "Link",
+  label: "Label",
+  legend: "Label",
+  dt: "Term",
+  dd: "Definition text",
+  figcaption: "Caption text",
+  blockquote: "Quote",
+  summary: "Summary",
+};
+
+/** Section-aware paragraph placeholders */
+const SECTION_PARAGRAPH: Record<string, string> = {
+  footer: "Footer description text.",
+  header: "Header description text.",
+  nav: "Navigation description.",
+};
+
+/**
+ * Get semantic placeholder based on tag name, original text, and hierarchy context
  */
 function getSemanticPlaceholder(
   tag: string,
   originalText: string,
   className?: string,
-  elementName?: string
+  elementName?: string,
+  context?: TransformContext
 ): string {
   const tagLower = tag.toLowerCase();
+  const trimmed = originalText.trim();
 
-  // Check for logo - class name, element name, or text content contains "logo"
+  // Logo detection: own class/name OR inherited from parent
   const isLogo =
-    (className && /\blogo\b/i.test(className)) ||
-    (elementName && /\blogo\b/i.test(elementName)) ||
-    (originalText && /^logo$/i.test(originalText.trim()));
+    context?.parentIsLogo ||
+    (className && /\b(logo|brand)\b/i.test(className)) ||
+    (elementName && /\b(logo|brand)\b/i.test(elementName)) ||
+    /^logo$/i.test(trimmed);
 
-  if (isLogo) {
-    return "Logo";
-  }
+  if (isLogo) return "Logo";
 
-  // Preserve price patterns with periods (e.g., "$0 /forever" -> "$0 /period")
+  // Price with period in single element (e.g., "$50 /month" → "$price /text")
   if (hasPricePeriod(originalText)) {
-    // Replace the price amount but keep the period indicator
-    const periodMatch = originalText.match(/(\/\s*\w+)/);
-    const period = periodMatch ? periodMatch[1] : "/period";
-    return `$0 ${period}`;
-  }
-
-  // Preserve simple price patterns (e.g., "$99" -> "$0")
-  if (isPricePattern(originalText)) {
-    // Extract currency symbol if present
     const currencyMatch = originalText.match(/[$€£¥₹]/);
     const currency = currencyMatch ? currencyMatch[0] : "$";
-    return `${currency}0`;
+    return `${currency}price /text`;
   }
 
-  const placeholder = SEMANTIC_PLACEHOLDERS[tagLower];
-
-  if (placeholder) {
-    return placeholder;
+  // Simple price (e.g., "$99", "$0") → "$price"
+  if (isPricePattern(originalText)) {
+    const currencyMatch = originalText.match(/[$€£¥₹]/);
+    const currency = currencyMatch ? currencyMatch[0] : "$";
+    return `${currency}price`;
   }
 
-  // For unknown tags, create a generic placeholder based on original length
-  const length = originalText.length;
-  if (length <= 10) return "Text";
-  if (length <= 50) return "Short description text";
-  if (length <= 150) return "Medium length paragraph text for this section.";
-  return "Longer paragraph with detailed content that spans multiple lines for proper layout testing.";
+  // Preserve very short text (1-2 chars) as-is: ".", ",", "/", "?", "•", "©"
+  if (trimmed.length <= 2) return trimmed;
+
+  // Preserve text with no alphabetic characters (pure punctuation, symbols, numbers)
+  if (!/[a-zA-Z]/.test(trimmed)) return trimmed;
+
+  // Standalone period indicators (e.g., "/month", "/forever") → "/text"
+  if (/^\/\s*[a-zA-Z]/.test(trimmed)) return "/text";
+
+  // Parent tag override: child text inherits parent's semantic meaning
+  if (context?.parentTag) {
+    const override = PARENT_OVERRIDES[context.parentTag];
+    if (override) return override;
+  }
+
+  // Section-aware paragraph text
+  if (tagLower === "p" && context?.sectionTag) {
+    const sectionPlaceholder = SECTION_PARAGRAPH[context.sectionTag];
+    if (sectionPlaceholder) return sectionPlaceholder;
+  }
+
+  return SEMANTIC_PLACEHOLDERS[tagLower] || "Text";
+}
+
+/**
+ * Styled text segment within a mixed-content element (e.g., <h2>text <a>link</a></h2>).
+ * Each segment preserves its inline styling from CDP extraction.
+ */
+interface StyledSegment {
+  text: string;
+  tag?: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -172,7 +275,7 @@ interface ExtractedElement {
   children: ExtractedElement[];
   className?: string;  // CSS class names for detection (logo, etc.)
   name?: string;       // Element name for logo detection
-  // ... other properties not needed for text transformation
+  styledSegments?: StyledSegment[];  // Multi-segment text (inline children like <a> in <h2>)
   [key: string]: unknown;
 }
 
@@ -187,11 +290,25 @@ interface CapturedFrame {
 }
 
 /**
- * Transform text content in element tree based on text mode
+ * Transform text content in element tree based on text mode.
+ * Tracks parent tag and page section for context-aware semantic placeholders.
  */
-function transformTextInElement(element: ExtractedElement, textMode: TextMode): ExtractedElement {
-  // Clone the element to avoid mutation
+function transformTextInElement(
+  element: ExtractedElement,
+  textMode: TextMode,
+  context?: TransformContext
+): ExtractedElement {
   const transformed = { ...element };
+  const tagLower = element.tag?.toLowerCase() || "";
+
+  // Determine section context: inherit from parent or set from current element
+  const sectionTag = SECTION_TAGS.has(tagLower) ? tagLower : context?.sectionTag;
+
+  // Determine if this element is a logo container (propagates to children)
+  const parentIsLogo =
+    context?.parentIsLogo ||
+    !!(element.className && /\b(logo|brand)\b/i.test(element.className)) ||
+    !!(element.name && /\b(logo|brand)\b/i.test(element.name));
 
   // Transform text content if present
   if (transformed.textContent && transformed.type === "text") {
@@ -204,20 +321,48 @@ function transformTextInElement(element: ExtractedElement, textMode: TextMode): 
           transformed.tag,
           transformed.textContent,
           transformed.className,
-          transformed.name
+          transformed.name,
+          context
         );
         break;
       case "website":
       default:
-        // Keep original text
         break;
+    }
+
+    // Also transform styledSegments (for mixed-content elements like <h2>text <a>link</a></h2>).
+    // Rendering prioritizes styledSegments over textContent, so both must be transformed.
+    if (transformed.styledSegments && transformed.styledSegments.length > 0) {
+      transformed.styledSegments = transformed.styledSegments.map((seg) => {
+        const segClone = { ...seg };
+        switch (textMode) {
+          case "lorem":
+            segClone.text = generateLoremIpsum(seg.text.length);
+            break;
+          case "semantic":
+            segClone.text = getSemanticPlaceholder(
+              seg.tag || transformed.tag || "",
+              seg.text,
+              transformed.className,
+              transformed.name,
+              context
+            );
+            break;
+        }
+        return segClone;
+      });
     }
   }
 
-  // Recursively transform children
+  // Recursively transform children with context
   if (transformed.children && transformed.children.length > 0) {
+    const childContext: TransformContext = {
+      parentTag: tagLower,
+      sectionTag,
+      parentIsLogo,
+    };
     transformed.children = transformed.children.map((child) =>
-      transformTextInElement(child, textMode)
+      transformTextInElement(child, textMode, childContext)
     );
   }
 
