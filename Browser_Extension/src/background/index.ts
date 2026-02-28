@@ -1134,6 +1134,10 @@ function buildElementTreeFromBounds(
     parentX: number,
     parentY: number,
     depth: number,
+    parentContext?: {
+      direction: "HORIZONTAL" | "VERTICAL" | "NONE";
+      alignItems?: string;
+    },
   ): ExtractedElement | null {
     const MAX_DEPTH = 15;
     if (depth > MAX_DEPTH) return null;
@@ -1295,7 +1299,7 @@ function buildElementTreeFromBounds(
     const alignSelf = computedStyles["align-self"];
     const layoutAlign: "STRETCH" | "INHERIT" | undefined = alignSelf === "stretch" ? "STRETCH" : undefined;
 
-    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf);
+    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf, parentContext);
     const opacity = parseFloat(computedStyles.opacity || "1") || 1;
 
     const cssPosition = computedStyles["position"] as ExtractedElement["position"];
@@ -1412,7 +1416,10 @@ function buildElementTreeFromBounds(
         if (childNode.bounds && childNode.bounds.x / browserDpr >= viewportWidth) {
           continue;
         }
-        const childElement = buildNode(childNode, x, y, depth + 1);
+        const childElement = buildNode(childNode, x, y, depth + 1, {
+          direction: element.layoutMode || "VERTICAL",
+          alignItems,
+        });
         if (childElement && childElement.width > 3 && childElement.height > 3) {
           if (childElement.x + childElement.width > viewportWidth) {
             childElement.width = Math.max(0, viewportWidth - childElement.x);

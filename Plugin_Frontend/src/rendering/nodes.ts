@@ -450,15 +450,23 @@ export async function createNodeInFigma(
             } else if (childNode.type === "TEXT") {
               const textChild = childNode as TextNode;
               const isHorizontalLayout = frame.layoutMode === "HORIZONTAL";
+              const isMultiLine = (child.browserLineCount || 1) > 1;
 
               if (isHorizontalLayout) {
+                // Horizontal axis (main axis)
                 if (child.layoutSizingHorizontal === "FILL") {
                   textChild.layoutSizingHorizontal = "FILL";
                   textChild.textAutoResize = "HEIGHT";
-                } else if (child.layoutSizingHorizontal === "HUG") {
+                } else if (isMultiLine) {
+                  // Multi-line text: constrain width, auto height
+                  textChild.layoutSizingHorizontal = "FILL";
+                  textChild.textAutoResize = "HEIGHT";
+                } else {
+                  // Single-line text: hug both axes
                   textChild.layoutSizingHorizontal = "HUG";
                   textChild.textAutoResize = "WIDTH_AND_HEIGHT";
                 }
+                // Vertical axis (cross axis)
                 if (
                   child.layoutAlign === "STRETCH" ||
                   child.layoutSizingVertical === "FILL"
@@ -466,18 +474,26 @@ export async function createNodeInFigma(
                   textChild.layoutSizingVertical = "FILL";
                 }
               } else {
+                // VERTICAL layout
+                // Vertical axis (main axis)
                 if (child.layoutSizingVertical === "FILL") {
                   textChild.layoutSizingVertical = "FILL";
-                } else if (child.layoutSizingVertical === "HUG") {
+                } else {
                   textChild.layoutSizingVertical = "HUG";
                 }
+                // Horizontal axis (cross axis)
                 if (
                   child.layoutAlign === "STRETCH" ||
                   child.layoutSizingHorizontal === "FILL"
                 ) {
                   textChild.layoutSizingHorizontal = "FILL";
                   textChild.textAutoResize = "HEIGHT";
-                } else if (child.layoutSizingHorizontal === "HUG") {
+                } else if (isMultiLine) {
+                  // Multi-line text: constrain width, auto height
+                  textChild.layoutSizingHorizontal = "FILL";
+                  textChild.textAutoResize = "HEIGHT";
+                } else {
+                  // Single-line text: hug both axes
                   textChild.layoutSizingHorizontal = "HUG";
                   textChild.textAutoResize = "WIDTH_AND_HEIGHT";
                 }

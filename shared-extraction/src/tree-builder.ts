@@ -659,7 +659,11 @@ export function buildElementTree(
     node: ParsedSnapshotNode,
     parentX: number,
     parentY: number,
-    depth: number
+    depth: number,
+    parentContext?: {
+      direction: "HORIZONTAL" | "VERTICAL" | "NONE";
+      alignItems?: string;
+    }
   ): ExtractedElement | null {
     if (depth > MAX_TREE_DEPTH) return null;
 
@@ -873,7 +877,7 @@ export function buildElementTree(
     const layoutAlign: "STRETCH" | "INHERIT" | undefined =
       alignSelf === "stretch" ? "STRETCH" : undefined;
 
-    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf);
+    const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf, parentContext);
 
     const opacity = parseFloat(computedStyles.opacity || "1") || 1;
 
@@ -1063,7 +1067,10 @@ export function buildElementTree(
           continue;
         }
 
-        const childElement = buildNode(childNode, x, y, depth + 1);
+        const childElement = buildNode(childNode, x, y, depth + 1, {
+          direction: element.layoutMode || "VERTICAL",
+          alignItems,
+        });
         if (childElement && childElement.width > 3 && childElement.height > 3) {
           // Clip child width if extends beyond viewport
           if (childElement.x + childElement.width > viewportWidth) {

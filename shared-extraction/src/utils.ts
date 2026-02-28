@@ -274,88 +274,56 @@ export function getLayoutMode(
 }
 
 /**
- * Determine Figma sizing mode from CSS properties
+ * Determine Figma sizing mode from CSS properties.
+ *
+ * Uses parent's layout context to correctly map axes:
+ * - Main axis: flex-grow > 0 → FILL, otherwise → HUG
+ * - Cross axis: align-items/align-self stretch → FILL, otherwise → HUG
+ *
+ * Without parentContext (root/absolute elements), returns undefined.
  */
 export function getLayoutSizing(
   computedStyles: Record<string, string>,
   flexGrow: number,
-  alignSelf: string | undefined
+  alignSelf: string | undefined,
+  parentContext?: {
+    direction: "HORIZONTAL" | "VERTICAL" | "NONE";
+    alignItems?: string;
+  }
 ): {
   horizontal: "FIXED" | "HUG" | "FILL" | undefined;
   vertical: "FIXED" | "HUG" | "FILL" | undefined;
 } {
-  const display = computedStyles.display;
-  const flexDirection = computedStyles["flex-direction"];
-  const width = computedStyles.width;
-  const height = computedStyles.height;
-
-  let horizontal: "FIXED" | "HUG" | "FILL" | undefined = undefined;
-  let vertical: "FIXED" | "HUG" | "FILL" | undefined = undefined;
-
-  const isFlexChild = flexGrow > 0 || alignSelf;
-
-  // Check flex-grow for primary axis FILL
-  if (flexGrow > 0) {
-    if (flexDirection === "column" || flexDirection === "column-reverse") {
-      vertical = "FILL";
-    } else {
-      horizontal = "FILL";
-    }
+  // No parent context or parent is not auto layout → can't determine sizing
+  if (!parentContext || parentContext.direction === "NONE") {
+    return { horizontal: undefined, vertical: undefined };
   }
 
-  // Check align-self: stretch for counter axis FILL
-  if (alignSelf === "stretch") {
-    if (flexDirection === "column" || flexDirection === "column-reverse") {
-      if (!horizontal) horizontal = "FILL";
-    } else {
-      if (!vertical) vertical = "FILL";
-    }
-  }
+  const parentIsColumn = parentContext.direction === "VERTICAL";
+  // CSS flex default align-items is "stretch" (normal resolves to stretch for flex)
+  const parentAlignItems = parentContext.alignItems || "stretch";
+  const normalizedAlignItems =
+    parentAlignItems === "normal" ? "stretch" : parentAlignItems;
 
-  // Check explicit width
-  if (!horizontal) {
-    if (
-      width === "auto" ||
-      width === "fit-content" ||
-      width === "max-content" ||
-      width === "min-content"
-    ) {
-      if (
-        display === "flex" ||
-        display === "inline-flex" ||
-        display === "grid" ||
-        display === "inline-grid"
-      ) {
-        horizontal = "HUG";
-      }
-    } else if (width === "100%" || width?.includes("fill-available")) {
-      if (isFlexChild) {
-        horizontal = "FILL";
-      }
-    }
-  }
+  // Effective align-self: "auto"/undefined → inherit parent's align-items
+  const effectiveAlignSelf =
+    !alignSelf || alignSelf === "auto" ? normalizedAlignItems : alignSelf;
 
-  // Check explicit height
-  if (!vertical) {
-    if (
-      height === "auto" ||
-      height === "fit-content" ||
-      height === "max-content" ||
-      height === "min-content"
-    ) {
-      if (
-        display === "flex" ||
-        display === "inline-flex" ||
-        display === "grid" ||
-        display === "inline-grid"
-      ) {
-        vertical = "HUG";
-      }
-    } else if (height === "100%" || height?.includes("fill-available")) {
-      if (isFlexChild) {
-        vertical = "FILL";
-      }
-    }
+  let horizontal: "FIXED" | "HUG" | "FILL" | undefined;
+  let vertical: "FIXED" | "HUG" | "FILL" | undefined;
+
+  if (parentIsColumn) {
+    // Parent is VERTICAL layout
+    // Main axis = vertical: flex-grow → FILL, else → HUG
+    vertical = flexGrow > 0 ? "FILL" : "HUG";
+    // Cross axis = horizontal: stretch → FILL, else → HUG
+    horizontal = effectiveAlignSelf === "stretch" ? "FILL" : "HUG";
+  } else {
+    // Parent is HORIZONTAL layout
+    // Main axis = horizontal: flex-grow → FILL, else → HUG
+    horizontal = flexGrow > 0 ? "FILL" : "HUG";
+    // Cross axis = vertical: stretch → FILL, else → HUG
+    vertical = effectiveAlignSelf === "stretch" ? "FILL" : "HUG";
   }
 
   return { horizontal, vertical };
