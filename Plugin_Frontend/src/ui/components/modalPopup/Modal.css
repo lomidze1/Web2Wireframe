@@ -1324,6 +1324,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .dontShowAgainLabel {
@@ -1377,6 +1380,21 @@
 .dontShowAgainToggle input:checked + .dontShowAgainSlider::before {
   transform: translateX(14px);
   background-color: #2ecc71;
+}
+
+.dontShowAgainHint {
+  display: block;
+  font-size: 12px;
+  color: var(--ai-text-primary);
+  text-align: center;
+  margin-top: 2px;
+  opacity: 0.7;
+
+  strong {
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--ai-accent-orange);
+  }
 }
 
 /* ============================================================================

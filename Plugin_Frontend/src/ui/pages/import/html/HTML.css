@@ -230,6 +230,34 @@
   background: rgba(42, 157, 143, 0.2);
 }
 
+/* Save as Default Button */
+.saveDefaultBtn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(42, 157, 143, 0.5);
+  background: rgba(42, 157, 143, 0.15);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.saveDefaultBtn:hover {
+  border-color: var(--accent);
+  background: rgba(42, 157, 143, 0.25);
+}
+
+.saveDefaultBtnDisabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.saveDefaultBtnDisabled:hover {
+  border-color: rgba(42, 157, 143, 0.5);
+  background: rgba(42, 157, 143, 0.15);
+}
+
 /* Checkbox Group */
 .checkboxGroup {
   display: flex;

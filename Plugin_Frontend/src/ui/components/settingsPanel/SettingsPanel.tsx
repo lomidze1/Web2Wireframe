@@ -19,6 +19,8 @@ export interface SettingsPanelStyles {
   configureBtn: string;
   resetBtn: string;
   resetBtnDisabled: string;
+  saveDefaultBtn: string;
+  saveDefaultBtnDisabled: string;
 }
 
 export interface SettingsPanelProps {
@@ -45,6 +47,7 @@ export interface SettingsPanelProps {
   setCssVariablesMode?: (mode: "styles" | "direct") => void;
   setLayoutMode?: (mode: "autoLayout" | "absolute") => void;
   handleReset: () => void;
+  handleSaveAsDefault: () => void;
 
   // State flags
   hasOverrides: boolean;
@@ -81,6 +84,7 @@ export default function SettingsPanel({
   setCssVariablesMode,
   setLayoutMode,
   handleReset,
+  handleSaveAsDefault,
   hasOverrides,
   openSettings,
   containerClassName,
@@ -246,7 +250,7 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* Footer with Reset and Configure buttons */}
+          {/* Footer with Config, Reset, and Save as Default buttons */}
           <div class={styles.settingsFooter}>
             <button
               class={styles.configureBtn}
@@ -264,6 +268,16 @@ export default function SettingsPanel({
               title="Reset to default configuration"
             >
               Reset
+            </button>
+            <button
+              class={`${styles.saveDefaultBtn} ${
+                !hasOverrides ? styles.saveDefaultBtnDisabled : ""
+              }`}
+              onClick={handleSaveAsDefault}
+              disabled={!hasOverrides}
+              title="Save current settings as default configuration"
+            >
+              Save
             </button>
           </div>
         </div>

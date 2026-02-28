@@ -131,3 +131,49 @@
     transform: rotate(360deg);
   }
 }
+
+/* Shortcut Toast */
+.shortcutToast {
+  position: relative;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  background: rgba(42, 157, 143, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(42, 157, 143, 0.3);
+  animation: toastFadeIn 0.2s ease-out;
+  overflow: hidden;
+}
+
+.shortcutToast::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 0;
+  background: var(--accent);
+  animation: toastProgress 3s linear forwards;
+}
+
+@keyframes toastFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toastProgress {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}

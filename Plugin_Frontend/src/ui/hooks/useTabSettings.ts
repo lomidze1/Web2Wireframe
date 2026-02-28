@@ -41,6 +41,7 @@ export interface TabSettingsResult {
   setCssVariablesMode: (mode: "styles" | "direct") => void;
   setLayoutMode: (mode: "autoLayout" | "absolute") => void;
   handleReset: () => void;
+  handleSaveAsDefault: () => void;
 
   // State flags
   hasOverrides: boolean;
@@ -65,6 +66,7 @@ export function useTabSettings(
 ): TabSettingsResult {
   const {
     config,
+    updateConfig,
     getEffectiveConfig,
     setSessionOverride,
     resetToConfig,
@@ -239,6 +241,30 @@ export function useTabSettings(
     setLocalLayoutMode(config.layoutModeDefault);
   }, [tabId, resetToConfig, config]);
 
+  // Save current local values as persistent config defaults
+  const handleSaveAsDefault = useCallback(() => {
+    updateConfig({
+      viewports: localViewports,
+      colorMode: localColorMode,
+      fontMode: localFontMode,
+      textMode: localTextMode,
+      cssVariablesDefault: localCssVariablesMode,
+      layoutModeDefault: localLayoutMode,
+    });
+    // Clear session override since config now matches local state
+    resetToConfig(tabId);
+  }, [
+    localViewports,
+    localColorMode,
+    localFontMode,
+    localTextMode,
+    localCssVariablesMode,
+    localLayoutMode,
+    updateConfig,
+    resetToConfig,
+    tabId,
+  ]);
+
   // Toggle expanded state and save to localStorage
   const toggleExpanded = useCallback(() => {
     setIsExpanded((prev) => {
@@ -271,6 +297,7 @@ export function useTabSettings(
     setCssVariablesMode: setCssVariablesModeHandler,
     setLayoutMode: setLayoutModeHandler,
     handleReset,
+    handleSaveAsDefault,
     hasOverrides,
     openSettings,
   };

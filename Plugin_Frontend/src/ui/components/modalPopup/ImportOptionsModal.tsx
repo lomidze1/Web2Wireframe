@@ -102,6 +102,10 @@ export default function ImportOptionsModal({
   };
 
   const handleCancel = () => {
+    // Save "Don't show again" preference even on cancel/close
+    if (dontShowAgain) {
+      updateConfig({ showImportOptions: false });
+    }
     onCancel();
   };
 
@@ -154,7 +158,6 @@ export default function ImportOptionsModal({
                 <option value="plugin">Plugin Colors</option>
               </select>
             </div>
-
 
             {/* Fonts Dropdown */}
             <div class={styles.unifiedOptionRow}>
@@ -248,6 +251,14 @@ export default function ImportOptionsModal({
               <span class={styles.dontShowAgainSlider}></span>
             </label>
           </div>
+          {dontShowAgain && (
+            <span class={styles.dontShowAgainHint}>
+              Restore anytime from Config or press{" "}
+              <strong>
+                {navigator.platform?.includes("Mac") ? "⌘ + R" : "Ctrl + R"}
+              </strong>
+            </span>
+          )}
         </div>
 
         {/* Footer buttons */}

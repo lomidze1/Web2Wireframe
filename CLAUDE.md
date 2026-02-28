@@ -30,6 +30,13 @@ npm run lint             # ESLint check
 ეს ეხება: ახალი ფაილების შექმნას, არსებული კოდის რედაქტირებას, წაშლას, რეფაქტორინგს.
 დოკუმენტაციის/README ცვლილებებზეც იკითხე თუ scope დიდია.
 
+### IMPORTANT: არ ატვირთო კოდი GitHub-ზე დადასტურების გარეშე
+
+**არასდროს გააკეთო git push მომხმარებლის დადასტურების გარეშე.** კოდის დაწერის შემდეგ:
+1. დაელოდე მომხმარებელს რომ შეამოწმოს
+2. მხოლოდ მომხმარებლის ბრძანებით ატვირთე (commit + push)
+3. არასდროს გააკეთო push თავისით, თუნდაც feature მზად იყოს
+
 ### IMPORTANT: ყოველთვის მონიშნე Recommended
 
 `AskUserQuestion`-ით კითხვისას **აუცილებლად** მონიშნე რომელია რეკომენდებული ვარიანტი:
@@ -54,6 +61,15 @@ npm run lint             # ESLint check
 - Zod for API validation
 - Express error handler middleware last
 - MongoDB indexes on userId fields
+
+### IMPORTANT: Tests and Rebuild After Feature Implementation
+
+ახალი ფუნქციის/feature-ის იმპლემენტაციის შემდეგ **აუცილებლად**:
+1. დაწერე ტესტები ახალი ფუნქციონალისთვის
+2. გაუშვი ტესტები და დარწმუნდი რომ გადის
+3. გააკეთე rebuild (`npm run build:all`)
+
+არასდროს ჩათვალო feature მზად ტესტებისა და rebuild-ის გარეშე.
 
 ### Verification After Changes
 

@@ -6,7 +6,16 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
   },
-  "include": ["src/__tests__/**/*.ts", "src/types/**/*.ts", "src/rendering/**/*.ts"]
+  "include": [
+    "src/__tests__/**/*.ts",
+    "src/__tests__/**/*.tsx",
+    "src/types/**/*.ts",
+    "src/rendering/**/*.ts",
+    "src/ui/**/*.ts",
+    "src/ui/**/*.tsx"
+  ]
 }

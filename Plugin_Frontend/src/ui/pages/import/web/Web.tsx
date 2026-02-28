@@ -297,6 +297,7 @@ export default function Web() {
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
         handleReset={settings.handleReset}
+        handleSaveAsDefault={settings.handleSaveAsDefault}
         hasOverrides={settings.hasOverrides}
         openSettings={settings.openSettings}
       />

@@ -12,6 +12,7 @@ import RenderingLoader, {
 } from "../../../components/renderingLoader/RenderingLoader";
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForAbsoluteMode } from "../../../shared/absoluteModeRenderer";
+import { useImportOptionsShortcut } from "../../../hooks/useImportOptionsShortcut";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -229,6 +230,7 @@ export default function AreaSelection() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDataRef = useRef<File | null>(null);
   const { config } = useConfig();
+  const { shortcutMessage, shortcutKey } = useImportOptionsShortcut();
 
   // Listen for messages from Figma plugin main thread
   useEffect(() => {
@@ -528,6 +530,11 @@ export default function AreaSelection() {
           ? "Processing..."
           : "Generate Wireframe"}
       </button>
+
+      {/* Shortcut Toast Message */}
+      {shortcutMessage && (
+        <div key={shortcutKey} class={styles.shortcutToast}>{shortcutMessage}</div>
+      )}
 
       {/* Unified Import Options Modal */}
       <ImportOptionsModal

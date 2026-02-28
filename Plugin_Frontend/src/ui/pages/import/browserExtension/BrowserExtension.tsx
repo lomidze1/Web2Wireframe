@@ -9,6 +9,7 @@ import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal"
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForAbsoluteMode, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import { useConfig } from "../../../shared/ConfigContext";
+import { useImportOptionsShortcut } from "../../../hooks/useImportOptionsShortcut";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -60,6 +61,7 @@ export default function BrowserExtension() {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { config } = useConfig();
+  const { shortcutMessage, shortcutKey } = useImportOptionsShortcut();
 
   /**
    * Check for pending imports from Browser Extension
@@ -397,6 +399,11 @@ export default function BrowserExtension() {
           Install Extension
         </button>
       </div>
+
+      {/* Shortcut Toast Message */}
+      {shortcutMessage && (
+        <div key={shortcutKey} class={styles.shortcutToast}>{shortcutMessage}</div>
+      )}
 
       {/* Unified Import Options Modal */}
       <ImportOptionsModal
