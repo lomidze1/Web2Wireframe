@@ -39,7 +39,7 @@ import {
 // ============================================================================
 
 export default function () {
-  showUI({ width: 400, height: 600 });
+  showUI({ width: 410, height: 610 });
 
   // Pending render state for font fallback popup flow
   let pendingRenderData: { data: RenderWireframeData; executeRender: (font: string) => Promise<void> } | null = null;

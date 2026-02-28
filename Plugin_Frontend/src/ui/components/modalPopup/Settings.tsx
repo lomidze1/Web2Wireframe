@@ -17,7 +17,7 @@ interface SettingsProps {
 }
 
 type Panel = "terminology" | "config" | "tutorials";
-type TerminologyTab = "viewports" | "colors" | "fonts" | "text";
+type TerminologyTab = "viewports" | "colors" | "fonts" | "text" | "css-vars" | "layout";
 
 // Collapsible section states
 interface CollapsibleState {
@@ -158,44 +158,6 @@ export default function Settings({
         </div>
 
         <div class={styles.modalContent}>
-          {/* Terminology Tab Buttons */}
-          {activePanel === "terminology" && (
-            <div class={styles.tabRow}>
-              <button
-                class={`${styles.tabBtn} ${
-                  activeTermTab === "viewports" ? styles.tabBtnActive : ""
-                }`}
-                onClick={() => setActiveTermTab("viewports")}
-              >
-                Viewports
-              </button>
-              <button
-                class={`${styles.tabBtn} ${
-                  activeTermTab === "colors" ? styles.tabBtnActive : ""
-                }`}
-                onClick={() => setActiveTermTab("colors")}
-              >
-                Colors
-              </button>
-              <button
-                class={`${styles.tabBtn} ${
-                  activeTermTab === "fonts" ? styles.tabBtnActive : ""
-                }`}
-                onClick={() => setActiveTermTab("fonts")}
-              >
-                Fonts
-              </button>
-              <button
-                class={`${styles.tabBtn} ${
-                  activeTermTab === "text" ? styles.tabBtnActive : ""
-                }`}
-                onClick={() => setActiveTermTab("text")}
-              >
-                Text
-              </button>
-            </div>
-          )}
-
           {/* Import Options Toggle - Outside scroll area for Config panel */}
           {activePanel === "config" && (
             <div
@@ -256,7 +218,46 @@ export default function Settings({
           <div class={styles.scrollArea}>
             {/* TERMINOLOGY PANEL */}
             {activePanel === "terminology" && (
-              <div>
+              <div class={styles.termSidebar}>
+                <div class={styles.termSidebarNav}>
+                  <button
+                    class={`${styles.termSidebarBtn} ${activeTermTab === "viewports" ? styles.termSidebarBtnActive : ""}`}
+                    onClick={() => setActiveTermTab("viewports")}
+                  >
+                    Viewports
+                  </button>
+                  <button
+                    class={`${styles.termSidebarBtn} ${activeTermTab === "colors" ? styles.termSidebarBtnActive : ""}`}
+                    onClick={() => setActiveTermTab("colors")}
+                  >
+                    Colors
+                  </button>
+                  <button
+                    class={`${styles.termSidebarBtn} ${activeTermTab === "fonts" ? styles.termSidebarBtnActive : ""}`}
+                    onClick={() => setActiveTermTab("fonts")}
+                  >
+                    Fonts
+                  </button>
+                  <button
+                    class={`${styles.termSidebarBtn} ${activeTermTab === "text" ? styles.termSidebarBtnActive : ""}`}
+                    onClick={() => setActiveTermTab("text")}
+                  >
+                    Text
+                  </button>
+                  <button
+                    class={`${styles.termSidebarBtn} ${activeTermTab === "css-vars" ? styles.termSidebarBtnActive : ""}`}
+                    onClick={() => setActiveTermTab("css-vars")}
+                  >
+                    CSS Variables
+                  </button>
+                  <button
+                    class={`${styles.termSidebarBtn} ${activeTermTab === "layout" ? styles.termSidebarBtnActive : ""}`}
+                    onClick={() => setActiveTermTab("layout")}
+                  >
+                    Layout Mode
+                  </button>
+                </div>
+                <div class={styles.termSidebarContent}>
                 {/* Viewports Tab */}
                 {activeTermTab === "viewports" && (
                   <div class={styles.accordionList}>
@@ -427,6 +428,73 @@ export default function Settings({
                     </details>
                   </div>
                 )}
+
+                {/* CSS Variables Tab */}
+                {activeTermTab === "css-vars" && (
+                  <div class={styles.accordionList}>
+                    <details class={styles.accordion} open>
+                      <summary>Direct Value</summary>
+                      <div class={styles.accordionContent}>
+                        Colors, font sizes, and other properties are applied as
+                        direct values in the wireframe. For example, a color
+                        will appear as its hex value like{" "}
+                        <strong>#2A9D8F</strong> or{" "}
+                        <strong>#264653</strong> rather than referencing a
+                        variable. Text sizes, spacing, and all other properties
+                        are also set directly with their computed values. This
+                        keeps the wireframe simple and self-contained with no
+                        external dependencies.
+                      </div>
+                    </details>
+                    <details class={styles.accordion}>
+                      <summary>Create Figma Variables</summary>
+                      <div class={styles.accordionContent}>
+                        The plugin creates reusable Figma variables and applies
+                        them to the wireframe instead of direct values. When
+                        combined with <strong>Plugin Colors</strong> and{" "}
+                        <strong>Plugin Fonts</strong>, variables are created
+                        using the plugin's own naming convention (e.g.
+                        text, background, surface, accent). When combined with{" "}
+                        <strong>Website Colors</strong> and{" "}
+                        <strong>Website Fonts</strong>, the plugin imports the
+                        original CSS variable names from the site (e.g.
+                        --color-primary, --font-heading) if they exist. If the
+                        site doesn't use CSS variables, the plugin generates
+                        descriptive names automatically.
+                      </div>
+                    </details>
+                  </div>
+                )}
+
+                {/* Layout Mode Tab */}
+                {activeTermTab === "layout" && (
+                  <div class={styles.accordionList}>
+                    <details class={styles.accordion} open>
+                      <summary>Absolute</summary>
+                      <div class={styles.accordionContent}>
+                        Every element is placed at exact pixel coordinates
+                        inside flat frames. No auto layout is applied — all
+                        layers use fixed X/Y positions as captured from the
+                        website. This produces a static snapshot that matches
+                        the original layout precisely but won't reflow when
+                        resized.
+                      </div>
+                    </details>
+                    <details class={styles.accordion}>
+                      <summary>Auto Layout</summary>
+                      <div class={styles.accordionContent}>
+                        The plugin converts the website's flex and grid
+                        structures into Figma auto layout wherever the source
+                        allows it. Sections, rows, and columns become
+                        responsive auto layout frames with proper spacing and
+                        alignment. Where the website structure doesn't map
+                        cleanly to auto layout, the plugin falls back to
+                        absolute positioning for those specific elements.
+                      </div>
+                    </details>
+                  </div>
+                )}
+                </div>
               </div>
             )}
 
