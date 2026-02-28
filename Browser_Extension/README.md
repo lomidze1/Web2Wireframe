@@ -48,13 +48,17 @@ Browser_Extension/
 │   │       ├── dom.ts     # DOM tree extraction
 │   │       ├── css.ts     # CSS rules extraction (KEY!)
 │   │       ├── fonts.ts   # Font extraction
+│   │       ├── snapshot.ts # Full page capture
 │   │       └── assets.ts  # Image/SVG extraction
 │   ├── content/           # Content script (page context)
 │   ├── popup/             # Extension popup UI
+│   │   └── components/    # CaptureButtons, ViewportsSection, etc.
 │   ├── options/           # Settings page
 │   └── shared/            # Types, constants, utils
 └── dist/                  # Build output
 ```
+
+Uses `shared-extraction` library for unified CDP extraction logic (shared with Plugin_Backend).
 
 ## CDP vs Puppeteer
 

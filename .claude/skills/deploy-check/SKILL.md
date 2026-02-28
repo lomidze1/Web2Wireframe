@@ -20,6 +20,7 @@ Deployment-ის წინ გასაშვები ჩეკლისტი
 
 ### 1. Build Verification
 ```bash
+npm run build:shared   # Must build first (dependency for Extension + Plugin_Backend)
 npm run build:all
 npm run type-check
 npm run lint
@@ -69,6 +70,12 @@ npm run lint
 - [ ] Build output in dist/
 - [ ] No console.logs in production
 - [ ] chrome.debugger permissions declared
+
+#### shared-extraction
+- [ ] Build succeeds (`npm run build`)
+- [ ] Tests pass (`npm run test`)
+- [ ] Exported types are correct
+- [ ] No breaking API changes
 
 ## Output
 

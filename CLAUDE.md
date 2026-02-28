@@ -7,8 +7,11 @@ Web2Wireframe - Figma plugin for converting websites to wireframes.
 ```bash
 npm run dev              # All services concurrently
 npm run dev:frontend     # Website @ :5173
-npm run dev:backend      # API @ :3001
+npm run dev:backend      # Website_Backend @ :3001
+npm run dev:plugin-backend  # Plugin_Backend @ :3002
 npm run dev:plugin       # Figma plugin watch
+npm run dev:extension    # Browser_Extension watch
+npm run dev:shared       # shared-extraction watch
 
 npm run build:all        # Build everything
 npm run type-check       # TypeScript validation
@@ -16,6 +19,23 @@ npm run lint             # ESLint check
 ```
 
 ## Workflow Rules
+
+### IMPORTANT: არ შეცვალო კოდი მომხმარებლის თანხმობის გარეშე
+
+**არასდროს შეცვალო კოდი თავისით.** ყოველთვის:
+1. ჯერ აჩვენე რა ცვლილებას აპირებ
+2. დაელოდე მომხმარებლის თანხმობას
+3. მხოლოდ შემდეგ შეცვალე
+
+ეს ეხება: ახალი ფაილების შექმნას, არსებული კოდის რედაქტირებას, წაშლას, რეფაქტორინგს.
+დოკუმენტაციის/README ცვლილებებზეც იკითხე თუ scope დიდია.
+
+### IMPORTANT: ყოველთვის მონიშნე Recommended
+
+`AskUserQuestion`-ით კითხვისას **აუცილებლად** მონიშნე რომელია რეკომენდებული ვარიანტი:
+- პირველ ვარიანტად დააყენე recommended
+- label-ში დაამატე `(Recommended)` ბოლოში
+- description-ში მოკლედ ახსენი რატომ არის რეკომენდებული
 
 ### IMPORTANT: Interview Before Coding
 
@@ -60,6 +80,8 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`
 | Plugin_Frontend | - | src/main.ts |
 | Plugin_Backend | 3002 | api/index.js |
 | License_Backend | 3003 | src/index.ts |
+| Browser_Extension | - | src/background/index.ts |
+| shared-extraction | - | src/index.ts |
 
 ## Skills Available
 
@@ -75,8 +97,10 @@ See `.claude/agents/` for specialized agents:
 - `website-frontend` - React/Vite/SCSS
 - `backend-typescript` - Express/Zod
 - `figma-plugin` - Figma API
+- `browser-extension` - Chrome Extension/CDP
+- `figma-api-guide` - CSS→Figma transformations
 - `database-mongodb` - Mongoose
-- `web-scraping` - Puppeteer/Cheerio
+- `web-scraping` - Puppeteer/Cheerio (fallback)
 - `fullstack-integration` - Cross-service
 
 ## External Services

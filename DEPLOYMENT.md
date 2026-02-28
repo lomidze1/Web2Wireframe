@@ -1,82 +1,133 @@
 # Deployment Guide
 
-This guide covers production deployment for the support system in `Website_Backend` and `Website_Frontend`.
+Production deployment for Web2Wireframe services.
 
-For local setup, see `QUICKSTART_SUPPORT_SYSTEM.md`.
+For local development setup, see service-specific README files.
 
-## Backend: Website_Backend
+## Services Overview
 
-### Build and Start
+| Service | Build | Start | Port |
+|---------|-------|-------|------|
+| Website_Frontend | `npm run build` → `dist/` | Static hosting | — |
+| Website_Backend | `npm run build` → `dist/` | `npm start` | 3001 |
+| Plugin_Backend | — (JavaScript) | `node api/index.js` | 3002 |
+| License_Backend | `npm run build` → `dist/` | `npm start` | 3003 |
+| Plugin_Frontend | `npm run build` → `build/` | Figma plugin | — |
+| Browser_Extension | `npm run build` → `dist/` | Chrome extension | — |
+| shared-extraction | `npm run build` → `dist/` | Library (dependency) | — |
+
+## Build Order
+
+shared-extraction must build first (it's a dependency):
 
 ```bash
-cd Website_Backend
-npm install
-npm run build
-npm start
+npm run build:shared     # 1. Shared library first
+npm run build:all        # 2. Everything else
 ```
 
-### Required Environment Variables
-
-From `Website_Backend/src/config/env.ts`:
-
-```env
-RESEND_API_KEY=
-SUPPORT_TO_EMAIL=
-NOREPLY_EMAIL=
-ALLOWED_ORIGIN=
-```
-
-Optional:
-
-```env
-PORT=3001
-NODE_ENV=production
-RATE_LIMIT_WINDOW_MS=600000
-RATE_LIMIT_MAX_REQUESTS=5
-FIGMA_CLIENT_ID=
-FIGMA_CLIENT_SECRET=
-```
-
-Notes:
-
-- `.env.example` does not include `NOREPLY_EMAIL` (needs verification).
-- `ALLOWED_ORIGIN` must include the deployed `Website_Frontend` URL.
-
-## Frontend: Website_Frontend
+## Website_Frontend
 
 ### Build
 
 ```bash
 cd Website_Frontend
-npm install
 npm run build
 ```
-
-Vite outputs to `Website_Frontend/dist`.
 
 ### Environment Variables
 
 ```env
-VITE_API_URL=https://your-backend-url.example
+VITE_API_URL=https://your-backend-url
 ```
 
-## Deployment Targets
+### Hosting
 
-### Render (Backend)
+Serve `Website_Frontend/dist` with any static host (Vercel, Netlify, etc.). Configure SPA rewrites for React Router.
 
-Use `npm install && npm run build` as the build command and `npm start` as the start command. Configure the environment variables listed above.
+## Website_Backend
 
-### Vercel (Backend or Frontend)
+### Build and Start
 
-The repository does not include a `vercel.json` (needs verification). If you use Vercel, ensure the build and start commands match the scripts above.
+```bash
+cd Website_Backend
+npm run build
+npm start
+```
 
-### Static Hosting (Frontend)
+### Environment Variables
 
-Serve the `Website_Frontend/dist` directory with your preferred static host.
+```env
+RESEND_API_KEY=          # Required
+SUPPORT_TO_EMAIL=        # Required
+NOREPLY_EMAIL=           # Required
+ALLOWED_ORIGIN=          # Required (frontend URL)
+PORT=3001
+NODE_ENV=production
+FIGMA_CLIENT_ID=         # Optional (Figma OAuth)
+FIGMA_CLIENT_SECRET=     # Optional (Figma OAuth)
+```
+
+## Plugin_Backend
+
+### Start
+
+```bash
+cd Plugin_Backend
+node api/index.js
+```
+
+### Environment Variables
+
+```env
+MONGODB_URI=             # Optional
+API_PORT=3002
+NODE_ENV=production
+CORS_ORIGIN=https://www.figma.com
+```
+
+## License_Backend
+
+### Build and Start
+
+```bash
+cd License_Backend
+npm run build
+npm start
+```
+
+### Environment Variables
+
+```env
+PORT=3003
+DEV_TOKEN=               # Auth token
+ADMIN_TOKEN=             # Admin token
+ALLOWED_ORIGINS=         # Comma-separated origins
+```
+
+## Plugin_Frontend
+
+Build and submit to Figma Community:
+
+```bash
+cd Plugin_Frontend
+npm run build
+```
+
+Submit `Plugin_Frontend/manifest.json` via Figma's plugin review process.
+
+## Browser_Extension
+
+Build and submit to Chrome Web Store:
+
+```bash
+cd Browser_Extension
+npm run build
+```
+
+Package `Browser_Extension/dist/` as a zip for Chrome Web Store submission.
 
 ## Resend Setup
 
-- Create an account and API key at https://resend.com.
-- Configure `NOREPLY_EMAIL` and `SUPPORT_TO_EMAIL` to match your verified domain (needs verification).
-
-**Version**: 1.0.0
+- Create account at https://resend.com
+- Get API key and configure `RESEND_API_KEY`
+- Verify domain for `NOREPLY_EMAIL`

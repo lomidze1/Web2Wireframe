@@ -15,11 +15,13 @@ You are the integration agent for the Web2Wireframe monorepo. You understand all
 
 ## Project Overview
 
-Web2Wireframe is a monorepo with 5 services using npm workspaces:
+Web2Wireframe is a monorepo with 7 services + 1 shared library:
 
 - Marketing website with support system
 - Figma plugin for converting websites to wireframes
-- AI-powered design analysis backend
+- Browser extension for CDP-based website capture
+- License/subscription management
+- Shared extraction library for unified CDP logic
 
 ## Architecture Diagram
 
@@ -37,6 +39,9 @@ Web2Wireframe is a monorepo with 5 services using npm workspaces:
 ├─────────────────────────────────────────────────────────────────┤
 │                       Browser_Extension                         │
 │                    (Chrome Extension + CDP)                     │
+├─────────────────────────────────────────────────────────────────┤
+│                       shared-extraction                         │
+│                  (CDP extraction library)                        │
 └─────────────────────────────────────────────────────────────────┘
 
 Data Flow:
@@ -45,7 +50,7 @@ Website_Frontend ──HTTP──▶ Website_Backend ──▶ Resend (email)
 Plugin_Frontend ──HTTP──▶ Plugin_Backend ──▶ MongoDB (store)
                                           ──▶ Puppeteer (fallback)
 
-Browser_Extension ──CDP──▶ Active Tab ──▶ DOM/CSS/Assets extraction
+Browser_Extension ──CDP──▶ Active Tab ──▶ shared-extraction ──▶ DOM/CSS/Assets
                   ──HTTP──▶ Plugin_Backend ──▶ /api/import-cdp
 
 Plugin_Frontend ──HTTP──▶ License_Backend ──▶ License validation
@@ -74,15 +79,18 @@ Plugin_Frontend ──HTTP──▶ License_Backend ──▶ License validation
     "Plugin_Frontend",
     "Plugin_Backend"
   ],
-  // Note: License_Backend and Browser_Extension are standalone (not in workspaces)
+  // Note: License_Backend, Browser_Extension, and shared-extraction are standalone (not in workspaces)
   "scripts": {
-    "dev": "concurrently \"npm:dev:*\"",
-    "dev:frontend": "npm -w Website_Frontend run dev",
-    "dev:backend": "npm -w Website_Backend run dev",
-    "dev:plugin": "npm -w Plugin_Frontend run dev",
-    "build:all": "npm run build:frontend && npm run build:backend && npm run build:plugin",
-    "type-check": "npm --workspaces run type-check --if-present",
-    "lint": "npm --workspaces run lint --if-present"
+    "dev": "concurrently all dev:* scripts",
+    "dev:frontend": "Website_Frontend @ :5173",
+    "dev:backend": "Website_Backend @ :3001",
+    "dev:plugin-backend": "Plugin_Backend @ :3002",
+    "dev:plugin": "Plugin_Frontend (watch)",
+    "dev:extension": "Browser_Extension (watch)",
+    "dev:shared": "shared-extraction (watch)",
+    "build:all": "shared → backend → frontend → plugin → extension",
+    "type-check": "all workspaces",
+    "lint": "all workspaces"
   }
 }
 ```
@@ -150,8 +158,10 @@ npm run dev
 # Development - specific services
 npm run dev:frontend    # Website_Frontend @ :5173
 npm run dev:backend     # Website_Backend @ :3001
+npm run dev:plugin-backend  # Plugin_Backend @ :3002
 npm run dev:plugin      # Plugin_Frontend (watch mode)
-npm run dev:extension   # Browser_Extension (esbuild watch)
+npm run dev:extension   # Browser_Extension (watch)
+npm run dev:shared      # shared-extraction (watch)
 
 # Build
 npm run build:all       # All services
@@ -159,6 +169,7 @@ npm run build:frontend  # Website_Frontend
 npm run build:backend   # Website_Backend
 npm run build:plugin    # Plugin_Frontend
 npm run build:extension # Browser_Extension
+npm run build:shared    # shared-extraction (must build first)
 
 # Quality
 npm run type-check      # TypeScript across workspaces
