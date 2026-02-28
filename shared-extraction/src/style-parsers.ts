@@ -304,7 +304,12 @@ function parseBackgroundLayer(
 ): FigmaFill | null {
   // Linear gradient
   if (layer.includes("linear-gradient")) {
-    return parseLinearGradient(layer, resolvedVariables);
+    const fill = parseLinearGradient(layer, resolvedVariables);
+    if (fill && elementDimensions) {
+      fill.elementWidth = elementDimensions.width;
+      fill.elementHeight = elementDimensions.height;
+    }
+    return fill;
   }
 
   // Radial gradient

@@ -58,35 +58,81 @@ describe("parseColorStops", () => {
 // ============================================================================
 
 describe("calculateLinearGradientTransform", () => {
-  it("calculates transform for 90deg (left to right)", () => {
+  // --- Fallback (no dimensions) - uses rotation formula ---
+
+  it("calculates transform for 90deg without dimensions (left to right)", () => {
     const transform = calculateLinearGradientTransform(90);
-    // 90deg CSS = horizontal gradient (left to right)
-    // cos(0) = 1, sin(0) = 0
+    // Fallback: rotation formula
     expect(transform[0][0]).toBeCloseTo(1, 5);
     expect(transform[0][1]).toBeCloseTo(0, 5);
     expect(transform[1][0]).toBeCloseTo(0, 5);
     expect(transform[1][1]).toBeCloseTo(1, 5);
   });
 
-  it("calculates transform for 180deg (top to bottom)", () => {
+  it("calculates transform for 180deg without dimensions (top to bottom)", () => {
     const transform = calculateLinearGradientTransform(180);
-    // 180deg CSS = vertical gradient (top to bottom)
     expect(transform[0][0]).toBeCloseTo(0, 5);
     expect(transform[0][1]).toBeCloseTo(1, 5);
   });
 
-  it("calculates transform for 0deg (bottom to top)", () => {
+  it("calculates transform for 0deg without dimensions (bottom to top)", () => {
     const transform = calculateLinearGradientTransform(0);
-    // 0deg CSS = vertical gradient (bottom to top)
     expect(transform[0][0]).toBeCloseTo(0, 5);
     expect(transform[0][1]).toBeCloseTo(-1, 5);
   });
 
-  it("calculates transform for 45deg (diagonal)", () => {
-    const transform = calculateLinearGradientTransform(45);
-    // 45deg CSS = diagonal
-    const expected = Math.cos((-45 * Math.PI) / 180);
-    expect(transform[0][0]).toBeCloseTo(expected, 5);
+  // --- With dimensions: axis-aligned angles same as without ---
+
+  it("axis-aligned angles produce same result with or without dimensions", () => {
+    for (const angle of [0, 90, 180, 270]) {
+      const withoutDims = calculateLinearGradientTransform(angle);
+      const withDims = calculateLinearGradientTransform(angle, 400, 400);
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < 3; c++) {
+          expect(withDims[r][c]).toBeCloseTo(withoutDims[r][c], 4);
+        }
+      }
+    }
+  });
+
+  // --- With dimensions: aspect ratio correction ---
+
+  it("145deg on tall rectangle differs from square", () => {
+    const square = calculateLinearGradientTransform(145, 383, 383);
+    const tall = calculateLinearGradientTransform(145, 383, 513);
+    // On a tall element, the transform coefficients should differ
+    expect(tall[0][0]).not.toBeCloseTo(square[0][0], 2);
+    expect(tall[0][1]).not.toBeCloseTo(square[0][1], 2);
+  });
+
+  it("center maps to gradient position 0.5", () => {
+    const t = calculateLinearGradientTransform(145, 383, 513);
+    // At center (0.5, 0.5), gradient x-position should be 0.5
+    const gx = t[0][0] * 0.5 + t[0][1] * 0.5 + t[0][2];
+    expect(gx).toBeCloseTo(0.5, 5);
+  });
+
+  it("gradient start maps to position 0 and end to 1", () => {
+    const angle = 145;
+    const W = 383, H = 513;
+    const theta = (angle * Math.PI) / 180;
+    const sinT = Math.sin(theta);
+    const cosT = Math.cos(theta);
+    const halfLen = (Math.abs(W * sinT) + Math.abs(H * cosT)) / 2;
+
+    // Start and end in normalized space
+    const sxn = (W / 2 - halfLen * sinT) / W;
+    const syn = (H / 2 + halfLen * cosT) / H;
+    const exn = (W / 2 + halfLen * sinT) / W;
+    const eyn = (H / 2 - halfLen * cosT) / H;
+
+    const t = calculateLinearGradientTransform(angle, W, H);
+
+    const gxStart = t[0][0] * sxn + t[0][1] * syn + t[0][2];
+    const gxEnd = t[0][0] * exn + t[0][1] * eyn + t[0][2];
+
+    expect(gxStart).toBeCloseTo(0, 5);
+    expect(gxEnd).toBeCloseTo(1, 5);
   });
 });
 

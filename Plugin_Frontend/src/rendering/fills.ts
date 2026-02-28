@@ -12,7 +12,10 @@ import {
   determineColorRole,
   getAlternativePluginColor,
 } from "./colors";
-import { calculateRadialGradientTransform } from "./gradients";
+import {
+  calculateRadialGradientTransform,
+  calculateLinearGradientTransform,
+} from "./gradients";
 
 // ============================================================================
 // Fill Conversion
@@ -95,21 +98,17 @@ export function convertFillsToPaints(
             }
           } else {
             // Website colors mode - preserve gradient
-            const angle = fill.angle || 180;
-            const angleRad = ((angle - 90) * Math.PI) / 180;
-            const cos = Math.cos(angleRad);
-            const sin = Math.sin(angleRad);
-
             const linearPaint: GradientPaint = {
               type: "GRADIENT_LINEAR",
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
               })),
-              gradientTransform: [
-                [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
-                [-sin, cos, 0.5 + sin * 0.5 - cos * 0.5],
-              ],
+              gradientTransform: calculateLinearGradientTransform(
+                fill.angle || 180,
+                fill.elementWidth,
+                fill.elementHeight
+              ),
             };
             paints.push(linearPaint);
           }

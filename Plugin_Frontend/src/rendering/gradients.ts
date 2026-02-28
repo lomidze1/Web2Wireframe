@@ -208,15 +208,71 @@ export function calculateRadialGradientTransform(fill: FigmaFill): Transform {
 }
 
 /**
- * Calculate linear gradient transform for a given angle
+ * Calculate linear gradient transform for a given CSS angle
+ *
+ * When elementWidth/elementHeight are provided, uses the CSS gradient line formula
+ * to account for aspect ratio. Without dimensions, falls back to pure rotation
+ * (correct only for square elements).
+ *
+ * CSS gradient line: passes through center, extends to corners.
+ * Length = |W * sin(θ)| + |H * cos(θ)|
  */
-export function calculateLinearGradientTransform(angleDeg: number): Transform {
-  const angleRad = ((angleDeg - 90) * Math.PI) / 180;
-  const cos = Math.cos(angleRad);
-  const sin = Math.sin(angleRad);
+export function calculateLinearGradientTransform(
+  angleDeg: number,
+  elementWidth?: number,
+  elementHeight?: number
+): Transform {
+  // Fallback: pure rotation (backward compatible, correct for squares)
+  if (!elementWidth || !elementHeight) {
+    const angleRad = ((angleDeg - 90) * Math.PI) / 180;
+    const cos = Math.cos(angleRad);
+    const sin = Math.sin(angleRad);
+    return [
+      [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
+      [-sin, cos, 0.5 + sin * 0.5 - cos * 0.5],
+    ];
+  }
+
+  const theta = (angleDeg * Math.PI) / 180;
+  const sinT = Math.sin(theta);
+  const cosT = Math.cos(theta);
+
+  // CSS gradient line half-length (extends to cover corners)
+  const halfLen =
+    (Math.abs(elementWidth * sinT) + Math.abs(elementHeight * cosT)) / 2;
+
+  // Start (0%) and end (100%) points in pixel space
+  // CSS direction vector: (sin θ, -cos θ) in screen coords (y-down)
+  const cx = elementWidth / 2;
+  const cy = elementHeight / 2;
+  const sx = cx - halfLen * sinT;
+  const sy = cy + halfLen * cosT;
+  const ex = cx + halfLen * sinT;
+  const ey = cy - halfLen * cosT;
+
+  // Convert to normalized [0,1] unit space
+  const sxn = sx / elementWidth;
+  const syn = sy / elementHeight;
+  const exn = ex / elementWidth;
+  const eyn = ey / elementHeight;
+
+  // Direction vector in unit space
+  const dx = exn - sxn;
+  const dy = eyn - syn;
+  const lenSq = dx * dx + dy * dy;
+
+  // Row 1: gradient position (gx) = projection onto gradient direction
+  const a = dx / lenSq;
+  const b = dy / lenSq;
+  const c = -(dx * sxn + dy * syn) / lenSq;
+
+  // Row 2: perpendicular direction, centered at 0.5
+  const d = -dy / lenSq;
+  const e = dx / lenSq;
+  const f = 0.5 - d * 0.5 - e * 0.5;
 
   return [
-    [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
-    [-sin, cos, 0.5 + sin * 0.5 - cos * 0.5],
+    [a, b, c],
+    [d, e, f],
   ];
 }

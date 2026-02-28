@@ -20,7 +20,10 @@ import {
   normalizeColorForLookup,
   paintKeyFromCSSColor,
 } from "./colors";
-import { calculateRadialGradientTransform } from "./gradients";
+import {
+  calculateRadialGradientTransform,
+  calculateLinearGradientTransform,
+} from "./gradients";
 import { logger } from "../utils/logger";
 
 // ============================================================================
@@ -490,20 +493,17 @@ function figmaFillToPaint(fill: FigmaFill): Paint | null {
   }
 
   if (fill.type === "GRADIENT_LINEAR" && fill.stops && fill.stops.length >= 2) {
-    const angle = fill.angle || 180;
-    const angleRad = ((angle - 90) * Math.PI) / 180;
-    const cos = Math.cos(angleRad);
-    const sin = Math.sin(angleRad);
     return {
       type: "GRADIENT_LINEAR",
       gradientStops: fill.stops.map((s: FigmaGradientStop) => ({
         position: s.position,
         color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
       })),
-      gradientTransform: [
-        [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
-        [-sin, cos, 0.5 + sin * 0.5 - cos * 0.5],
-      ],
+      gradientTransform: calculateLinearGradientTransform(
+        fill.angle || 180,
+        fill.elementWidth,
+        fill.elementHeight
+      ),
     } as GradientPaint;
   }
 
@@ -773,10 +773,6 @@ export async function createUnifiedWebsiteColorStyles(
           styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
         }
 
-        const angle = fill.angle || 180;
-        const angleRad = ((angle - 90) * Math.PI) / 180;
-        const cos = Math.cos(angleRad);
-        const sin = Math.sin(angleRad);
         paints = [
           {
             type: "GRADIENT_LINEAR",
@@ -784,10 +780,11 @@ export async function createUnifiedWebsiteColorStyles(
               position: s.position,
               color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
             })),
-            gradientTransform: [
-              [cos, sin, 0.5 - cos * 0.5 - sin * 0.5],
-              [-sin, cos, 0.5 + sin * 0.5 - cos * 0.5],
-            ],
+            gradientTransform: calculateLinearGradientTransform(
+              fill.angle || 180,
+              fill.elementWidth,
+              fill.elementHeight
+            ),
           } as GradientPaint,
         ];
       } else if (
