@@ -312,8 +312,8 @@ const corsOptions = {
 
 ### Port Conflicts
 
-- Website_Backend and Plugin_Backend both use :3001
-- Solution: Run on different ports or separate instances
+- Website_Backend uses :3001, Plugin_Backend uses :3002, License_Backend uses :3003
+- Check for conflicts if running other services on these ports
 
 ### CORS Errors
 

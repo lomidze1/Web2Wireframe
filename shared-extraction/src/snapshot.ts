@@ -32,6 +32,7 @@ export const SNAPSHOT_COMPUTED_STYLES = [
   "column-gap",
 
   // Box model
+  "box-sizing",
   "width",
   "height",
   "min-width",

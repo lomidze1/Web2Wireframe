@@ -87,7 +87,7 @@ async function renderWebsite(url, viewportWidth = 1440, options = {}) {
     await page.setViewport({
       width: viewportWidth,
       height: 1080,
-      deviceScaleFactor: 1,  // Explicit: no zoom scaling
+      deviceScaleFactor: 1,  // CSS pixel bounds; sub-pixel precision comes from computedStyles
     });
 
     // Navigate
@@ -109,7 +109,7 @@ async function renderWebsite(url, viewportWidth = 1440, options = {}) {
     await page.setViewport({
       width: viewportWidth,
       height: Math.min(dimensions.height, 15000),
-      deviceScaleFactor: 1,  // Keep consistent scale
+      deviceScaleFactor: 1,  // CSS pixel bounds; sub-pixel precision comes from computedStyles
     });
 
     // Extract tree using CDP

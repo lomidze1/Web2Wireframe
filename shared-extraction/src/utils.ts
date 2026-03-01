@@ -89,7 +89,8 @@ export function parseBorderRadius(value: string): {
     return { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 };
   }
 
-  const values = value.split(" ").map((v) => parseInt(v) || 0);
+  // const values = value.split(" ").map((v) => parseInt(v) || 0);
+  const values = value.split(" ").map((v) => parseFloat(v) || 0);
 
   if (values.length === 1) {
     return {

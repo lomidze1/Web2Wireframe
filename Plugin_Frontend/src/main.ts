@@ -113,6 +113,33 @@ export default function () {
         fontMode: effectiveFontMode,
         fontFamily,
       });
+
+      // === DEBUG: Log dimension precision for all frames ===
+      console.log(`[DEBUG-FIGMA] ========== INCOMING DATA (${frames.length} frame(s)) ==========`);
+      console.log(`[DEBUG-FIGMA] Source URL: ${sourceUrl}`);
+      console.log(`[DEBUG-FIGMA] Layout mode: ${layoutMode}, Color mode: ${effectiveColorMode}`);
+      for (let fi = 0; fi < frames.length; fi++) {
+        const f = frames[fi];
+        console.log(`[DEBUG-FIGMA] Frame ${fi}: viewport=${f.viewportWidth}x${f.viewportHeight}`);
+        if (f.tree) {
+          console.log(`[DEBUG-FIGMA] Root: tag=${f.tree.tag}, w=${f.tree.width}, h=${f.tree.height}, hasDecimalW=${f.tree.width % 1 !== 0}, hasDecimalH=${f.tree.height % 1 !== 0}`);
+          // Log first 8 children with decimal check
+          const logChildren = (children: typeof f.tree.children, prefix: string, maxDepth: number) => {
+            if (!children || maxDepth <= 0) return;
+            for (const child of children) {
+              const wd = child.width % 1 !== 0;
+              const hd = child.height % 1 !== 0;
+              console.log(`[DEBUG-FIGMA] ${prefix}${child.name || child.tag}: w=${child.width}${wd ? ' ✓DEC' : ' ✗INT'}, h=${child.height}${hd ? ' ✓DEC' : ' ✗INT'}, x=${child.x}, y=${child.y}, fontSize=${child.fontSize}, padding=${JSON.stringify(child.padding)}`);
+              if (child.children) {
+                logChildren(child.children, prefix + "  ", maxDepth - 1);
+              }
+            }
+          };
+          logChildren(f.tree.children, "  ", 3);
+        }
+      }
+      console.log(`[DEBUG-FIGMA] ========== END INCOMING DATA ==========`);
+      // === END DEBUG ===
       figma.notify("Creating wireframe...", { timeout: 2000 });
 
       // Send initial progress to UI

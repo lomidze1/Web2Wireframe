@@ -49,8 +49,8 @@ async function extractImages(client: CDPClient): Promise<ExtractedAsset[]> {
                 type: 'image',
                 src: img.src || img.currentSrc,
                 alt: img.alt || '',
-                width: Math.round(rect.width),
-                height: Math.round(rect.height)
+                width: rect.width, /* was: Math.round(rect.width) */
+                height: rect.height /* was: Math.round(rect.height) */
               });
             }
           }
@@ -86,8 +86,8 @@ async function extractSVGs(client: CDPClient): Promise<ExtractedAsset[]> {
               svgs.push({
                 type: 'svg',
                 src: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString))),
-                width: Math.round(rect.width),
-                height: Math.round(rect.height)
+                width: rect.width, /* was: Math.round(rect.width) */
+                height: rect.height /* was: Math.round(rect.height) */
               });
             }
           }
@@ -126,8 +126,8 @@ async function extractBackgroundImages(client: CDPClient): Promise<ExtractedAsse
                   bgImages.push({
                     type: 'image',
                     src: urlMatch[1],
-                    width: Math.round(rect.width),
-                    height: Math.round(rect.height)
+                    width: rect.width, /* was: Math.round(rect.width) */
+                    height: rect.height /* was: Math.round(rect.height) */
                   });
                 }
               }
@@ -161,8 +161,8 @@ async function extractVideos(client: CDPClient): Promise<ExtractedAsset[]> {
               videos.push({
                 type: 'video',
                 src: video.src || video.currentSrc || video.poster || '',
-                width: Math.round(rect.width),
-                height: Math.round(rect.height)
+                width: rect.width, /* was: Math.round(rect.width) */
+                height: rect.height /* was: Math.round(rect.height) */
               });
             }
           }

@@ -1,0 +1,85 @@
+// URL validation utility for website import
+// Frontend equivalent: Plugin_Frontend/src/utils/urlValidation.ts
+
+const PRIVATE_IP_PATTERNS = [
+  /^localhost$/i,
+  /^127\.\d+\.\d+\.\d+$/,
+  /^10\.\d+\.\d+\.\d+$/,
+  /^192\.168\.\d+\.\d+$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
+  /^0\.0\.0\.0$/,
+  /^\[::1\]$/,
+  /^\[::ffff:127\./,
+];
+
+/**
+ * Validate and normalize a URL for website import.
+ * @param {string} input - Raw URL string
+ * @returns {{ valid: boolean, url: string, error?: string }}
+ */
+function validateUrl(input) {
+  let urlString = (input || "").trim();
+
+  if (!urlString) {
+    return { valid: false, url: urlString, error: "Missing sourceUrl" };
+  }
+
+  // Auto-prefix https:// only if no protocol scheme is present
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(urlString)) {
+    urlString = `https://${urlString}`;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    return {
+      valid: false,
+      url: urlString,
+      error: "Invalid URL format",
+    };
+  }
+
+  // Only allow http and https
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return {
+      valid: false,
+      url: urlString,
+      error: "Only HTTP and HTTPS URLs are supported",
+    };
+  }
+
+  // Block empty hostname
+  if (!parsed.hostname) {
+    return {
+      valid: false,
+      url: urlString,
+      error: "URL must include a domain name",
+    };
+  }
+
+  // Block private/internal addresses
+  for (const pattern of PRIVATE_IP_PATTERNS) {
+    if (pattern.test(parsed.hostname)) {
+      return {
+        valid: false,
+        url: urlString,
+        error: "Internal or private addresses are not allowed",
+      };
+    }
+  }
+
+  // Require at least one dot in hostname (TLD check), skip for IP addresses
+  const isIpAddress = /^\d+\.\d+\.\d+\.\d+$/.test(parsed.hostname);
+  if (!isIpAddress && !parsed.hostname.includes(".")) {
+    return {
+      valid: false,
+      url: urlString,
+      error: "Invalid domain - must include a valid TLD",
+    };
+  }
+
+  return { valid: true, url: urlString };
+}
+
+module.exports = { validateUrl };

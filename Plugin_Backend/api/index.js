@@ -12,6 +12,7 @@ const {
   getColorByMode,
   getFontByMode,
 } = require("../utils/styleUtils");
+const { validateUrl } = require("../utils/urlValidation");
 
 const app = express();
 
@@ -83,22 +84,29 @@ app.post("/api/import-url", async (req, res) => {
     } = req.body;
 
     // Validation
-    if (!userId || !sourceUrl) {
+    if (!userId) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: userId, sourceUrl",
+        error: "Missing required field: userId",
       });
     }
 
-    // Validate URL
-    try {
-      new URL(sourceUrl);
-    } catch {
+    if (!sourceUrl) {
       return res.status(400).json({
         success: false,
-        error: "Invalid URL format",
+        error: "Missing required field: sourceUrl",
       });
     }
+
+    // Validate and normalize URL
+    const urlValidation = validateUrl(sourceUrl);
+    if (!urlValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: urlValidation.error || "Invalid URL",
+      });
+    }
+    const normalizedSourceUrl = urlValidation.url;
 
     // Validate colorMode
     const validColorModes = ["plugin-colors", "website-colors"];
@@ -131,7 +139,7 @@ app.post("/api/import-url", async (req, res) => {
     const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
 
     // Generate wireframe data with nested tree structure
-    const { frames, cssVariables } = await createWireframeData(sourceUrl, viewports, {
+    const { frames, cssVariables } = await createWireframeData(normalizedSourceUrl, viewports, {
       colorMode,
       textMode,
       typographyMode,
@@ -157,7 +165,7 @@ app.post("/api/import-url", async (req, res) => {
       try {
         const wireframe = new Wireframe({
           userId,
-          sourceUrl,
+          sourceUrl: normalizedSourceUrl,
           viewports: viewports.filter((v) =>
             [375, 768, 1024, 1440, 1920].includes(v)
           ),
@@ -178,7 +186,7 @@ app.post("/api/import-url", async (req, res) => {
     res.json({
       success: true,
       wireframeId,
-      sourceUrl,
+      sourceUrl: normalizedSourceUrl,
       viewports,
       colorMode,
       typographyMode,

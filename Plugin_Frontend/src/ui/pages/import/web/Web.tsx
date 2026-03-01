@@ -5,6 +5,7 @@ import styles from "./Web.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import { transformFramesData } from "../../../shared/transformData";
+import { validateUrl } from "../../../../utils/urlValidation";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import RenderingLoader, {
@@ -148,16 +149,16 @@ export default function Web() {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) return;
 
-    // Validate URL format
-    try {
-      new URL(trimmedUrl);
-    } catch {
+    // Validate and normalize URL
+    const validation = validateUrl(trimmedUrl);
+    if (!validation.valid) {
       setImportState({
         status: "error",
-        message: "Please enter a valid URL (e.g., https://example.com)",
+        message: validation.error || "Please enter a valid URL",
       });
       return;
     }
+    const normalizedUrl = validation.url;
 
     setImportState({ status: "loading", message: "Importing website..." });
 
@@ -184,7 +185,7 @@ export default function Web() {
         },
         body: JSON.stringify({
           userId: `figma-user-${Date.now()}`, // Temporary user ID
-          sourceUrl: trimmedUrl,
+          sourceUrl: normalizedUrl,
           viewports: settings.localViewports.map(Number),
           colorMode: colorModeMap[settings.localColorMode] || "plugin-colors",
           typographyMode: fontModeMap[settings.localFontMode] || "plugin-fonts",
@@ -216,7 +217,7 @@ export default function Web() {
       // Prepare render data
       const renderData: RenderData = {
         frames,
-        sourceUrl: trimmedUrl,
+        sourceUrl: normalizedUrl,
         localStyles: data.localStyles,
         pluginColors: data.pluginColors || config.pluginColors,
         cssVariables: data.cssVariables || [],
@@ -249,6 +250,12 @@ export default function Web() {
           placeholder="https://www.website.com/"
           value={url}
           onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+          onBlur={() => {
+            const trimmed = url.trim();
+            if (trimmed && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(trimmed)) {
+              setUrl(`https://${trimmed}`);
+            }
+          }}
           disabled={importState.status === "loading"}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !isDisabled) {

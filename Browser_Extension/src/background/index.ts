@@ -774,8 +774,10 @@ async function handleCaptureElement(
       frames: [
         {
           viewport: {
-            width: Math.ceil(elementBounds.width),
-            height: Math.ceil(elementBounds.height),
+            // width: Math.ceil(elementBounds.width),
+            // height: Math.ceil(elementBounds.height),
+            width: elementBounds.width,
+            height: elementBounds.height,
           },
           tree,
         },
@@ -932,8 +934,10 @@ async function handleCaptureElementByBackendId(
       frames: [
         {
           viewport: {
-            width: Math.ceil(elementBounds.width),
-            height: Math.ceil(elementBounds.height),
+            // width: Math.ceil(elementBounds.width),
+            // height: Math.ceil(elementBounds.height),
+            width: elementBounds.width,
+            height: elementBounds.height,
           },
           tree,
         },
@@ -1239,7 +1243,8 @@ function buildElementTreeFromBounds(
     }
 
     const borderColor = parseColor(computedStyles["border-color"]);
-    const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
+    // const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
+    const borderWidth = parseFloat(computedStyles["border-width"] || "0") || 0;
     const borderRadius = parseBorderRadius(computedStyles["border-radius"] || "0");
 
     let boxShadow: string | null = null;
@@ -1273,22 +1278,30 @@ function buildElementTreeFromBounds(
       .map((f: string) => f.replace(/['"]/g, "").trim())
       .filter((f: string) => f.length > 0);
     const fontFamily = fontFamilyList[0] || "Inter";
-    const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
+    // const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
+    const fontSize = parseFloat(computedStyles["font-size"] || "14") || 14;
     const fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
     const lineHeight = computedStyles["line-height"] || "normal";
     const letterSpacing = parseFloat(computedStyles["letter-spacing"] || "0") || 0;
     const textAlign = computedStyles["text-align"] || "left";
 
     // Layout
+    // const padding = {
+    //   top: parseInt(computedStyles["padding-top"]) || 0,
+    //   right: parseInt(computedStyles["padding-right"]) || 0,
+    //   bottom: parseInt(computedStyles["padding-bottom"]) || 0,
+    //   left: parseInt(computedStyles["padding-left"]) || 0,
+    // };
     const padding = {
-      top: parseInt(computedStyles["padding-top"]) || 0,
-      right: parseInt(computedStyles["padding-right"]) || 0,
-      bottom: parseInt(computedStyles["padding-bottom"]) || 0,
-      left: parseInt(computedStyles["padding-left"]) || 0,
+      top: parseFloat(computedStyles["padding-top"] || "0") || 0,
+      right: parseFloat(computedStyles["padding-right"] || "0") || 0,
+      bottom: parseFloat(computedStyles["padding-bottom"] || "0") || 0,
+      left: parseFloat(computedStyles["padding-left"] || "0") || 0,
     };
 
     const gapStr = computedStyles["gap"] || computedStyles["row-gap"] || "0";
-    const itemSpacing = parseInt(gapStr) || 0;
+    // const itemSpacing = parseInt(gapStr) || 0;
+    const itemSpacing = parseFloat(gapStr) || 0;
 
     const justifyContent = computedStyles["justify-content"] || undefined;
     const alignItems = computedStyles["align-items"] || undefined;
@@ -1368,8 +1381,10 @@ function buildElementTreeFromBounds(
       name: getSemanticName(tag, node.attributes),
       x: x - parentX,
       y: y - parentY,
-      width: Math.ceil(width),
-      height: Math.ceil(height),
+      // width: Math.ceil(width),
+      // height: Math.ceil(height),
+      width: width,
+      height: height,
       position,
       layoutMode: getLayoutMode(computedStyles, tag),
       itemSpacing,

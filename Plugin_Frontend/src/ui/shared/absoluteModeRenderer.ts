@@ -279,14 +279,21 @@ export function convertToWireframeNode(
   }
 
   // Calculate average border radius
+  // const avgRadius = element.borderRadius
+  //   ? Math.round(
+  //       (element.borderRadius.topLeft +
+  //         element.borderRadius.topRight +
+  //         element.borderRadius.bottomRight +
+  //         element.borderRadius.bottomLeft) /
+  //         4
+  //     )
+  //   : 0;
   const avgRadius = element.borderRadius
-    ? Math.round(
-        (element.borderRadius.topLeft +
-          element.borderRadius.topRight +
-          element.borderRadius.bottomRight +
-          element.borderRadius.bottomLeft) /
-          4
-      )
+    ? (element.borderRadius.topLeft +
+        element.borderRadius.topRight +
+        element.borderRadius.bottomRight +
+        element.borderRadius.bottomLeft) /
+      4
     : 0;
 
   // Recursively convert children

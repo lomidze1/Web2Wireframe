@@ -31,6 +31,7 @@ You are a specialized agent for the Browser_Extension service. This is the **PRI
 - **Build:** Vite 5.0 + @preact/preset-vite
 - **Chrome APIs:** chrome.debugger, chrome.runtime, chrome.tabs
 - **Serialization:** @msgpack/msgpack (compressed data transfer)
+- **Shared:** `shared-extraction` package (snapshot, CSS extraction, tree building, style parsing)
 - **Manifest:** V3 (service worker background)
 
 ## Project Structure
@@ -203,16 +204,15 @@ Popup sends: { type: "CAPTURE_PAGE", tabId, options }
        ↓
 Background receives message
        ↓
-CDPClient.attach(tabId)
+CDPClient.attach(tabId)  (local: cdp/client.ts)
        ↓
-DOM.getDocument({ depth: -1, pierce: true })
+captureSnapshot() → parseSnapshot()  (from shared-extraction)
        ↓
-For each element:
-  ├── DOM.getBoxModel(nodeId) → position, size
-  ├── CSS.getMatchedStylesForNode(nodeId) → ORIGINAL CSS rules
-  └── CSS.getComputedStyleForNode(nodeId) → fallback values
+findNodesNeedingMatchedStyles()  (from shared-extraction, ~10-20 nodes)
        ↓
-Assemble ExtractedElement tree
+getMatchedStylesForNode() for flagged nodes only  (from shared-extraction)
+       ↓
+buildElementTree() → ExtractedElement tree  (from shared-extraction)
        ↓
 POST /api/import-cdp → Plugin_Backend
        ↓

@@ -37,55 +37,42 @@ Plugin_Backend/
 const mongoose = require('mongoose');
 
 const WireframeSchema = new mongoose.Schema({
-  userId: {
+  userId: { type: String, required: true, index: true },
+  sourceUrl: { type: String, required: true },
+  viewports: [{ type: Number, enum: [375, 768, 1024, 1440, 1920] }],
+  colorMode: {
     type: String,
-    required: true,
-    index: true,
+    enum: ['website-colors', 'plugin-colors', 'figma-styles', 'create-styles'],
+    default: 'plugin-colors',
   },
-  url: {
+  typographyMode: {
     type: String,
-    required: true,
+    enum: ['website-fonts', 'plugin-fonts', 'figma-styles'],
+    default: 'plugin-fonts',
   },
-  elements: [{
-    type: {
-      type: String,  // 'rectangle', 'text', 'image', 'button', etc.
-      required: true,
-    },
-    x: Number,
-    y: Number,
-    width: Number,
-    height: Number,
-    content: String,
-    styles: {
-      backgroundColor: String,
-      borderRadius: Number,
-      fontSize: Number,
-      fontFamily: String,
-      color: String,
-    },
-  }],
-  viewport: {
-    width: { type: Number, default: 1440 },
-    height: Number,
+  wireframeData: {
+    frames: [{
+      viewportWidth: Number, viewportHeight: Number, backgroundColor: String,
+      elements: [{
+        type: String, x: Number, y: Number, width: Number, height: Number,
+        backgroundColor: String, textColor: String, borderColor: String,
+        borderWidth: Number, borderStyle: String, fontFamily: String,
+        fontSize: Number, fontWeight: String, textAlign: String,
+        content: String, gradient: String, shadow: String,
+        opacity: Number, borderRadius: Number,
+      }],
+    }],
   },
-  colors: [{
-    hex: String,
-    usage: String,  // 'background', 'text', 'accent', etc.
-  }],
-  fonts: [{
-    family: String,
-    weights: [String],
-  }],
-  createdAt: {
-    type: Date,
-    default: Date.now,
+  localStyles: {
+    colors: [{ id: String, name: String, value: String }],
+    typography: [{ id: String, name: String, fontFamily: String, fontSize: Number, fontWeight: String }],
   },
-  updatedAt: Date,
-}, {
-  timestamps: true,
-});
+  status: { type: String, enum: ['processing', 'completed', 'failed'], default: 'processing' },
+  error: String,
+  figmaFrameId: String,
+  figmaFileId: String,
+}, { timestamps: true });
 
-// Index for efficient user queries
 WireframeSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Wireframe', WireframeSchema);
@@ -97,42 +84,23 @@ module.exports = mongoose.model('Wireframe', WireframeSchema);
 const mongoose = require('mongoose');
 
 const UserSettingsSchema = new mongoose.Schema({
-  userId: {
+  userId: { type: String, required: true, unique: true, index: true },
+  defaultColorMode: {
     type: String,
-    required: true,
-    unique: true,
+    enum: ['website-colors', 'plugin-colors', 'figma-styles', 'create-styles'],
+    default: 'plugin-colors',
   },
-  preferences: {
-    colorMode: {
-      type: String,
-      enum: ['plugin-colors', 'figma-styles', 'website-colors'],
-      default: 'plugin-colors',
-    },
-    defaultViewport: {
-      type: Number,
-      enum: [375, 768, 1024, 1440, 1920],
-      default: 1440,
-    },
-    includeImages: {
-      type: Boolean,
-      default: true,
-    },
-    simplifyLayout: {
-      type: Boolean,
-      default: false,
-    },
+  defaultViewports: { type: [Number], default: [1440, 375] },
+  defaultTypographyMode: {
+    type: String,
+    enum: ['website-fonts', 'plugin-fonts', 'figma-styles'],
+    default: 'plugin-fonts',
   },
-  savedColors: [{
-    name: String,
-    hex: String,
-  }],
-  recentUrls: [{
-    url: String,
-    timestamp: Date,
-  }],
-}, {
-  timestamps: true,
-});
+  apiUsage: {
+    count: { type: Number, default: 0 },
+    reset: { type: Date, default: Date.now },
+  },
+}, { timestamps: true });
 
 module.exports = mongoose.model('UserSettings', UserSettingsSchema);
 ```
@@ -144,45 +112,31 @@ module.exports = mongoose.model('UserSettings', UserSettingsSchema);
 const Wireframe = require('./models/Wireframe');
 
 async function saveWireframe(userId, wireframeData) {
-  const wireframe = new Wireframe({
+  return await Wireframe.create({
     userId,
-    url: wireframeData.url,
-    elements: wireframeData.elements,
-    viewport: wireframeData.viewport,
-    colors: wireframeData.colors,
-    fonts: wireframeData.fonts,
+    sourceUrl: wireframeData.sourceUrl,
+    viewports: wireframeData.viewports,
+    colorMode: wireframeData.colorMode,
+    wireframeData: wireframeData.wireframeData,
+    localStyles: wireframeData.localStyles,
+    status: 'completed',
   });
-
-  return await wireframe.save();
 }
 ```
 
 ### Get User's Wireframe History
 ```javascript
-async function getWireframeHistory(userId, limit = 20) {
+async function getWireframeHistory(userId, page = 1, limit = 20) {
   return await Wireframe.find({ userId })
     .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
     .limit(limit)
-    .select('url viewport createdAt')  // Only essential fields
-    .lean();  // Return plain objects for performance
+    .select('sourceUrl viewports status createdAt')
+    .lean();
 }
 ```
 
-### Get or Create User Settings
-```javascript
-async function getUserSettings(userId) {
-  let settings = await UserSettings.findOne({ userId });
-
-  if (!settings) {
-    settings = new UserSettings({ userId });
-    await settings.save();
-  }
-
-  return settings;
-}
-```
-
-### Update User Settings
+### Upsert User Settings
 ```javascript
 async function updateUserSettings(userId, updates) {
   return await UserSettings.findOneAndUpdate(
@@ -193,41 +147,18 @@ async function updateUserSettings(userId, updates) {
 }
 ```
 
-### Delete Old Wireframes
-```javascript
-async function cleanupOldWireframes(userId, keepCount = 50) {
-  const wireframes = await Wireframe.find({ userId })
-    .sort({ createdAt: -1 })
-    .skip(keepCount)
-    .select('_id');
-
-  if (wireframes.length > 0) {
-    const idsToDelete = wireframes.map(w => w._id);
-    await Wireframe.deleteMany({ _id: { $in: idsToDelete } });
-  }
-}
-```
-
 ## Connection Setup
 ```javascript
-// In api/index.js
+// In api/index.js — MongoDB is OPTIONAL (app degrades gracefully)
 const mongoose = require('mongoose');
 
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB connected'))
-.catch(err => console.error('MongoDB connection error:', err));
+let mongoConnected = false;
 
-// Handle connection events
-mongoose.connection.on('error', err => {
-  console.error('MongoDB error:', err);
-});
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/web2wireframe')
+  .then(() => { mongoConnected = true; console.log('MongoDB connected'); })
+  .catch(err => console.warn('MongoDB not available:', err.message));
 
-mongoose.connection.on('disconnected', () => {
-  console.log('MongoDB disconnected');
-});
+// Note: Mongoose 8 no longer needs useNewUrlParser/useUnifiedTopology options
 ```
 
 ## Environment Variables

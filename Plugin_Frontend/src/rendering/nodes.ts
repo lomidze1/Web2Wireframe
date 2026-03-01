@@ -195,6 +195,12 @@ export async function createNodeInFigma(
   frame.name = node.name || "Container";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
+  // === DEBUG: Log frame creation dimensions ===
+  if (node.name && (node.name.includes("Card") || node.tag === "div")) {
+    console.log(`[DEBUG-RENDER] Creating "${node.name}": resize(${node.width}, ${node.height}), layoutSizingH=${node.layoutSizingHorizontal}, layoutSizingV=${node.layoutSizingVertical}, layoutMode=${node.layoutMode}`);
+  }
+  // === END DEBUG ===
+
   // Apply Auto Layout ONLY if context.layoutMode is "autoLayout"
   const useAutoLayout = context.layoutMode === "autoLayout";
 
@@ -205,14 +211,16 @@ export async function createNodeInFigma(
         ? node.layoutMode
         : "VERTICAL";
 
-    // Apply sizing mode
+    // Apply sizing mode (preserve browser dimensions with minWidth/minHeight)
     if (node.layoutSizingHorizontal === "HUG") {
       frame.layoutSizingHorizontal = "HUG";
+      frame.minWidth = node.width;
     } else {
       frame.layoutSizingHorizontal = "FIXED";
     }
     if (node.layoutSizingVertical === "HUG") {
       frame.layoutSizingVertical = "HUG";
+      frame.minHeight = node.height;
     } else {
       frame.layoutSizingVertical = "FIXED";
     }
@@ -411,6 +419,7 @@ export async function createNodeInFigma(
                   frameChild.layoutMode !== "NONE"
                 ) {
                   frameChild.layoutSizingHorizontal = "HUG";
+                  frameChild.minWidth = child.width;
                 }
                 if (
                   child.layoutAlign === "STRETCH" ||
@@ -422,6 +431,7 @@ export async function createNodeInFigma(
                   frameChild.layoutMode !== "NONE"
                 ) {
                   frameChild.layoutSizingVertical = "HUG";
+                  frameChild.minHeight = child.height;
                 }
               } else {
                 if (
@@ -434,6 +444,7 @@ export async function createNodeInFigma(
                   frameChild.layoutMode !== "NONE"
                 ) {
                   frameChild.layoutSizingVertical = "HUG";
+                  frameChild.minHeight = child.height;
                 }
                 if (
                   child.layoutAlign === "STRETCH" ||
@@ -445,6 +456,7 @@ export async function createNodeInFigma(
                   frameChild.layoutMode !== "NONE"
                 ) {
                   frameChild.layoutSizingHorizontal = "HUG";
+                  frameChild.minWidth = child.width;
                 }
               }
             } else if (childNode.type === "TEXT") {
@@ -502,7 +514,8 @@ export async function createNodeInFigma(
           } else {
             // Absolute mode: use x/y positioning
             if (child.horizontallyCentered && child.width < node.width) {
-              childNode.x = Math.round((node.width - child.width) / 2);
+              // childNode.x = Math.round((node.width - child.width) / 2);
+              childNode.x = (node.width - child.width) / 2;
             } else {
               childNode.x = child.x;
             }
@@ -749,9 +762,10 @@ export async function createWireframeFrame(
             child.horizontallyCentered &&
             child.width < frameData.viewportWidth
           ) {
-            childNode.x = Math.round(
-              (frameData.viewportWidth - child.width) / 2
-            );
+            // childNode.x = Math.round(
+            //   (frameData.viewportWidth - child.width) / 2
+            // );
+            childNode.x = (frameData.viewportWidth - child.width) / 2;
           } else {
             childNode.x = child.x;
           }

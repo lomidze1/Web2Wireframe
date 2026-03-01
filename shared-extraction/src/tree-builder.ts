@@ -58,6 +58,46 @@ export interface BuildTreeOptions {
 // ============================================================================
 
 /**
+ * Get sub-pixel dimension from computedStyles instead of integer layout.bounds.
+ *
+ * DOMSnapshot layout.bounds width/height are snapped to integer CSS pixels.
+ * But computedStyles["width"]/["height"] preserve sub-pixel precision.
+ *
+ * For box-sizing: border-box → computedStyles.width = border-box width (use directly)
+ * For box-sizing: content-box → computedStyles.width = content width (add padding + border)
+ */
+function getSubPixelDimension(
+  computedStyles: Record<string, string>,
+  dimension: "width" | "height",
+  fallback: number
+): number {
+  const csValue = parseFloat(computedStyles[dimension]);
+  if (isNaN(csValue) || csValue <= 0) return fallback;
+
+  const boxSizing = computedStyles["box-sizing"];
+
+  if (boxSizing === "border-box") {
+    // computedStyles.width/height already includes padding + border
+    return csValue;
+  }
+
+  // content-box (default): add padding + border to get visual/border-box size
+  if (dimension === "width") {
+    const pL = parseFloat(computedStyles["padding-left"]) || 0;
+    const pR = parseFloat(computedStyles["padding-right"]) || 0;
+    const bL = parseFloat(computedStyles["border-left-width"]) || 0;
+    const bR = parseFloat(computedStyles["border-right-width"]) || 0;
+    return csValue + pL + pR + bL + bR;
+  } else {
+    const pT = parseFloat(computedStyles["padding-top"]) || 0;
+    const pB = parseFloat(computedStyles["padding-bottom"]) || 0;
+    const bT = parseFloat(computedStyles["border-top-width"]) || 0;
+    const bB = parseFloat(computedStyles["border-bottom-width"]) || 0;
+    return csValue + pT + pB + bT + bB;
+  }
+}
+
+/**
  * Check if element needs frame wrapper for text
  * (has padding, background, border, shadow, or border-radius)
  */
@@ -689,8 +729,11 @@ export function buildElementTree(
 
     const { x, y } = scaledBounds;
     const computedStyles = node.computedStyles;
-    const width = scaledBounds.width;
-    const height = scaledBounds.height;
+    // Use computedStyles for sub-pixel precision (layout.bounds snaps to integers)
+    // const width = scaledBounds.width;
+    // const height = scaledBounds.height;
+    const width = getSubPixelDimension(computedStyles, "width", scaledBounds.width);
+    const height = getSubPixelDimension(computedStyles, "height", scaledBounds.height);
     const matchedStyles = matchedStylesMap.get(node.backendNodeId) || null;
 
     // Determine element type
@@ -806,7 +849,8 @@ export function buildElementTree(
 
     // Legacy border fields
     const borderColor = parseColor(computedStyles["border-color"]);
-    const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
+    // const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
+    const borderWidth = parseFloat(computedStyles["border-width"] || "0") || 0;
     const borderRadius = parseBorderRadius(
       computedStyles["border-radius"] || "0"
     );
@@ -849,7 +893,8 @@ export function buildElementTree(
       .map((f: string) => f.replace(/['"]/g, "").trim())
       .filter((f: string) => f.length > 0);
     const fontFamily = fontFamilyList[0] || "Inter";
-    const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
+    // const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
+    const fontSize = parseFloat(computedStyles["font-size"] || "14") || 14;
     const fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
     const lineHeight = computedStyles["line-height"] || "normal";
     const letterSpacing =
@@ -857,15 +902,22 @@ export function buildElementTree(
     const textAlign = computedStyles["text-align"] || "left";
 
     // Layout
+    // const padding = {
+    //   top: parseInt(computedStyles["padding-top"]) || 0,
+    //   right: parseInt(computedStyles["padding-right"]) || 0,
+    //   bottom: parseInt(computedStyles["padding-bottom"]) || 0,
+    //   left: parseInt(computedStyles["padding-left"]) || 0,
+    // };
     const padding = {
-      top: parseInt(computedStyles["padding-top"]) || 0,
-      right: parseInt(computedStyles["padding-right"]) || 0,
-      bottom: parseInt(computedStyles["padding-bottom"]) || 0,
-      left: parseInt(computedStyles["padding-left"]) || 0,
+      top: parseFloat(computedStyles["padding-top"] || "0") || 0,
+      right: parseFloat(computedStyles["padding-right"] || "0") || 0,
+      bottom: parseFloat(computedStyles["padding-bottom"] || "0") || 0,
+      left: parseFloat(computedStyles["padding-left"] || "0") || 0,
     };
 
     const gapStr = computedStyles["gap"] || computedStyles["row-gap"] || "0";
-    const itemSpacing = parseInt(gapStr) || 0;
+    // const itemSpacing = parseInt(gapStr) || 0;
+    const itemSpacing = parseFloat(gapStr) || 0;
 
     const justifyContent = computedStyles["justify-content"] || undefined;
     const alignItems = computedStyles["align-items"] || undefined;
@@ -1014,8 +1066,10 @@ export function buildElementTree(
       name: getSemanticName(tag, node.attributes),
       x: x - parentX,
       y: y - parentY,
-      width: Math.ceil(width),
-      height: Math.ceil(height),
+      // width: Math.ceil(width),
+      // height: Math.ceil(height),
+      width: width,
+      height: height,
       position,
       zIndex,
       layoutMode: getLayoutMode(computedStyles, tag),

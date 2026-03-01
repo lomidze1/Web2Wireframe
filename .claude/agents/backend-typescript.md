@@ -165,9 +165,16 @@ npm run start        # node dist/index.js
 ### Website_Backend (.env)
 - `PORT=3001`
 - `NODE_ENV=development`
+- `SESSION_SECRET` - Express session secret (required)
 - `RESEND_API_KEY` - Resend email API key
-- `SESSION_SECRET` - Express session secret
-- `ALLOWED_ORIGINS` - CORS allowed origins
+- `SUPPORT_TO_EMAIL` - Support inbox email
+- `NOREPLY_EMAIL` - Sender noreply email
+- `FIGMA_CLIENT_ID` - Figma OAuth client ID
+- `FIGMA_CLIENT_SECRET` - Figma OAuth client secret
+- `FIGMA_REDIRECT_URI` - OAuth callback URL
+- `LICENSE_SERVICE_URL` - License backend URL
+- `LICENSE_SERVICE_TOKEN` - License backend auth token
+- `ALLOWED_ORIGIN` - CORS allowed origins (comma-separated)
 
 ### License_Backend (.env)
 - `PORT=3003`

@@ -2,6 +2,20 @@
 
 Web2Wireframe - Figma plugin for converting websites to wireframes.
 
+## Tech Stack
+
+| Service | Language | Module | Framework | Build | Test |
+|---------|----------|--------|-----------|-------|------|
+| Website_Frontend | TypeScript | ESM | React 19 + Vite 7 | vite build | - |
+| Website_Backend | TypeScript | ESM | Express 4 | tsc | - |
+| Plugin_Frontend | TypeScript | ESM | **Preact** (create-figma-plugin) | build-figma-plugin | Vitest + happy-dom |
+| Plugin_Backend | **JavaScript** | **CommonJS** | Express 4 | - | - |
+| License_Backend | TypeScript | ESM | Express 4 | tsc | - |
+| Browser_Extension | TypeScript | ESM | **Preact** + Vite 5 | vite build | - |
+| shared-extraction | TypeScript | CJS+ESM | tsup (library) | tsup | Vitest (Node) |
+
+**Node requirement:** >=18.0.0, npm >=9.0.0
+
 ## Commands
 
 ```bash
@@ -18,7 +32,54 @@ npm run type-check       # TypeScript validation
 npm run lint             # ESLint check
 ```
 
+## Architecture
+
+### Data Flow
+
+```
+Browser_Extension (CDP capture) → Plugin_Backend (pendingCDPImports) → Plugin_Frontend (Figma rendering)
+```
+
+### Key Architecture Decisions
+
+- **shared-extraction** = single source of truth for CDP extraction logic (იხილე `shared-extraction/src/index.ts`). Both Browser_Extension and Plugin_Backend implement `CDPClientInterface` (იხილე `shared-extraction/src/types.ts`)
+- **pendingCDPImports** = in-memory Map in Plugin_Backend (იხილე `Plugin_Backend/api/index.js`), 10-min TTL, consumed on first read
+- **MongoDB** = only Plugin_Backend (იხილე `Plugin_Backend/models/`), optional (app degrades gracefully without it)
+- **License_Backend** = in-memory Map, no database (იხილე `License_Backend/src/index.ts`), restart = data loss
+- **Authentication** = Figma OAuth, session-based via express-session (იხილე `Website_Backend/src/routes/figmaAuth.ts`)
+- **State management** = Plugin_Frontend uses Preact Context + figma.clientStorage (იხილე `Plugin_Frontend/src/ui/shared/ConfigContext.tsx`); Website_Frontend uses local useState only
+- **Wireframe rendering** = recursive node builder (იხილე `Plugin_Frontend/src/rendering/nodes.ts`)
+
+### Services
+
+| Service | Port | Entry |
+|---------|------|-------|
+| Website_Frontend | 5173 | src/main.tsx |
+| Website_Backend | 3001 | src/index.ts |
+| Plugin_Frontend | - | src/main.ts (sandbox) + src/ui/index.tsx (UI) |
+| Plugin_Backend | 3002 | api/index.js |
+| License_Backend | 3003 | src/index.ts |
+| Browser_Extension | - | src/background/index.ts |
+| shared-extraction | - | src/index.ts |
+
 ## Workflow Rules
+
+### IMPORTANT: Plan Mode შეხსენება — ყოველი სესიის დასაწყისში
+
+როცა მომხმარებელი კოდის ცვლილებას ითხოვს (ახალი feature, bug fix, refactoring), **სანამ კოდს შეეხები**:
+
+1. შეამოწმე: გაკეთებულია თუ არა Plan?
+2. თუ არა — შეახსენე მომხმარებელს:
+   - "ჯერ გეგმა არ გაგვიკეთებია. რეკომენდებული ნაბიჯები:"
+   - **ნაბიჯი 1:** ფაილების ადგილმდებარეობა — "მოვძებნო რომელ ფაილებშია ეს ლოგიკა?"
+   - **ნაბიჯი 2:** გეგმა — "Plan Mode-ით დავგეგმო ცვლილებები?"
+   - შემდეგ ჰკითხე: "ამის მიუხედავად მაინც გინდა პირდაპირ ცვლილება დავიწყო?"
+3. `AskUserQuestion`-ით შესთავაზე არჩევანი:
+   - Plan Mode (Recommended) — ჯერ მოვძებნო ფაილები, შემდეგ დავგეგმო
+   - პირდაპირ დაწყება — Plan-ის გარეშე პირდაპირ ცვლილებებზე გადავიდე
+
+ეს წესი მოქმედებს **ყოველ ახალ სესიაზე**, თუნდაც მომხმარებელმა წინა სესიაში Plan გააკეთა.
+გამონაკლისი: ერთი ხაზის fix, typo, ან მომხმარებელმა აშკარად თქვა "არ მჭირდება plan".
 
 ### IMPORTANT: არ შეცვალო კოდი მომხმარებლის თანხმობის გარეშე
 
@@ -54,14 +115,6 @@ npm run lint             # ESLint check
 
 არასდროს გამოიცანო requirements - დააზუსტე!
 
-### Code Style
-
-- TypeScript strict mode (no `any`)
-- SCSS modules for React styling
-- Zod for API validation
-- Express error handler middleware last
-- MongoDB indexes on userId fields
-
 ### IMPORTANT: Tests and Rebuild After Feature Implementation
 
 ახალი ფუნქციის/feature-ის იმპლემენტაციის შემდეგ **აუცილებლად**:
@@ -70,6 +123,49 @@ npm run lint             # ESLint check
 3. გააკეთე rebuild (`npm run build:all`)
 
 არასდროს ჩათვალო feature მზად ტესტებისა და rebuild-ის გარეშე.
+
+## Code Style
+
+- TypeScript strict mode (no `any`) — ყველა სერვისში გარდა Plugin_Backend
+- ESM (`import/export`) ყველგან, **გარდა Plugin_Backend** (`require/module.exports`)
+- Functional components + hooks (React და Preact ორივეში)
+- SCSS modules (`*.module.scss`) = Website_Frontend
+- CSS modules (`*.css` + `.css.d.ts`) = Plugin_Frontend
+- Zod validation = Website_Backend API routes
+- Express error handler middleware = always last in chain
+- MongoDB indexes on `userId` fields
+- Plugin_Frontend/Browser_Extension = **Preact** (`/** @jsx h */` pragma, `import { h } from 'preact'`)
+- React = **მხოლოდ** Website_Frontend
+
+## Testing Conventions
+
+- **Framework:** Vitest (Plugin_Frontend + shared-extraction)
+- **File naming:** `*.test.ts` / `*.test.tsx`
+- **Location:** `src/__tests__/` directory
+- **Plugin_Frontend:** happy-dom environment, `@testing-library/preact`
+- **shared-extraction:** Node environment (no DOM)
+- **Run:** `vitest run` (one-shot) / `vitest` (watch)
+- **Root test:** `npm run test` არ არსებობს — ტესტები per-service გაუშვი:
+  - `cd Plugin_Frontend && npx vitest run`
+  - `cd shared-extraction && npx vitest run`
+- სხვა სერვისებს ტესტები ჯერ არ აქვს
+
+## Environment Setup
+
+`.env.example` ფაილები არსებობს: Website_Backend, Plugin_Backend, License_Backend
+
+**სავალდებულო env vars:**
+- Website_Backend: `SESSION_SECRET`, `RESEND_API_KEY`, `FIGMA_CLIENT_ID`, `FIGMA_CLIENT_SECRET`
+- Plugin_Backend: `MONGODB_URI` (optional), `API_PORT=3002`
+- License_Backend: `PORT=3003`, `DEV_TOKEN`, `ADMIN_TOKEN`
+
+## Warnings
+
+- **Plugin_Frontend ≠ React!** — Preact-ია, `import { h } from 'preact'` გამოიყენე, არა `import React`
+- **Plugin_Backend = JavaScript/CommonJS** — `require()` / `module.exports`, არა `import/export`
+- **License_Backend restart = data loss** — in-memory storage, არა database
+- **pendingCDPImports = ephemeral** — 10 min TTL, consumed on first read, not persisted
+- **არ შეეხო** shared-extraction-ის `CDPClientInterface`-ს API-ის შეცვლის გარეშე — ორივე consumer (Browser_Extension, Plugin_Backend) დამოკიდებულია
 
 ### Verification After Changes
 
@@ -86,18 +182,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 Types: `feat`, `fix`, `refactor`, `docs`, `test`
-
-## Services
-
-| Service | Port | Entry |
-|---------|------|-------|
-| Website_Frontend | 5173 | src/main.tsx |
-| Website_Backend | 3001 | src/index.ts |
-| Plugin_Frontend | - | src/main.ts |
-| Plugin_Backend | 3002 | api/index.js |
-| License_Backend | 3003 | src/index.ts |
-| Browser_Extension | - | src/background/index.ts |
-| shared-extraction | - | src/index.ts |
 
 ## Skills Available
 
@@ -122,13 +206,13 @@ See `.claude/agents/` for specialized agents:
 ## External Services
 
 - Resend - Email delivery
-- MongoDB - Wireframe storage
-- Puppeteer - Website rendering (legacy)
+- MongoDB - Wireframe storage (Plugin_Backend only, optional)
+- Puppeteer - Website rendering (legacy fallback)
 - **Chrome DevTools Protocol** - Website capture (primary)
 
 ---
 
-## 🚨 CRITICAL: CDP Extraction Approach
+## CRITICAL: CDP Extraction Approach
 
 ### მიზანი: 1:1 ხარისხიანი ექსტრაქცია (html.to.design დონეზე)
 
@@ -146,8 +230,8 @@ Browser_Extension (CDP)  →  Plugin_Backend  →  Figma Plugin
 
 #### CDP vs Puppeteer
 
-| ფუნქცია | Puppeteer ❌ | CDP ✅ |
-|---------|-------------|--------|
+| ფუნქცია | Puppeteer | CDP |
+|---------|-----------|-----|
 | Styles | `getComputedStyle()` | `CSS.getMatchedStylesForNode` |
 | Gradients | იკარგება | ინახება original |
 | CSS Variables | resolved only | `var(--name)` + resolved |
@@ -163,7 +247,7 @@ await client.send("DOM.getDocument", { depth: -1, pierce: true });
 await client.send("DOM.getBoxModel", { nodeId });
 
 // CSS - KEY DIFFERENCE!
-await client.send("CSS.getMatchedStylesForNode", { nodeId });  // ✅ Original rules
+await client.send("CSS.getMatchedStylesForNode", { nodeId });  // Original rules
 await client.send("CSS.getComputedStyleForNode", { nodeId });  // Fallback only
 
 // Fonts
