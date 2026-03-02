@@ -1122,7 +1122,7 @@ export function buildElementTree(
         }
 
         const childElement = buildNode(childNode, x, y, depth + 1, {
-          direction: element.layoutMode || "VERTICAL",
+          direction: (element.layoutMode && element.layoutMode !== "NONE") ? element.layoutMode : "VERTICAL",
           alignItems,
         });
         if (childElement && childElement.width > 3 && childElement.height > 3) {

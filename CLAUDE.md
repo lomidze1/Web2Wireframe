@@ -115,6 +115,31 @@ Browser_Extension (CDP capture) → Plugin_Backend (pendingCDPImports) → Plugi
 
 არასდროს გამოიცანო requirements - დააზუსტე!
 
+### IMPORTANT: Prompt Quality Check — პრომპტის ხარისხის შემოწმება
+
+როცა მომხმარებელი ახალ დავალებას იძლევა, **შეაფასე პრომპტის ხარისხი** შემდეგი კრიტერიუმებით:
+
+**სავალდებულო ელემენტები:**
+1. **კონკრეტული ფაილები** — მითითებულია რომელ ფაილებს ეხება?
+2. **მკაფიო მოთხოვნა** — ზუსტად რა უნდა გაკეთდეს?
+3. **სერვისის იდენტიფიცირება** — რომელ სერვისში (Plugin_Frontend, Website_Backend...)?
+
+**სასურველი ელემენტები:**
+4. **Reference ლინკები** — დოკუმენტაციის URL-ები (API docs, design specs)
+5. **Edge cases** — რა სპეციალური შემთხვევები არსებობს?
+6. **Verification criteria** — როგორ გადავამოწმო რომ სწორად გაკეთდა?
+
+**თუ პრომპტს აკლია 2+ სავალდებულო ელემენტი:**
+`AskUserQuestion`-ით შეატყობინე:
+- "ამ დავალებას აკლია [X, Y]. გავაგრძელო ასე თუ დააზუსტებ?"
+- მაგალითით აჩვენე რა ინფორმაცია დააუმჯობესებდა
+
+**თუ პრომპტს აკლია სასურველი ელემენტები:**
+- მოკლედ შეახსენე: "Tip: ლინკების/edge cases-ის დამატება უკეთეს შედეგს მოგცემს"
+- მაგრამ არ დაბლოკო — გააგრძელე მუშაობა
+
+გამონაკლისი: one-liner fix, typo, ან მომხმარებელმა თქვა "არ შემახსენო"
+
 ### IMPORTANT: Tests and Rebuild After Feature Implementation
 
 ახალი ფუნქციის/feature-ის იმპლემენტაციის შემდეგ **აუცილებლად**:
@@ -123,6 +148,41 @@ Browser_Extension (CDP capture) → Plugin_Backend (pendingCDPImports) → Plugi
 3. გააკეთე rebuild (`npm run build:all`)
 
 არასდროს ჩათვალო feature მზად ტესტებისა და rebuild-ის გარეშე.
+
+## Prompt Templates
+
+### Bug Fix
+```
+Fix [problem description] in @[file path].
+Steps to reproduce: [1, 2, 3]
+Expected: [behavior]. Actual: [behavior].
+Reference: [link if applicable]
+```
+
+### New Feature
+```
+Add [feature] to [service].
+Files: @[file1], @[file2]
+Behavior: [detailed description]
+Edge cases: [list]
+Reference: [docs/design link]
+```
+
+### Test Writing
+```
+Write tests for @[file path] covering:
+- [scenario 1]
+- [scenario 2]
+- [edge case]
+Use [testing library/framework]
+```
+
+### Refactoring
+```
+Refactor [what] in @[file path].
+Goal: [why — performance, readability, etc.]
+Constraint: [don't break X, keep API same, etc.]
+```
 
 ## Code Style
 

@@ -212,13 +212,14 @@ export async function createNodeInFigma(
         : "VERTICAL";
 
     // Apply sizing mode (preserve browser dimensions with minWidth/minHeight)
-    if (node.layoutSizingHorizontal === "HUG") {
+    // HUG = size to content with min constraint; FILL applied later by parent
+    if (node.layoutSizingHorizontal === "HUG" || !node.layoutSizingHorizontal) {
       frame.layoutSizingHorizontal = "HUG";
       frame.minWidth = node.width;
     } else {
       frame.layoutSizingHorizontal = "FIXED";
     }
-    if (node.layoutSizingVertical === "HUG") {
+    if (node.layoutSizingVertical === "HUG" || !node.layoutSizingVertical) {
       frame.layoutSizingVertical = "HUG";
       frame.minHeight = node.height;
     } else {
@@ -670,7 +671,7 @@ export async function createWireframeFrame(
   wireframeFrame.name = `Wireframe - ${hostname} (${frameData.viewportWidth}px)`;
   wireframeFrame.resize(
     frameData.viewportWidth,
-    Math.min(frameData.viewportHeight, 15000)
+    getOuterFrameHeight(frameData.tree?.height, frameData.viewportHeight)
   );
 
   // Position
@@ -782,4 +783,16 @@ export async function createWireframeFrame(
   }
 
   return wireframeFrame;
+}
+
+/**
+ * Calculate the outer wireframe frame height.
+ * Prefers tree.height (sub-pixel CSS computed) over viewportHeight (scrollHeight integer).
+ * Clamped to 15000px (Figma limit).
+ */
+export function getOuterFrameHeight(
+  treeHeight: number | undefined,
+  viewportHeight: number
+): number {
+  return Math.min(treeHeight || viewportHeight, 15000);
 }
