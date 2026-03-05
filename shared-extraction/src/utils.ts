@@ -290,6 +290,8 @@ export function getLayoutSizing(
   parentContext?: {
     direction: "HORIZONTAL" | "VERTICAL" | "NONE";
     alignItems?: string;
+    contentWidth?: number;
+    contentHeight?: number;
   }
 ): {
   horizontal: "FIXED" | "HUG" | "FILL" | undefined;

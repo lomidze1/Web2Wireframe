@@ -139,6 +139,7 @@ export interface ExtractedElement {
   isPlaceholder: boolean;
   overflow?: "visible" | "hidden" | "scroll" | "auto";
   horizontallyCentered?: boolean;
+  margin?: { top: number; right: number; bottom: number; left: number };
   computedStyles?: Record<string, string>;
   children: ExtractedElement[];
 }
@@ -339,6 +340,7 @@ export function convertToWireframeNode(
     opacity: element.opacity ?? 1,
     overflow: element.overflow,
     horizontallyCentered: element.horizontallyCentered,
+    margin: element.margin,
     textContent: element.textContent || "",
     styledSegments: element.styledSegments,
     listStyleType: element.listStyleType,

@@ -195,12 +195,6 @@ export async function createNodeInFigma(
   frame.name = node.name || "Container";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
-  // === DEBUG: Log frame creation dimensions ===
-  if (node.name && (node.name.includes("Card") || node.tag === "div")) {
-    console.log(`[DEBUG-RENDER] Creating "${node.name}": resize(${node.width}, ${node.height}), layoutSizingH=${node.layoutSizingHorizontal}, layoutSizingV=${node.layoutSizingVertical}, layoutMode=${node.layoutMode}`);
-  }
-  // === END DEBUG ===
-
   // Apply Auto Layout ONLY if context.layoutMode is "autoLayout"
   const useAutoLayout = context.layoutMode === "autoLayout";
 
@@ -218,12 +212,14 @@ export async function createNodeInFigma(
       frame.minWidth = node.width;
     } else {
       frame.layoutSizingHorizontal = "FIXED";
+      frame.minWidth = node.width;
     }
     if (node.layoutSizingVertical === "HUG" || !node.layoutSizingVertical) {
       frame.layoutSizingVertical = "HUG";
       frame.minHeight = node.height;
     } else {
       frame.layoutSizingVertical = "FIXED";
+      frame.minHeight = node.height;
     }
 
     // Apply alignment from CSS
@@ -358,164 +354,12 @@ export async function createNodeInFigma(
         const childNode = await createNodeInFigma(child, childContext, depth + 1);
 
         if (childNode) {
-          // Check if child needs a margin wrapper
-          let nodeToAppend: SceneNode = childNode;
-          if (
-            parentHasAutoLayout &&
-            needsMarginWrapper(child.margin) &&
-            child.position !== "absolute" &&
-            child.position !== "fixed"
-          ) {
-            nodeToAppend = createMarginWrapper(child, childNode, frame.layoutMode);
-          }
-
-          // Append child first (required for Auto Layout properties)
-          frame.appendChild(nodeToAppend);
-
-          // Handle absolute/fixed positioning
-          if (child.position === "absolute" || child.position === "fixed") {
-            if (parentHasAutoLayout && "layoutPositioning" in childNode) {
-              (childNode as FrameNode | TextNode).layoutPositioning = "ABSOLUTE";
-            }
-            childNode.x = child.x;
-            childNode.y = child.y;
-          } else if (parentHasAutoLayout) {
-            // Auto Layout parent: apply child-level properties
-            if (
-              childNode.type === "FRAME" ||
-              childNode.type === "COMPONENT" ||
-              childNode.type === "INSTANCE"
-            ) {
-              const frameChild = childNode as FrameNode;
-
-              // Apply layoutGrow
-              if (child.layoutGrow === 1) {
-                frameChild.layoutGrow = 1;
-              }
-
-              // Apply layoutAlign from CSS align-self
-              const selfAlign = cssAlignSelfToFigma(
-                child.alignSelf,
-                frame.counterAxisAlignItems
-              );
-              if (selfAlign === "STRETCH") {
-                frameChild.layoutAlign = "STRETCH";
-              } else if (selfAlign === "CENTER") {
-                frameChild.layoutAlign = "INHERIT";
-              } else if (child.layoutAlign === "STRETCH") {
-                frameChild.layoutAlign = "STRETCH";
-              }
-
-              // Apply sizing mode for children
-              const isHorizontalLayout = frame.layoutMode === "HORIZONTAL";
-
-              if (isHorizontalLayout) {
-                if (
-                  child.layoutSizingHorizontal === "FILL" ||
-                  child.layoutGrow === 1
-                ) {
-                  frameChild.layoutSizingHorizontal = "FILL";
-                } else if (
-                  child.layoutSizingHorizontal === "HUG" &&
-                  frameChild.layoutMode !== "NONE"
-                ) {
-                  frameChild.layoutSizingHorizontal = "HUG";
-                  frameChild.minWidth = child.width;
-                }
-                if (
-                  child.layoutAlign === "STRETCH" ||
-                  child.layoutSizingVertical === "FILL"
-                ) {
-                  frameChild.layoutSizingVertical = "FILL";
-                } else if (
-                  child.layoutSizingVertical === "HUG" &&
-                  frameChild.layoutMode !== "NONE"
-                ) {
-                  frameChild.layoutSizingVertical = "HUG";
-                  frameChild.minHeight = child.height;
-                }
-              } else {
-                if (
-                  child.layoutSizingVertical === "FILL" ||
-                  child.layoutGrow === 1
-                ) {
-                  frameChild.layoutSizingVertical = "FILL";
-                } else if (
-                  child.layoutSizingVertical === "HUG" &&
-                  frameChild.layoutMode !== "NONE"
-                ) {
-                  frameChild.layoutSizingVertical = "HUG";
-                  frameChild.minHeight = child.height;
-                }
-                if (
-                  child.layoutAlign === "STRETCH" ||
-                  child.layoutSizingHorizontal === "FILL"
-                ) {
-                  frameChild.layoutSizingHorizontal = "FILL";
-                } else if (
-                  child.layoutSizingHorizontal === "HUG" &&
-                  frameChild.layoutMode !== "NONE"
-                ) {
-                  frameChild.layoutSizingHorizontal = "HUG";
-                  frameChild.minWidth = child.width;
-                }
-              }
-            } else if (childNode.type === "TEXT") {
-              const textChild = childNode as TextNode;
-              const isHorizontalLayout = frame.layoutMode === "HORIZONTAL";
-              const isMultiLine = (child.browserLineCount || 1) > 1;
-
-              if (isHorizontalLayout) {
-                // Horizontal axis (main axis)
-                if (child.layoutSizingHorizontal === "FILL") {
-                  textChild.layoutSizingHorizontal = "FILL";
-                  textChild.textAutoResize = "HEIGHT";
-                } else if (isMultiLine) {
-                  // Multi-line text: constrain width, auto height
-                  textChild.layoutSizingHorizontal = "FILL";
-                  textChild.textAutoResize = "HEIGHT";
-                } else {
-                  // Single-line text: hug both axes
-                  textChild.layoutSizingHorizontal = "HUG";
-                  textChild.textAutoResize = "WIDTH_AND_HEIGHT";
-                }
-                // Vertical axis (cross axis)
-                if (
-                  child.layoutAlign === "STRETCH" ||
-                  child.layoutSizingVertical === "FILL"
-                ) {
-                  textChild.layoutSizingVertical = "FILL";
-                }
-              } else {
-                // VERTICAL layout
-                // Vertical axis (main axis)
-                if (child.layoutSizingVertical === "FILL") {
-                  textChild.layoutSizingVertical = "FILL";
-                } else {
-                  textChild.layoutSizingVertical = "HUG";
-                }
-                // Horizontal axis (cross axis)
-                if (
-                  child.layoutAlign === "STRETCH" ||
-                  child.layoutSizingHorizontal === "FILL"
-                ) {
-                  textChild.layoutSizingHorizontal = "FILL";
-                  textChild.textAutoResize = "HEIGHT";
-                } else if (isMultiLine) {
-                  // Multi-line text: constrain width, auto height
-                  textChild.layoutSizingHorizontal = "FILL";
-                  textChild.textAutoResize = "HEIGHT";
-                } else {
-                  // Single-line text: hug both axes
-                  textChild.layoutSizingHorizontal = "HUG";
-                  textChild.textAutoResize = "WIDTH_AND_HEIGHT";
-                }
-              }
-            }
+          if (parentHasAutoLayout) {
+            applyChildInAutoLayout(childNode, child, frame, childContext);
           } else {
             // Absolute mode: use x/y positioning
+            frame.appendChild(childNode);
             if (child.horizontallyCentered && child.width < node.width) {
-              // childNode.x = Math.round((node.width - child.width) / 2);
               childNode.x = (node.width - child.width) / 2;
             } else {
               childNode.x = child.x;
@@ -631,6 +475,246 @@ export async function createNodeInFigma(
 }
 
 // ============================================================================
+// Auto Layout Child Helper
+// ============================================================================
+
+/**
+ * Apply auto layout child properties (margin wrapper, absolute positioning,
+ * sizing modes) to a child node inside an auto layout parent.
+ * Shared by createNodeInFigma (nested frames) and createWireframeFrame (root frame).
+ */
+function applyChildInAutoLayout(
+  childNode: SceneNode,
+  child: WireframeNode,
+  parentFrame: FrameNode,
+  context: RenderContext
+): void {
+  // Absolute/fixed: position directly, no wrapper
+  if (child.position === "absolute" || child.position === "fixed") {
+    parentFrame.appendChild(childNode);
+    if ("layoutPositioning" in childNode) {
+      (childNode as FrameNode | TextNode).layoutPositioning = "ABSOLUTE";
+    }
+    childNode.x = child.x;
+    childNode.y = child.y;
+    return;
+  }
+
+  // Sticky: spacer maintains flow space, element positioned absolutely.
+  // CSS sticky = in normal flow + sticks on scroll. Figma has no scroll,
+  // so we use a transparent spacer for flow space + ABSOLUTE for the element.
+  if (child.position === "sticky") {
+    const spacer = figma.createFrame();
+    spacer.name = `${child.name || child.tag}:spacer`;
+    spacer.fills = [];
+    spacer.clipsContent = false;
+
+    // MUST appendChild BEFORE setting layout sizing (Figma requires auto layout parent)
+    parentFrame.appendChild(spacer);
+
+    if (parentFrame.layoutMode === "VERTICAL") {
+      spacer.layoutSizingHorizontal = "FILL";
+      spacer.layoutSizingVertical = "FIXED";
+      spacer.resize(spacer.width, Math.max(1, child.height));
+    } else {
+      spacer.layoutSizingHorizontal = "FIXED";
+      spacer.layoutSizingVertical = "FILL";
+      spacer.resize(Math.max(1, child.width), spacer.height);
+    }
+
+    // Append the actual element as ABSOLUTE (out of flow)
+    parentFrame.appendChild(childNode);
+    if ("layoutPositioning" in childNode) {
+      (childNode as FrameNode | TextNode).layoutPositioning = "ABSOLUTE";
+    }
+    childNode.x = child.x;
+    childNode.y = child.y;
+    return;
+  }
+
+  // Create margin wrapper if needed
+  const hasWrapper = needsMarginWrapper(child.margin);
+  let wrapper: FrameNode | null = null;
+  if (hasWrapper) {
+    wrapper = createMarginWrapper(child, childNode, parentFrame.layoutMode);
+  }
+
+  // Append to parent (wrapper is the direct child; inner childNode already inside)
+  parentFrame.appendChild(wrapper || childNode);
+
+  // Sizing target = wrapper (if exists) or childNode.
+  // When wrapper exists: sizing goes on wrapper; inner child already FILLs wrapper.
+  const isHorizontalLayout = parentFrame.layoutMode === "HORIZONTAL";
+
+  if (
+    childNode.type === "FRAME" ||
+    childNode.type === "COMPONENT" ||
+    childNode.type === "INSTANCE"
+  ) {
+    const target = wrapper || (childNode as FrameNode);
+    const frameChild = childNode as FrameNode;
+
+    // layoutGrow
+    if (child.layoutGrow === 1) {
+      target.layoutGrow = 1;
+    }
+
+    // layoutAlign from CSS align-self
+    const selfAlign = cssAlignSelfToFigma(
+      child.alignSelf,
+      parentFrame.counterAxisAlignItems
+    );
+    if (selfAlign === "STRETCH") {
+      target.layoutAlign = "STRETCH";
+    } else if (selfAlign === "CENTER") {
+      target.layoutAlign = "INHERIT";
+    } else if (child.layoutAlign === "STRETCH") {
+      target.layoutAlign = "STRETCH";
+    }
+
+    if (isHorizontalLayout) {
+      // Main axis = horizontal
+      if (
+        child.layoutSizingHorizontal === "FILL" ||
+        child.layoutGrow === 1
+      ) {
+        if (parentFrame.layoutSizingHorizontal === "HUG") {
+          target.layoutSizingHorizontal = "HUG";
+          if ("minWidth" in target) {
+            (target as FrameNode).minWidth = child.width;
+          }
+        } else {
+          target.layoutSizingHorizontal = "FILL";
+          if (child.horizontallyCentered && child.width < (context.parentWidth || Infinity)) {
+            target.maxWidth = child.width + (child.margin?.left || 0) + (child.margin?.right || 0);
+          }
+        }
+      } else if (
+        !wrapper &&
+        child.layoutSizingHorizontal === "HUG" &&
+        frameChild.layoutMode !== "NONE"
+      ) {
+        frameChild.layoutSizingHorizontal = "HUG";
+        frameChild.minWidth = child.width;
+      }
+      // Cross axis = vertical
+      if (
+        child.layoutAlign === "STRETCH" ||
+        child.layoutSizingVertical === "FILL"
+      ) {
+        target.layoutSizingVertical = "FILL";
+      } else if (
+        !wrapper &&
+        child.layoutSizingVertical === "HUG" &&
+        frameChild.layoutMode !== "NONE"
+      ) {
+        frameChild.layoutSizingVertical = "HUG";
+        frameChild.minHeight = child.height;
+      }
+    } else {
+      // Main axis = vertical
+      if (
+        child.layoutSizingVertical === "FILL" ||
+        child.layoutGrow === 1
+      ) {
+        if (parentFrame.layoutSizingVertical === "HUG") {
+          target.layoutSizingVertical = "HUG";
+          if ("minHeight" in target) {
+            (target as FrameNode).minHeight = child.height;
+          }
+        } else {
+          target.layoutSizingVertical = "FILL";
+        }
+      } else if (
+        !wrapper &&
+        child.layoutSizingVertical === "HUG" &&
+        frameChild.layoutMode !== "NONE"
+      ) {
+        frameChild.layoutSizingVertical = "HUG";
+        frameChild.minHeight = child.height;
+      }
+      // Cross axis = horizontal
+      if (
+        child.layoutAlign === "STRETCH" ||
+        child.layoutSizingHorizontal === "FILL"
+      ) {
+        target.layoutSizingHorizontal = "FILL";
+        if (child.horizontallyCentered && child.width < (context.parentWidth || Infinity)) {
+          target.maxWidth = child.width + (child.margin?.left || 0) + (child.margin?.right || 0);
+        }
+      } else if (
+        !wrapper &&
+        child.layoutSizingHorizontal === "HUG" &&
+        frameChild.layoutMode !== "NONE"
+      ) {
+        frameChild.layoutSizingHorizontal = "HUG";
+        frameChild.minWidth = child.width;
+      }
+    }
+  } else if (childNode.type === "TEXT") {
+    const textChild = childNode as TextNode;
+    const isMultiLine = (child.browserLineCount || 1) > 1;
+
+    // layoutAlign
+    const selfAlign = cssAlignSelfToFigma(
+      child.alignSelf,
+      parentFrame.counterAxisAlignItems
+    );
+    if (selfAlign === "STRETCH") {
+      (wrapper || textChild).layoutAlign = "STRETCH";
+    } else if (child.layoutAlign === "STRETCH") {
+      (wrapper || textChild).layoutAlign = "STRETCH";
+    }
+
+    if (wrapper) {
+      // Wrapper handles parent sizing; inner text already FILL+HEIGHT from createMarginWrapper
+      if (isHorizontalLayout) {
+        if (child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+          wrapper.layoutSizingHorizontal = "FILL";
+        }
+        if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
+          wrapper.layoutSizingVertical = "FILL";
+        }
+      } else {
+        if (child.layoutSizingVertical === "FILL") {
+          wrapper.layoutSizingVertical = "FILL";
+        }
+        if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+          wrapper.layoutSizingHorizontal = "FILL";
+        }
+      }
+    } else {
+      // No wrapper — apply directly to text node
+      if (isHorizontalLayout) {
+        if (child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+          textChild.layoutSizingHorizontal = "FILL";
+          textChild.textAutoResize = "HEIGHT";
+        } else {
+          textChild.layoutSizingHorizontal = "HUG";
+          textChild.textAutoResize = "WIDTH_AND_HEIGHT";
+        }
+        if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
+          textChild.layoutSizingVertical = "FILL";
+        }
+      } else {
+        if (child.layoutSizingVertical === "FILL") {
+          textChild.layoutSizingVertical = "FILL";
+        } else {
+          textChild.layoutSizingVertical = "HUG";
+        }
+        if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+          textChild.layoutSizingHorizontal = "FILL";
+          textChild.textAutoResize = "HEIGHT";
+        } else {
+          textChild.layoutSizingHorizontal = "HUG";
+          textChild.textAutoResize = "WIDTH_AND_HEIGHT";
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
 // Wireframe Frame Creation
 // ============================================================================
 
@@ -741,6 +825,41 @@ export async function createWireframeFrame(
     rootOverflow === "scroll" ||
     rootOverflow === "auto";
 
+  // Apply Auto Layout to root frame when in autoLayout mode
+  const useAutoLayout = context.layoutMode === "autoLayout";
+  if (useAutoLayout && frameData.tree) {
+    const rootTree = frameData.tree;
+
+    // Use body's detected layout or default to VERTICAL
+    wireframeFrame.layoutMode =
+      rootTree.layoutMode && rootTree.layoutMode !== "NONE"
+        ? rootTree.layoutMode
+        : "VERTICAL";
+
+    // Root frame: fixed viewport width, height hugs content
+    wireframeFrame.layoutSizingHorizontal = "FIXED";
+    wireframeFrame.layoutSizingVertical = "HUG";
+
+    // Apply padding from body element
+    if (rootTree.padding) {
+      wireframeFrame.paddingTop = rootTree.padding.top || 0;
+      wireframeFrame.paddingRight = rootTree.padding.right || 0;
+      wireframeFrame.paddingBottom = rootTree.padding.bottom || 0;
+      wireframeFrame.paddingLeft = rootTree.padding.left || 0;
+    }
+
+    // Apply item spacing
+    if (rootTree.itemSpacing > 0) {
+      wireframeFrame.itemSpacing = rootTree.itemSpacing;
+    }
+
+    // Apply alignment from CSS
+    const primaryResult = cssJustifyToFigma(rootTree.justifyContent);
+    const counterResult = cssAlignToFigma(rootTree.alignItems);
+    wireframeFrame.primaryAxisAlignItems = primaryResult;
+    wireframeFrame.counterAxisAlignItems = counterResult;
+  }
+
   // Create nested structure from tree
   if (frameData.tree && frameData.tree.children) {
     const rootBgColor =
@@ -758,20 +877,22 @@ export async function createWireframeFrame(
         const childNode = await createNodeInFigma(child, childContext, 1);
 
         if (childNode) {
-          // Handle horizontally centered elements
-          if (
-            child.horizontallyCentered &&
-            child.width < frameData.viewportWidth
-          ) {
-            // childNode.x = Math.round(
-            //   (frameData.viewportWidth - child.width) / 2
-            // );
-            childNode.x = (frameData.viewportWidth - child.width) / 2;
+          if (useAutoLayout) {
+            // Auto Layout: use helper for FILL/HUG/margin/absolute
+            applyChildInAutoLayout(childNode, child, wireframeFrame, childContext);
           } else {
-            childNode.x = child.x;
+            // Absolute mode: original x/y positioning
+            if (
+              child.horizontallyCentered &&
+              child.width < frameData.viewportWidth
+            ) {
+              childNode.x = (frameData.viewportWidth - child.width) / 2;
+            } else {
+              childNode.x = child.x;
+            }
+            childNode.y = child.y;
+            wireframeFrame.appendChild(childNode);
           }
-          childNode.y = child.y;
-          wireframeFrame.appendChild(childNode);
         }
       } catch (err) {
         logger.error("Error creating top-level node", err, {

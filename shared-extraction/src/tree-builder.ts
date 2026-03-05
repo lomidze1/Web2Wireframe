@@ -6,7 +6,7 @@
  */
 
 import type { ExtractedElement, CDPMatchedStyles, StyledTextSegment } from "./types";
-import type { ParsedSnapshotNode, TextBoxInfo } from "./snapshot";
+import type { ParsedSnapshotNode } from "./snapshot";
 import { extractPropertyFromMatchedRules, extractPseudoStyles } from "./css";
 import {
   parseBackgroundToFills,
@@ -651,6 +651,30 @@ function createSyntheticTextChild(
   };
 }
 
+/**
+ * Resolve "normal" line-height to a pixel value using browser text rendering data.
+ * Browser's "normal" ≈ 1.2× fontSize, but Figma's AUTO ≈ 1.4× fontSize.
+ * This mismatch causes text height inflation in auto layout mode.
+ */
+export function resolveNormalLineHeight(
+  lineHeight: number | string,
+  fontSize: number,
+  textBoundsHeight: number | null,
+  browserLineCount: number
+): number | string {
+  if (lineHeight !== "normal") return lineHeight;
+
+  if (textBoundsHeight !== null && browserLineCount > 0) {
+    const resolved = Math.round((textBoundsHeight / browserLineCount) * 100) / 100;
+    // Sanity: line-height >= fontSize and <= 3× fontSize
+    if (resolved >= fontSize && resolved <= fontSize * 3) {
+      return resolved;
+    }
+  }
+  // Fallback: CSS spec "normal" ≈ 1.2× fontSize
+  return Math.round(fontSize * 1.2 * 100) / 100;
+}
+
 // ============================================================================
 // MAIN BUILD FUNCTION
 // ============================================================================
@@ -703,6 +727,8 @@ export function buildElementTree(
     parentContext?: {
       direction: "HORIZONTAL" | "VERTICAL" | "NONE";
       alignItems?: string;
+      contentWidth?: number;
+      contentHeight?: number;
     }
   ): ExtractedElement | null {
     if (depth > MAX_TREE_DEPTH) return null;
@@ -729,9 +755,7 @@ export function buildElementTree(
 
     const { x, y } = scaledBounds;
     const computedStyles = node.computedStyles;
-    // Use computedStyles for sub-pixel precision (layout.bounds snaps to integers)
-    // const width = scaledBounds.width;
-    // const height = scaledBounds.height;
+    // Sub-pixel precision from computedStyles (layout.bounds snaps to integers)
     const width = getSubPixelDimension(computedStyles, "width", scaledBounds.width);
     const height = getSubPixelDimension(computedStyles, "height", scaledBounds.height);
     const matchedStyles = matchedStylesMap.get(node.backendNodeId) || null;
@@ -849,7 +873,6 @@ export function buildElementTree(
 
     // Legacy border fields
     const borderColor = parseColor(computedStyles["border-color"]);
-    // const borderWidth = parseInt(computedStyles["border-width"] || "0") || 0;
     const borderWidth = parseFloat(computedStyles["border-width"] || "0") || 0;
     const borderRadius = parseBorderRadius(
       computedStyles["border-radius"] || "0"
@@ -893,21 +916,14 @@ export function buildElementTree(
       .map((f: string) => f.replace(/['"]/g, "").trim())
       .filter((f: string) => f.length > 0);
     const fontFamily = fontFamilyList[0] || "Inter";
-    // const fontSize = parseInt(computedStyles["font-size"] || "14") || 14;
     const fontSize = parseFloat(computedStyles["font-size"] || "14") || 14;
     const fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
-    const lineHeight = computedStyles["line-height"] || "normal";
+    let lineHeight: number | string = computedStyles["line-height"] || "normal";
     const letterSpacing =
       parseFloat(computedStyles["letter-spacing"] || "0") || 0;
     const textAlign = computedStyles["text-align"] || "left";
 
     // Layout
-    // const padding = {
-    //   top: parseInt(computedStyles["padding-top"]) || 0,
-    //   right: parseInt(computedStyles["padding-right"]) || 0,
-    //   bottom: parseInt(computedStyles["padding-bottom"]) || 0,
-    //   left: parseInt(computedStyles["padding-left"]) || 0,
-    // };
     const padding = {
       top: parseFloat(computedStyles["padding-top"] || "0") || 0,
       right: parseFloat(computedStyles["padding-right"] || "0") || 0,
@@ -916,7 +932,6 @@ export function buildElementTree(
     };
 
     const gapStr = computedStyles["gap"] || computedStyles["row-gap"] || "0";
-    // const itemSpacing = parseInt(gapStr) || 0;
     const itemSpacing = parseFloat(gapStr) || 0;
 
     const justifyContent = computedStyles["justify-content"] || undefined;
@@ -930,6 +945,27 @@ export function buildElementTree(
       alignSelf === "stretch" ? "STRETCH" : undefined;
 
     const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf, parentContext);
+
+    // Override FILL → HUG: if child is significantly smaller than parent content area,
+    // it's not actually stretching (explicit width or inline content sizing)
+    if (parentContext) {
+      const marginL = parseFloat(computedStyles["margin-left"]) || 0;
+      const marginR = parseFloat(computedStyles["margin-right"]) || 0;
+      const marginT = parseFloat(computedStyles["margin-top"]) || 0;
+      const marginB = parseFloat(computedStyles["margin-bottom"]) || 0;
+      const parentIsColumn = parentContext.direction === "VERTICAL";
+
+      if (parentIsColumn && layoutSizing.horizontal === "FILL" && parentContext.contentWidth !== undefined) {
+        if (parentContext.contentWidth - width - marginL - marginR > 2) {
+          layoutSizing.horizontal = "HUG";
+        }
+      }
+      if (!parentIsColumn && layoutSizing.vertical === "FILL" && parentContext.contentHeight !== undefined) {
+        if (parentContext.contentHeight - height - marginT - marginB > 2) {
+          layoutSizing.vertical = "HUG";
+        }
+      }
+    }
 
     const opacity = parseFloat(computedStyles.opacity || "1") || 1;
 
@@ -963,6 +999,31 @@ export function buildElementTree(
         horizontallyCentered = true;
       }
     }
+
+    // Fallback: detect centering from computed margins when matchedStyles unavailable
+    if (!horizontallyCentered && !matchedStyles) {
+      const compML = parseFloat(computedStyles["margin-left"]) || 0;
+      const compMR = parseFloat(computedStyles["margin-right"]) || 0;
+      if (compML > 0 && compMR > 0 && Math.abs(compML - compMR) < 2) {
+        horizontallyCentered = true;
+      }
+    }
+
+    // Extract margin pixel values
+    const marginTopVal = parseFloat(computedStyles["margin-top"]) || 0;
+    const marginRightVal = parseFloat(computedStyles["margin-right"]) || 0;
+    const marginBottomVal = parseFloat(computedStyles["margin-bottom"]) || 0;
+    const marginLeftVal = parseFloat(computedStyles["margin-left"]) || 0;
+
+    // Centered elements (margin: 0 auto): left/right margins are centering artifacts,
+    // not spacing. Exclude them so margin wrappers aren't created for centering.
+    const effectiveMarginRight = horizontallyCentered ? 0 : marginRightVal;
+    const effectiveMarginLeft = horizontallyCentered ? 0 : marginLeftVal;
+
+    const margin =
+      marginTopVal > 0 || effectiveMarginRight > 0 || marginBottomVal > 0 || effectiveMarginLeft > 0
+        ? { top: marginTopVal, right: effectiveMarginRight, bottom: marginBottomVal, left: effectiveMarginLeft }
+        : undefined;
 
     // Hover styles
     let hoverStyles: Record<string, string> | null = null;
@@ -1066,10 +1127,8 @@ export function buildElementTree(
       name: getSemanticName(tag, node.attributes),
       x: x - parentX,
       y: y - parentY,
-      // width: Math.ceil(width),
-      // height: Math.ceil(height),
-      width: width,
-      height: height,
+      width,
+      height,
       position,
       zIndex,
       layoutMode: getLayoutMode(computedStyles, tag),
@@ -1105,6 +1164,7 @@ export function buildElementTree(
       opacity,
       isPlaceholder: isMedia,
       horizontallyCentered: horizontallyCentered || undefined,
+      margin,
       children: [],
       hoverStyles: hoverStyles || undefined,
       computedStyles: filterDefaultStyles(computedStyles),
@@ -1113,6 +1173,13 @@ export function buildElementTree(
 
     // Process children
     const childIndices = childrenMap.get(node.index) || [];
+    const parentBorderL = parseFloat(computedStyles["border-left-width"]) || 0;
+    const parentBorderR = parseFloat(computedStyles["border-right-width"]) || 0;
+    const parentBorderT = parseFloat(computedStyles["border-top-width"]) || 0;
+    const parentBorderB = parseFloat(computedStyles["border-bottom-width"]) || 0;
+    const parentContentWidth = width - padding.left - padding.right - parentBorderL - parentBorderR;
+    const parentContentHeight = height - padding.top - padding.bottom - parentBorderT - parentBorderB;
+
     for (const childIdx of childIndices) {
       const childNode = nodes[childIdx];
       if (childNode) {
@@ -1124,6 +1191,8 @@ export function buildElementTree(
         const childElement = buildNode(childNode, x, y, depth + 1, {
           direction: (element.layoutMode && element.layoutMode !== "NONE") ? element.layoutMode : "VERTICAL",
           alignItems,
+          contentWidth: parentContentWidth,
+          contentHeight: parentContentHeight,
         });
         if (childElement && childElement.width > 3 && childElement.height > 3) {
           // Clip child width if extends beyond viewport
@@ -1132,6 +1201,63 @@ export function buildElementTree(
           }
           element.children.push(childElement);
         }
+      }
+    }
+
+    // CSS margin collapsing: in vertical (block) layout, adjacent siblings'
+    // margin-bottom and margin-top collapse to max(). Without this, margin
+    // wrappers would double-count because Figma padding doesn't collapse.
+    if (element.layoutMode !== "HORIZONTAL" && element.children.length >= 2) {
+      for (let i = 1; i < element.children.length; i++) {
+        const prev = element.children[i - 1];
+        const curr = element.children[i];
+        const prevBottom = prev.margin?.bottom ?? 0;
+        const currTop = curr.margin?.top ?? 0;
+
+        if (prevBottom > 0 && currTop > 0) {
+          const collapsed = Math.max(prevBottom, currTop);
+          if (prev.margin) prev.margin.bottom = collapsed;
+          if (curr.margin) curr.margin.top = 0;
+        }
+      }
+    }
+
+    // Calculate itemSpacing from child positions when CSS gap is 0
+    if (element.itemSpacing === 0 && element.children.length >= 2) {
+      const isVertical = element.layoutMode !== "HORIZONTAL";
+      const gaps: number[] = [];
+
+      for (let i = 1; i < element.children.length; i++) {
+        const prev = element.children[i - 1];
+        const curr = element.children[i];
+
+        // Raw position gap includes margins from both adjacent children
+        let gap = isVertical
+          ? curr.y - (prev.y + prev.height)
+          : curr.x - (prev.x + prev.width);
+
+        // Subtract adjacent margins to get the "true" gap (spacing only).
+        // Browser positions already account for margins, so the gap includes:
+        //   prev's trailing margin + curr's leading margin.
+        // Since margin wrappers will re-add these, we must subtract them here.
+        if (prev.margin || curr.margin) {
+          const prevTrailing = isVertical
+            ? (prev.margin?.bottom ?? 0)
+            : (prev.margin?.right ?? 0);
+          const currLeading = isVertical
+            ? (curr.margin?.top ?? 0)
+            : (curr.margin?.left ?? 0);
+          gap -= (prevTrailing + currLeading);
+        }
+
+        if (gap > 0.5) gaps.push(gap);
+      }
+
+      if (gaps.length > 0) {
+        // Use median gap for robustness (ignores outliers)
+        gaps.sort((a, b) => a - b);
+        const median = gaps[Math.floor(gaps.length / 2)];
+        element.itemSpacing = Math.round(median);
       }
     }
 
@@ -1164,6 +1290,18 @@ export function buildElementTree(
     // Set browserLineCount for text elements
     if (elementType === "text" && browserLineCount > 0) {
       element.browserLineCount = browserLineCount;
+    }
+
+    // Resolve "normal" line-height to pixel value from browser text rendering
+    if (lineHeight === "normal") {
+      const tbHeight = textBounds ? textBounds.height : null;
+      lineHeight = resolveNormalLineHeight(
+        lineHeight,
+        fontSize,
+        tbHeight,
+        browserLineCount
+      );
+      element.lineHeight = lineHeight;
     }
 
     // Add synthetic text child for list items

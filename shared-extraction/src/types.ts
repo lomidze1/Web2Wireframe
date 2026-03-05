@@ -353,6 +353,9 @@ export interface ExtractedElement {
   overflow?: "visible" | "hidden" | "scroll" | "auto";
   horizontallyCentered?: boolean;
 
+  // Margins (CSS margin values for spacing in auto layout)
+  margin?: { top: number; right: number; bottom: number; left: number };
+
   // Matched CSS (for advanced processing)
   matchedRules?: CDPCSSRule[];
   hoverStyles?: Record<string, string>;

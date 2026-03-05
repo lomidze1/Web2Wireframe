@@ -155,9 +155,10 @@ export function needsMarginWrapper(
 }
 
 /**
- * Create a wrapper frame that converts CSS margin to Figma padding
- * The wrapper has padding equal to the element's margin
- * The child element is placed inside with its original styles
+ * Create a wrapper frame that converts CSS margin to Figma padding.
+ * The wrapper uses auto layout with HUG sizing — the parent determines
+ * whether to FILL/STRETCH via applyChildInAutoLayout.
+ * The inner child FILLs the wrapper so it expands within the padded area.
  */
 export function createMarginWrapper(
   child: WireframeNode,
@@ -167,37 +168,66 @@ export function createMarginWrapper(
   const margin = child.margin!;
   const wrapper = figma.createFrame();
 
-  // Name the wrapper to indicate it's a margin wrapper
   wrapper.name = `${child.name}:margin`;
-
-  // Make wrapper transparent (no fill)
   wrapper.fills = [];
 
-  // Size: child size + margins
-  const wrapperWidth = child.width + margin.left + margin.right;
-  const wrapperHeight = child.height + margin.top + margin.bottom;
-  wrapper.resize(Math.max(wrapperWidth, 1), Math.max(wrapperHeight, 1));
+  // Auto layout — HUG both axes (parent overrides to FILL if needed)
+  wrapper.layoutMode = "VERTICAL";
+  wrapper.layoutSizingHorizontal = "HUG";
+  wrapper.layoutSizingVertical = "HUG";
 
-  // Apply Auto Layout to position child correctly
-  wrapper.layoutMode = parentLayoutMode === "HORIZONTAL" ? "HORIZONTAL" : "VERTICAL";
-
-  // Set padding = margin values
+  // Margin → padding conversion
   wrapper.paddingTop = margin.top;
   wrapper.paddingRight = margin.right;
   wrapper.paddingBottom = margin.bottom;
   wrapper.paddingLeft = margin.left;
 
-  // Center the child in wrapper
   wrapper.primaryAxisAlignItems = "MIN";
   wrapper.counterAxisAlignItems = "MIN";
-
-  // No extra spacing
   wrapper.itemSpacing = 0;
 
-  // Add child to wrapper
+  // Add child — make it FILL the wrapper
   wrapper.appendChild(childNode);
 
+  if (
+    childNode.type === "FRAME" ||
+    childNode.type === "COMPONENT" ||
+    childNode.type === "INSTANCE"
+  ) {
+    const fc = childNode as FrameNode;
+    fc.layoutSizingHorizontal = "FILL";
+    fc.layoutSizingVertical = "FILL";
+  } else if (childNode.type === "TEXT") {
+    const tc = childNode as TextNode;
+    tc.layoutSizingHorizontal = "FILL";
+    tc.textAutoResize = "HEIGHT";
+  }
+
   return wrapper;
+}
+
+// ============================================================================
+// Main Axis Sizing Resolution (FILL-in-HUG guard)
+// ============================================================================
+
+/**
+ * Resolve main-axis sizing for a child in auto layout.
+ * FILL inside a HUG parent is impossible in Figma — downgrade to HUG + minSize.
+ */
+export function resolveMainAxisSizing(
+  childSizing: "FILL" | "HUG" | "FIXED" | undefined,
+  childGrow: 0 | 1 | undefined,
+  parentSizing: "FILL" | "HUG" | "FIXED",
+  childSize: number
+): { sizing: "FILL" | "HUG" | "FIXED"; minSize?: number } {
+  const wantsFill = childSizing === "FILL" || childGrow === 1;
+  if (!wantsFill) return { sizing: childSizing || "HUG" };
+
+  // FILL on main axis inside HUG parent → HUG + minSize
+  if (parentSizing === "HUG") {
+    return { sizing: "HUG", minSize: childSize };
+  }
+  return { sizing: "FILL" };
 }
 
 // ============================================================================
