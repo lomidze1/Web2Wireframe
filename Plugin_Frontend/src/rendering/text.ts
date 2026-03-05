@@ -616,7 +616,11 @@ export async function createTextNode(
   };
 
   // Special cases: always HUG
-  if (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow || isInlineElement) {
+  // BUT NOT for block-level elements — they need browser width for correct text-align
+  // Block elements (h1-h6, p, div, li) take container width, not content width.
+  // HUG would shrink them to text content width, breaking center/right alignment.
+  const isBlock = isBlockLevelElement(node);
+  if (!isBlock && (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow || isInlineElement)) {
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
     applyDeferredTextStyles();
     return textNode;
