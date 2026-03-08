@@ -11,7 +11,7 @@ import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
 import { transformFramesData } from "../../../shared/transformData";
-import { prepareFramesForAbsoluteMode } from "../../../shared/absoluteModeRenderer";
+import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer";
 import { useImportOptionsShortcut } from "../../../hooks/useImportOptionsShortcut";
 
 // ============================================================================
@@ -322,7 +322,7 @@ export default function AreaSelection() {
 
     // Convert all frames to wireframe format using shared function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const framesData = prepareFramesForAbsoluteMode(
+    const framesData = prepareFramesForRendering(
       transformedFrames as any,
       {
         text: config.pluginColors.text,

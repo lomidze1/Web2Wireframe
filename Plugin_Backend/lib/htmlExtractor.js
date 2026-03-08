@@ -83,10 +83,13 @@ async function renderWebsite(url, viewportWidth = 1440, options = {}) {
 
     const page = await browser.newPage();
 
-    // Set exact viewport - critical for accurate bounds!
+    // Set viewport — use fixed capture height (matching Browser Extension approach).
+    // This ensures vh units and viewport-relative CSS are captured consistently.
+    // DOMSnapshot.captureSnapshot captures the entire page regardless of viewport height.
+    const captureHeight = 900;
     await page.setViewport({
       width: viewportWidth,
-      height: 1080,
+      height: captureHeight,
       deviceScaleFactor: 1,  // CSS pixel bounds; sub-pixel precision comes from computedStyles
     });
 
@@ -100,25 +103,45 @@ async function renderWebsite(url, viewportWidth = 1440, options = {}) {
     // Wait for any triggered content to load
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
+    // Scrollbar compensation (matching Browser Extension approach):
+    // Measure actual layout width and adjust viewport if scrollbar is present
+    const actualLayoutWidth = await page.evaluate(() =>
+      document.documentElement.clientWidth
+    );
+    const scrollbarWidth = viewportWidth - actualLayoutWidth;
+
+    if (scrollbarWidth > 0) {
+      await page.setViewport({
+        width: viewportWidth + scrollbarWidth,
+        height: captureHeight,
+        deviceScaleFactor: 1,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    // Hide scrollbar via CSS (matching Browser Extension approach)
+    await page.evaluate(() => {
+      const style = document.createElement("style");
+      style.id = "__w2w_hide_scrollbar";
+      style.textContent =
+        "html { scrollbar-width: none !important; } html::-webkit-scrollbar { display: none !important; }";
+      document.head.appendChild(style);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
     // Get dimensions after scroll (content may have expanded)
     const dimensions = await page.evaluate(() => ({
       width: document.documentElement.scrollWidth,
       height: document.documentElement.scrollHeight,
     }));
 
-    await page.setViewport({
-      width: viewportWidth,
-      height: Math.min(dimensions.height, 15000),
-      deviceScaleFactor: 1,  // CSS pixel bounds; sub-pixel precision comes from computedStyles
-    });
+    // NOTE: Do NOT resize viewport to full page height!
+    // Keep viewport at captureHeight to match Browser Extension behavior.
+    // DOMSnapshot captures the entire page content regardless of viewport height.
+    // Resizing would break vh units (100vh = page height instead of 900px).
 
-    // Extract tree using CDP
+    // Extract tree using CDP (only viewportWidth is used by the extraction)
     const { tree, cssVariables } = await extractDOMTreeWithCDP(page, {
-      textMode,
-      colorMode,
-      typographyMode,
-      pluginColors,
-      pluginFont,
       viewportWidth,
     });
 

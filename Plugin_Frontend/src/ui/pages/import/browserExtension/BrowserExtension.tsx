@@ -7,7 +7,7 @@ import ImportOptionsModal, {
 } from "../../../components/modalPopup/ImportOptionsModal";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import { transformFramesData } from "../../../shared/transformData";
-import { prepareFramesForAbsoluteMode, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
+import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import { useConfig } from "../../../shared/ConfigContext";
 import { useImportOptionsShortcut } from "../../../hooks/useImportOptionsShortcut";
 import RenderingLoader, {
@@ -241,7 +241,7 @@ export default function BrowserExtension() {
 
     // Convert frames to WireframeNode format using shared unified function
     // This ensures URL Import uses the same conversion logic as JSON Import
-    const framesData = prepareFramesForAbsoluteMode(
+    const framesData = prepareFramesForRendering(
       frames as { viewport: { width: number; height: number }; tree: ExtractedElement }[],
       {
         text: config.pluginColors.text,

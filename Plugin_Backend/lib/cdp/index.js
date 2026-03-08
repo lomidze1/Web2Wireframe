@@ -50,23 +50,6 @@ async function extractDOMTreeWithCDP(page, options = {}) {
     // 2. Parse snapshot into usable structures
     const { nodes, nodesByBackendId } = parseSnapshot(snapshot);
 
-    // === DEBUG: Log raw CDP snapshot bounds + computed styles (first 10 elements) ===
-    let debugCount = 0;
-    console.log(`[DEBUG-CDP] Total parsed nodes: ${nodes.length}`);
-    for (const node of nodes) {
-      if (node.bounds && node.nodeType === 1 && debugCount < 10) {
-        const csW = node.computedStyles?.["width"] || "N/A";
-        const csH = node.computedStyles?.["height"] || "N/A";
-        const csPL = node.computedStyles?.["padding-left"] || "0";
-        const csPR = node.computedStyles?.["padding-right"] || "0";
-        const csBL = node.computedStyles?.["border-left-width"] || "0";
-        const csBR = node.computedStyles?.["border-right-width"] || "0";
-        console.log(`[DEBUG-CDP] ${node.nodeName} | bounds: w=${node.bounds.width} h=${node.bounds.height} (INT) | computedStyles: width="${csW}" height="${csH}" pL="${csPL}" pR="${csPR}" bL="${csBL}" bR="${csBR}"`);
-        debugCount++;
-      }
-    }
-    // === END DEBUG ===
-
     // 3. Find nodes that need getMatchedStylesForNode (gradients, variables)
     const nodesNeedingStyles = findNodesNeedingMatchedStyles(nodes);
 
@@ -105,20 +88,6 @@ async function extractDOMTreeWithCDP(page, options = {}) {
       bodyOriginalCSS,
       browserDpr: 1, // Puppeteer at deviceScaleFactor:1; sub-pixel from computedStyles
     });
-
-    // === DEBUG: Log buildElementTree output dimensions ===
-    const logTreeDimensions = (el, prefix = "", maxDepth = 3) => {
-      if (!el || maxDepth <= 0) return;
-      console.log(`[DEBUG-TREE] ${prefix}${el.name || el.tag}: w=${el.width} h=${el.height} (hasDecimal: w=${el.width % 1 !== 0}, h=${el.height % 1 !== 0})`);
-      if (el.children) {
-        for (const child of el.children.slice(0, 5)) {
-          logTreeDimensions(child, prefix + "  ", maxDepth - 1);
-        }
-      }
-    };
-    console.log(`[DEBUG-TREE] === buildElementTree output (browserDpr=1) ===`);
-    logTreeDimensions(tree);
-    // === END DEBUG ===
 
     return { tree, cssVariables };
   } finally {

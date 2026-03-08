@@ -364,7 +364,9 @@ export function convertToWireframeNode(
 
 /** Input frame format (from transformed data) */
 interface TransformedFrame {
-  viewport: { width: number; height: number };
+  viewport?: { width: number; height: number };
+  viewportWidth?: number;
+  viewportHeight?: number;
   tree: ExtractedElement;
 }
 
@@ -373,7 +375,7 @@ interface TransformedFrame {
 // ============================================================================
 
 /**
- * Prepare frames for Absolute Mode rendering in Figma
+ * Prepare frames for rendering in Figma (both Auto Layout and Absolute modes)
  *
  * This is the MAIN ENTRY POINT for all import methods.
  * Call this function after transformFramesData() to get Figma-ready data.
@@ -381,16 +383,16 @@ interface TransformedFrame {
  * @example
  * // URL Import
  * const transformedFrames = transformFramesData(wireframeData.frames, options);
- * const framesData = prepareFramesForAbsoluteMode(transformedFrames, pluginColors);
+ * const framesData = prepareFramesForRendering(transformedFrames, pluginColors);
  * postMessage({ type: "render-wireframe", data: { frames: framesData, ... } });
  *
  * @example
  * // JSON Import
  * const transformedFrames = transformFramesData(captureResult.frames, options);
- * const framesData = prepareFramesForAbsoluteMode(transformedFrames, pluginColors);
+ * const framesData = prepareFramesForRendering(transformedFrames, pluginColors);
  * postMessage({ type: "render-wireframe", data: { frames: framesData, ... } });
  */
-export function prepareFramesForAbsoluteMode(
+export function prepareFramesForRendering(
   transformedFrames: TransformedFrame[],
   pluginColors: { text: string; surface: string }
 ): WireframeFrame[] {
@@ -398,8 +400,8 @@ export function prepareFramesForAbsoluteMode(
     const wireframeTree = convertToWireframeNode(frame.tree, pluginColors);
 
     return {
-      viewportWidth: frame.viewport.width,
-      viewportHeight: frame.viewport.height,
+      viewportWidth: frame.viewport?.width ?? frame.viewportWidth ?? 1440,
+      viewportHeight: frame.viewport?.height ?? frame.viewportHeight ?? 900,
       tree: wireframeTree,
     };
   });

@@ -170,6 +170,7 @@ export function createMarginWrapper(
 
   wrapper.name = `${child.name}:margin`;
   wrapper.fills = [];
+  wrapper.clipsContent = false;
 
   // Auto layout — HUG both axes (parent overrides to FILL if needed)
   wrapper.layoutMode = "VERTICAL";

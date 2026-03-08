@@ -5,6 +5,7 @@ import styles from "./Web.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import { transformFramesData } from "../../../shared/transformData";
+import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import { validateUrl } from "../../../../utils/urlValidation";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
@@ -32,6 +33,7 @@ interface RenderData {
   cssVariables?: unknown[];
   colorMode: "plugin" | "website";
   fontMode: "plugin" | "website";
+  textMode: "website" | "lorem" | "semantic";
   layoutMode: "autoLayout" | "absolute";
 }
 
@@ -122,6 +124,7 @@ export default function Web() {
             variableMode, // "styles" or "direct"
             colorMode: data.colorMode,
             fontMode: data.fontMode,
+            textMode: data.textMode,
             layoutMode: data.layoutMode, // "autoLayout" or "absolute"
           },
         },
@@ -205,7 +208,7 @@ export default function Web() {
 
       // Transform text content based on selected text mode (semantic, lorem, etc.)
       const rawFrames = data.wireframeData?.frames || [];
-      const frames = transformFramesData(
+      const transformedFrames = transformFramesData(
         rawFrames as Parameters<typeof transformFramesData>[0],
         {
           colorMode: settings.localColorMode,
@@ -214,15 +217,26 @@ export default function Web() {
         }
       );
 
+      // Convert ExtractedElement → WireframeNode (same path as JSON/CDP import)
+      const pluginColors = data.pluginColors || config.pluginColors;
+      const frames = prepareFramesForRendering(
+        transformedFrames as unknown as { viewport: { width: number; height: number }; tree: ExtractedElement }[],
+        {
+          text: pluginColors.text,
+          surface: pluginColors.surface,
+        }
+      );
+
       // Prepare render data
       const renderData: RenderData = {
         frames,
         sourceUrl: normalizedUrl,
         localStyles: data.localStyles,
-        pluginColors: data.pluginColors || config.pluginColors,
+        pluginColors,
         cssVariables: data.cssVariables || [],
         colorMode: settings.localColorMode,
         fontMode: settings.localFontMode,
+        textMode: settings.localTextMode,
         layoutMode: settings.localLayoutMode,
       };
 
