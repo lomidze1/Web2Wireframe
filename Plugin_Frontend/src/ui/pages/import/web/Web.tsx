@@ -49,9 +49,10 @@ export default function Web() {
   // Font fallback modal state
   const [showFontModal, setShowFontModal] = useState(false);
   const [fontModalData, setFontModalData] = useState<{
-    missingFont: string;
-    nextFallback: string;
-    pluginDefault: string;
+    missingFonts: string[];
+    defaultMapping: Record<string, string>;
+    pluginFont: string;
+    pluginFontOptions: string[];
   } | null>(null);
 
   // Use shared hook for all settings logic
@@ -79,7 +80,7 @@ export default function Web() {
         }
       }
 
-      if (msg.type === "font-not-available") {
+      if (msg.type === "fonts-not-available") {
         setFontModalData(msg.data);
         setShowFontModal(true);
       }
@@ -134,14 +135,14 @@ export default function Web() {
     // Progress updates and completion are handled by the message listener
   };
 
-  const handleFontFallbackChoice = (_choice: string, chosenFont: string) => {
+  const handleFontFallbackChoice = (choice: string, fontMapping: Record<string, string>) => {
     setShowFontModal(false);
     setFontModalData(null);
     parent.postMessage(
       {
         pluginMessage: {
           type: "font-fallback-choice",
-          data: { chosenFont },
+          data: { choice, fontMapping },
         },
       },
       "*"
@@ -331,9 +332,10 @@ export default function Web() {
       {/* Font Fallback Modal */}
       <FontFallbackModal
         isOpen={showFontModal}
-        missingFont={fontModalData?.missingFont || ""}
-        nextFallback={fontModalData?.nextFallback || ""}
-        pluginDefault={fontModalData?.pluginDefault || "Montserrat"}
+        missingFonts={fontModalData?.missingFonts || []}
+        defaultMapping={fontModalData?.defaultMapping || {}}
+        pluginFont={fontModalData?.pluginFont || "Montserrat"}
+        pluginFontOptions={fontModalData?.pluginFontOptions || []}
         onChoice={handleFontFallbackChoice}
       />
 

@@ -7,6 +7,7 @@ import { useConfig } from "../../../shared/ConfigContext";
 import ImportOptionsModal, {
   type UnifiedImportOptions,
 } from "../../../components/modalPopup/ImportOptionsModal";
+import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -224,11 +225,21 @@ export default function AreaSelection() {
   const [hasCssVariables, setHasCssVariables] = useState(false);
   const [pendingCaptureResult, setPendingCaptureResult] =
     useState<UnifiedCaptureResult | null>(null);
+  // Font fallback modal state
+  const [showFontModal, setShowFontModal] = useState(false);
+  const [fontModalData, setFontModalData] = useState<{
+    missingFonts: string[];
+    defaultMapping: Record<string, string>;
+    pluginFont: string;
+    pluginFontOptions: string[];
+  } | null>(null);
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDataRef = useRef<File | null>(null);
+  const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const renderingProgressRef = useRef<RenderingProgress | undefined>();
   const { config } = useConfig();
   const { shortcutMessage, shortcutKey } = useImportOptionsShortcut();
 
@@ -241,12 +252,20 @@ export default function AreaSelection() {
       if (msg.type === "render-progress") {
         const { step, percent, isComplete } = msg.data;
         setRenderingProgress({ step, percent, isComplete });
+        renderingProgressRef.current = { step, percent, isComplete };
+
+        // Clear safety timeout — sandbox is responding
+        if (renderTimeoutRef.current) {
+          clearTimeout(renderTimeoutRef.current);
+          renderTimeoutRef.current = null;
+        }
 
         // When complete, show success state then close
         if (isComplete) {
           setTimeout(() => {
             setShowRenderingLoader(false);
             setRenderingProgress(undefined);
+            renderingProgressRef.current = undefined;
             setImportState({ status: "idle", message: "" });
             setFileName(null);
             fileDataRef.current = null;
@@ -263,9 +282,25 @@ export default function AreaSelection() {
         // Handled by render-progress with isComplete
       }
 
+      if (msg.type === "fonts-not-available") {
+        // Clear safety timeout — sandbox responded
+        if (renderTimeoutRef.current) {
+          clearTimeout(renderTimeoutRef.current);
+          renderTimeoutRef.current = null;
+        }
+        setFontModalData(msg.data);
+        setShowFontModal(true);
+      }
+
       if (msg.type === "wireframe-error") {
+        // Clear safety timeout
+        if (renderTimeoutRef.current) {
+          clearTimeout(renderTimeoutRef.current);
+          renderTimeoutRef.current = null;
+        }
         setShowRenderingLoader(false);
         setRenderingProgress(undefined);
+        renderingProgressRef.current = undefined;
         setImportState({
           status: "error",
           message: msg.data.error || "Failed to create wireframe",
@@ -311,6 +346,7 @@ export default function AreaSelection() {
 
     // Transform text content based on textMode (lorem, semantic, or website)
     // This must happen BEFORE converting to wireframe nodes
+    console.log("[W2W UI] Starting transformFramesData...");
     const transformedFrames = transformFramesData(
       captureResult.frames as unknown as Parameters<typeof transformFramesData>[0],
       {
@@ -319,6 +355,7 @@ export default function AreaSelection() {
         textMode: options.textMode,
       }
     );
+    console.log("[W2W UI] transformFramesData done. Starting prepareFramesForRendering...");
 
     // Convert all frames to wireframe format using shared function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -329,8 +366,12 @@ export default function AreaSelection() {
         surface: config.pluginColors.surface,
       }
     );
+    console.log("[W2W UI] prepareFramesForRendering done.");
 
     // Send to Figma main thread with all options
+    console.log("[W2W UI] Sending render-wireframe, frames:", framesData.length,
+      "data size ~", JSON.stringify(framesData).length, "chars");
+    renderingProgressRef.current = { step: "Preparing wireframe data...", percent: 0 };
     parent.postMessage(
       {
         pluginMessage: {
@@ -352,7 +393,20 @@ export default function AreaSelection() {
       },
       "*"
     );
-    // Progress updates and completion are handled by the message listener
+
+    // Safety timeout: if sandbox doesn't respond within 60s, assume failure
+    // (e.g., postMessage data too large, sandbox crash without error message)
+    renderTimeoutRef.current = setTimeout(() => {
+      if (renderingProgressRef.current?.percent === 0) {
+        setShowRenderingLoader(false);
+        setRenderingProgress(undefined);
+        renderingProgressRef.current = undefined;
+        setImportState({
+          status: "error",
+          message: "Import timed out — the file may be too large. Try a simpler page.",
+        });
+      }
+    }, 60000);
   };
 
   /**
@@ -361,8 +415,36 @@ export default function AreaSelection() {
   const handleImportOptionsConfirm = (options: UnifiedImportOptions) => {
     setShowImportOptionsModal(false);
     if (pendingCaptureResult) {
-      processAndRender(pendingCaptureResult, options);
+      try {
+        processAndRender(pendingCaptureResult, options);
+      } catch (error) {
+        console.error("Import error:", error);
+        setShowRenderingLoader(false);
+        setRenderingProgress(undefined);
+        setImportState({
+          status: "error",
+          message:
+            error instanceof Error ? error.message : "Failed to import file",
+        });
+      }
     }
+  };
+
+  /**
+   * Handle font fallback choice from modal
+   */
+  const handleFontFallbackChoice = (choice: string, fontMapping: Record<string, string>) => {
+    setShowFontModal(false);
+    setFontModalData(null);
+    parent.postMessage(
+      {
+        pluginMessage: {
+          type: "font-fallback-choice",
+          data: { choice, fontMapping },
+        },
+      },
+      "*"
+    );
   };
 
   /**
@@ -437,6 +519,8 @@ export default function AreaSelection() {
       }
     } catch (error) {
       console.error("Import error:", error);
+      setShowRenderingLoader(false);
+      setRenderingProgress(undefined);
       setImportState({
         status: "error",
         message:
@@ -543,6 +627,16 @@ export default function AreaSelection() {
         onCancel={handleImportOptionsCancel}
         sourceUrl={pendingCaptureResult?.url}
         hasCssVariables={hasCssVariables}
+      />
+
+      {/* Font Fallback Modal */}
+      <FontFallbackModal
+        isOpen={showFontModal}
+        missingFonts={fontModalData?.missingFonts || []}
+        defaultMapping={fontModalData?.defaultMapping || {}}
+        pluginFont={fontModalData?.pluginFont || "Montserrat"}
+        pluginFontOptions={fontModalData?.pluginFontOptions || []}
+        onChoice={handleFontFallbackChoice}
       />
 
       {/* Rendering Loader Overlay */}

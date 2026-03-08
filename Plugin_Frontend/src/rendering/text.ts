@@ -220,11 +220,29 @@ export async function createTextNode(
     else fontsToLoad.add("Regular");
   }
 
-  // In plugin mode: always use the configured plugin font
-  // In website mode: prefer node's extracted fontFamily, then context fontFamily
-  const targetFont = context?.fontMode === "plugin"
-    ? fontFamily
-    : (node.fontFamily || fontFamily);
+  // Resolve font using fontMapping (multi-font) or legacy missingFont (single-font)
+  let targetFont: string;
+  if (context?.fontMode === "plugin") {
+    // Plugin mode: use fontMapping if available, otherwise single plugin font
+    const nodeFont = node.fontFamily || fontFamily;
+    if (context.fontMapping && context.fontMapping[nodeFont]) {
+      targetFont = context.fontMapping[nodeFont];
+    } else {
+      targetFont = fontFamily;
+    }
+  } else {
+    const nodeFont = node.fontFamily || fontFamily;
+    if (context?.fontMapping && context.fontMapping[nodeFont]) {
+      // Multi-font mapping: look up this specific font
+      targetFont = context.fontMapping[nodeFont];
+    } else if (context?.missingFont && nodeFont === context.missingFont) {
+      // Legacy single-font: popup choice replaces the missing font
+      targetFont = fontFamily;
+    } else {
+      // No mapping needed: use original font
+      targetFont = nodeFont;
+    }
+  }
   let usedFontFamily = targetFont;
   const fontStyles = Array.from(fontsToLoad);
   const fallbackList = (context?.fontMode === "website" && node.fontFamilyList) || [];
@@ -246,6 +264,16 @@ export async function createTextNode(
         loaded = true;
         break;
       } catch { /* try next fallback */ }
+    }
+    // Try popup choice font before falling back to Inter
+    if (!loaded && fontFamily !== targetFont) {
+      try {
+        for (const style of fontStyles) {
+          await figma.loadFontAsync({ family: fontFamily, style });
+        }
+        usedFontFamily = fontFamily;
+        loaded = true;
+      } catch { /* popup choice also failed */ }
     }
     // Final fallback: Inter
     if (!loaded) {
@@ -388,9 +416,24 @@ export async function createTextNode(
       if (segment.fontWeight >= 600) segStyle = "Bold";
       else if (segment.fontWeight >= 500) segStyle = "Medium";
 
-      const segFontFamily = context?.fontMode === "plugin"
-        ? usedFontFamily
-        : (segment.fontFamily || usedFontFamily);
+      let segFontFamily: string;
+      if (context?.fontMode === "plugin") {
+        const segFont = segment.fontFamily || usedFontFamily;
+        if (context.fontMapping && context.fontMapping[segFont]) {
+          segFontFamily = context.fontMapping[segFont];
+        } else {
+          segFontFamily = usedFontFamily;
+        }
+      } else {
+        const segFont = segment.fontFamily || usedFontFamily;
+        if (context?.fontMapping && context.fontMapping[segFont]) {
+          segFontFamily = context.fontMapping[segFont];
+        } else if (context?.missingFont && segFont === context.missingFont) {
+          segFontFamily = usedFontFamily;
+        } else {
+          segFontFamily = segFont;
+        }
+      }
 
       let resolvedSegFont = segFontFamily;
       if (segFontFamily !== usedFontFamily) {
@@ -410,7 +453,17 @@ export async function createTextNode(
               } catch { /* next */ }
             }
           }
-          if (!segLoaded) resolvedSegFont = usedFontFamily;
+          if (!segLoaded) {
+            // Try popup choice font before falling back to usedFontFamily
+            if (fontFamily !== segFontFamily && fontFamily !== usedFontFamily) {
+              try {
+                await figma.loadFontAsync({ family: fontFamily, style: segStyle });
+                resolvedSegFont = fontFamily;
+                segLoaded = true;
+              } catch { /* fall through */ }
+            }
+            if (!segLoaded) resolvedSegFont = usedFontFamily;
+          }
         }
       }
 

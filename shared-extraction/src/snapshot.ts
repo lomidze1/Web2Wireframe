@@ -126,21 +126,21 @@ export interface SnapshotDocument {
 export interface SnapshotNodeTree {
   parentIndex: number[];
   nodeType: number[];
-  shadowRootType?: { index: number; value: number }[];
+  shadowRootType?: { index: number[]; value: number[] };   // RareStringData
   nodeName: number[];
   nodeValue: number[];  // ArrayOfStrings format (index in strings array, -1 if no value)
   backendNodeId: number[];
   attributes: number[][];
-  textValue?: { index: number; value: number }[];
-  inputValue?: { index: number; value: number }[];
-  inputChecked?: { index: number; value: boolean }[];
-  optionSelected?: { index: number; value: boolean }[];
-  contentDocumentIndex?: { index: number; value: number }[];
-  pseudoType?: { index: number; value: number }[];
-  pseudoIdentifier?: { index: number; value: number }[];
+  textValue?: { index: number[]; value: number[] };       // RareStringData
+  inputValue?: { index: number[]; value: number[] };      // RareStringData
+  inputChecked?: { index: number[] };                      // RareBooleanData
+  optionSelected?: { index: number[] };                    // RareBooleanData
+  contentDocumentIndex?: { index: number[]; value: number[] }; // RareIntegerData
+  pseudoType?: { index: number[]; value: number[] };       // RareStringData
+  pseudoIdentifier?: { index: number[]; value: number[] }; // RareStringData
   isClickable?: number[]; // RareBooleanData - just array of indices where true
-  currentSourceURL?: { index: number; value: number }[];
-  originURL?: { index: number; value: number }[];
+  currentSourceURL?: { index: number[]; value: number[] }; // RareStringData
+  originURL?: { index: number[]; value: number[] };        // RareStringData
 }
 
 export interface SnapshotLayout {
@@ -341,9 +341,13 @@ export function parseSnapshot(snapshot: CaptureSnapshotResult): {
       (nodeName.toLowerCase() === "input" ||
         nodeName.toLowerCase() === "textarea")
     ) {
-      const inputEntry = nodeTree.inputValue.find((entry) => entry.index === i);
-      if (inputEntry && inputEntry.value >= 0) {
-        textContent = strings[inputEntry.value] || "";
+      // inputValue is RareStringData: { index: number[], value: number[] } (parallel arrays)
+      const valueIdx = nodeTree.inputValue.index.indexOf(i);
+      if (valueIdx >= 0) {
+        const stringIndex = nodeTree.inputValue.value[valueIdx];
+        if (stringIndex >= 0) {
+          textContent = strings[stringIndex] || "";
+        }
       }
     }
 

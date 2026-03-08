@@ -188,4 +188,156 @@ async function createWireframeData(url, viewports, options = {}) {
   return { frames, cssVariables: collectedCSSVariables };
 }
 
-module.exports = { renderWebsite, extractDOMTree, createWireframeData };
+/**
+ * Assemble a full HTML document from user-provided HTML + CSS fragments.
+ * If the HTML already contains <!DOCTYPE or <html, inject CSS into <head>.
+ * Otherwise wrap the fragment in a minimal document shell.
+ */
+function buildFullPage(htmlCode, cssCode) {
+  const hasFullDoc = /<!DOCTYPE|<html/i.test(htmlCode);
+  if (hasFullDoc) {
+    if (cssCode) {
+      const styleTag = `<style>${cssCode}</style>`;
+      if (/<head[^>]*>/i.test(htmlCode)) {
+        return htmlCode.replace(/<head[^>]*>/i, `$&${styleTag}`);
+      }
+      // No <head> — insert before <body> or at start of <html>
+      if (/<body[^>]*>/i.test(htmlCode)) {
+        return htmlCode.replace(/<body[^>]*>/i, `<head>${styleTag}</head>$&`);
+      }
+    }
+    return htmlCode;
+  }
+  // Wrap fragment
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${cssCode ? `<style>${cssCode}</style>` : ""}</head><body>${htmlCode}</body></html>`;
+}
+
+/**
+ * Renders raw HTML content and extracts wireframe data using Puppeteer + CDP.
+ * Similar to renderWebsite() but uses page.setContent() instead of page.goto(),
+ * blocks external requests (SSRF protection), and skips auto-scroll.
+ */
+async function renderHTMLContent(htmlString, viewportWidth = 1440, options = {}) {
+  let browser;
+  try {
+    // Find Chrome
+    const possiblePaths = [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/usr/bin/google-chrome",
+      "/usr/bin/chromium-browser",
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    ];
+
+    let executablePath;
+    for (const path of possiblePaths) {
+      try {
+        require("fs").accessSync(path);
+        executablePath = path;
+        break;
+      } catch {
+        // Path doesn't exist
+      }
+    }
+
+    browser = await puppeteer.launch({
+      headless: "new",
+      executablePath,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    });
+
+    const page = await browser.newPage();
+
+    // SSRF protection: block all external network requests
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      const reqUrl = req.url();
+      if (reqUrl.startsWith("data:") || reqUrl === "about:blank") {
+        req.continue();
+      } else {
+        req.abort();
+      }
+    });
+
+    // Set viewport
+    const captureHeight = 900;
+    await page.setViewport({
+      width: viewportWidth,
+      height: captureHeight,
+      deviceScaleFactor: 1,
+    });
+
+    // Set content (instead of goto)
+    await page.setContent(htmlString, { waitUntil: "networkidle0", timeout: 30000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // No auto-scroll needed — user HTML is not lazy-loaded
+
+    // Scrollbar compensation
+    const actualLayoutWidth = await page.evaluate(() =>
+      document.documentElement.clientWidth
+    );
+    const scrollbarWidth = viewportWidth - actualLayoutWidth;
+
+    if (scrollbarWidth > 0) {
+      await page.setViewport({
+        width: viewportWidth + scrollbarWidth,
+        height: captureHeight,
+        deviceScaleFactor: 1,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    // Hide scrollbar via CSS
+    await page.evaluate(() => {
+      const style = document.createElement("style");
+      style.id = "__w2w_hide_scrollbar";
+      style.textContent =
+        "html { scrollbar-width: none !important; } html::-webkit-scrollbar { display: none !important; }";
+      document.head.appendChild(style);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Get dimensions
+    const dimensions = await page.evaluate(() => ({
+      width: document.documentElement.scrollWidth,
+      height: document.documentElement.scrollHeight,
+    }));
+
+    // Extract tree using CDP
+    const { tree, cssVariables } = await extractDOMTreeWithCDP(page, {
+      viewportWidth,
+    });
+
+    await browser.close();
+
+    return { tree, cssVariables, pageHeight: dimensions.height, pageWidth: viewportWidth };
+  } catch (error) {
+    if (browser) await browser.close();
+    console.error("HTML render error:", error);
+    throw new Error(`Failed to render HTML content: ${error.message}`);
+  }
+}
+
+/**
+ * Create wireframe data from raw HTML for multiple viewports
+ */
+async function createWireframeDataFromHTML(htmlString, viewports, options = {}) {
+  const frames = [];
+  let collectedCSSVariables = [];
+
+  for (const viewport of viewports) {
+    try {
+      const { tree, cssVariables, pageHeight, pageWidth } = await renderHTMLContent(htmlString, viewport, options);
+      frames.push({ viewportWidth: pageWidth, viewportHeight: pageHeight, tree });
+      if (cssVariables && cssVariables.length > 0 && collectedCSSVariables.length === 0) {
+        collectedCSSVariables = cssVariables;
+      }
+    } catch (error) {
+      console.error(`Error processing HTML viewport ${viewport}:`, error);
+    }
+  }
+
+  return { frames, cssVariables: collectedCSSVariables };
+}
+
+module.exports = { renderWebsite, extractDOMTree, createWireframeData, buildFullPage, renderHTMLContent, createWireframeDataFromHTML };

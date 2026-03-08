@@ -25,6 +25,7 @@ import type {
   WireframeNode,
   RenderWireframeData,
   RenderContext,
+  FontMapping,
 } from "./types";
 import {
   normalizeColorForLookup,
@@ -33,6 +34,12 @@ import {
   createTextStyles,
   createWireframeFrame,
 } from "./rendering";
+import {
+  collectAllFonts,
+  checkFontsAvailability,
+  buildFontsNotAvailableMessage,
+  buildPluginModeFontMapping,
+} from "./utils/fontUtils";
 
 // ============================================================================
 // Main Plugin Function
@@ -42,22 +49,35 @@ export default function () {
   showUI({ width: 410, height: 610 });
 
   // Pending render state for font fallback popup flow
-  let pendingRenderData: { data: RenderWireframeData; executeRender: (font: string) => Promise<void> } | null = null;
+  let pendingRenderData: {
+    data: RenderWireframeData;
+    executeRender: (font: string, fontMapping?: FontMapping) => Promise<void>;
+    missingFonts: string[];
+  } | null = null;
 
   // Listen for messages from UI
   figma.ui.onmessage = async (msg) => {
     // Handle font fallback choice from popup
     if (msg.type === "font-fallback-choice") {
+      console.log("[W2W Font Debug] font-fallback-choice received:", JSON.stringify(msg.data));
       if (pendingRenderData) {
         const { executeRender } = pendingRenderData;
+        const fontMapping: FontMapping = msg.data.fontMapping || {};
+        console.log("[W2W Font Debug] fontMapping:", JSON.stringify(fontMapping));
         pendingRenderData = null;
-        await executeRender(msg.data.chosenFont);
+        // Use first mapped font as primary, pass full mapping
+        const primaryFont = Object.values(fontMapping)[0] || "Inter";
+        await executeRender(primaryFont, fontMapping);
+      } else {
+        console.log("[W2W Font Debug] WARNING: no pendingRenderData!");
       }
       return;
     }
 
     // Handle render-wireframe message
     if (msg.type === "render-wireframe") {
+      try {
+      console.log("[W2W Sandbox] Received render-wireframe, msg keys:", Object.keys(msg.data || {}));
       const data = msg.data as RenderWireframeData;
       const {
         frames,
@@ -87,10 +107,22 @@ export default function () {
 
       // Determine font family based on fontMode
       const websiteFont = frames[0]?.tree?.fontFamily || "Inter";
+      const websiteFontList = frames[0]?.tree?.fontFamilyList || [];
       const initialFontFamily =
         effectiveFontMode === "plugin"
           ? pluginFont || "Montserrat"
           : websiteFont;
+
+      console.log("[W2W Font Debug] === INITIAL FONT SETUP ===", {
+        websiteFont,
+        websiteFontList,
+        initialFontFamily,
+        effectiveFontMode,
+        pluginFont,
+        treeHasFontFamily: !!frames[0]?.tree?.fontFamily,
+        treeHasFontFamilyList: !!frames[0]?.tree?.fontFamilyList,
+      });
+      console.log("[W2W Sandbox] frames count:", frames?.length, "sourceUrl:", sourceUrl);
 
       if (!frames || frames.length === 0) {
         errorHandler.handle({
@@ -100,8 +132,12 @@ export default function () {
         return;
       }
 
+      console.log("[W2W Sandbox] About to call executeRender, fontFamily:", initialFontFamily);
+
       // Extract rendering into a function for font fallback flow
-      const executeRender = async (fontFamily: string) => {
+      const executeRender = async (fontFamily: string, fontMapping?: FontMapping) => {
+
+      console.log("[W2W Font Debug] executeRender called. fontFamily:", fontFamily, "fontMapping:", JSON.stringify(fontMapping));
 
       logger.info("Creating wireframe", {
         frameCount: frames.length,
@@ -205,6 +241,7 @@ export default function () {
         colorMode: effectiveColorMode,
         fontMode: effectiveFontMode,
         variableStyleMap,
+        fontMapping,
       };
 
       // Create text styles if "Create Figma Styles" is enabled
@@ -401,32 +438,57 @@ export default function () {
       }
       }; // end executeRender
 
-      // Pre-render font availability check (website font mode only)
-      if (effectiveFontMode === "website") {
-        let fontAvailable = true;
-        try {
-          await figma.loadFontAsync({ family: initialFontFamily, style: "Regular" });
-        } catch {
-          fontAvailable = false;
-        }
+      // Pre-render font availability check
+      const allFonts = collectAllFonts(frames);
+      console.log("[W2W Font Debug] All fonts found:", Array.from(allFonts));
 
-        if (!fontAvailable) {
-          const fallbackList = frames[0]?.tree?.fontFamilyList || [];
-          const nextFallback = fallbackList.find((f: string) => f !== initialFontFamily) || "Inter";
-          pendingRenderData = { data, executeRender };
-          figma.ui.postMessage({
-            type: "font-not-available",
-            data: {
-              missingFont: initialFontFamily,
-              nextFallback,
-              pluginDefault: pluginFont || "Montserrat",
-            },
+      if (effectiveFontMode === "website") {
+        const { missing } = await checkFontsAvailability(allFonts);
+
+        if (missing.length > 0) {
+          const pluginFontOptions = [
+            pluginFont || "Montserrat",
+            "Inter", "Roboto", "Open Sans", "Lato", "Poppins",
+            "Source Sans Pro", "Nunito", "Arial", "Helvetica",
+          ];
+          // Deduplicate
+          const uniqueOptions = Array.from(new Set(pluginFontOptions));
+
+          const message = buildFontsNotAvailableMessage(
+            missing,
+            pluginFont || "Montserrat",
+            uniqueOptions
+          );
+
+          console.log("[W2W Font Debug] === FONTS NOT AVAILABLE ===", {
+            missing,
+            pluginFont: pluginFont || "Montserrat",
           });
+
+          pendingRenderData = { data, executeRender, missingFonts: missing };
+          figma.ui.postMessage(message);
           return; // Wait for user choice via font-fallback-choice message
         }
+      } else {
+        // Plugin mode: map all fonts to pluginFont automatically
+        const pluginFontMapping = buildPluginModeFontMapping(allFonts, pluginFont || "Montserrat");
+        await executeRender(initialFontFamily, pluginFontMapping);
+        return;
       }
 
       await executeRender(initialFontFamily);
+      } catch (error) {
+        // Outer catch: handles errors outside executeRender's try/catch
+        // (e.g., data destructuring, font check, executeRender call itself)
+        console.error("[W2W Sandbox] Unhandled render error:", error);
+        figma.ui.postMessage({
+          type: "wireframe-error",
+          data: {
+            success: false,
+            error: error instanceof Error ? error.message : "Unknown rendering error",
+          },
+        });
+      }
     }
 
     // Handle open-wireframe message from Library

@@ -54,9 +54,10 @@ export default function BrowserExtension() {
   // Font fallback modal state
   const [showFontModal, setShowFontModal] = useState(false);
   const [fontModalData, setFontModalData] = useState<{
-    missingFont: string;
-    nextFallback: string;
-    pluginDefault: string;
+    missingFonts: string[];
+    defaultMapping: Record<string, string>;
+    pluginFont: string;
+    pluginFontOptions: string[];
   } | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -191,7 +192,7 @@ export default function BrowserExtension() {
         // Handled by render-progress with isComplete
       }
 
-      if (msg.type === "font-not-available") {
+      if (msg.type === "fonts-not-available") {
         setFontModalData(msg.data);
         setShowFontModal(true);
       }
@@ -210,14 +211,14 @@ export default function BrowserExtension() {
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
-  const handleFontFallbackChoice = (_choice: string, chosenFont: string) => {
+  const handleFontFallbackChoice = (choice: string, fontMapping: Record<string, string>) => {
     setShowFontModal(false);
     setFontModalData(null);
     parent.postMessage(
       {
         pluginMessage: {
           type: "font-fallback-choice",
-          data: { chosenFont },
+          data: { choice, fontMapping },
         },
       },
       "*"
@@ -417,9 +418,10 @@ export default function BrowserExtension() {
       {/* Font Fallback Modal */}
       <FontFallbackModal
         isOpen={showFontModal}
-        missingFont={fontModalData?.missingFont || ""}
-        nextFallback={fontModalData?.nextFallback || ""}
-        pluginDefault={fontModalData?.pluginDefault || "Montserrat"}
+        missingFonts={fontModalData?.missingFonts || []}
+        defaultMapping={fontModalData?.defaultMapping || {}}
+        pluginFont={fontModalData?.pluginFont || "Montserrat"}
+        pluginFontOptions={fontModalData?.pluginFontOptions || []}
         onChoice={handleFontFallbackChoice}
       />
 

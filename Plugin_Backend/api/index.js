@@ -4,7 +4,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const Wireframe = require("../models/Wireframe");
 const UserSettings = require("../models/UserSettings");
-const { createWireframeData } = require("../lib/htmlExtractor");
+const { createWireframeData, buildFullPage, createWireframeDataFromHTML } = require("../lib/htmlExtractor");
 const {
   DEFAULT_PLUGIN_COLORS,
   DEFAULT_PLUGIN_FONTS,
@@ -213,6 +213,125 @@ app.post("/api/import-url", async (req, res) => {
     } else if (error.message.includes("Navigation failed")) {
       errorCode = "NAVIGATION_ERROR";
       errorMessage = "Could not navigate to the website. It may be blocking automated access.";
+    }
+
+    res.status(500).json({
+      success: false,
+      error: errorMessage,
+      errorCode,
+      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+});
+
+/**
+ * POST /api/import-html - Import raw HTML+CSS and generate wireframe
+ *
+ * Request body:
+ * - htmlCode: string (required) - Raw HTML content
+ * - cssCode: string (optional) - CSS styles
+ * - viewports: number[] - Viewport widths
+ * - colorMode: "plugin-colors" | "website-colors"
+ * - typographyMode: "plugin-fonts" | "website-fonts"
+ * - textMode: "website" | "lorem" | "semantic"
+ * - pluginColors: object
+ * - pluginFont: string
+ */
+app.post("/api/import-html", async (req, res) => {
+  try {
+    const {
+      htmlCode,
+      cssCode = "",
+      viewports = [1440],
+      colorMode = "plugin-colors",
+      typographyMode = "plugin-fonts",
+      textMode = "website",
+      pluginColors = {},
+      pluginFont = "Montserrat",
+    } = req.body;
+
+    // Validation
+    if (!htmlCode || typeof htmlCode !== "string" || !htmlCode.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required field: htmlCode (non-empty string)",
+      });
+    }
+
+    // Validate colorMode
+    const validColorModes = ["plugin-colors", "website-colors"];
+    if (!validColorModes.includes(colorMode)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid colorMode. Must be one of: ${validColorModes.join(", ")}`,
+      });
+    }
+
+    // Validate typographyMode
+    const validTypographyModes = ["plugin-fonts", "website-fonts"];
+    if (!validTypographyModes.includes(typographyMode)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid typographyMode. Must be one of: ${validTypographyModes.join(", ")}`,
+      });
+    }
+
+    // Validate textMode
+    const validTextModes = ["website", "lorem", "semantic"];
+    if (!validTextModes.includes(textMode)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid textMode. Must be one of: ${validTextModes.join(", ")}`,
+      });
+    }
+
+    // Merge custom plugin colors with defaults
+    const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
+
+    // Build full HTML document from fragments
+    const fullHTML = buildFullPage(htmlCode, cssCode);
+
+    // Generate wireframe data
+    const { frames, cssVariables } = await createWireframeDataFromHTML(fullHTML, viewports, {
+      colorMode,
+      textMode,
+      typographyMode,
+      pluginColors: finalPluginColors,
+      pluginFont,
+    });
+
+    if (!frames || frames.length === 0) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to extract wireframe data from HTML",
+      });
+    }
+
+    // Create local styles structure
+    const localStyles = createLocalStylesStructure(finalPluginColors, {
+      primary: pluginFont,
+    });
+
+    // No MongoDB save — ephemeral HTML import
+
+    res.json({
+      success: true,
+      sourceUrl: "html-import",
+      frameCount: frames.length,
+      wireframeData: { frames },
+      localStyles,
+      pluginColors: finalPluginColors,
+      cssVariables: cssVariables || [],
+    });
+  } catch (error) {
+    console.error("[HTML Import] Error:", error);
+
+    let errorMessage = error.message;
+    let errorCode = "HTML_IMPORT_ERROR";
+
+    if (error.message.includes("timeout")) {
+      errorCode = "TIMEOUT";
+      errorMessage = "HTML rendering took too long. Please simplify your HTML and try again.";
     }
 
     res.status(500).json({

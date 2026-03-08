@@ -211,6 +211,9 @@ export interface RenderWireframeData {
   textMode?: "semantic" | "lorem" | "website";
 }
 
+/** Map from missing/website font name → replacement font name */
+export type FontMapping = Record<string, string>;
+
 // Context passed to render functions for style linking
 export interface RenderContext {
   pluginColors: RenderWireframeData["pluginColors"];
@@ -233,6 +236,10 @@ export interface RenderContext {
   parentWidth?: number;
   // Map from CSS variable name → PaintStyle (for variable-first linking)
   variableStyleMap?: Map<string, PaintStyle>;
+  // Font that was detected as missing (popup substitution trigger)
+  missingFont?: string;
+  // Multi-font mapping: each missing/website font → its replacement
+  fontMapping?: FontMapping;
 }
 
 /**
