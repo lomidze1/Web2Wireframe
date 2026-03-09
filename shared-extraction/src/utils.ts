@@ -317,16 +317,16 @@ export function getLayoutSizing(
 
   if (parentIsColumn) {
     // Parent is VERTICAL layout
-    // Main axis = vertical: flex-grow → FILL, else → HUG
-    vertical = flexGrow > 0 ? "FILL" : "HUG";
-    // Cross axis = horizontal: stretch → FILL, else → HUG
-    horizontal = effectiveAlignSelf === "stretch" ? "FILL" : "HUG";
+    // Main axis = vertical: flex-grow → FILL, else → FIXED
+    vertical = flexGrow > 0 ? "FILL" : "FIXED";
+    // Cross axis = horizontal: stretch → FILL, else → FIXED
+    horizontal = effectiveAlignSelf === "stretch" ? "FILL" : "FIXED";
   } else {
     // Parent is HORIZONTAL layout
-    // Main axis = horizontal: flex-grow → FILL, else → HUG
-    horizontal = flexGrow > 0 ? "FILL" : "HUG";
-    // Cross axis = vertical: stretch → FILL, else → HUG
-    vertical = effectiveAlignSelf === "stretch" ? "FILL" : "HUG";
+    // Main axis = horizontal: flex-grow → FILL, else → FIXED
+    horizontal = flexGrow > 0 ? "FILL" : "FIXED";
+    // Cross axis = vertical: stretch → FILL, else → FIXED
+    vertical = effectiveAlignSelf === "stretch" ? "FILL" : "FIXED";
   }
 
   return { horizontal, vertical };

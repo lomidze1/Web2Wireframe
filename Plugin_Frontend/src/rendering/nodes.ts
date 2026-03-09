@@ -205,21 +205,16 @@ export async function createNodeInFigma(
         ? node.layoutMode
         : "VERTICAL";
 
-    // Apply sizing mode (preserve browser dimensions with minWidth/minHeight)
-    // HUG = size to content with min constraint; FILL applied later by parent
-    if (node.layoutSizingHorizontal === "HUG" || !node.layoutSizingHorizontal) {
+    // Apply sizing mode (resize() already sets initial dimensions at line 196)
+    if (node.layoutSizingHorizontal === "HUG") {
       frame.layoutSizingHorizontal = "HUG";
-      frame.minWidth = node.width;
     } else {
       frame.layoutSizingHorizontal = "FIXED";
-      frame.minWidth = node.width;
     }
-    if (node.layoutSizingVertical === "HUG" || !node.layoutSizingVertical) {
+    if (node.layoutSizingVertical === "HUG") {
       frame.layoutSizingVertical = "HUG";
-      frame.minHeight = node.height;
     } else {
       frame.layoutSizingVertical = "FIXED";
-      frame.minHeight = node.height;
     }
 
     // Apply alignment from CSS
@@ -580,9 +575,6 @@ function applyChildInAutoLayout(
       ) {
         if (parentFrame.layoutSizingHorizontal === "HUG") {
           target.layoutSizingHorizontal = "HUG";
-          if ("minWidth" in target) {
-            (target as FrameNode).minWidth = child.width;
-          }
         } else {
           target.layoutSizingHorizontal = "FILL";
           if (child.horizontallyCentered && child.width < (context.parentWidth || Infinity)) {
@@ -595,7 +587,6 @@ function applyChildInAutoLayout(
         frameChild.layoutMode !== "NONE"
       ) {
         frameChild.layoutSizingHorizontal = "HUG";
-        frameChild.minWidth = child.width;
       }
       // Cross axis = vertical
       if (
@@ -609,7 +600,6 @@ function applyChildInAutoLayout(
         frameChild.layoutMode !== "NONE"
       ) {
         frameChild.layoutSizingVertical = "HUG";
-        frameChild.minHeight = child.height;
       }
     } else {
       // Main axis = vertical
@@ -619,9 +609,6 @@ function applyChildInAutoLayout(
       ) {
         if (parentFrame.layoutSizingVertical === "HUG") {
           target.layoutSizingVertical = "HUG";
-          if ("minHeight" in target) {
-            (target as FrameNode).minHeight = child.height;
-          }
         } else {
           target.layoutSizingVertical = "FILL";
         }
@@ -631,7 +618,6 @@ function applyChildInAutoLayout(
         frameChild.layoutMode !== "NONE"
       ) {
         frameChild.layoutSizingVertical = "HUG";
-        frameChild.minHeight = child.height;
       }
       // Cross axis = horizontal
       if (
@@ -648,7 +634,6 @@ function applyChildInAutoLayout(
         frameChild.layoutMode !== "NONE"
       ) {
         frameChild.layoutSizingHorizontal = "HUG";
-        frameChild.minWidth = child.width;
       }
     }
   } else if (childNode.type === "TEXT") {

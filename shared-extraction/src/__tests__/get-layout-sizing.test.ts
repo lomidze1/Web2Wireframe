@@ -1,8 +1,8 @@
 /**
  * getLayoutSizing Unit Tests
  *
- * Tests FILL/HUG/FIXED detection for auto layout children.
- * Reference: html.to.design behavior.
+ * Tests FILL/FIXED/HUG detection for auto layout children.
+ * Reference: html.to.design behavior — default is FIXED (computed size preserved).
  */
 
 import { describe, it, expect } from "vitest";
@@ -12,9 +12,9 @@ describe("getLayoutSizing", () => {
   // =========================================================================
   // Hero card scenario: block element in VERTICAL parent
   // div._heroCard_wflxa_12 inside div.container (vertical auto layout)
-  // Expected: FILL horizontal (stretches to parent width), HUG vertical (content height)
+  // Expected: FILL horizontal (stretches to parent width), FIXED vertical (computed height)
   // =========================================================================
-  it("block element in vertical parent with default stretch → FILL × HUG", () => {
+  it("block element in vertical parent with default stretch → FILL × FIXED", () => {
     const result = getLayoutSizing(
       { display: "block", width: "1180px", height: "185.094px" },
       0,
@@ -22,14 +22,14 @@ describe("getLayoutSizing", () => {
       { direction: "VERTICAL" }
     );
     expect(result.horizontal).toBe("FILL");
-    expect(result.vertical).toBe("HUG");
+    expect(result.vertical).toBe("FIXED");
   });
 
   // =========================================================================
   // Same but child is a flex container itself (display: flex column)
   // The element's OWN flex-direction should NOT affect its sizing in parent
   // =========================================================================
-  it("flex column container in vertical parent → FILL × HUG", () => {
+  it("flex column container in vertical parent → FILL × FIXED", () => {
     const result = getLayoutSizing(
       { display: "flex", "flex-direction": "column", width: "1180px", height: "185px" },
       0,
@@ -37,37 +37,37 @@ describe("getLayoutSizing", () => {
       { direction: "VERTICAL" }
     );
     expect(result.horizontal).toBe("FILL");
-    expect(result.vertical).toBe("HUG");
+    expect(result.vertical).toBe("FIXED");
   });
 
   // =========================================================================
   // Section label: element with align-self overriding stretch
   // Parent has align-items: flex-start (items-start in Figma)
-  // Section label should be HUG × HUG (natural content size)
+  // Section label should be FIXED × FIXED (computed content size)
   // =========================================================================
-  it("element with align-self: flex-start in vertical parent → HUG × HUG", () => {
+  it("element with align-self: flex-start in vertical parent → FIXED × FIXED", () => {
     const result = getLayoutSizing(
       { display: "flex", width: "82px", height: "42px" },
       0,
       "flex-start",
       { direction: "VERTICAL", alignItems: "flex-start" }
     );
-    expect(result.horizontal).toBe("HUG");
-    expect(result.vertical).toBe("HUG");
+    expect(result.horizontal).toBe("FIXED");
+    expect(result.vertical).toBe("FIXED");
   });
 
   // =========================================================================
   // Parent itself has align-items: flex-start → cross axis NOT stretch
   // =========================================================================
-  it("parent with align-items: flex-start → HUG on cross axis", () => {
+  it("parent with align-items: flex-start → FIXED on cross axis", () => {
     const result = getLayoutSizing(
       { display: "block", width: "200px", height: "50px" },
       0,
       "auto",
       { direction: "VERTICAL", alignItems: "flex-start" }
     );
-    expect(result.horizontal).toBe("HUG");
-    expect(result.vertical).toBe("HUG");
+    expect(result.horizontal).toBe("FIXED");
+    expect(result.vertical).toBe("FIXED");
   });
 
   // =========================================================================
@@ -101,15 +101,15 @@ describe("getLayoutSizing", () => {
   // =========================================================================
   // align-self: center overrides stretch on cross axis
   // =========================================================================
-  it("align-self: center in horizontal parent → HUG × HUG", () => {
+  it("align-self: center in horizontal parent → FIXED × FIXED", () => {
     const result = getLayoutSizing(
       { display: "block", width: "200px", height: "50px" },
       0,
       "center",
       { direction: "HORIZONTAL" }
     );
-    expect(result.horizontal).toBe("HUG");
-    expect(result.vertical).toBe("HUG");
+    expect(result.horizontal).toBe("FIXED");
+    expect(result.vertical).toBe("FIXED");
   });
 
   // =========================================================================
@@ -141,16 +141,16 @@ describe("getLayoutSizing", () => {
 
   // =========================================================================
   // HORIZONTAL parent default (no explicit alignItems → stretch)
-  // No flex-grow → HUG main axis, FILL cross axis
+  // No flex-grow → FIXED main axis, FILL cross axis
   // =========================================================================
-  it("element in horizontal parent default → HUG × FILL", () => {
+  it("element in horizontal parent default → FIXED × FILL", () => {
     const result = getLayoutSizing(
       { display: "block", width: "200px", height: "50px" },
       0,
       "auto",
       { direction: "HORIZONTAL" }
     );
-    expect(result.horizontal).toBe("HUG");
+    expect(result.horizontal).toBe("FIXED");
     expect(result.vertical).toBe("FILL");
   });
 
@@ -165,7 +165,7 @@ describe("getLayoutSizing", () => {
       { direction: "VERTICAL", alignItems: "flex-start" }
     );
     expect(result.horizontal).toBe("FILL");
-    expect(result.vertical).toBe("HUG");
+    expect(result.vertical).toBe("FIXED");
   });
 
   // =========================================================================
@@ -173,7 +173,7 @@ describe("getLayoutSizing", () => {
   // (extraction now defaults to "VERTICAL" instead of "NONE" for non-flex parents)
   // align-items: "normal" (CSS computed value for block) → normalized to "stretch"
   // =========================================================================
-  it("block parent with align-items: normal → FILL × HUG (fallback scenario)", () => {
+  it("block parent with align-items: normal → FILL × FIXED (fallback scenario)", () => {
     const result = getLayoutSizing(
       { display: "block", width: "1180px", height: "186px" },
       0,
@@ -181,21 +181,21 @@ describe("getLayoutSizing", () => {
       { direction: "VERTICAL", alignItems: "normal" }
     );
     expect(result.horizontal).toBe("FILL");
-    expect(result.vertical).toBe("HUG");
+    expect(result.vertical).toBe("FIXED");
   });
 
   // =========================================================================
   // Block parent with align-items: center (rare but possible)
   // Cross axis should NOT stretch
   // =========================================================================
-  it("block parent with align-items: center → HUG × HUG", () => {
+  it("block parent with align-items: center → FIXED × FIXED", () => {
     const result = getLayoutSizing(
       { display: "block", width: "200px", height: "50px" },
       0,
       "auto",
       { direction: "VERTICAL", alignItems: "center" }
     );
-    expect(result.horizontal).toBe("HUG");
-    expect(result.vertical).toBe("HUG");
+    expect(result.horizontal).toBe("FIXED");
+    expect(result.vertical).toBe("FIXED");
   });
 });

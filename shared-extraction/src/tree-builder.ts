@@ -1017,12 +1017,12 @@ export function buildElementTree(
 
       if (parentIsColumn && layoutSizing.horizontal === "FILL" && parentContext.contentWidth !== undefined) {
         if (parentContext.contentWidth - width - marginL - marginR > 2) {
-          layoutSizing.horizontal = "HUG";
+          layoutSizing.horizontal = "FIXED";
         }
       }
       if (!parentIsColumn && layoutSizing.vertical === "FILL" && parentContext.contentHeight !== undefined) {
         if (parentContext.contentHeight - height - marginT - marginB > 2) {
-          layoutSizing.vertical = "HUG";
+          layoutSizing.vertical = "FIXED";
         }
       }
     }

@@ -38,12 +38,12 @@ function applyFillOverride(
 
     if (parentIsColumn && result.horizontal === "FILL" && parentContext.contentWidth !== undefined) {
       if (parentContext.contentWidth - childWidth - marginL - marginR > 2) {
-        result.horizontal = "HUG";
+        result.horizontal = "FIXED";
       }
     }
     if (!parentIsColumn && result.vertical === "FILL" && parentContext.contentHeight !== undefined) {
       if (parentContext.contentHeight - childHeight - marginT - marginB > 2) {
-        result.vertical = "HUG";
+        result.vertical = "FIXED";
       }
     }
   }
@@ -74,8 +74,8 @@ describe("FILL → HUG dimensional override", () => {
     expect(sizing.horizontal).toBe("FILL"); // before override
 
     const result = applyFillOverride(sizing, 81, 40, styles, parentContext);
-    expect(result.horizontal).toBe("HUG"); // after override
-    expect(result.vertical).toBe("HUG");   // main axis stays HUG
+    expect(result.horizontal).toBe("FIXED"); // after override
+    expect(result.vertical).toBe("FIXED");   // main axis stays FIXED
   });
 
   // =========================================================================
@@ -144,8 +144,8 @@ describe("FILL → HUG dimensional override", () => {
     expect(sizing.vertical).toBe("FILL"); // cross-axis stretch default
 
     const result = applyFillOverride(sizing, 200, 50, styles, parentContext);
-    expect(result.vertical).toBe("HUG"); // overridden: 50 << 400
-    expect(result.horizontal).toBe("HUG"); // main axis stays HUG
+    expect(result.vertical).toBe("FIXED"); // overridden: 50 << 400
+    expect(result.horizontal).toBe("FIXED"); // main axis stays FIXED
   });
 
   // =========================================================================
