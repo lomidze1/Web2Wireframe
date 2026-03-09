@@ -338,19 +338,254 @@ async function generateWithRetry(params, maxRetries = 1) {
 }
 
 // ============================================================================
+// Screenshot Analysis — Vision API
+// ============================================================================
+
+const SCREENSHOT_SYSTEM_PROMPT = `You are a wireframe layout analyzer for a Figma plugin. You analyze screenshots of websites
+and convert them into structured JSON wireframe descriptions.
+
+OUTPUT FORMAT:
+Return a JSON object with this exact structure:
+
+{
+  "totalHeight": <number>,
+  "sections": [
+    {
+      "name": "<Section Name>",
+      "sectionType": "<hero|features|pricing|faq|...>",
+      "height": <number>,
+      "background": "<background|surface|accent|transparent>",
+      "layout": "<center-stacked|two-column|three-column-grid|four-column-grid|sidebar-left|sidebar-right>",
+      "padding": { "top": <n>, "right": <n>, "bottom": <n>, "left": <n> },
+      "gap": <number>,
+      "elements": [
+        {
+          "type": "<heading|subheading|paragraph|button|button-group|image|icon|card|input|nav-links|logo|divider|badge|list|avatar|stat>",
+          ... type-specific fields ...
+        }
+      ]
+    }
+  ]
+}
+
+ELEMENT TYPES AND THEIR FIELDS:
+
+heading:
+  { "type": "heading", "text": "...", "level": 1|2|3|4, "align": "left|center|right" }
+
+subheading:
+  { "type": "subheading", "text": "...", "align": "left|center|right" }
+
+paragraph:
+  { "type": "paragraph", "text": "...", "align": "left|center|right", "maxWidth": <number|null> }
+
+button:
+  { "type": "button", "text": "...", "variant": "primary|secondary|outline|ghost", "size": "sm|md|lg" }
+
+button-group:
+  { "type": "button-group", "direction": "horizontal|vertical", "buttons": [
+    { "text": "...", "variant": "primary|secondary|outline", "size": "sm|md|lg" }
+  ]}
+
+image:
+  { "type": "image", "width": "full|half|third|quarter|<number>", "aspectRatio": "16:9|4:3|1:1|3:2", "rounded": true|false }
+
+card:
+  { "type": "card", "elements": [ ...nested elements... ], "padding": <number>, "rounded": true|false, "shadow": true|false, "background": "surface|background|transparent" }
+
+input:
+  { "type": "input", "label": "...", "placeholder": "...", "inputType": "text|email|password|textarea" }
+
+nav-links:
+  { "type": "nav-links", "links": ["Home", "About", "Pricing", "Contact"], "direction": "horizontal|vertical" }
+
+logo:
+  { "type": "logo", "size": "sm|md|lg" }
+
+divider:
+  { "type": "divider" }
+
+badge:
+  { "type": "badge", "text": "...", "variant": "accent|surface|secondary" }
+
+list:
+  { "type": "list", "items": ["Item 1", "Item 2", ...], "style": "bullet|numbered|check|none" }
+
+avatar:
+  { "type": "avatar", "size": "sm|md|lg" }
+
+stat:
+  { "type": "stat", "value": "99%", "label": "Uptime" }
+
+icon:
+  { "type": "icon", "size": "sm|md|lg" }
+
+ANALYSIS RULES:
+- Carefully analyze the screenshot layout, identifying distinct sections from top to bottom
+- Read actual text visible in the screenshot and use it in the output
+- Detect the layout pattern of each section (centered, columns, grid, sidebar)
+- Estimate reasonable pixel heights for each section based on proportions in the image
+- Identify UI elements: headings, paragraphs, buttons, images, cards, inputs, navigation, etc.
+- Map visual elements to the closest element type from the list above
+- Preserve the visual hierarchy and spatial relationships
+- Background colors should be inferred from the screenshot (use background/surface/accent/transparent)
+
+LAYOUT RULES:
+- "center-stacked": All elements vertically centered, stacked
+- "two-column": Split into left/right columns
+- "three-column-grid": 3 equal columns, typically for cards/features
+- "four-column-grid": 4 equal columns
+
+BACKGROUND COLOR ROLES:
+- "background" = page background (light gray)
+- "surface" = card/container background (blue-gray)
+- "accent" = emphasis background (light blue)
+- "transparent" = no background, inherits parent
+
+IMPORTANT:
+- Analyze what you SEE in the screenshot — do not invent content
+- All heights must be reasonable proportional estimates
+- Sections should match the visual structure of the screenshot
+- Respond ONLY with JSON, no explanation`;
+
+/**
+ * Detect media type from a base64 image string
+ * @param {string} base64String - Base64 image data (may include data URI prefix)
+ * @returns {string} MIME type
+ */
+function detectMediaType(base64String) {
+  if (base64String.startsWith("data:image/png")) return "image/png";
+  if (base64String.startsWith("data:image/jpeg") || base64String.startsWith("data:image/jpg")) return "image/jpeg";
+  if (base64String.startsWith("data:image/webp")) return "image/webp";
+  if (base64String.startsWith("data:image/gif")) return "image/gif";
+  return "image/png"; // default
+}
+
+/**
+ * Build user prompt for screenshot analysis
+ * @param {object} params
+ * @param {number} params.viewportWidth
+ * @param {number} params.imageWidth
+ * @param {number} params.imageHeight
+ * @param {string} params.textMode
+ * @returns {string}
+ */
+function buildScreenshotUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode }) {
+  let textInstruction;
+  switch (textMode) {
+    case "lorem":
+      textInstruction = "Replace all visible text with Lorem Ipsum placeholder text of similar length.";
+      break;
+    case "semantic":
+      textInstruction = "Replace text with short semantic labels describing the content purpose (e.g. 'Hero Headline', 'Feature Description', 'CTA Button').";
+      break;
+    default: // "website"
+      textInstruction = "Read and preserve the actual text visible in the screenshot as closely as possible.";
+  }
+
+  return `Analyze this website screenshot and convert it into a wireframe structure.
+
+Screenshot dimensions: ${imageWidth}x${imageHeight}px
+Target viewport width: ${viewportWidth}px
+
+Text handling: ${textInstruction}
+
+Identify all visible sections from top to bottom, detect the layout structure, and map UI elements to the supported element types. Return the complete JSON structure.`;
+}
+
+/**
+ * Analyze a screenshot using Claude Vision API
+ * @param {object} params
+ * @param {string} params.imageBase64 - Base64 encoded image (with or without data URI prefix)
+ * @param {number} params.imageWidth
+ * @param {number} params.imageHeight
+ * @param {number} params.viewportWidth
+ * @param {string} params.textMode
+ * @returns {Promise<object>} Parsed simplified JSON
+ */
+async function analyzeScreenshot({ imageBase64, imageWidth, imageHeight, viewportWidth, textMode }) {
+  const client = getClient();
+  const model = process.env.AI_MODEL || "claude-sonnet-4-20250514";
+  const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+  const mediaType = detectMediaType(imageBase64);
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 8000,
+    system: SCREENSHOT_SYSTEM_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: mediaType, data: base64Data },
+          },
+          {
+            type: "text",
+            text: buildScreenshotUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode }),
+          },
+        ],
+      },
+    ],
+  });
+
+  return parseJSONFromResponse(response.content[0].text);
+}
+
+/**
+ * Analyze screenshot with retry on validation failure
+ * @param {object} params - Same as analyzeScreenshot params
+ * @param {number} [maxRetries=1]
+ * @returns {Promise<object>} Validated simplified JSON
+ */
+async function analyzeScreenshotWithRetry(params, maxRetries = 1) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await analyzeScreenshot(params);
+      const validation = validateSimplifiedFormat(result);
+
+      if (validation.success) {
+        return result;
+      }
+
+      lastError = new Error(`Validation failed: ${validation.errors.join(", ")}`);
+      lastError.validationErrors = validation.errors;
+      console.warn(`[Screenshot AI] Attempt ${attempt + 1} validation failed:`, validation.errors);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[Screenshot AI] Attempt ${attempt + 1} error:`, err.message);
+
+      if (err.status === 401 || err.status === 403) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
 module.exports = {
   WIREFRAME_SYSTEM_PROMPT,
+  SCREENSHOT_SYSTEM_PROMPT,
   VALID_ELEMENT_TYPES,
   VALID_PAGE_TYPES,
   VALID_BLOCK_TYPES,
   buildUserPrompt,
+  buildScreenshotUserPrompt,
+  detectMediaType,
   validateSimplifiedFormat,
   parseJSONFromResponse,
   generateWireframeStructure,
   generateWithRetry,
+  analyzeScreenshot,
+  analyzeScreenshotWithRetry,
   // For testing: allow replacing the client
   _setClient(client) { _client = client; },
   _getClient: getClient,

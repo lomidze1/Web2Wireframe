@@ -16,6 +16,7 @@ const { validateUrl } = require("../utils/urlValidation");
 const { convertToWireframeTree } = require("../lib/wireframeConverter");
 const {
   generateWithRetry,
+  analyzeScreenshotWithRetry,
   validateSimplifiedFormat,
   VALID_PAGE_TYPES,
   VALID_BLOCK_TYPES,
@@ -732,7 +733,11 @@ app.post("/api/generate-page", async (req, res) => {
       sourceUrl: `ai://${pageType}-page`,
     });
   } catch (error) {
-    console.error("[AI Generate Page] Error:", error);
+    console.error("[AI Generate Page] Error:", error.message || error);
+    console.error("[AI Generate Page] Status:", error.status, "| Type:", error.constructor?.name);
+    if (error.status === 401 || error.status === 403) {
+      console.error("[AI Generate Page] API KEY issue! Key starts with:", process.env.ANTHROPIC_API_KEY?.substring(0, 12) + "...", "Length:", process.env.ANTHROPIC_API_KEY?.length);
+    }
 
     if (error.status === 429) {
       return res.status(429).json({
@@ -838,7 +843,11 @@ app.post("/api/generate-block", async (req, res) => {
       sourceUrl: `ai://${blockType}-block`,
     });
   } catch (error) {
-    console.error("[AI Generate Block] Error:", error);
+    console.error("[AI Generate Block] Error:", error.message || error);
+    console.error("[AI Generate Block] Status:", error.status, "| Type:", error.constructor?.name);
+    if (error.status === 401 || error.status === 403) {
+      console.error("[AI Generate Block] API KEY issue! Key starts with:", process.env.ANTHROPIC_API_KEY?.substring(0, 12) + "...", "Length:", process.env.ANTHROPIC_API_KEY?.length);
+    }
 
     if (error.status === 429) {
       return res.status(429).json({
@@ -859,6 +868,116 @@ app.post("/api/generate-block", async (req, res) => {
       success: false,
       error: "Failed to generate wireframe block",
       errorCode: "AI_GENERATION_ERROR",
+      details: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+/**
+ * POST /api/import-screenshot
+ * Analyze a screenshot using Claude Vision and convert to wireframe
+ *
+ * Body:
+ * - imageBase64: string (required) - Base64 encoded image with data URI prefix
+ * - imageWidth: number - Original image width
+ * - imageHeight: number - Original image height
+ * - viewports: number[] - Viewport widths (default: [1440])
+ * - pluginColors: object - Plugin color palette
+ * - pluginFont: string - Plugin font (default: "Inter")
+ * - textMode: string - Text handling mode: "website"|"lorem"|"semantic" (default: "website")
+ */
+app.post("/api/import-screenshot", async (req, res) => {
+  try {
+    const {
+      imageBase64,
+      imageWidth = 1440,
+      imageHeight = 900,
+      viewports = [1440],
+      pluginColors = {},
+      pluginFont = "Inter",
+      textMode = "website",
+    } = req.body;
+
+    // Validation
+    if (!imageBase64) {
+      return res.status(400).json({ success: false, error: "imageBase64 is required" });
+    }
+
+    // Check base64 size (~5MB limit — base64 is ~33% larger than binary)
+    const base64Length = imageBase64.length - (imageBase64.indexOf(",") + 1);
+    const estimatedBytes = (base64Length * 3) / 4;
+    if (estimatedBytes > 5 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        error: "Image too large. Maximum size is 5MB.",
+        errorCode: "IMAGE_TOO_LARGE",
+      });
+    }
+
+    if (!["website", "lorem", "semantic"].includes(textMode)) {
+      return res.status(400).json({ success: false, error: "textMode must be 'website', 'lorem', or 'semantic'" });
+    }
+
+    // Merge plugin colors with defaults
+    const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
+
+    // Coerce viewports to numbers (frontend may send string[])
+    const numericViewports = viewports.map((v) => Number(v) || 1440);
+
+    // Analyze and generate for each viewport
+    const frames = [];
+    for (const vp of numericViewports) {
+      const simplified = await analyzeScreenshotWithRetry({
+        imageBase64,
+        imageWidth: Number(imageWidth) || 1440,
+        imageHeight: Number(imageHeight) || 900,
+        viewportWidth: vp,
+        textMode,
+      });
+
+      const tree = convertToWireframeTree(simplified, vp, finalPluginColors, pluginFont);
+
+      frames.push({
+        viewportWidth: vp,
+        viewportHeight: Number(simplified.totalHeight) || 0,
+        tree,
+      });
+    }
+
+    // Create local styles structure
+    const localStyles = createLocalStylesStructure(finalPluginColors, {
+      primary: pluginFont,
+    });
+
+    res.json({
+      success: true,
+      wireframeData: { frames },
+      localStyles,
+      pluginColors: finalPluginColors,
+      sourceUrl: "screenshot://uploaded",
+    });
+  } catch (error) {
+    console.error("[Screenshot Import] Error:", error.message || error);
+
+    if (error.status === 429) {
+      return res.status(429).json({
+        success: false,
+        error: "AI service rate limited. Please try again in a moment.",
+        errorCode: "AI_RATE_LIMITED",
+      });
+    }
+    if (error.status === 401 || error.status === 403) {
+      return res.status(500).json({
+        success: false,
+        error: "AI service configuration error. Please contact support.",
+        errorCode: "AI_AUTH_ERROR",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to analyze screenshot",
+      errorCode: "SCREENSHOT_ANALYSIS_ERROR",
       details: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }

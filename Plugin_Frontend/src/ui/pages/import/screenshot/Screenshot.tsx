@@ -1,24 +1,46 @@
 /** @jsx h */
 import { h } from "preact";
-import { useState, useRef } from "preact/hooks";
+import { useState, useRef, useEffect, useCallback } from "preact/hooks";
 import styles from "./Screenshot.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
+import { useConfig } from "../../../shared/ConfigContext";
 import SettingsPanel from "../../../components/settingsPanel";
 
 const TAB_ID = "screenshot";
 const STORAGE_KEY = "w2w_settings_expanded_screenshot";
+const API_URL = "http://localhost:3002";
 
 export default function Screenshot() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Use shared hook for all settings logic
+  const { config } = useConfig();
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
+
+  // Listen for wireframe creation results from Figma sandbox
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg) return;
+      if (msg.type === "wireframe-created") {
+        setIsGenerating(false);
+      }
+      if (msg.type === "wireframe-error") {
+        setIsGenerating(false);
+        setError(msg.data.error || "Failed to create wireframe");
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
   const handleImageUpload = (e: Event) => {
     const target = e.target as HTMLInputElement;
     const file = target.files?.[0];
     if (file) {
+      setError(null);
       const reader = new FileReader();
       reader.onload = (event) => {
         setImagePreview(event.target?.result as string);
@@ -36,14 +58,77 @@ export default function Screenshot() {
   const handleDelete = (e: Event) => {
     e.stopPropagation();
     setImagePreview(null);
+    setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
-  const handleGenerate = () => {
-    // TODO: Implement screenshot wireframe generation
-  };
+  const handleGenerate = useCallback(async () => {
+    if (!imagePreview) return;
+
+    setIsGenerating(true);
+    setError(null);
+
+    try {
+      // Get image dimensions
+      const dimensions = await new Promise<{ width: number; height: number }>(
+        (resolve, reject) => {
+          const img = new Image();
+          img.onload = () =>
+            resolve({ width: img.naturalWidth, height: img.naturalHeight });
+          img.onerror = () => reject(new Error("Failed to read image dimensions"));
+          img.src = imagePreview;
+        }
+      );
+
+      const response = await fetch(`${API_URL}/api/import-screenshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: imagePreview,
+          imageWidth: dimensions.width,
+          imageHeight: dimensions.height,
+          viewports: settings.localViewports.map(Number),
+          pluginColors: config.pluginColors,
+          pluginFont: config.pluginFont,
+          textMode: settings.localTextMode,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || "Screenshot analysis failed");
+
+      // Send to Figma sandbox for rendering
+      parent.postMessage(
+        {
+          pluginMessage: {
+            type: "render-wireframe",
+            data: {
+              frames: data.wireframeData.frames,
+              sourceUrl: data.sourceUrl,
+              pluginColors: data.pluginColors,
+              pluginFont: config.pluginFont,
+              variableMode: "direct",
+              layoutMode: "autoLayout",
+              colorMode: "plugin",
+              fontMode: "plugin",
+              textMode: settings.localTextMode,
+            },
+          },
+        },
+        "*"
+      );
+    } catch (err: unknown) {
+      setIsGenerating(false);
+      setError(err instanceof Error ? err.message : "Screenshot analysis failed");
+    }
+  }, [imagePreview, settings.localViewports, settings.localTextMode, config]);
 
   return (
     <div class={styles.screenshotContainer}>
@@ -109,13 +194,16 @@ export default function Screenshot() {
         openSettings={settings.openSettings}
       />
 
+      {/* Error Display */}
+      {error && <p class={styles.errorText}>{error}</p>}
+
       {/* Generate Button */}
       <button
         class={styles.screenshotBtn}
         onClick={handleGenerate}
-        disabled={!imagePreview}
+        disabled={!imagePreview || isGenerating}
       >
-        Generate Wireframe
+        {isGenerating ? "Analyzing Screenshot..." : "Generate Wireframe"}
       </button>
     </div>
   );

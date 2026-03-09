@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect, useRef } from "preact/hooks";
 import { useConfig } from "../../../shared/ConfigContext";
 import styles from "./BlockGeneration.css";
 
+const API_URL = "http://localhost:3002";
+
 // Types
 type Density = "balanced" | "detailed";
 type BlockType =
@@ -172,11 +174,29 @@ const ViewportDropdown = ({
 };
 
 export default function BlockGeneration({ onBack }: BlockGenerationProps) {
-  const { openSettings } = useConfig();
+  const { openSettings, config } = useConfig();
   const [density, setDensity] = useState<Density>("balanced");
   const [viewports, setViewports] = useState<number[]>([1440]);
   const [selectedBlock, setSelectedBlock] = useState<BlockType | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Listen for wireframe creation results from Figma sandbox
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg) return;
+      if (msg.type === "wireframe-created") {
+        setIsGenerating(false);
+      }
+      if (msg.type === "wireframe-error") {
+        setIsGenerating(false);
+        setError(msg.data.error || "Failed to create wireframe");
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
   const blockTypes: BlockType[] = [
     "hero",
@@ -202,13 +222,54 @@ export default function BlockGeneration({ onBack }: BlockGenerationProps) {
     setSelectedBlock(block);
   }, []);
 
-  const handleGenerate = useCallback(() => {
+  const handleGenerate = useCallback(async () => {
     setIsGenerating(true);
-    setTimeout(() => {
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/api/generate-block`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: `figma-user-${Date.now()}`,
+          blockType: selectedBlock,
+          density,
+          viewports,
+          pluginColors: config.pluginColors,
+          pluginFont: config.pluginFont,
+        }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || "Generation failed");
+
+      // Send directly to Figma sandbox — no transform needed (backend returns WireframeNode)
+      parent.postMessage(
+        {
+          pluginMessage: {
+            type: "render-wireframe",
+            data: {
+              frames: data.wireframeData.frames,
+              sourceUrl: data.sourceUrl,
+              pluginColors: data.pluginColors,
+              pluginFont: config.pluginFont,
+              variableMode: "direct",
+              layoutMode: "autoLayout",
+              colorMode: "plugin",
+              fontMode: "plugin",
+              textMode: "semantic",
+            },
+          },
+        },
+        "*"
+      );
+    } catch (err: unknown) {
       setIsGenerating(false);
-      // TODO: Implement AI block generation
-    }, 2000);
-  }, [density, viewports, selectedBlock]);
+      setError(err instanceof Error ? err.message : "Generation failed");
+    }
+  }, [density, viewports, selectedBlock, config]);
 
   return (
     <div class={styles.generatorContainer}>
@@ -278,6 +339,8 @@ export default function BlockGeneration({ onBack }: BlockGenerationProps) {
         >
           {isGenerating ? "Generating…" : "Generate Wireframe"}
         </button>
+
+        {error && <p class={styles.errorText}>{error}</p>}
       </div>
     </div>
   );

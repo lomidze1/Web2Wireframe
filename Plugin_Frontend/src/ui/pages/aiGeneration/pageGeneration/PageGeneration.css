@@ -526,3 +526,11 @@
     transform: rotate(360deg);
   }
 }
+
+/* Error Text */
+.errorText {
+  color: #e74c3c;
+  font-size: 12px;
+  text-align: center;
+  margin: 8px 0 0;
+}

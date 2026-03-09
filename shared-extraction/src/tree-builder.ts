@@ -1373,12 +1373,14 @@ export function buildElementTree(
         (c) => c.type === "text" && c.textContent?.trim() === finalText?.trim()
       );
       if (!hasTextChild) {
-        // Use textBounds if available, otherwise fallback to calculated position
+        // Use textBounds > calculated fallback for text dimensions
         const bulletWidth = padding.left || 16;
-        const textWidth = textBounds ? textBounds.width : width - bulletWidth - padding.right;
+        const textWidth = textBounds ? textBounds.width
+                        : width - bulletWidth - padding.right;
         let textX = textBounds ? textBounds.x : bulletWidth;
         const textY = textBounds ? textBounds.y : 0;
-        const textHeight = textBounds ? textBounds.height : height;
+        const textHeight = textBounds ? textBounds.height
+                         : height;
 
         // Safety: if ::before child exists and textX < padding.left, the text
         // should start after the bullet area (padding.left)
@@ -1455,11 +1457,13 @@ export function buildElementTree(
 
     // Add synthetic text child for wrapped text elements (buttons, etc.)
     if (shouldBeFrameWithTextChild && finalText) {
-      // Use textBounds if available for exact positioning
-      const textWidth = textBounds ? textBounds.width : width - padding.left - padding.right;
+      // Use textBounds > calculated fallback for text dimensions
+      const textWidth = textBounds ? textBounds.width
+                       : width - padding.left - padding.right;
       const textX = textBounds ? textBounds.x : padding.left;
       const textY = textBounds ? textBounds.y : padding.top;
-      const textHeight = textBounds ? textBounds.height : height - padding.top - padding.bottom;
+      const textHeight = textBounds ? textBounds.height
+                        : height - padding.top - padding.bottom;
 
       const textChild = createSyntheticTextChild(
         textWidth,
@@ -1505,11 +1509,13 @@ export function buildElementTree(
         return false;
       };
       if (!hasTextInDescendants(element.children)) {
-        // Use textBounds if available for exact positioning
-        const textWidth = textBounds ? textBounds.width : width - padding.left - padding.right;
+        // Use textBounds > calculated fallback for text dimensions
+        const textWidth = textBounds ? textBounds.width
+                         : width - padding.left - padding.right;
         const textX = textBounds ? textBounds.x : padding.left;
         const textY = textBounds ? textBounds.y : padding.top;
-        const textHeight = textBounds ? textBounds.height : height - padding.top - padding.bottom;
+        const textHeight = textBounds ? textBounds.height
+                          : height - padding.top - padding.bottom;
 
         const textChild = createSyntheticTextChild(
           textWidth,

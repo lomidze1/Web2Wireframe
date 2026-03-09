@@ -703,9 +703,11 @@ export async function createTextNode(
       if (Math.abs(hugWidth - browserWidth) <= 1) {
         // Font metrics nearly identical — use hugWidth
         textNode.resize(hugWidth, browserHeight);
-      } else if (hugWidth > browserWidth && parentWMulti > 0 && hugWidth <= parentWMulti) {
-        // Plugin font wider but fits in parent — use hugWidth to prevent wrapping
-        textNode.resize(hugWidth, browserHeight);
+      // } else if (hugWidth > browserWidth && parentWMulti > 0 && hugWidth <= parentWMulti) {
+      //   // Plugin font wider but fits in parent — use hugWidth to prevent wrapping
+      //   // DISABLED: This caused block elements (li, p) to use Figma's HUG width (~328px)
+      //   // instead of browser's textBounds width (~281px), making text boxes too wide.
+      //   textNode.resize(hugWidth, browserHeight);
       } else {
         // hugWidth too large or no parent info — use browser dimensions
         textNode.resize(browserWidth, browserHeight);
