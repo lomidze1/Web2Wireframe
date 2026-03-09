@@ -15,7 +15,7 @@ import {
   getSmartTextColor,
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
-import { linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr } from "./styles";
+import { linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey } from "./styles";
 
 // ============================================================================
 // Text Segment Collection
@@ -154,14 +154,15 @@ function linkTextStyleIfApplicable(
     return;
   }
 
+  // Use original tree values for key — NOT textNode.fontSize (which may be adjusted by sizing)
+  // and NOT usedFontFamily (which may be a fallback font).
+  // This ensures the key matches what collectTypographyFromTree generated.
   const weight = segments[0].fontWeight || node.fontWeight || 400;
-  const styleStr = weight >= 600 ? "Bold" : weight >= 500 ? "Medium" : "Regular";
-  const actualFontSize = textNode.fontSize as number;
-  const lh = parseFigmaLineHeight(node.lineHeight);
-  const lhKey = lineHeightKeyStr(lh);
-  const ls = Math.round((node.letterSpacing || 0) * 10) / 10;
-  const lsKey = ls !== 0 ? `ls${Math.round(ls * 10)}` : "";
-  const tsKey = [usedFontFamily, styleStr, actualFontSize, lhKey, lsKey].filter(Boolean).join("-");
+  const fontMode = context.fontMode || "website";
+  const family = fontMode === "plugin"
+    ? context.fontFamily
+    : (node.fontFamily || context.fontFamily);
+  const tsKey = buildTextStyleKey(family, weight, node.fontSize || 14, node.lineHeight, node.letterSpacing || 0);
   const textStyle = context.textStyleMap.get(tsKey);
   if (textStyle) {
     try {

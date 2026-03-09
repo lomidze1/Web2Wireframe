@@ -5,7 +5,8 @@ import styles from "./BrowserExtension.css";
 import ImportOptionsModal, {
   type UnifiedImportOptions,
 } from "../../../components/modalPopup/ImportOptionsModal";
-import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
+import FontFallbackModal, { type FontDownloadInfo } from "../../../components/modalPopup/FontFallbackModal";
+import { parseFontSrcUrls } from "../../../../utils/fontUtils";
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -37,6 +38,55 @@ interface PendingData {
   localStyles?: unknown;
   fonts?: unknown[];
   cssVariables?: unknown[];
+}
+
+/** Build font download info from extracted fonts and missing font list */
+function buildFontDownloads(
+  missingFonts: string[],
+  extractedFonts?: unknown[]
+): FontDownloadInfo[] | undefined {
+  // Relay debug to sandbox console (visible in Figma DevTools)
+  const debugInfo = {
+    missingFontsCount: missingFonts.length,
+    extractedFontsCount: extractedFonts?.length ?? 0,
+    sample: (extractedFonts?.slice(0, 2) as Array<{ family?: string; src?: string }>)?.map(
+      (f) => ({ family: f?.family, hasSrc: !!f?.src, srcLen: f?.src?.length })
+    ),
+  };
+  parent.postMessage({
+    pluginMessage: { type: "debug-log", data: { tag: "FontDL", ...debugInfo } },
+  }, "*");
+  if (!extractedFonts || extractedFonts.length === 0) return undefined;
+
+  const downloads: FontDownloadInfo[] = [];
+  const missingSet = new Set(missingFonts.map((f) => f.toLowerCase()));
+
+  for (const ef of extractedFonts) {
+    const font = ef as { family?: string; src?: string; isGoogleFont?: boolean };
+    if (!font.family || !missingSet.has(font.family.toLowerCase())) continue;
+
+    const urls = font.src ? parseFontSrcUrls(font.src) : [];
+    console.log("[W2W FontDL] Font match:", { family: font.family, src: font.src?.substring(0, 80), urls });
+    // Only process if we have actual download URLs
+    if (urls.length > 0 || font.isGoogleFont) {
+      // Aggregate URLs across variants (different weights/styles) for same family
+      const existing = downloads.find((d) => d.family === font.family);
+      if (existing) {
+        for (const url of urls) {
+          if (!existing.urls.includes(url)) existing.urls.push(url);
+        }
+      } else {
+        downloads.push({
+          family: font.family,
+          urls,
+          isGoogleFont: font.isGoogleFont || false,
+        });
+      }
+    }
+  }
+
+  console.log("[W2W FontDL] Result:", downloads);
+  return downloads.length > 0 ? downloads : undefined;
 }
 
 export default function BrowserExtension() {
@@ -422,6 +472,8 @@ export default function BrowserExtension() {
         defaultMapping={fontModalData?.defaultMapping || {}}
         pluginFont={fontModalData?.pluginFont || "Montserrat"}
         pluginFontOptions={fontModalData?.pluginFontOptions || []}
+        fontDownloads={buildFontDownloads(fontModalData?.missingFonts || [], pendingData?.fonts)}
+        extractedFonts={pendingData?.fonts as Array<{ family: string; style?: string; weight?: string; format?: string; src?: string }>}
         onChoice={handleFontFallbackChoice}
       />
 

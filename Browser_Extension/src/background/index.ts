@@ -12,7 +12,7 @@
 // Browser-specific CDP client (local - uses chrome.debugger)
 import { createCDPClient, CDPClient } from "./cdp/client";
 import { getDocument, getScrollDimensions } from "./cdp/dom";
-import { extractFonts } from "./cdp/fonts";
+import { extractFonts, collectPlatformFonts } from "./cdp/fonts";
 
 // Shared extraction logic (unified with Plugin_Backend)
 import {
@@ -566,6 +566,27 @@ async function handleCapturePage(
       // Extract body original CSS
       const bodyOriginalCSS = await extractBackgroundFromCSS(client, "body");
 
+      // Collect platform fonts for text nodes (actual rendered fonts via CDP)
+      const textNodes = nodes.filter(
+        (n) => n.nodeType === 1 && n.textContent && n.textContent.trim()
+      );
+      // Resolve text node backendNodeIds that aren't already in nodeIdMap
+      const unresolvedTextBackendIds = textNodes
+        .filter((n) => !nodeIdMap.has(n.backendNodeId))
+        .map((n) => n.backendNodeId);
+      if (unresolvedTextBackendIds.length > 0) {
+        const textNodeIdMap = await resolveNodeIds(client, unresolvedTextBackendIds);
+        for (const [bid, nid] of textNodeIdMap) {
+          nodeIdMap.set(bid, nid);
+        }
+      }
+      const textNodePairs = textNodes
+        .map((n) => ({ backendNodeId: n.backendNodeId, nodeId: nodeIdMap.get(n.backendNodeId)! }))
+        .filter((p) => p.nodeId);
+      console.log(`[W2W] Collecting platform fonts for ${textNodePairs.length} text nodes...`);
+      const platformFontMap = await collectPlatformFonts(client, textNodePairs);
+      console.log(`[W2W] Platform fonts collected: ${platformFontMap.size} nodes with font data`);
+
       // Build element tree (uses shared-extraction unified logic)
       updateProgress(baseProgress + progressPerViewport * 0.7, "Building tree...");
       console.log(`[W2W] Building element tree...`);
@@ -578,6 +599,7 @@ async function handleCapturePage(
           cssVariablesMap,
           bodyOriginalCSS,
           browserDpr,
+          platformFontMap,
         }
       );
       console.log(`[W2W] Tree built: ${tree.children.length} top-level children`);
@@ -593,7 +615,7 @@ async function handleCapturePage(
 
     // Extract fonts (once, after all viewports)
     updateProgress(85, "Extracting fonts...");
-    const fonts = await extractFonts(client);
+    const fonts = await extractFonts(client, tab.url);
 
     // Extract CSS variables for result
     updateProgress(90, "Extracting CSS variables...");
@@ -727,6 +749,24 @@ async function handleCaptureElement(
     // Extract body background CSS
     const bodyOriginalCSS = await extractBackgroundFromCSS(client, "body");
 
+    // Collect platform fonts for text nodes
+    const textNodes = subtreeNodes.filter(
+      (n) => n.nodeType === 1 && n.textContent && n.textContent.trim()
+    );
+    const unresolvedTextBackendIds = textNodes
+      .filter((n) => !nodeIdMap.has(n.backendNodeId))
+      .map((n) => n.backendNodeId);
+    if (unresolvedTextBackendIds.length > 0) {
+      const textNodeIdMap = await resolveNodeIds(client, unresolvedTextBackendIds);
+      for (const [bid, nid] of textNodeIdMap) {
+        nodeIdMap.set(bid, nid);
+      }
+    }
+    const textNodePairs = textNodes
+      .map((n) => ({ backendNodeId: n.backendNodeId, nodeId: nodeIdMap.get(n.backendNodeId)! }))
+      .filter((p) => p.nodeId);
+    const platformFontMap = await collectPlatformFonts(client, textNodePairs);
+
     // Build element tree for the subtree
     updateProgress(75, "Building element tree...");
     const elementBounds: SelectionBounds = {
@@ -746,11 +786,12 @@ async function handleCaptureElement(
       cssVariablesMap,
       bodyOriginalCSS,
       browserDpr,
+      platformFontMap,
     );
 
     // Extract fonts
     updateProgress(85, "Extracting fonts...");
-    const fonts = await extractFonts(client);
+    const fonts = await extractFonts(client, tab.url);
 
     // Format CSS variables
     const cssVariables = rawCSSVariables.map((v) => ({
@@ -887,6 +928,24 @@ async function handleCaptureElementByBackendId(
     // Extract body background CSS
     const bodyOriginalCSS = await extractBackgroundFromCSS(client, "body");
 
+    // Collect platform fonts for text nodes
+    const textNodes = subtreeNodes.filter(
+      (n) => n.nodeType === 1 && n.textContent && n.textContent.trim()
+    );
+    const unresolvedTextBackendIds = textNodes
+      .filter((n) => !nodeIdMap.has(n.backendNodeId))
+      .map((n) => n.backendNodeId);
+    if (unresolvedTextBackendIds.length > 0) {
+      const textNodeIdMap = await resolveNodeIds(client, unresolvedTextBackendIds);
+      for (const [bid, nid] of textNodeIdMap) {
+        nodeIdMap.set(bid, nid);
+      }
+    }
+    const textNodePairs = textNodes
+      .map((n) => ({ backendNodeId: n.backendNodeId, nodeId: nodeIdMap.get(n.backendNodeId)! }))
+      .filter((p) => p.nodeId);
+    const platformFontMap = await collectPlatformFonts(client, textNodePairs);
+
     // Build element tree for the subtree
     updateProgress(75, "Building element tree...");
     const elementBounds: SelectionBounds = {
@@ -906,11 +965,12 @@ async function handleCaptureElementByBackendId(
       cssVariablesMap,
       bodyOriginalCSS,
       browserDpr,
+      platformFontMap,
     );
 
     // Extract fonts
     updateProgress(85, "Extracting fonts...");
-    const fonts = await extractFonts(client);
+    const fonts = await extractFonts(client, tab.url);
 
     // Format CSS variables
     const cssVariables = rawCSSVariables.map((v) => ({
@@ -1048,6 +1108,7 @@ function buildElementTreeFromBounds(
   cssVariablesMap: Map<string, string>,
   _bodyOriginalCSS: CSSOMBackground | null,
   browserDpr: number,
+  platformFontMap?: Map<number, Array<{ familyName: string; postScriptName: string; isCustomFont: boolean; glyphCount: number }>>,
 ): ExtractedElement {
   // Find the root node (the selected element - first element type node)
   const rootNode = subtreeNodes.find((n) => n.nodeType === 1);
@@ -1271,8 +1332,14 @@ function buildElementTreeFromBounds(
     const blurEffects = parseBackdropFilterToEffects(backdropFilter);
     const effects = [...shadowEffects, ...blurEffects];
 
-    // Typography
-    const fontFamilyRaw = computedStyles["font-family"] || "Inter";
+    // Typography — prefer platform font (actual rendered font) over computed styles
+    let fontFamilyRaw = computedStyles["font-family"] || "Inter";
+    const platformFonts = platformFontMap?.get(node.backendNodeId);
+    if (platformFonts && platformFonts.length > 0) {
+      // Use the font with the most glyphs rendered (primary font)
+      const primary = platformFonts.reduce((a, b) => a.glyphCount >= b.glyphCount ? a : b);
+      fontFamilyRaw = primary.familyName;
+    }
     const fontFamilyList = fontFamilyRaw
       .split(",")
       .map((f: string) => f.replace(/['"]/g, "").trim())

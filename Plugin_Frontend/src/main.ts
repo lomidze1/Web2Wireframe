@@ -51,23 +51,39 @@ export default function () {
   // Pending render state for font fallback popup flow
   let pendingRenderData: {
     data: RenderWireframeData;
-    executeRender: (font: string, fontMapping?: FontMapping) => Promise<void>;
+    executeRender: (font: string, fontMapping?: FontMapping, originalFontNames?: FontMapping) => Promise<void>;
     missingFonts: string[];
   } | null = null;
 
   // Listen for messages from UI
   figma.ui.onmessage = async (msg) => {
+    // Relay debug logs from UI iframe to sandbox console
+    if (msg.type === "debug-log") {
+      console.log("[W2W UI Debug]", JSON.stringify(msg.data));
+      return;
+    }
     // Handle font fallback choice from popup
     if (msg.type === "font-fallback-choice") {
       console.log("[W2W Font Debug] font-fallback-choice received:", JSON.stringify(msg.data));
       if (pendingRenderData) {
         const { executeRender } = pendingRenderData;
         const fontMapping: FontMapping = msg.data.fontMapping || {};
-        console.log("[W2W Font Debug] fontMapping:", JSON.stringify(fontMapping));
+        const choice: string = msg.data.choice || "";
+        console.log("[W2W Font Debug] fontMapping:", JSON.stringify(fontMapping), "choice:", choice);
         pendingRenderData = null;
-        // Use first mapped font as primary, pass full mapping
-        const primaryFont = Object.values(fontMapping)[0] || "Inter";
-        await executeRender(primaryFont, fontMapping);
+
+        if (choice === "continue") {
+          // "Use original fonts": render with Inter, but preserve original names for Text Styles
+          const renderMapping: FontMapping = {};
+          for (const original of Object.keys(fontMapping)) {
+            renderMapping[original] = "Inter";
+          }
+          await executeRender("Inter", renderMapping, fontMapping);
+        } else {
+          // "fallback" or "plugin": use the provided mapping directly
+          const primaryFont = Object.values(fontMapping)[0] || "Inter";
+          await executeRender(primaryFont, fontMapping);
+        }
       } else {
         console.log("[W2W Font Debug] WARNING: no pendingRenderData!");
       }
@@ -135,7 +151,7 @@ export default function () {
       console.log("[W2W Sandbox] About to call executeRender, fontFamily:", initialFontFamily);
 
       // Extract rendering into a function for font fallback flow
-      const executeRender = async (fontFamily: string, fontMapping?: FontMapping) => {
+      const executeRender = async (fontFamily: string, fontMapping?: FontMapping, originalFontNames?: FontMapping) => {
 
       console.log("[W2W Font Debug] executeRender called. fontFamily:", fontFamily, "fontMapping:", JSON.stringify(fontMapping));
 
@@ -258,7 +274,8 @@ export default function () {
           const textStyleMap = await createTextStyles(
             frames,
             fontFamily,
-            effectiveFontMode
+            effectiveFontMode,
+            originalFontNames
           );
           renderContext.textStyleMap = textStyleMap;
           logger.info("Created text styles", {
@@ -319,63 +336,80 @@ export default function () {
           });
         }
 
-        // If multiple frames, wrap in a Section
-        let selectionTarget: SceneNode[] = createdFrames;
+        // Wrap frame(s) in a Section
+        figma.notify("Grouping frames in Section...", { timeout: 1000 });
 
-        if (createdFrames.length > 1) {
-          figma.notify("Grouping frames in Section...", { timeout: 1000 });
+        figma.ui.postMessage({
+          type: "render-progress",
+          data: {
+            step: "Organizing frames...",
+            percent: 90,
+          },
+        });
 
-          figma.ui.postMessage({
-            type: "render-progress",
-            data: {
-              step: "Organizing frames...",
-              percent: 90,
-            },
-          });
+        // Create Section
+        const section = figma.createSection();
 
-          // Create Section
-          const section = figma.createSection();
-
-          let hostname = "website";
+        let hostname = "website";
+        try {
+          hostname = new URL(sourceUrl).hostname.replace("www.", "");
+        } catch {
+          // sourceUrl may not be a valid URL (e.g. "html-import" or missing protocol)
+          // Try adding protocol, otherwise use raw sourceUrl if it looks like a domain
           try {
-            hostname = new URL(sourceUrl).hostname.replace("www.", "");
+            hostname = new URL(`https://${sourceUrl}`).hostname.replace("www.", "");
           } catch {
-            // Use default
+            if (sourceUrl && sourceUrl !== "html-import") {
+              hostname = sourceUrl;
+            }
           }
-
-          const viewportWidths = frames.map((f) => f.viewportWidth).join(" + ");
-          const timestamp = new Date().toLocaleString();
-          section.name = `${hostname} (${viewportWidths}) - Web2Wireframe - ${timestamp}`;
-
-          // Position frames inside section
-          const sectionPadding = 100;
-          let currentX = sectionPadding;
-          let maxHeight = 0;
-
-          for (const frame of createdFrames) {
-            section.appendChild(frame);
-            frame.x = currentX;
-            frame.y = sectionPadding;
-            currentX += frame.width + sectionPadding;
-            maxHeight = Math.max(maxHeight, frame.height);
-          }
-
-          section.resizeWithoutConstraints(
-            currentX,
-            maxHeight + sectionPadding * 2
-          );
-
-          const viewport = figma.viewport.center;
-          section.x = viewport.x - section.width / 2;
-          section.y = viewport.y - section.height / 2;
-
-          selectionTarget = [section];
-
-          logger.info("Created Section with frames", {
-            frameCount: createdFrames.length,
-            sectionName: section.name,
-          });
         }
+
+        const viewportWidths = frames.map((f) => f.viewportWidth).join(" + ");
+        const now = new Date();
+        const shortDate = now.toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
+        section.name = `${hostname} (${viewportWidths}) — Made with ♥ by Web2Wireframe · ${shortDate}`;
+
+        // Section styling
+        section.fills = [
+          { type: "SOLID", color: { r: 0x93 / 255, g: 0x93 / 255, b: 0x93 / 255 } },
+        ];
+
+        // Sort frames by viewport width descending (desktop → mobile, left → right)
+        createdFrames.sort((a, b) => b.width - a.width);
+
+        // Position frames inside section
+        const sectionPadding = 100;
+        let currentX = sectionPadding;
+        let maxHeight = 0;
+
+        for (const frame of createdFrames) {
+          section.appendChild(frame);
+          frame.x = currentX;
+          frame.y = sectionPadding;
+          currentX += frame.width + sectionPadding;
+          maxHeight = Math.max(maxHeight, frame.height);
+        }
+
+        section.resizeWithoutConstraints(
+          currentX,
+          maxHeight + sectionPadding * 2
+        );
+
+        const viewport = figma.viewport.center;
+        section.x = viewport.x - section.width / 2;
+        section.y = viewport.y - section.height / 2;
+
+        const selectionTarget: SceneNode[] = [section];
+
+        logger.info("Created Section with frames", {
+          frameCount: createdFrames.length,
+          sectionName: section.name,
+        });
 
         // Send finalizing progress
         figma.ui.postMessage({

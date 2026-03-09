@@ -8,6 +8,7 @@ import {
   generateLoremPreservingSymbols,
   estimateTextWidth,
   transformFrameData,
+  trimLoremToFitWidth,
 } from "../ui/shared/transformData";
 
 // ============================================================================
@@ -151,51 +152,33 @@ describe("generateLoremPreservingSymbols", () => {
   // generateLoremPreservingSymbols — width-based trimming
   // ============================================================================
 
-  describe("width-based trimming", () => {
-    it("trims 1 char when Lorem replacement is wider (e.g. Pricing → Loremi)", () => {
-      // "Pricing" (7 chars) → "Loremip" would contain 'm' which is very wide
-      // The function should trim 1 char to prevent visual overflow
+  describe("character count matching", () => {
+    it("always produces exact char count for each word", () => {
       const result = generateLoremPreservingSymbols("Pricing");
-      expect(result.length).toBeLessThanOrEqual("Pricing".length);
-      // Verify the estimated width is now <= original
-      expect(estimateTextWidth(result)).toBeLessThanOrEqual(
-        estimateTextWidth("Pricing")
-      );
+      expect(result.length).toBe("Pricing".length);
     });
 
-    it("does not trim when replacement is narrower than original", () => {
-      // "WILL" has wide chars (W=0.88), replacement with narrow chars should not trim
-      const result = generateLoremPreservingSymbols("WILL");
-      // Check it didn't trim unnecessarily (at least 3 chars for a 4-char input)
-      expect(result.length).toBeGreaterThanOrEqual(3);
+    it("does not trim even when Lorem replacement would be wider", () => {
+      // "Pricing" → "Loremip" (7 chars), 'm' is wide but no per-word trimming
+      const result = generateLoremPreservingSymbols("Pricing");
+      expect(result.length).toBe(7);
+      expect(result).toBe("Loremip");
     });
 
-    it("never trims single-character words", () => {
-      const result = generateLoremPreservingSymbols("I");
-      expect(result.length).toBe(1);
-    });
-
-    it("Lorem replacement char count is reduced when original would overflow", () => {
-      // Words where Lorem "m" makes the replacement wider — trimming should kick in
-      const wideOriginals = ["Pricing", "Features", "Settings", "Subscribe"];
-      for (const word of wideOriginals) {
-        const result = generateLoremPreservingSymbols(word);
-        // The function trims at most 1 char, so result should be at most original length
-        expect(result.length).toBeLessThanOrEqual(word.length);
-      }
-    });
-
-    it("Lorem replacement is narrower or at most 1 char shorter after trim", () => {
+    it("exact char count for all test words", () => {
       const testWords = [
         "Pricing", "Contact", "Features", "Settings", "Dashboard",
         "Subscribe", "Download", "About", "Title", "Submit",
       ];
       for (const word of testWords) {
         const result = generateLoremPreservingSymbols(word);
-        // Result should be at most 1 char shorter (the trim) or same length
-        expect(result.length).toBeGreaterThanOrEqual(word.length - 1);
-        expect(result.length).toBeLessThanOrEqual(word.length);
+        expect(result.length).toBe(word.length);
       }
+    });
+
+    it("single character always preserved", () => {
+      const result = generateLoremPreservingSymbols("I");
+      expect(result.length).toBe(1);
     });
   });
 });
@@ -423,5 +406,113 @@ describe("transformFrameData — semantic mode", () => {
     const frame = makeFrame(makeTextElement("42", "span"));
     const result = transformFrameData(frame, semanticOpts);
     expect(result.tree.textContent).toBe("$price");
+  });
+});
+
+// ============================================================================
+// trimLoremToFitWidth
+// ============================================================================
+
+describe("trimLoremToFitWidth", () => {
+  it("returns empty/falsy input unchanged", () => {
+    expect(trimLoremToFitWidth("", "hello")).toBe("");
+    expect(trimLoremToFitWidth("hello", "")).toBe("hello");
+  });
+
+  it("does not trim when lorem fits within original width", () => {
+    // "WILL" is wide (W=0.88), lorem replacement should fit
+    const lorem = generateLoremPreservingSymbols("WILL");
+    const result = trimLoremToFitWidth(lorem, "WILL");
+    expect(result).toBe(lorem);
+  });
+
+  it("trims when lorem is wider than original", () => {
+    // "Pricing" → "Loremip" — 'm' makes it wider
+    const lorem = generateLoremPreservingSymbols("Pricing");
+    const result = trimLoremToFitWidth(lorem, "Pricing");
+    expect(result.length).toBeLessThan(lorem.length);
+    expect(estimateTextWidth(result)).toBeLessThanOrEqual(estimateTextWidth("Pricing"));
+  });
+
+  it("preserves trailing symbols when trimming", () => {
+    // "Loremip!" is wider than "Pricing!" — trimming removes alpha chars, keeps "!"
+    const result = trimLoremToFitWidth("Loremip!", "Pricing!");
+    expect(result.endsWith("!")).toBe(true);
+    expect(estimateTextWidth(result)).toBeLessThanOrEqual(estimateTextWidth("Pricing!"));
+  });
+});
+
+// ============================================================================
+// transformFrameData — fontMode behavior
+// ============================================================================
+
+describe("transformFrameData — fontMode behavior", () => {
+  it("website font: no width trimming applied", () => {
+    const frame = makeFrame(makeTextElement("Pricing"));
+    const result = transformFrameData(frame, { colorMode: "website", fontMode: "website", textMode: "lorem" });
+    // Exact char count, no trimming
+    expect(result.tree.textContent.length).toBe("Pricing".length);
+  });
+
+  it("plugin font: whole-element width trimming", () => {
+    const frame = makeFrame(makeTextElement("Pricing"));
+    const result = transformFrameData(frame, { colorMode: "website", fontMode: "plugin", textMode: "lorem" });
+    // Lorem replacement should be trimmed to fit original width
+    expect(estimateTextWidth(result.tree.textContent)).toBeLessThanOrEqual(estimateTextWidth("Pricing"));
+  });
+
+  it("plugin font: no trim when already fits", () => {
+    const frame = makeFrame(makeTextElement("WILL"));
+    const result = transformFrameData(frame, { colorMode: "website", fontMode: "plugin", textMode: "lorem" });
+    // WILL has wide chars, lorem replacement should fit without trimming
+    expect(result.tree.textContent.length).toBe("WILL".length);
+  });
+});
+
+// ============================================================================
+// styledSegments + fontMode
+// ============================================================================
+
+describe("styledSegments + fontMode", () => {
+  it("website font: exact char count in segments", () => {
+    const el = makeTextElement("Hello World", "h2", {
+      styledSegments: [
+        { text: "Hello ", tag: "h2" },
+        { text: "World", tag: "a" },
+      ],
+    });
+    const frame = makeFrame(el);
+    const result = transformFrameData(frame, { colorMode: "website", fontMode: "website", textMode: "lorem" });
+    const segs = result.tree.styledSegments as any[];
+    expect(segs[0].text.length).toBe("Hello ".length);
+    expect(segs[1].text.length).toBe("World".length);
+  });
+
+  it("plugin font: total width fits original", () => {
+    const el = makeTextElement("Pricing here", "h2", {
+      styledSegments: [
+        { text: "Pricing ", tag: "h2" },
+        { text: "here", tag: "a" },
+      ],
+    });
+    const frame = makeFrame(el);
+    const result = transformFrameData(frame, { colorMode: "website", fontMode: "plugin", textMode: "lorem" });
+    const segs = result.tree.styledSegments as any[];
+    const totalLoremWidth = segs.reduce((w: number, s: any) => w + estimateTextWidth(s.text), 0);
+    const totalOrigWidth = estimateTextWidth("Pricing ") + estimateTextWidth("here");
+    expect(totalLoremWidth).toBeLessThanOrEqual(totalOrigWidth);
+  });
+
+  it("plugin font: pseudo-element segments are not trimmed", () => {
+    const el = makeTextElement("• Pricing", "span", {
+      styledSegments: [
+        { text: "• ", tag: "::marker" },
+        { text: "Pricing", tag: "span" },
+      ],
+    });
+    const frame = makeFrame(el);
+    const result = transformFrameData(frame, { colorMode: "website", fontMode: "plugin", textMode: "lorem" });
+    const segs = result.tree.styledSegments as any[];
+    expect(segs[0].text).toBe("• "); // pseudo preserved
   });
 });

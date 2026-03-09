@@ -3,8 +3,19 @@ import { h } from "preact";
 import { useState } from "preact/hooks";
 import styles from "./Modal.css";
 import type { FontMapping } from "../../../types";
+import {
+  buildFontDownloadEntries,
+  createFontsZipBlob,
+} from "../../../utils/fontDownload";
 
 export type FontFallbackChoice = "fallback" | "plugin" | "continue";
+
+/** Minimal font info for download links */
+export interface FontDownloadInfo {
+  family: string;
+  urls: string[];
+  isGoogleFont: boolean;
+}
 
 interface FontFallbackModalProps {
   isOpen: boolean;
@@ -13,6 +24,8 @@ interface FontFallbackModalProps {
   pluginFont: string;
   pluginFontOptions: string[];
   fallbackChains?: Record<string, string[]>;
+  fontDownloads?: FontDownloadInfo[];
+  extractedFonts?: Array<{ family: string; style?: string; weight?: string; format?: string; src?: string }>;
   onChoice: (choice: FontFallbackChoice, fontMapping: FontMapping) => void;
 }
 
@@ -23,9 +36,13 @@ export default function FontFallbackModal({
   pluginFont,
   pluginFontOptions,
   fallbackChains,
+  fontDownloads,
+  extractedFonts,
   onChoice,
 }: FontFallbackModalProps) {
   const [showPluginDropdowns, setShowPluginDropdowns] = useState(false);
+  const [showOriginalSection, setShowOriginalSection] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   // Per-font mapping: initialize each missing font to pluginFont
   const [fontMapping, setFontMapping] = useState<FontMapping>(() => {
     const initial: FontMapping = {};
@@ -54,14 +71,48 @@ export default function FontFallbackModal({
 
   const handlePluginFontsClick = () => {
     setShowPluginDropdowns(true);
+    setShowOriginalSection(false);
   };
 
   const handlePluginConfirm = () => {
     onChoice("plugin", fontMapping);
   };
 
-  const handleContinue = () => {
-    onChoice("continue", {});
+  const handleOriginalClick = () => {
+    setShowOriginalSection(true);
+    setShowPluginDropdowns(false);
+  };
+
+  const handleOriginalApply = () => {
+    // Identity mapping: each font maps to itself (original names preserved)
+    // main.ts will render with Inter but create Text Styles with original names
+    const mapping: FontMapping = {};
+    for (const font of missingFonts) {
+      mapping[font] = font;
+    }
+    onChoice("continue", mapping);
+  };
+
+  const handleDownloadFonts = async () => {
+    if (!fontDownloads || fontDownloads.length === 0) return;
+    setIsDownloading(true);
+    try {
+      const entries = buildFontDownloadEntries(fontDownloads, extractedFonts);
+      if (entries.length === 0) return;
+      const blob = await createFontsZipBlob(entries);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "fonts.zip";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      // Download failed silently
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const handleDropdownChange = (font: string, value: string) => {
@@ -115,9 +166,10 @@ export default function FontFallbackModal({
                 <div class={styles.variablesOptionContent}>
                   <strong>Map each font:</strong>
                   {missingFonts.map((font) => (
-                    <div key={font} style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
-                      <span style={{ minWidth: "80px" }}>{font}</span>
+                    <div key={font} class={styles.fontMappingRow}>
+                      <span class={styles.fontMappingLabel}>{font}</span>
                       <select
+                        class={styles.dropdown}
                         value={fontMapping[font] || pluginFont}
                         onChange={(e) =>
                           handleDropdownChange(font, (e.target as HTMLSelectElement).value)
@@ -132,7 +184,7 @@ export default function FontFallbackModal({
                     </div>
                   ))}
                   <button
-                    style={{ marginTop: "8px" }}
+                    class={styles.fontApplyBtn}
                     onClick={handlePluginConfirm}
                   >
                     Apply
@@ -141,17 +193,42 @@ export default function FontFallbackModal({
               </div>
             )}
 
-            {/* Option 3: Continue as-is */}
-            <button
-              class={styles.variablesOption}
-              onClick={handleContinue}
-            >
-              <div class={styles.variablesOptionIcon}>?</div>
-              <div class={styles.variablesOptionContent}>
-                <strong>Continue as-is</strong>
-                <span>Figma will substitute default fonts</span>
+            {/* Option 3: Use original fonts */}
+            {!showOriginalSection ? (
+              <button
+                class={styles.variablesOption}
+                onClick={handleOriginalClick}
+              >
+                <div class={styles.variablesOptionIcon}>Aa</div>
+                <div class={styles.variablesOptionContent}>
+                  <strong>Use original fonts</strong>
+                  <span>Download & install fonts later</span>
+                </div>
+              </button>
+            ) : (
+              <div class={styles.variablesOption}>
+                <div class={styles.variablesOptionContent}>
+                  <span class={styles.originalFontHint}>
+                    Text Styles will use original font names. Download the fonts, install them, then update the styles in Figma.
+                  </span>
+                  {fontDownloads && fontDownloads.length > 0 && (
+                    <button
+                      class={styles.fontDownloadBtn}
+                      onClick={handleDownloadFonts}
+                      disabled={isDownloading}
+                    >
+                      {isDownloading ? "Downloading..." : "Download fonts (.zip)"}
+                    </button>
+                  )}
+                  <button
+                    class={styles.fontApplyBtn}
+                    onClick={handleOriginalApply}
+                  >
+                    Apply
+                  </button>
+                </div>
               </div>
-            </button>
+            )}
           </div>
         </div>
       </div>

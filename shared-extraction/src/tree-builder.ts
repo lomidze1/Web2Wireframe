@@ -5,7 +5,7 @@
  * Used by both Browser Extension and Plugin_Backend.
  */
 
-import type { ExtractedElement, CDPMatchedStyles, StyledTextSegment } from "./types";
+import type { ExtractedElement, CDPMatchedStyles, StyledTextSegment, PlatformFontInfo } from "./types";
 import type { ParsedSnapshotNode } from "./snapshot";
 import { extractPropertyFromMatchedRules, extractPseudoStyles } from "./css";
 import {
@@ -51,6 +51,8 @@ export interface BuildTreeOptions {
   cssVariablesMap?: Map<string, string>;
   bodyOriginalCSS?: BodyOriginalCSS | null;
   browserDpr?: number;
+  /** Map from backendNodeId to actual rendered platform fonts (from CSS.getPlatformFontsForNode) */
+  platformFontMap?: Map<number, PlatformFontInfo[]>;
 }
 
 // ============================================================================
@@ -141,32 +143,37 @@ function needsFrameWrapper(
 /**
  * Collect direct text content from immediate TEXT_NODE children only
  */
-function collectDirectText(
+export function collectDirectText(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
   childrenMap: Map<number, number[]>
 ): string {
   const childIndices = childrenMap.get(nodeIndex) || [];
-  const textParts: string[] = [];
+  const processedParts: string[] = [];
   let hasElementChildren = false;
 
   for (const childIdx of childIndices) {
     const child = nodes[childIdx];
     if (child && child.nodeType === 3 && child.textContent) {
-      textParts.push(child.textContent);
+      // Normalize source whitespace per-part (NOT on final result)
+      processedParts.push(child.textContent.replace(/[\r\n\t]+/g, " "));
     }
     if (child && child.nodeType === 1) {
-      hasElementChildren = true;
+      if (child.nodeName === "br") {
+        processedParts.push("\n");
+      } else {
+        hasElementChildren = true;
+      }
     }
   }
 
-  let result = textParts.join("");
-  result = result.replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ");
+  let result = processedParts.join("").replace(/ {2,}/g, " ");
 
   if (hasElementChildren) {
     result = result.replace(/^\s+/, "");
   } else {
-    result = result.trim();
+    // Trim spaces but keep \n at boundaries
+    result = result.replace(/^[^\S\n]+/, "").replace(/[^\S\n]+$/, "");
   }
 
   return result;
@@ -175,7 +182,7 @@ function collectDirectText(
 /**
  * Recursively collect ALL text from inline elements
  */
-function collectAllInlineText(
+export function collectAllInlineText(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
   childrenMap: Map<number, number[]>
@@ -183,8 +190,14 @@ function collectAllInlineText(
   const node = nodes[nodeIndex];
   if (!node) return "";
 
+  // TEXT_NODE — normalize source whitespace immediately
   if (node.nodeType === 3) {
-    return node.textContent || "";
+    return (node.textContent || "").replace(/[\r\n\t]+/g, " ");
+  }
+
+  // BR element → explicit line break
+  if (node.nodeType === 1 && node.nodeName === "br") {
+    return "\n";
   }
 
   const childIndices = childrenMap.get(nodeIndex) || [];
@@ -197,18 +210,24 @@ function collectAllInlineText(
     }
   }
 
-  let result = textParts.join(" ");
-  result = result
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/ {2,}/g, " ")
-    .trim();
+  // Join with space, but don't add space around \n from <br>
+  let result = "";
+  for (let i = 0; i < textParts.length; i++) {
+    const part = textParts[i];
+    if (i > 0 && part !== "\n" && !result.endsWith("\n")) {
+      result += " ";
+    }
+    result += part;
+  }
+
+  result = result.replace(/ {2,}/g, " ").trim();
   return result;
 }
 
 /**
  * Check if element is a "leaf" text element (has no element children)
  */
-function isLeafElement(
+export function isLeafElement(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
   childrenMap: Map<number, number[]>
@@ -217,7 +236,7 @@ function isLeafElement(
 
   for (const childIdx of childIndices) {
     const child = nodes[childIdx];
-    if (child && child.nodeType === 1) {
+    if (child && child.nodeType === 1 && child.nodeName !== "br") {
       return false;
     }
   }
@@ -245,7 +264,7 @@ const INLINE_TAGS = [
  *   { text: "support@example.com", color: "#0066cc", fontWeight: 700, fontSize: 24, tag: "a", isLink: true }
  * ]
  */
-function collectStyledText(
+export function collectStyledText(
   nodeIndex: number,
   nodes: ParsedSnapshotNode[],
   childrenMap: Map<number, number[]>,
@@ -256,7 +275,8 @@ function collectStyledText(
     fontFamily: string;
     fontFamilyList?: string[];
     textDecoration?: "underline" | "line-through" | "none";
-  }
+  },
+  platformFontMap?: Map<number, PlatformFontInfo[]>,
 ): StyledTextSegment[] {
   const node = nodes[nodeIndex];
   if (!node) return [];
@@ -288,12 +308,37 @@ function collectStyledText(
     else if (child.nodeType === 1) {
       const tag = child.nodeName.toLowerCase();
 
+      // <br> → append \n to last segment (or create new one)
+      if (tag === "br") {
+        if (segments.length > 0) {
+          segments[segments.length - 1].text += "\n";
+        } else {
+          segments.push({
+            text: "\n",
+            color: parentStyles.color,
+            fontWeight: parentStyles.fontWeight,
+            fontSize: parentStyles.fontSize,
+            fontFamily: parentStyles.fontFamily,
+            fontFamilyList: parentStyles.fontFamilyList,
+            tag: node.nodeName,
+            textDecoration: parentStyles.textDecoration,
+          });
+        }
+        continue;
+      }
+
       if (INLINE_TAGS.includes(tag)) {
         // Get this element's computed styles
         const childColor = parseColor(child.computedStyles["color"]) || parentStyles.color;
         const childFontWeight = parseInt(child.computedStyles["font-weight"] || "0") || parentStyles.fontWeight;
         const childFontSize = parseInt(child.computedStyles["font-size"] || "0") || parentStyles.fontSize;
-        const childFontFamilyRaw = child.computedStyles["font-family"] || parentStyles.fontFamily;
+        // Prefer platform font (actual rendered) > computed styles
+        let childFontFamilyRaw = child.computedStyles["font-family"] || parentStyles.fontFamily;
+        const childPlatformFonts = platformFontMap?.get(child.backendNodeId);
+        if (childPlatformFonts && childPlatformFonts.length > 0) {
+          const primary = childPlatformFonts.reduce((a, b) => a.glyphCount >= b.glyphCount ? a : b);
+          childFontFamilyRaw = primary.familyName;
+        }
         const childFontFamilyList = childFontFamilyRaw
           .split(",")
           .map((f: string) => f.replace(/['"]/g, "").trim())
@@ -322,7 +367,7 @@ function collectStyledText(
           textDecoration: childTextDecoration,
         };
 
-        const childSegments = collectStyledText(childIdx, nodes, childrenMap, childStyles);
+        const childSegments = collectStyledText(childIdx, nodes, childrenMap, childStyles, platformFontMap);
 
         // Mark segments from inline elements with their tag
         for (const seg of childSegments) {
@@ -699,6 +744,7 @@ export function buildElementTree(
     cssVariablesMap = new Map(),
     bodyOriginalCSS = null,
     browserDpr = 1,
+    platformFontMap,
   } = options;
 
   // Find body node
@@ -909,8 +955,22 @@ export function buildElementTree(
     const blurEffects = parseBackdropFilterToEffects(backdropFilter);
     const effects = [...shadowEffects, ...blurEffects];
 
-    // Typography
-    const fontFamilyRaw = computedStyles["font-family"] || "Inter";
+    // Typography — prefer platform font (actual rendered font) > matched rules > computed styles
+    // Platform fonts from CSS.getPlatformFontsForNode give the real rendered font name
+    // (e.g., "PP Fragment Glare Medium" instead of PostScript abbreviation "PSA")
+    let fontFamilyRaw: string | null = null;
+    const platformFonts = platformFontMap?.get(node.backendNodeId);
+    if (platformFonts && platformFonts.length > 0) {
+      // Use the font with the most glyphs rendered (primary font)
+      const primary = platformFonts.reduce((a, b) => a.glyphCount >= b.glyphCount ? a : b);
+      fontFamilyRaw = primary.familyName;
+    }
+    if (!fontFamilyRaw && matchedStyles) {
+      fontFamilyRaw = extractPropertyFromMatchedRules(matchedStyles, "font-family");
+    }
+    if (!fontFamilyRaw) {
+      fontFamilyRaw = computedStyles["font-family"] || "Inter";
+    }
     const fontFamilyList = fontFamilyRaw
       .split(",")
       .map((f: string) => f.replace(/['"]/g, "").trim())
@@ -1079,7 +1139,7 @@ export function buildElementTree(
         fontFamilyList,
         textDecoration: parentTextDecoration,
       };
-      styledSegments = collectStyledText(node.index, nodes, childrenMap, parentStyles);
+      styledSegments = collectStyledText(node.index, nodes, childrenMap, parentStyles, platformFontMap);
 
       // Also update aggregatedText from styled segments (full text)
       if (styledSegments.length > 0) {

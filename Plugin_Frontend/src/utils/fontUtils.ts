@@ -30,6 +30,30 @@ export const CSS_GENERIC_FONTS: ReadonlySet<string> = new Set([
   "fangsong",
 ]);
 
+/** CSS keywords that are not valid font names */
+const CSS_FONT_KEYWORDS: ReadonlySet<string> = new Set([
+  "inherit",
+  "initial",
+  "unset",
+  "revert",
+  "revert-layer",
+]);
+
+/**
+ * Check if a font name is valid (not a CSS keyword, variable, or junk value).
+ * Filters out:
+ * - CSS variables: var(--font-sans)
+ * - CSS keywords: inherit, initial, unset
+ * - CSS generic families: serif, sans-serif, etc.
+ */
+export function isValidFontName(font: string): boolean {
+  if (!font || font.length === 0) return false;
+  if (font.startsWith("var(")) return false;
+  if (CSS_FONT_KEYWORDS.has(font.toLowerCase())) return false;
+  if (CSS_GENERIC_FONTS.has(font.toLowerCase())) return false;
+  return true;
+}
+
 // ============================================================================
 // collectAllFonts
 // ============================================================================
@@ -44,12 +68,12 @@ export function collectAllFonts(
   const fonts = new Set<string>();
 
   function walkNode(node: WireframeNode): void {
-    if (node.fontFamily) {
+    if (node.fontFamily && isValidFontName(node.fontFamily)) {
       fonts.add(node.fontFamily);
     }
     if (node.styledSegments) {
       for (const seg of node.styledSegments) {
-        if (seg.fontFamily) {
+        if (seg.fontFamily && isValidFontName(seg.fontFamily)) {
           fonts.add(seg.fontFamily);
         }
       }
@@ -186,4 +210,22 @@ export function buildPluginModeFontMapping(
   }
 
   return mapping;
+}
+
+// ============================================================================
+// parseFontSrcUrls
+// ============================================================================
+
+/**
+ * Parse font download URLs from CSS @font-face `src` declaration.
+ * Ignores data URIs, returns only http/https URLs.
+ */
+export function parseFontSrcUrls(src: string): string[] {
+  const urls: string[] = [];
+  const regex = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
+  let match;
+  while ((match = regex.exec(src)) !== null) {
+    urls.push(match[1]);
+  }
+  return urls;
 }

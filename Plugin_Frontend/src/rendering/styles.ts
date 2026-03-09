@@ -993,6 +993,27 @@ export interface TypographyCombo {
 }
 
 /**
+ * Build a deterministic key for TextStyle lookup.
+ * Used by both collectTypographyFromTree (creation) and linkTextStyleIfApplicable (linking)
+ * to guarantee key consistency.
+ */
+export function buildTextStyleKey(
+  fontFamily: string,
+  fontWeight: number,
+  fontSize: number,
+  lineHeight: number | string | undefined,
+  letterSpacing: number
+): string {
+  const styleStr = fontWeightToStyle(fontWeight);
+  const actualFontSize = Math.max(fontSize || 14, 8);
+  const lh = parseFigmaLineHeight(lineHeight);
+  const lhKey = lineHeightKeyStr(lh);
+  const ls = Math.round((letterSpacing || 0) * 10) / 10;
+  const lsKey = ls !== 0 ? `ls${Math.round(ls * 10)}` : "";
+  return [fontFamily, styleStr, actualFontSize, lhKey, lsKey].filter(Boolean).join("-");
+}
+
+/**
  * Recursively collect unique typography combinations from the wireframe tree.
  * Includes lineHeight and letterSpacing in the key for accurate TextStyle matching.
  */
@@ -1007,12 +1028,9 @@ export function collectTypographyFromTree(
     const family = fontMode === "plugin" ? pluginFontFamily : (node.fontFamily || pluginFontFamily);
     const fontSize = Math.max(node.fontSize || 14, 8);
     const fontWeight = node.fontWeight || 400;
-    const styleStr = fontWeightToStyle(fontWeight);
+    const key = buildTextStyleKey(family, fontWeight, node.fontSize, node.lineHeight, node.letterSpacing || 0);
     const lh = parseFigmaLineHeight(node.lineHeight);
-    const lhKey = lineHeightKeyStr(lh);
     const ls = Math.round((node.letterSpacing || 0) * 10) / 10;
-    const lsKey = ls !== 0 ? `ls${Math.round(ls * 10)}` : "";
-    const key = [family, styleStr, fontSize, lhKey, lsKey].filter(Boolean).join("-");
 
     if (!combos.has(key)) {
       combos.set(key, { fontFamily: family, fontSize, fontWeight, lineHeight: lh, letterSpacing: ls });
@@ -1025,8 +1043,7 @@ export function collectTypographyFromTree(
           const segFamily = fontMode === "plugin" ? pluginFontFamily : (seg.fontFamily || node.fontFamily || pluginFontFamily);
           const segFontSize = Math.max(seg.fontSize || 14, 8);
           const segFontWeight = seg.fontWeight || node.fontWeight || 400;
-          const segStyleStr = fontWeightToStyle(segFontWeight);
-          const segKey = [segFamily, segStyleStr, segFontSize, lhKey, lsKey].filter(Boolean).join("-");
+          const segKey = buildTextStyleKey(segFamily, segFontWeight, seg.fontSize, node.lineHeight, node.letterSpacing || 0);
           if (!combos.has(segKey)) {
             combos.set(segKey, { fontFamily: segFamily, fontSize: segFontSize, fontWeight: segFontWeight, lineHeight: lh, letterSpacing: ls });
           }
@@ -1055,7 +1072,8 @@ export function collectTypographyFromTree(
 export async function createTextStyles(
   frames: WireframeFrame[],
   fontFamily: string,
-  fontMode: "plugin" | "website"
+  fontMode: "plugin" | "website",
+  originalFontNames?: Record<string, string>
 ): Promise<Map<string, TextStyle>> {
   const textStyleMap = new Map<string, TextStyle>();
 
@@ -1140,11 +1158,45 @@ export async function createTextStyles(
       textStyleMap.set(key, textStyle);
       stylesCreated++;
     } catch {
-      // Font not available -- skip this text style
-      logger.warn("Skipping text style (font not available)", {
-        font: combo.fontFamily,
-        style: styleStr,
-      });
+      // Font not available — try creating style with Inter if "Use original fonts" was chosen
+      if (originalFontNames && originalFontNames[combo.fontFamily]) {
+        try {
+          await figma.loadFontAsync({ family: "Inter", style: styleStr });
+
+          const existing = existingTextStyles.find((s) => s.name === styleName);
+          if (existing) {
+            existing.fontName = { family: "Inter", style: styleStr };
+            existing.fontSize = combo.fontSize;
+            existing.lineHeight = combo.lineHeight;
+            if (combo.letterSpacing !== 0) {
+              existing.letterSpacing = { value: combo.letterSpacing, unit: "PIXELS" };
+            }
+            textStyleMap.set(key, existing);
+            continue;
+          }
+
+          const textStyle = figma.createTextStyle();
+          textStyle.name = styleName; // Original font name preserved in style name
+          textStyle.fontName = { family: "Inter", style: styleStr };
+          textStyle.fontSize = combo.fontSize;
+          textStyle.lineHeight = combo.lineHeight;
+          if (combo.letterSpacing !== 0) {
+            textStyle.letterSpacing = { value: combo.letterSpacing, unit: "PIXELS" };
+          }
+          textStyleMap.set(key, textStyle);
+          stylesCreated++;
+        } catch {
+          logger.warn("Skipping text style (Inter style variant not available)", {
+            font: combo.fontFamily,
+            style: styleStr,
+          });
+        }
+      } else {
+        logger.warn("Skipping text style (font not available)", {
+          font: combo.fontFamily,
+          style: styleStr,
+        });
+      }
     }
   }
 

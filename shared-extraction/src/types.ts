@@ -419,6 +419,17 @@ export interface ExtractedFont {
   isGoogleFont: boolean;
 }
 
+/**
+ * Platform font info from CSS.getPlatformFontsForNode
+ * Represents the actual font the browser rendered (not just declared CSS)
+ */
+export interface PlatformFontInfo {
+  familyName: string; // e.g., "PP Fragment Glare Medium"
+  postScriptName: string; // e.g., "PPFragmentGlare-Medium"
+  isCustomFont: boolean; // true = web font, false = system font
+  glyphCount: number; // number of glyphs rendered with this font
+}
+
 export interface ExtractedAsset {
   type: "image" | "svg" | "video" | "icon";
   src: string;

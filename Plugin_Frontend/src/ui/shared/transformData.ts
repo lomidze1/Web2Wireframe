@@ -134,15 +134,15 @@ export function estimateTextWidth(text: string): number {
  * Only alphabetic runs ([a-zA-Z]+) are replaced with Lorem words; symbols,
  * numbers, punctuation, spaces, and other characters stay exactly where they were.
  *
- * If the Lorem replacement for a word is estimated to be visually wider than
- * the original word, 1 character is trimmed from the end to prevent overflow.
+ * Always produces exact character count replacement (no per-word trimming).
+ * Width-based trimming is handled separately by trimLoremToFitWidth() when needed.
  *
  * Examples:
  *   "$12 /month"     → "$12 /lorem"
  *   "Hello, World!"  → "Lorem, Ipsum!"
  *   "$99"            → "$99"           (no letters → unchanged)
- *   "Read more →"    → "Lorem ipsu →"
- *   "Pricing"        → "Loremi"        (trimmed: "Loremip" would be wider)
+ *   "Read more →"    → "Lorem ipsum →"
+ *   "Pricing"        → "Loremip"       (exact 7 chars, no trimming)
  */
 export function generateLoremPreservingSymbols(originalText: string): string {
   if (!originalText) return "";
@@ -167,13 +167,28 @@ export function generateLoremPreservingSymbols(originalText: string): string {
       replacement = replacement.charAt(0).toUpperCase() + replacement.slice(1);
     }
 
-    // If Lorem replacement is estimated to be visually wider, trim 1 char to prevent overflow
-    if (replacement.length > 1 && estimateTextWidth(replacement) > estimateTextWidth(match)) {
-      replacement = replacement.slice(0, -1);
-    }
-
     return replacement;
   });
+}
+
+/**
+ * Trim lorem text to fit within the width of the original text.
+ * Removes alphabetic characters from the end while preserving symbols/punctuation.
+ * Used for plugin font mode where width matching is important.
+ */
+export function trimLoremToFitWidth(loremText: string, originalText: string): string {
+  if (!loremText || !originalText) return loremText;
+  const targetWidth = estimateTextWidth(originalText);
+  if (estimateTextWidth(loremText) <= targetWidth) return loremText;
+
+  const chars = Array.from(loremText);
+  for (let i = chars.length - 1; i >= 0; i--) {
+    if (/[a-zA-Z]/.test(chars[i])) {
+      chars.splice(i, 1);
+      if (estimateTextWidth(chars.join("")) <= targetWidth) break;
+    }
+  }
+  return chars.join("");
 }
 
 /**
@@ -200,6 +215,7 @@ interface TransformContext {
   parentTag: string;
   sectionTag?: string;
   parentIsLogo?: boolean;
+  fontMode?: FontMode;
 }
 
 /** Section-level HTML tags that define page regions */
@@ -328,10 +344,12 @@ interface CapturedFrame {
 function transformTextInElement(
   element: ExtractedElement,
   textMode: TextMode,
-  context?: TransformContext
+  context?: TransformContext,
+  fontMode?: FontMode
 ): ExtractedElement {
   const transformed = { ...element };
   const tagLower = element.tag?.toLowerCase() || "";
+  const effectiveFontMode = fontMode ?? context?.fontMode;
 
   // Determine section context: inherit from parent or set from current element
   const sectionTag = SECTION_TAGS.has(tagLower) ? tagLower : context?.sectionTag;
@@ -345,9 +363,13 @@ function transformTextInElement(
   // Transform text content if present
   if (transformed.textContent && transformed.type === "text") {
     switch (textMode) {
-      case "lorem":
+      case "lorem": {
         transformed.textContent = generateLoremPreservingSymbols(transformed.textContent);
+        if (effectiveFontMode === "plugin") {
+          transformed.textContent = trimLoremToFitWidth(transformed.textContent, element.textContent);
+        }
         break;
+      }
       case "semantic":
         transformed.textContent = getSemanticPlaceholder(
           transformed.tag,
@@ -388,6 +410,35 @@ function transformTextInElement(
         }
         return segClone;
       });
+
+      // Post-process: for plugin font, trim total width from last non-pseudo segment
+      if (textMode === "lorem" && effectiveFontMode === "plugin" && element.styledSegments) {
+        const originalTotal = element.styledSegments.reduce((w, s) => w + estimateTextWidth(s.text), 0);
+        const loremTotal = transformed.styledSegments.reduce((w, s) => w + estimateTextWidth(s.text), 0);
+
+        if (loremTotal > originalTotal) {
+          for (let i = transformed.styledSegments.length - 1; i >= 0; i--) {
+            const segTag = transformed.styledSegments[i].tag?.toLowerCase() || "";
+            const isPseudo = segTag === "::marker" || segTag === "::before" || segTag === "::after";
+            if (!isPseudo && /[a-zA-Z]/.test(transformed.styledSegments[i].text)) {
+              const excess = loremTotal - originalTotal;
+              const segWidth = estimateTextWidth(transformed.styledSegments[i].text);
+              const targetSegWidth = segWidth - excess;
+              if (targetSegWidth > 0) {
+                const chars = Array.from(transformed.styledSegments[i].text);
+                for (let j = chars.length - 1; j >= 0; j--) {
+                  if (estimateTextWidth(chars.join("")) <= targetSegWidth) break;
+                  if (/[a-zA-Z]/.test(chars[j])) {
+                    chars.splice(j, 1);
+                  }
+                }
+                transformed.styledSegments[i] = { ...transformed.styledSegments[i], text: chars.join("") };
+              }
+              break;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -397,6 +448,7 @@ function transformTextInElement(
       parentTag: tagLower,
       sectionTag,
       parentIsLogo,
+      fontMode: effectiveFontMode,
     };
     transformed.children = transformed.children.map((child) =>
       transformTextInElement(child, textMode, childContext)
@@ -414,7 +466,7 @@ export function transformFrameData(
   frame: CapturedFrame,
   options: { colorMode: ColorMode; fontMode: FontMode; textMode: TextMode }
 ): CapturedFrame {
-  const { textMode } = options;
+  const { textMode, fontMode } = options;
 
   // If website mode, return as-is
   if (textMode === "website") {
@@ -424,7 +476,7 @@ export function transformFrameData(
   // Transform text content in the tree
   return {
     ...frame,
-    tree: transformTextInElement(frame.tree, textMode),
+    tree: transformTextInElement(frame.tree, textMode, undefined, fontMode),
   };
 }
 

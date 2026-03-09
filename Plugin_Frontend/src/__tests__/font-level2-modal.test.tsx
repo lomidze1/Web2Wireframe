@@ -62,7 +62,7 @@ describe("Level 2: FontFallbackModal — Website mode UI", () => {
     // All 3 options should be visible (exact button text)
     expect(getByText("Use fallback fonts")).toBeTruthy();
     expect(getByText("Use plugin fonts")).toBeTruthy();
-    expect(getByText("Continue as-is")).toBeTruthy();
+    expect(getByText("Use original fonts")).toBeTruthy();
   });
 
   // L2-10: All missing fonts displayed
@@ -157,18 +157,29 @@ describe("Level 2: FontFallbackModal — Website mode UI", () => {
     );
   });
 
-  // L2-15: "Continue as-is" sends empty mapping
-  it("L2-15: 'Continue as-is' sends empty fontMapping", () => {
+  // L2-15: "Use original fonts" expands section, then Apply sends identity mapping
+  it("L2-15: 'Use original fonts' sends identity fontMapping", () => {
     const onChoice = vi.fn();
     const { getByText } = render(
       <FontFallbackModal {...defaultProps} onChoice={onChoice} />
     );
 
-    // Click "Continue as-is"
-    const continueBtn = getByText("Continue as-is");
-    fireEvent.click(continueBtn);
+    // Click "Use original fonts" to expand the section
+    const originalBtn = getByText("Use original fonts");
+    fireEvent.click(originalBtn);
 
-    expect(onChoice).toHaveBeenCalledWith("continue", {});
+    // onChoice should NOT be called yet (expanded section shown)
+    expect(onChoice).not.toHaveBeenCalled();
+
+    // Click "Apply" to confirm
+    const applyBtn = getByText("Apply");
+    fireEvent.click(applyBtn);
+
+    expect(onChoice).toHaveBeenCalledWith("continue", {
+      "PSA": "PSA",
+      "PSC": "PSC",
+      "SS3V": "SS3V",
+    });
   });
 
   // Extra: does not render when isOpen is false

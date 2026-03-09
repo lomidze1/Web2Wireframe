@@ -52,6 +52,7 @@ export type {
   CaptureOptions,
   DetectedColors,
   ExtractedFont,
+  PlatformFontInfo,
   ExtractedAsset,
   ExtractedStylesheet,
   ExtractedCSSVariable,
@@ -127,6 +128,10 @@ export {
 export {
   buildElementTree,
   filterDefaultStyles,
+  collectDirectText,
+  collectAllInlineText,
+  collectStyledText,
+  isLeafElement,
   type BuildTreeOptions,
   type BodyOriginalCSS,
 } from "./tree-builder";

@@ -1,77 +1,75 @@
 /**
  * Font extraction using CDP
+ *
+ * Uses CSS.getStyleSheetText to bypass CORS restrictions and extract
+ * @font-face rules from ALL stylesheets (including cross-origin CDN ones).
  */
 
 import { CDPClient } from "./client";
+import { getStyleSheetText } from "./css";
+import { parseFontFaceRules, deduplicateFonts } from "./fontCssParser";
 import type { ExtractedFont } from "@/shared/types";
 
 /**
  * Extract all fonts used on the page
+ * @param pageUrl - page URL used as fallback base for resolving relative font paths in inline stylesheets
  */
-export async function extractFonts(client: CDPClient): Promise<ExtractedFont[]> {
+export async function extractFonts(client: CDPClient, pageUrl?: string): Promise<ExtractedFont[]> {
   const fonts: ExtractedFont[] = [];
 
-  // Get @font-face rules
-  const fontFaceRules = await getFontFaceFromStylesheets(client);
+  // Get @font-face rules via CDP (bypasses CORS)
+  const fontFaceRules = await getFontFaceFromStylesheets(client, pageUrl);
   fonts.push(...fontFaceRules);
 
   // Get Google Fonts from link tags
   const googleFonts = await getGoogleFonts(client);
   fonts.push(...googleFonts);
 
-  return fonts;
+  return deduplicateFonts(fonts);
 }
 
 /**
- * Get @font-face rules from stylesheets
+ * Collect all stylesheet headers via CSS.styleSheetAdded events,
+ * then fetch each stylesheet's text and parse @font-face rules.
+ *
+ * This bypasses CORS — CDP has full access to all stylesheets.
  */
-async function getFontFaceFromStylesheets(client: CDPClient): Promise<ExtractedFont[]> {
-  const result = await client.send<{ result: { value: ExtractedFont[] } }>(
-    "Runtime.evaluate",
-    {
-      expression: `
-        (function() {
-          const fonts = [];
-          const processedFamilies = new Set();
+async function getFontFaceFromStylesheets(client: CDPClient, pageUrl?: string): Promise<ExtractedFont[]> {
+  const stylesheets: Array<{ styleSheetId: string; sourceURL: string }> = [];
 
-          for (const sheet of document.styleSheets) {
-            try {
-              for (const rule of sheet.cssRules || []) {
-                if (rule instanceof CSSFontFaceRule) {
-                  const family = rule.style.fontFamily?.replace(/['"]/g, '').trim();
-                  if (family && !processedFamilies.has(family)) {
-                    processedFamilies.add(family);
+  // Listen for stylesheet events
+  const removeListener = client.on("CSS.styleSheetAdded", (params) => {
+    const header = (params as { header: { styleSheetId: string; sourceURL: string } }).header;
+    stylesheets.push({
+      styleSheetId: header.styleSheetId,
+      sourceURL: header.sourceURL || "",
+    });
+  });
 
-                    const src = rule.style.src || '';
-                    let format = 'unknown';
-                    if (src.includes('.woff2')) format = 'woff2';
-                    else if (src.includes('.woff')) format = 'woff';
-                    else if (src.includes('.ttf')) format = 'truetype';
-                    else if (src.includes('.otf')) format = 'opentype';
+  // Re-enable CSS domain to trigger styleSheetAdded events for all existing sheets
+  await client.send("CSS.disable");
+  await client.send("CSS.enable");
 
-                    fonts.push({
-                      family: family,
-                      style: rule.style.fontStyle || 'normal',
-                      weight: rule.style.fontWeight || '400',
-                      src: src,
-                      format: format,
-                      isGoogleFont: src.includes('fonts.gstatic.com') || src.includes('fonts.googleapis.com')
-                    });
-                  }
-                }
-              }
-            } catch (e) {
-              // Cross-origin stylesheet
-            }
-          }
-          return fonts;
-        })()
-      `,
-      returnByValue: true,
+  // Allow events to fire
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  removeListener();
+
+  // Fetch text for each stylesheet and parse @font-face rules
+  const allFonts: ExtractedFont[] = [];
+
+  for (const sheet of stylesheets) {
+    try {
+      const text = await getStyleSheetText(client, sheet.styleSheetId);
+      if (text) {
+        const fonts = parseFontFaceRules(text, sheet.sourceURL || pageUrl || "");
+        allFonts.push(...fonts);
+      }
+    } catch {
+      // Skip stylesheets that can't be read
     }
-  );
+  }
 
-  return result.result.value;
+  return allFonts;
 }
 
 /**
@@ -131,23 +129,46 @@ async function getGoogleFonts(client: CDPClient): Promise<ExtractedFont[]> {
 }
 
 /**
- * Get actually rendered fonts for the page (what the browser actually uses)
+ * Get actually rendered fonts for a single node (what the browser actually uses)
  */
 export async function getRenderedFonts(
   client: CDPClient,
   nodeId: number
-): Promise<Array<{ familyName: string; isCustomFont: boolean }>> {
+): Promise<Array<{ familyName: string; postScriptName: string; isCustomFont: boolean; glyphCount: number }>> {
   try {
     const result = await client.send<{
-      fonts: Array<{ familyName: string; isCustomFont: boolean; glyphCount: number }>;
+      fonts: Array<{ familyName: string; postScriptName: string; isCustomFont: boolean; glyphCount: number }>;
     }>("CSS.getPlatformFontsForNode", { nodeId });
-    return result.fonts.map((f) => ({
-      familyName: f.familyName,
-      isCustomFont: f.isCustomFont,
-    }));
+    return result.fonts;
   } catch {
     return [];
   }
+}
+
+/**
+ * Collect platform fonts for all text nodes in bulk.
+ * Calls CSS.getPlatformFontsForNode on every provided nodeId with concurrency batching.
+ * Returns Map<backendNodeId, PlatformFontInfo[]>
+ */
+export async function collectPlatformFonts(
+  client: CDPClient,
+  textNodes: Array<{ backendNodeId: number; nodeId: number }>
+): Promise<Map<number, Array<{ familyName: string; postScriptName: string; isCustomFont: boolean; glyphCount: number }>>> {
+  const result = new Map<number, Array<{ familyName: string; postScriptName: string; isCustomFont: boolean; glyphCount: number }>>();
+  const BATCH_SIZE = 10;
+
+  for (let i = 0; i < textNodes.length; i += BATCH_SIZE) {
+    const batch = textNodes.slice(i, i + BATCH_SIZE);
+    const promises = batch.map(async ({ backendNodeId, nodeId }) => {
+      const fonts = await getRenderedFonts(client, nodeId);
+      if (fonts.length > 0) {
+        result.set(backendNodeId, fonts);
+      }
+    });
+    await Promise.all(promises);
+  }
+
+  return result;
 }
 
 /**
