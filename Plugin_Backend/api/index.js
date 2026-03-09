@@ -13,6 +13,13 @@ const {
   getFontByMode,
 } = require("../utils/styleUtils");
 const { validateUrl } = require("../utils/urlValidation");
+const { convertToWireframeTree } = require("../lib/wireframeConverter");
+const {
+  generateWithRetry,
+  validateSimplifiedFormat,
+  VALID_PAGE_TYPES,
+  VALID_BLOCK_TYPES,
+} = require("../lib/aiGenerator");
 
 const app = express();
 
@@ -640,6 +647,221 @@ app.get("/api/default-fonts", (req, res) => {
     success: true,
     fonts: DEFAULT_PLUGIN_FONTS,
   });
+});
+
+/**
+ * POST /api/generate-page - AI-powered wireframe page generation
+ *
+ * Request body:
+ * - userId: string (required)
+ * - pageType: string (required) - "home", "pricing", etc.
+ * - sections: string[] - Sections to include ["Hero", "Features", ...]
+ * - density: "balanced" | "detailed" (default: "balanced")
+ * - viewports: number[] - Viewport widths (default: [1440])
+ * - notes: string - Optional special requirements
+ * - pluginColors: object - Plugin color palette
+ * - pluginFont: string - Plugin font (default: "Inter")
+ */
+app.post("/api/generate-page", async (req, res) => {
+  try {
+    const {
+      userId,
+      pageType,
+      sections,
+      density = "balanced",
+      viewports = [1440],
+      notes = "",
+      pluginColors = {},
+      pluginFont = "Inter",
+    } = req.body;
+
+    // Validation
+    if (!userId) {
+      return res.status(400).json({ success: false, error: "userId is required" });
+    }
+    if (!pageType) {
+      return res.status(400).json({ success: false, error: "pageType is required" });
+    }
+    if (!VALID_PAGE_TYPES.includes(pageType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid pageType: ${pageType}. Must be one of: ${VALID_PAGE_TYPES.join(", ")}`,
+      });
+    }
+    if (!["balanced", "detailed"].includes(density)) {
+      return res.status(400).json({ success: false, error: "density must be 'balanced' or 'detailed'" });
+    }
+
+    // TODO: License validation (Phase 3)
+    // TODO: Rate limiting (Phase 3)
+
+    // Merge plugin colors with defaults
+    const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
+
+    // Generate for each viewport
+    const frames = [];
+    for (const vp of viewports) {
+      const simplified = await generateWithRetry({
+        type: "page",
+        pageType,
+        sections,
+        density,
+        viewportWidth: vp,
+        notes,
+      });
+
+      const tree = convertToWireframeTree(simplified, vp, finalPluginColors, pluginFont);
+
+      frames.push({
+        viewportWidth: vp,
+        viewportHeight: simplified.totalHeight || 0,
+        tree,
+      });
+    }
+
+    // Create local styles structure
+    const localStyles = createLocalStylesStructure(finalPluginColors, {
+      primary: pluginFont,
+    });
+
+    res.json({
+      success: true,
+      wireframeData: { frames },
+      localStyles,
+      pluginColors: finalPluginColors,
+      sourceUrl: `ai://${pageType}-page`,
+    });
+  } catch (error) {
+    console.error("[AI Generate Page] Error:", error);
+
+    if (error.status === 429) {
+      return res.status(429).json({
+        success: false,
+        error: "AI service rate limited. Please try again in a moment.",
+        errorCode: "AI_RATE_LIMITED",
+      });
+    }
+    if (error.status === 401 || error.status === 403) {
+      return res.status(500).json({
+        success: false,
+        error: "AI service configuration error. Please contact support.",
+        errorCode: "AI_AUTH_ERROR",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to generate wireframe",
+      errorCode: "AI_GENERATION_ERROR",
+      details: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+/**
+ * POST /api/generate-block - AI-powered single block/section generation
+ *
+ * Request body:
+ * - userId: string (required)
+ * - blockType: string (required) - "hero", "features", etc.
+ * - density: "balanced" | "detailed" (default: "balanced")
+ * - viewports: number[] - Viewport widths (default: [1440])
+ * - notes: string - Optional special requirements
+ * - pluginColors: object - Plugin color palette
+ * - pluginFont: string - Plugin font (default: "Inter")
+ */
+app.post("/api/generate-block", async (req, res) => {
+  try {
+    const {
+      userId,
+      blockType,
+      density = "balanced",
+      viewports = [1440],
+      notes = "",
+      pluginColors = {},
+      pluginFont = "Inter",
+    } = req.body;
+
+    // Validation
+    if (!userId) {
+      return res.status(400).json({ success: false, error: "userId is required" });
+    }
+    if (!blockType) {
+      return res.status(400).json({ success: false, error: "blockType is required" });
+    }
+    if (!VALID_BLOCK_TYPES.includes(blockType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid blockType: ${blockType}. Must be one of: ${VALID_BLOCK_TYPES.join(", ")}`,
+      });
+    }
+    if (!["balanced", "detailed"].includes(density)) {
+      return res.status(400).json({ success: false, error: "density must be 'balanced' or 'detailed'" });
+    }
+
+    // TODO: License validation (Phase 3)
+    // TODO: Rate limiting (Phase 3)
+
+    // Merge plugin colors with defaults
+    const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
+
+    // Generate for each viewport
+    const frames = [];
+    for (const vp of viewports) {
+      const simplified = await generateWithRetry({
+        type: "block",
+        blockType,
+        density,
+        viewportWidth: vp,
+        notes,
+      });
+
+      const tree = convertToWireframeTree(simplified, vp, finalPluginColors, pluginFont);
+
+      frames.push({
+        viewportWidth: vp,
+        viewportHeight: simplified.totalHeight || 0,
+        tree,
+      });
+    }
+
+    // Create local styles structure
+    const localStyles = createLocalStylesStructure(finalPluginColors, {
+      primary: pluginFont,
+    });
+
+    res.json({
+      success: true,
+      wireframeData: { frames },
+      localStyles,
+      pluginColors: finalPluginColors,
+      sourceUrl: `ai://${blockType}-block`,
+    });
+  } catch (error) {
+    console.error("[AI Generate Block] Error:", error);
+
+    if (error.status === 429) {
+      return res.status(429).json({
+        success: false,
+        error: "AI service rate limited. Please try again in a moment.",
+        errorCode: "AI_RATE_LIMITED",
+      });
+    }
+    if (error.status === 401 || error.status === 403) {
+      return res.status(500).json({
+        success: false,
+        error: "AI service configuration error. Please contact support.",
+        errorCode: "AI_AUTH_ERROR",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to generate wireframe block",
+      errorCode: "AI_GENERATION_ERROR",
+      details: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
 });
 
 // Error handling middleware
