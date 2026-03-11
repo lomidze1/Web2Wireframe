@@ -193,5 +193,46 @@ describe("SettingsPanel", () => {
       fireEvent.click(getByText("Config."));
       expect(openSettings).toHaveBeenCalledWith("configuration");
     });
+
+    it("renders custom colorWebsiteLabel in Colors dropdown", () => {
+      const { container } = render(
+        <SettingsPanel
+          {...expandedProps}
+          colorWebsiteLabel="Screenshot Colors"
+        />
+      );
+      const options = container.querySelectorAll("select option");
+      const labels = Array.from(options).map((o) => o.textContent);
+      expect(labels).toContain("Screenshot Colors");
+    });
+
+    it("renders default 'Website Colors' label when colorWebsiteLabel not passed", () => {
+      const { container } = render(<SettingsPanel {...expandedProps} />);
+      const options = container.querySelectorAll("select option");
+      const labels = Array.from(options).map((o) => o.textContent);
+      expect(labels).toContain("Website Colors");
+    });
+
+    it("disables 'Website Fonts' option when disableFontWebsiteOption is true", () => {
+      const { container } = render(
+        <SettingsPanel {...expandedProps} disableFontWebsiteOption={true} />
+      );
+      const fontSelect = container.querySelectorAll("select")[1]; // Fonts is the 2nd select
+      const websiteFontOption = fontSelect?.querySelector(
+        'option[value="website"]'
+      ) as HTMLOptionElement;
+      expect(websiteFontOption).toBeTruthy();
+      expect(websiteFontOption.disabled).toBe(true);
+    });
+
+    it("keeps 'Website Fonts' enabled when disableFontWebsiteOption is not set", () => {
+      const { container } = render(<SettingsPanel {...expandedProps} />);
+      const fontSelect = container.querySelectorAll("select")[1];
+      const websiteFontOption = fontSelect?.querySelector(
+        'option[value="website"]'
+      ) as HTMLOptionElement;
+      expect(websiteFontOption).toBeTruthy();
+      expect(websiteFontOption.disabled).toBe(false);
+    });
   });
 });

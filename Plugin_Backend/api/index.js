@@ -18,6 +18,7 @@ const {
   generateWithRetry,
   analyzeScreenshotWithRetry,
   validateSimplifiedFormat,
+  validateExtractedColors,
   VALID_PAGE_TYPES,
   VALID_BLOCK_TYPES,
 } = require("../lib/aiGenerator");
@@ -896,6 +897,7 @@ app.post("/api/import-screenshot", async (req, res) => {
       pluginColors = {},
       pluginFont = "Inter",
       textMode = "website",
+      colorMode = "plugin",
     } = req.body;
 
     // Validation
@@ -918,6 +920,10 @@ app.post("/api/import-screenshot", async (req, res) => {
       return res.status(400).json({ success: false, error: "textMode must be 'website', 'lorem', or 'semantic'" });
     }
 
+    if (!["plugin", "website"].includes(colorMode)) {
+      return res.status(400).json({ success: false, error: "colorMode must be 'plugin' or 'website'" });
+    }
+
     // Merge plugin colors with defaults
     const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
 
@@ -926,6 +932,7 @@ app.post("/api/import-screenshot", async (req, res) => {
 
     // Analyze and generate for each viewport
     const frames = [];
+    let renderColors = finalPluginColors;
     for (const vp of numericViewports) {
       const simplified = await analyzeScreenshotWithRetry({
         imageBase64,
@@ -935,7 +942,13 @@ app.post("/api/import-screenshot", async (req, res) => {
         textMode,
       });
 
-      const tree = convertToWireframeTree(simplified, vp, finalPluginColors, pluginFont);
+      // Use AI-extracted colors when colorMode is "website"
+      if (colorMode === "website") {
+        const { valid, colors } = validateExtractedColors(simplified.extractedColors);
+        renderColors = valid ? colors : finalPluginColors;
+      }
+
+      const tree = convertToWireframeTree(simplified, vp, renderColors, pluginFont);
 
       frames.push({
         viewportWidth: vp,
@@ -945,7 +958,7 @@ app.post("/api/import-screenshot", async (req, res) => {
     }
 
     // Create local styles structure
-    const localStyles = createLocalStylesStructure(finalPluginColors, {
+    const localStyles = createLocalStylesStructure(renderColors, {
       primary: pluginFont,
     });
 
@@ -953,7 +966,7 @@ app.post("/api/import-screenshot", async (req, res) => {
       success: true,
       wireframeData: { frames },
       localStyles,
-      pluginColors: finalPluginColors,
+      pluginColors: renderColors,
       sourceUrl: "screenshot://uploaded",
     });
   } catch (error) {

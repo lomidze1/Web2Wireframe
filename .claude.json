@@ -9,12 +9,7 @@
     }
   },
   "context": {
-    "include": [
-      "CLAUDE.md",
-      "README.md",
-      "package.json",
-      "tsconfig.json"
-    ],
+    "include": ["CLAUDE.md", "README.md", "package.json", "tsconfig.json"],
     "exclude": [
       "node_modules/**",
       "**/dist/**",

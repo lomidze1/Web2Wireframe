@@ -5,7 +5,7 @@
   "main": "api/index.js",
   "scripts": {
     "dev": "node api/index.js",
-    "test": "echo \"No tests configured yet\""
+    "test": "vitest run"
   },
   "keywords": [
     "figma",

@@ -79,4 +79,52 @@ describe("buildFullPage", () => {
       expect(result).not.toContain("<style>");
     });
   });
+
+  describe("additional edge cases", () => {
+    it("preserves CSS with @media queries", () => {
+      const css = "@media (max-width: 768px) { .nav { display: none; } }";
+      const result = buildFullPage("<nav class='nav'>Menu</nav>", css);
+      expect(result).toContain(`<style>${css}</style>`);
+    });
+
+    it("preserves CSS with special characters (quotes, backslashes)", () => {
+      const css = '.icon::before { content: "\\2022"; font-family: "Helvetica Neue"; }';
+      const result = buildFullPage("<span class='icon'></span>", css);
+      expect(result).toContain(`<style>${css}</style>`);
+    });
+
+    it("injects CSS into head with attributes", () => {
+      const html = '<!DOCTYPE html><html><head lang="en"><title>T</title></head><body>Hi</body></html>';
+      const result = buildFullPage(html, "body { margin: 0; }");
+      expect(result).toContain('<head lang="en"><style>body { margin: 0; }</style>');
+    });
+
+    it("detects lowercase doctype as full document", () => {
+      const html = "<!doctype html><html><head></head><body>X</body></html>";
+      const result = buildFullPage(html, "p { color: red; }");
+      // Should inject into existing <head>, NOT wrap in another document
+      expect(result).toContain("<style>p { color: red; }</style>");
+      expect(result).not.toContain("<body><!doctype");
+    });
+
+    it("handles undefined cssCode (not null, not empty)", () => {
+      const result = buildFullPage("<div>X</div>", undefined);
+      expect(result).toContain("<body><div>X</div></body>");
+      expect(result).not.toContain("<style>");
+    });
+
+    it("wraps fragment with undefined CSS without style tag", () => {
+      const result = buildFullPage("<p>Hi</p>", undefined);
+      expect(result).toContain("<!DOCTYPE html>");
+      expect(result).toContain("<body><p>Hi</p></body>");
+      expect(result).not.toContain("<style>");
+    });
+
+    it("preserves existing inline style in fragment when no external CSS", () => {
+      const html = '<div><style>.x { color: red; }</style><p>Hi</p></div>';
+      const result = buildFullPage(html, "");
+      expect(result).toContain('<style>.x { color: red; }</style>');
+      expect(result).toContain("<body>");
+    });
+  });
 });

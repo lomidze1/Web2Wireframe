@@ -27,6 +27,7 @@ import {
   cssJustifyToFigma,
   cssAlignToFigma,
   cssAlignSelfToFigma,
+  applyTextAlignFallback,
   needsMarginWrapper,
   createMarginWrapper,
 } from "./layout";
@@ -223,6 +224,9 @@ export async function createNodeInFigma(
 
     frame.primaryAxisAlignItems = primaryResult;
     frame.counterAxisAlignItems = counterResult;
+
+    // text-align fallback for non-flex block containers
+    applyTextAlignFallback(frame, node.textAlign, node.justifyContent, node.alignItems);
 
     // Apply flex-wrap
     if (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") {
@@ -843,6 +847,9 @@ export async function createWireframeFrame(
     const counterResult = cssAlignToFigma(rootTree.alignItems);
     wireframeFrame.primaryAxisAlignItems = primaryResult;
     wireframeFrame.counterAxisAlignItems = counterResult;
+
+    // text-align fallback for non-flex block containers
+    applyTextAlignFallback(wireframeFrame, rootTree.textAlign, rootTree.justifyContent, rootTree.alignItems);
   }
 
   // Create nested structure from tree

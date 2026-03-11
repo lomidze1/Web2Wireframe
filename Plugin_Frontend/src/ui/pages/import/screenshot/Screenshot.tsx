@@ -93,6 +93,7 @@ export default function Screenshot() {
           pluginColors: config.pluginColors,
           pluginFont: config.pluginFont,
           textMode: settings.localTextMode,
+          colorMode: settings.localColorMode,
         }),
       });
 
@@ -116,7 +117,7 @@ export default function Screenshot() {
               pluginFont: config.pluginFont,
               variableMode: "direct",
               layoutMode: "autoLayout",
-              colorMode: "plugin",
+              colorMode: settings.localColorMode,
               fontMode: "plugin",
               textMode: settings.localTextMode,
             },
@@ -128,7 +129,7 @@ export default function Screenshot() {
       setIsGenerating(false);
       setError(err instanceof Error ? err.message : "Screenshot analysis failed");
     }
-  }, [imagePreview, settings.localViewports, settings.localTextMode, config]);
+  }, [imagePreview, settings.localViewports, settings.localTextMode, settings.localColorMode, config]);
 
   return (
     <div class={styles.screenshotContainer}>
@@ -192,6 +193,9 @@ export default function Screenshot() {
         handleSaveAsDefault={settings.handleSaveAsDefault}
         hasOverrides={settings.hasOverrides}
         openSettings={settings.openSettings}
+        colorWebsiteLabel="Screenshot Colors"
+        disableFontWebsiteOption={true}
+        fontDisabledTooltip="Not available in Screenshot mode"
       />
 
       {/* Error Display */}

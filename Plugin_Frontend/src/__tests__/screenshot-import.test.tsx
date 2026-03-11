@@ -123,6 +123,8 @@ describe("Screenshot", () => {
     postMessageSpy = vi.spyOn(window.parent, "postMessage");
     originalImage = globalThis.Image;
     globalThis.Image = MockImage as unknown as typeof Image;
+    // Clear localStorage to avoid state leaking between tests
+    try { localStorage.clear(); } catch { /* ignore */ }
   });
 
   afterEach(() => {
@@ -405,6 +407,87 @@ describe("Screenshot", () => {
       expect(body.viewports).toBeDefined();
       expect(body.pluginColors).toBeDefined();
       expect(body.pluginFont).toBe("Montserrat");
+    });
+  });
+
+  describe("screenshot-specific settings", () => {
+    /** Helper: expand the "More Options" settings panel */
+    function expandSettings(container: Element) {
+      const buttons = container.querySelectorAll("button");
+      for (const btn of buttons) {
+        if (btn.textContent?.includes("More Options")) {
+          fireEvent.click(btn);
+          return;
+        }
+      }
+    }
+
+    it("shows 'Screenshot Colors' label in settings dropdown", () => {
+      const { container } = render(<Screenshot />);
+      expandSettings(container);
+
+      const options = container.querySelectorAll("select option");
+      const labels = Array.from(options).map((o) => o.textContent);
+      expect(labels).toContain("Screenshot Colors");
+    });
+
+    it("passes disableFontWebsiteOption to SettingsPanel", () => {
+      // The disabled behavior itself is verified in settingsPanel.test.tsx.
+      // Here we verify the Screenshot component passes the right label.
+      const { container } = render(<Screenshot />);
+      expandSettings(container);
+
+      // After expanding, "Screenshot Colors" should be present (not default "Website Colors")
+      // which confirms Screenshot passes colorWebsiteLabel prop
+      const options = container.querySelectorAll("select option");
+      const labels = Array.from(options).map((o) => o.textContent);
+      expect(labels).not.toContain("Website Colors");
+      expect(labels).toContain("Screenshot Colors");
+    });
+
+    it("includes colorMode in API request body", async () => {
+      mockSuccessResponse();
+
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+
+      await vi.waitFor(() => {
+        const button = findGenerateButton(container);
+        expect(button.disabled).toBe(false);
+      });
+
+      fireEvent.click(findGenerateButton(container));
+
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+
+      const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const body = JSON.parse(fetchCall[1].body);
+      expect(body).toHaveProperty("colorMode");
+    });
+
+    it("sends colorMode from settings in postMessage (not hardcoded 'plugin')", async () => {
+      mockSuccessResponse();
+
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+
+      await vi.waitFor(() => {
+        const button = findGenerateButton(container);
+        expect(button.disabled).toBe(false);
+      });
+
+      fireEvent.click(findGenerateButton(container));
+
+      await vi.waitFor(() => {
+        expect(postMessageSpy).toHaveBeenCalled();
+      });
+
+      const call = postMessageSpy.mock.calls[0];
+      const msg = (call[0] as { pluginMessage: { type: string; data: Record<string, unknown> } }).pluginMessage;
+      // colorMode should come from settings, which defaults to "plugin"
+      expect(msg.data.colorMode).toBe("plugin");
     });
   });
 

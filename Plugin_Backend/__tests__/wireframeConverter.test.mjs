@@ -64,7 +64,6 @@ function assertWireframeNode(node) {
   expect(typeof node.fontWeight).toBe("number");
   expect(node).toHaveProperty("fontFamily");
   expect(node).toHaveProperty("textAlign");
-  expect(node).toHaveProperty("lineHeight");
   expect(typeof node.letterSpacing).toBe("number");
   expect(node).toHaveProperty("textColor");
   expect(typeof node.isPlaceholder).toBe("boolean");
@@ -469,7 +468,6 @@ describe("Element: paragraph", () => {
     expect(node.type).toBe("text");
     expect(node.fontSize).toBe(16); // desktop paragraph
     expect(node.fontWeight).toBe(400);
-    expect(node.lineHeight).toBe(1.6);
     assertWireframeNode(node);
   });
 

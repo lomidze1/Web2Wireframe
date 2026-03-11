@@ -57,6 +57,21 @@ export interface SettingsPanelProps {
 
   // Optional: wrapper class name (some tabs use different container names)
   containerClassName?: string;
+
+  // Optional: custom label for the "Website Colors" option (e.g. "Screenshot Colors")
+  colorWebsiteLabel?: string;
+
+  // Optional: disable the "Website Fonts" option in the fonts dropdown
+  disableFontWebsiteOption?: boolean;
+
+  // Optional: tooltip text for disabled font option
+  fontDisabledTooltip?: string;
+
+  // Optional: custom label for the "Website Fonts" option (e.g. "Code Fonts")
+  fontWebsiteLabel?: string;
+
+  // Optional: custom label for the "Website Text" option (e.g. "Code Text")
+  textWebsiteLabel?: string;
 }
 
 /**
@@ -88,6 +103,11 @@ export default function SettingsPanel({
   hasOverrides,
   openSettings,
   containerClassName,
+  colorWebsiteLabel,
+  disableFontWebsiteOption,
+  fontDisabledTooltip,
+  fontWebsiteLabel,
+  textWebsiteLabel,
 }: SettingsPanelProps) {
   return (
     <div class={containerClassName || styles.settingsBox}>
@@ -156,7 +176,7 @@ export default function SettingsPanel({
               }
             >
               <option value="plugin">Plugin Colors (Editable)</option>
-              <option value="website">Website Colors</option>
+              <option value="website">{colorWebsiteLabel || "Website Colors"}</option>
             </select>
           </div>
 
@@ -176,7 +196,13 @@ export default function SettingsPanel({
               }
             >
               <option value="plugin">Plugin Fonts (Editable)</option>
-              <option value="website">Website Fonts</option>
+              <option
+                value="website"
+                disabled={disableFontWebsiteOption}
+                title={disableFontWebsiteOption ? fontDisabledTooltip : undefined}
+              >
+                {fontWebsiteLabel || "Website Fonts"}
+              </option>
             </select>
           </div>
 
@@ -200,7 +226,7 @@ export default function SettingsPanel({
             >
               <option value="semantic">Semantic Placeholders</option>
               <option value="lorem">Lorem Ipsum</option>
-              <option value="website">Website Text</option>
+              <option value="website">{textWebsiteLabel || "Website Text"}</option>
             </select>
           </div>
 

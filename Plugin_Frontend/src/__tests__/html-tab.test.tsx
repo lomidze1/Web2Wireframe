@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/preact";
+import { render, fireEvent, waitFor } from "@testing-library/preact";
 import HTML from "../ui/pages/import/html/HTML";
+import { transformFramesData } from "../ui/shared/transformData";
+import { prepareFramesForRendering } from "../ui/shared/absoluteModeRenderer";
 
 // Mock ConfigContext
 vi.mock("../ui/shared/ConfigContext", async (importOriginal) => {
@@ -45,18 +47,31 @@ vi.mock("../ui/hooks/useTabSettings", () => ({
     handleSaveAsDefault: vi.fn(),
     hasOverrides: false,
     openSettings: vi.fn(),
-    collapseSettings: vi.fn(),
+    collapseSettings: mockCollapseSettings,
   }),
 }));
 
-// Mock FontFallbackModal
+// Capturable mock for collapseSettings
+const mockCollapseSettings = vi.fn();
+
+// Prop-capturing refs for component mocks
+const mockFontModalProps: { current: any } = { current: null };
+const mockRenderingLoaderProps: { current: any } = { current: null };
+
+// Mock FontFallbackModal — capture props
 vi.mock("../ui/components/modalPopup/FontFallbackModal", () => ({
-  default: () => null,
+  default: (props: any) => {
+    mockFontModalProps.current = props;
+    return null;
+  },
 }));
 
-// Mock RenderingLoader
+// Mock RenderingLoader — capture props
 vi.mock("../ui/components/renderingLoader/RenderingLoader", () => ({
-  default: () => null,
+  default: (props: any) => {
+    mockRenderingLoaderProps.current = props;
+    return null;
+  },
 }));
 
 // Mock transformData and absoluteModeRenderer
@@ -83,6 +98,8 @@ describe("HTML Tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
+    mockFontModalProps.current = null;
+    mockRenderingLoaderProps.current = null;
   });
 
   describe("rendering", () => {
@@ -311,6 +328,404 @@ describe("HTML Tab", () => {
 
       const msg = await findByText("Generating wireframe from HTML...");
       expect(msg).toBeTruthy();
+    });
+  });
+
+  describe("handleGenerate success flow", () => {
+    const MOCK_API_RESPONSE = {
+      success: true,
+      sourceUrl: "html-import",
+      frameCount: 1,
+      wireframeData: {
+        frames: [{ viewportWidth: 1440, viewportHeight: 900, tree: { tag: "BODY", children: [] } }],
+      },
+      localStyles: { colors: [], typography: [] },
+      pluginColors: {
+        main: "#333333",
+        text: "#1C2F3A",
+        accent: "#E76F51",
+        surface: "#FFFFFF",
+        border: "#E0E0E0",
+        background: "#F5F5F5",
+      },
+      cssVariables: [{ name: "--primary", value: "#333" }],
+    };
+
+    function mockSuccessFetch() {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_API_RESPONSE),
+        })
+      ) as unknown as typeof fetch;
+    }
+
+    /** Type HTML, optionally CSS, and click Generate */
+    async function triggerGenerate(
+      container: Element,
+      html: string,
+      css?: string
+    ) {
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: html } });
+      if (css) {
+        fireEvent.input(textareas[1], { target: { value: css } });
+      }
+      const button = findGenerateButton(container);
+      fireEvent.click(button);
+      // Wait for fetch to resolve and state to update
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+    }
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockSuccessFetch();
+      // Spy on parent.postMessage
+      vi.spyOn(parent, "postMessage");
+    });
+
+    it("sends correct fetch payload with HTML and CSS", async () => {
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Hello</h1>", "h1 { color: red; }");
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "http://localhost:3002/api/import-html",
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.htmlCode).toBe("<h1>Hello</h1>");
+      expect(body.cssCode).toBe("h1 { color: red; }");
+      expect(body.viewports).toEqual([1440]);
+      expect(body.pluginColors).toBeDefined();
+    });
+
+    it("sends empty CSS as undefined", async () => {
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Hello</h1>", "   ");
+
+      const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      // cssCode.trim() || undefined → undefined → not serialized in JSON
+      expect(body.cssCode).toBeUndefined();
+    });
+
+    it("calls transformFramesData with raw frames and settings", async () => {
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Hello</h1>");
+
+      await waitFor(() => {
+        expect(transformFramesData).toHaveBeenCalled();
+      });
+
+      const [rawFrames, settings] = (transformFramesData as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(rawFrames).toEqual(MOCK_API_RESPONSE.wireframeData.frames);
+      expect(settings).toEqual({
+        colorMode: "plugin",
+        fontMode: "plugin",
+        textMode: "semantic",
+      });
+    });
+
+    it("calls prepareFramesForRendering with transformed frames and colors", async () => {
+      const mockTransformed = [{ viewport: { width: 1440, height: 900 }, tree: { tag: "BODY" } }];
+      (transformFramesData as ReturnType<typeof vi.fn>).mockReturnValue(mockTransformed);
+
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Hello</h1>");
+
+      await waitFor(() => {
+        expect(prepareFramesForRendering).toHaveBeenCalled();
+      });
+
+      const [frames, colors] = (prepareFramesForRendering as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(frames).toEqual(mockTransformed);
+      expect(colors).toEqual({
+        text: MOCK_API_RESPONSE.pluginColors.text,
+        surface: MOCK_API_RESPONSE.pluginColors.surface,
+      });
+    });
+
+    it("sends render-wireframe postMessage to parent", async () => {
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Hello</h1>");
+
+      await waitFor(() => {
+        expect(parent.postMessage).toHaveBeenCalled();
+      });
+
+      const call = (parent.postMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+      const msg = call[0].pluginMessage;
+      expect(msg.type).toBe("render-wireframe");
+      expect(msg.data.sourceUrl).toBe("html-import");
+      expect(msg.data.colorMode).toBe("plugin");
+      expect(msg.data.fontMode).toBe("plugin");
+      expect(msg.data.textMode).toBe("semantic");
+      expect(msg.data.layoutMode).toBe("autoLayout");
+      expect(msg.data.cssVariables).toEqual(MOCK_API_RESPONSE.cssVariables);
+      expect(msg.data.variableMode).toBe("direct");
+    });
+
+    it("maps colorMode 'plugin' to 'plugin-colors' in API request", async () => {
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Hello</h1>");
+
+      const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.colorMode).toBe("plugin-colors");
+      expect(body.typographyMode).toBe("plugin-fonts");
+    });
+  });
+
+  describe("message handling", () => {
+    function dispatchPluginMessage(type: string, data: any) {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { pluginMessage: { type, data } },
+        })
+      );
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("render-progress updates renderingProgress state", async () => {
+      render(<HTML />);
+
+      dispatchPluginMessage("render-progress", {
+        step: "Creating nodes...",
+        percent: 50,
+        isComplete: false,
+      });
+
+      await waitFor(() => {
+        expect(mockRenderingLoaderProps.current.progress).toEqual({
+          step: "Creating nodes...",
+          percent: 50,
+          isComplete: false,
+        });
+      });
+    });
+
+    it("render-progress isComplete resets state after 10 seconds", async () => {
+      vi.useFakeTimers();
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+
+      dispatchPluginMessage("render-progress", {
+        step: "Done!",
+        percent: 100,
+        isComplete: true,
+      });
+
+      // Before 10s: textarea still has value
+      expect(textareas[0].value).toBe("<h1>Test</h1>");
+
+      // After 10s: state resets
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(textareas[0].value).toBe("");
+    });
+
+    it("fonts-not-available opens font fallback modal", async () => {
+      render(<HTML />);
+
+      dispatchPluginMessage("fonts-not-available", {
+        missingFonts: ["CustomFont", "AnotherFont"],
+        defaultMapping: { CustomFont: "Arial", AnotherFont: "Helvetica" },
+        pluginFont: "Montserrat",
+        pluginFontOptions: ["Montserrat", "Roboto"],
+      });
+
+      await waitFor(() => {
+        expect(mockFontModalProps.current.isOpen).toBe(true);
+      });
+      expect(mockFontModalProps.current.missingFonts).toEqual(["CustomFont", "AnotherFont"]);
+      expect(mockFontModalProps.current.defaultMapping).toEqual({
+        CustomFont: "Arial",
+        AnotherFont: "Helvetica",
+      });
+    });
+
+    it("wireframe-error shows error message and hides loader", async () => {
+      const { findByText } = render(<HTML />);
+
+      dispatchPluginMessage("wireframe-error", {
+        error: "Rendering failed: out of memory",
+      });
+
+      const errorMsg = await findByText("Rendering failed: out of memory");
+      expect(errorMsg).toBeTruthy();
+      expect(mockRenderingLoaderProps.current.isVisible).toBe(false);
+    });
+
+    it("font-fallback-choice sends postMessage to parent", async () => {
+      vi.spyOn(parent, "postMessage");
+      render(<HTML />);
+
+      // First open the modal
+      dispatchPluginMessage("fonts-not-available", {
+        missingFonts: ["CustomFont"],
+        defaultMapping: { CustomFont: "Arial" },
+        pluginFont: "Montserrat",
+        pluginFontOptions: ["Montserrat"],
+      });
+
+      await waitFor(() => {
+        expect(mockFontModalProps.current.isOpen).toBe(true);
+      });
+
+      // Call the onChoice callback
+      mockFontModalProps.current.onChoice("use-plugin", { CustomFont: "Montserrat" });
+
+      expect(parent.postMessage).toHaveBeenCalledWith(
+        {
+          pluginMessage: {
+            type: "font-fallback-choice",
+            data: {
+              choice: "use-plugin",
+              fontMapping: { CustomFont: "Montserrat" },
+            },
+          },
+        },
+        "*"
+      );
+    });
+  });
+
+  describe("edge cases", () => {
+    const MOCK_API_RESPONSE = {
+      success: true,
+      sourceUrl: "html-import",
+      frameCount: 1,
+      wireframeData: {
+        frames: [{ viewportWidth: 1440, viewportHeight: 900, tree: { tag: "BODY", children: [] } }],
+      },
+      localStyles: { colors: [], typography: [] },
+      pluginColors: {
+        main: "#333333", text: "#1C2F3A", accent: "#E76F51",
+        surface: "#FFFFFF", border: "#E0E0E0", background: "#F5F5F5",
+      },
+      cssVariables: [],
+    };
+
+    function mockSuccessFetch() {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_API_RESPONSE),
+        })
+      ) as unknown as typeof fetch;
+    }
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockSuccessFetch();
+    });
+
+    it("includes CSS textarea value in API request body", async () => {
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+
+      fireEvent.input(textareas[0], { target: { value: "<div>Test</div>" } });
+      fireEvent.input(textareas[1], { target: { value: ".container { padding: 20px; }" } });
+
+      const button = findGenerateButton(container);
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+
+      const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.cssCode).toBe(".container { padding: 20px; }");
+    });
+
+    it("sends whitespace-only CSS as undefined", async () => {
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+
+      fireEvent.input(textareas[0], { target: { value: "<p>Hello</p>" } });
+      fireEvent.input(textareas[1], { target: { value: "   \n  \t  " } });
+
+      const button = findGenerateButton(container);
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+
+      const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.cssCode).toBeUndefined();
+    });
+
+    it("calls collapseSettings on generate", async () => {
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+
+      fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+
+      const button = findGenerateButton(container);
+      fireEvent.click(button);
+
+      expect(mockCollapseSettings).toHaveBeenCalled();
+    });
+
+    it("clears error state on new generate attempt", async () => {
+      // First: mock a failed fetch
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          json: () => Promise.resolve({ error: "Server error" }),
+        })
+      ) as unknown as typeof fetch;
+
+      const { container, findByText } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+
+      // Trigger first generate → error
+      fireEvent.click(findGenerateButton(container));
+      await findByText("Server error");
+
+      // Now mock a successful fetch
+      mockSuccessFetch();
+
+      // Trigger second generate → should show loading, not error
+      fireEvent.click(findGenerateButton(container));
+      const loadingMsg = await findByText("Generating wireframe from HTML...");
+      expect(loadingMsg).toBeTruthy();
+    });
+
+    it("RenderingLoader onClose resets all state", async () => {
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+
+      // Type some content
+      fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+      fireEvent.input(textareas[1], { target: { value: "h1 { color: red; }" } });
+
+      // Simulate onClose callback from RenderingLoader
+      mockRenderingLoaderProps.current.onClose();
+
+      // Textareas should be cleared after state update
+      await waitFor(() => {
+        expect(textareas[0].value).toBe("");
+      });
+      expect(textareas[1].value).toBe("");
+
+      // Loader should be hidden
+      expect(mockRenderingLoaderProps.current.isVisible).toBe(false);
     });
   });
 });

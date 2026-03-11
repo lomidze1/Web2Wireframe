@@ -102,7 +102,6 @@ function createDefaultNode(nextId, overrides = {}) {
     fontWeight: 400,
     fontFamily: "Inter",
     textAlign: "left",
-    lineHeight: 1.5,
     letterSpacing: 0,
     isPlaceholder: false,
     children: [],
@@ -479,7 +478,6 @@ function convertHeading(element, ctx) {
     fontWeight: DESIGN_TOKENS.fontWeight[key] || 700,
     fontFamily: ctx.font,
     textAlign: element.align || "left",
-    lineHeight: DESIGN_TOKENS.lineHeight.heading,
     letterSpacing: -0.5,
     textColor: ctx.colors.text,
   });
@@ -499,7 +497,6 @@ function convertSubheading(element, ctx) {
     fontWeight: DESIGN_TOKENS.fontWeight.subheading,
     fontFamily: ctx.font,
     textAlign: element.align || "left",
-    lineHeight: DESIGN_TOKENS.lineHeight.subheading,
     letterSpacing: 0,
     textColor: ctx.colors.secondary || ctx.colors.text,
   });
@@ -519,7 +516,6 @@ function convertParagraph(element, ctx) {
     fontWeight: DESIGN_TOKENS.fontWeight.paragraph,
     fontFamily: ctx.font,
     textAlign: element.align || "left",
-    lineHeight: DESIGN_TOKENS.lineHeight.paragraph,
     letterSpacing: 0,
     textColor: ctx.colors.text,
   });
@@ -610,7 +606,6 @@ function convertButton(element, ctx) {
         fontWeight: DESIGN_TOKENS.fontWeight.button,
         fontFamily: ctx.font,
         textAlign: "center",
-        lineHeight: 1.2,
         textColor,
       }),
     ],
@@ -765,7 +760,6 @@ function convertInput(element, ctx) {
       fontSize: getToken(DESIGN_TOKENS.fontSize.input_label, ctx.breakpoint),
       fontWeight: 500,
       fontFamily: ctx.font,
-      lineHeight: DESIGN_TOKENS.lineHeight.small,
       textColor: ctx.colors.text,
     }));
   }
@@ -811,7 +805,6 @@ function convertInput(element, ctx) {
       fontSize: getToken(DESIGN_TOKENS.fontSize.input_placeholder, ctx.breakpoint),
       fontWeight: 400,
       fontFamily: ctx.font,
-      lineHeight: DESIGN_TOKENS.lineHeight.small,
       textColor: ctx.colors.secondary,
     }));
   }
@@ -849,7 +842,6 @@ function convertNavLinks(element, ctx) {
       fontSize: getToken(DESIGN_TOKENS.fontSize.nav, ctx.breakpoint),
       fontWeight: DESIGN_TOKENS.fontWeight.nav,
       fontFamily: ctx.font,
-      lineHeight: DESIGN_TOKENS.lineHeight.small,
       textColor: ctx.colors.text,
     }));
   }
@@ -928,7 +920,6 @@ function convertBadge(element, ctx) {
         fontSize: getToken(DESIGN_TOKENS.fontSize.badge, ctx.breakpoint),
         fontWeight: DESIGN_TOKENS.fontWeight.badge,
         fontFamily: ctx.font,
-        lineHeight: DESIGN_TOKENS.lineHeight.small,
         textColor: ctx.colors.text,
       }),
     ],
@@ -972,7 +963,6 @@ function convertList(element, ctx) {
       fontSize: getToken(DESIGN_TOKENS.fontSize.paragraph, ctx.breakpoint),
       fontWeight: DESIGN_TOKENS.fontWeight.paragraph,
       fontFamily: ctx.font,
-      lineHeight: DESIGN_TOKENS.lineHeight.paragraph,
       textColor: ctx.colors.text,
       listStyleType: style,
     }));
@@ -1029,7 +1019,6 @@ function convertStat(element, ctx) {
     fontWeight: 700,
     fontFamily: ctx.font,
     textAlign: "center",
-    lineHeight: DESIGN_TOKENS.lineHeight.heading,
     textColor: ctx.colors.text,
   }));
 
@@ -1047,7 +1036,6 @@ function convertStat(element, ctx) {
     fontWeight: 400,
     fontFamily: ctx.font,
     textAlign: "center",
-    lineHeight: DESIGN_TOKENS.lineHeight.small,
     textColor: ctx.colors.secondary || ctx.colors.text,
   }));
 
@@ -1138,7 +1126,6 @@ function convertAccordion(element, ctx) {
       fontSize: getToken(DESIGN_TOKENS.fontSize.h4, ctx.breakpoint),
       fontWeight: DESIGN_TOKENS.fontWeight.h4,
       fontFamily: ctx.font,
-      lineHeight: DESIGN_TOKENS.lineHeight.heading,
       textColor: ctx.colors.text,
     }));
 
@@ -1155,7 +1142,6 @@ function convertAccordion(element, ctx) {
       fontSize: getToken(DESIGN_TOKENS.fontSize.paragraph, ctx.breakpoint),
       fontWeight: DESIGN_TOKENS.fontWeight.paragraph,
       fontFamily: ctx.font,
-      lineHeight: DESIGN_TOKENS.lineHeight.paragraph,
       textColor: ctx.colors.text,
     }));
 

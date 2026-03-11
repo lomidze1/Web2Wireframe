@@ -9,6 +9,7 @@ import {
   cssJustifyToFigma,
   cssAlignToFigma,
   cssAlignSelfToFigma,
+  applyTextAlignFallback,
   needsMarginWrapper,
   getSizingMode,
 } from "../rendering/layout";
@@ -252,5 +253,71 @@ describe("getSizingMode", () => {
     const frameNode = { type: "frame" as const, width: 100, height: 100 };
     expect(getSizingMode(frameNode as any, "horizontal")).toBe("FIXED");
     expect(getSizingMode(frameNode as any, "vertical")).toBe("FIXED");
+  });
+});
+
+// ============================================================================
+// applyTextAlignFallback
+// ============================================================================
+
+describe("applyTextAlignFallback", () => {
+  function createMockFrame(
+    layoutMode: "VERTICAL" | "HORIZONTAL",
+    primaryAxisAlignItems: string = "MIN",
+    counterAxisAlignItems: string = "MIN"
+  ) {
+    return {
+      layoutMode,
+      primaryAxisAlignItems,
+      counterAxisAlignItems,
+    } as unknown as FrameNode;
+  }
+
+  it("sets counterAxisAlignItems to CENTER for VERTICAL frame with text-align: center", () => {
+    const frame = createMockFrame("VERTICAL");
+    applyTextAlignFallback(frame, "center", undefined, undefined);
+    expect(frame.counterAxisAlignItems).toBe("CENTER");
+    expect(frame.primaryAxisAlignItems).toBe("MIN"); // unchanged
+  });
+
+  it("sets counterAxisAlignItems to MAX for VERTICAL frame with text-align: right", () => {
+    const frame = createMockFrame("VERTICAL");
+    applyTextAlignFallback(frame, "right", undefined, undefined);
+    expect(frame.counterAxisAlignItems).toBe("MAX");
+  });
+
+  it("sets primaryAxisAlignItems to CENTER for HORIZONTAL frame with text-align: center", () => {
+    const frame = createMockFrame("HORIZONTAL");
+    applyTextAlignFallback(frame, "center", undefined, undefined);
+    expect(frame.primaryAxisAlignItems).toBe("CENTER");
+    expect(frame.counterAxisAlignItems).toBe("MIN"); // unchanged
+  });
+
+  it("does not override when alignItems is set (VERTICAL)", () => {
+    const frame = createMockFrame("VERTICAL");
+    applyTextAlignFallback(frame, "center", undefined, "flex-start");
+    expect(frame.counterAxisAlignItems).toBe("MIN"); // unchanged
+  });
+
+  it("does not override when justifyContent is set (HORIZONTAL)", () => {
+    const frame = createMockFrame("HORIZONTAL");
+    applyTextAlignFallback(frame, "center", "flex-start", undefined);
+    expect(frame.primaryAxisAlignItems).toBe("MIN"); // unchanged
+  });
+
+  it("does nothing for text-align: left or start", () => {
+    const frame = createMockFrame("VERTICAL");
+    applyTextAlignFallback(frame, "left", undefined, undefined);
+    expect(frame.counterAxisAlignItems).toBe("MIN");
+
+    applyTextAlignFallback(frame, "start", undefined, undefined);
+    expect(frame.counterAxisAlignItems).toBe("MIN");
+  });
+
+  it("does nothing for undefined textAlign", () => {
+    const frame = createMockFrame("VERTICAL");
+    applyTextAlignFallback(frame, undefined, undefined, undefined);
+    expect(frame.counterAxisAlignItems).toBe("MIN");
+    expect(frame.primaryAxisAlignItems).toBe("MIN");
   });
 });

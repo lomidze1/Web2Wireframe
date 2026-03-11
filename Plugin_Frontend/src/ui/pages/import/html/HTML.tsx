@@ -307,6 +307,9 @@ export default function HTML() {
         handleSaveAsDefault={settings.handleSaveAsDefault}
         hasOverrides={settings.hasOverrides}
         openSettings={settings.openSettings}
+        colorWebsiteLabel="Code Colors"
+        fontWebsiteLabel="Code Fonts"
+        textWebsiteLabel="Code Text"
       />
 
       {/* Generate Button */}

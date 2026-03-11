@@ -33,14 +33,6 @@ const DESIGN_TOKENS = {
     button: 600,
   },
 
-  // Line heights
-  lineHeight: {
-    heading: 1.2,
-    subheading: 1.4,
-    paragraph: 1.6,
-    small: 1.4,
-  },
-
   // Spacing
   spacing: {
     section_gap: 0,

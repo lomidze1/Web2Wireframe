@@ -138,6 +138,37 @@ export function cssAlignSelfToFigma(
   return map[alignSelf] || "INHERIT";
 }
 
+/**
+ * Use text-align as fallback for frame alignment when no explicit
+ * justify-content/align-items is set. In CSS, text-align on a block
+ * container centers inline/inline-block children.
+ */
+export function applyTextAlignFallback(
+  frame: FrameNode,
+  textAlign: string | undefined,
+  justifyContent: string | undefined,
+  alignItems: string | undefined
+): void {
+  if (!textAlign || textAlign === "left" || textAlign === "start") return;
+
+  const alignMap: Record<string, "CENTER" | "MAX"> = {
+    center: "CENTER",
+    right: "MAX",
+    end: "MAX",
+  };
+  const mapped = alignMap[textAlign];
+  if (!mapped) return;
+
+  // VERTICAL layout: text-align affects horizontal (cross-axis) alignment
+  if (frame.layoutMode === "VERTICAL" && !alignItems) {
+    frame.counterAxisAlignItems = mapped;
+  }
+  // HORIZONTAL layout: text-align affects horizontal (primary-axis) alignment
+  if (frame.layoutMode === "HORIZONTAL" && !justifyContent) {
+    frame.primaryAxisAlignItems = mapped;
+  }
+}
+
 // ============================================================================
 // Margin Wrapper
 // ============================================================================

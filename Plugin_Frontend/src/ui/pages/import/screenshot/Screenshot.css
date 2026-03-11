@@ -142,6 +142,11 @@
   color: var(--text);
 }
 
+.dropdown option:disabled {
+  opacity: 0.5;
+  color: var(--text-muted, #888);
+}
+
 /* Screenshot Button */
 .screenshotBtn {
   width: 100%;

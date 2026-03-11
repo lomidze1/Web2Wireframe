@@ -20,13 +20,6 @@ describe("DESIGN_TOKENS structure", () => {
     }
   });
 
-  it("has all lineHeight keys", () => {
-    const expected = ["heading", "subheading", "paragraph", "small"];
-    for (const key of expected) {
-      expect(DESIGN_TOKENS.lineHeight).toHaveProperty(key);
-    }
-  });
-
   it("has button sizing for sm, md, lg", () => {
     for (const size of ["sm", "md", "lg"]) {
       const t = DESIGN_TOKENS.button[size];

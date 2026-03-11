@@ -442,6 +442,22 @@ BACKGROUND COLOR ROLES:
 - "accent" = emphasis background (light blue)
 - "transparent" = no background, inherits parent
 
+COLOR EXTRACTION:
+Also return an "extractedColors" object at the root level with HEX values:
+{
+  "extractedColors": {
+    "text": "#XXXXXX",
+    "background": "#XXXXXX",
+    "secondary": "#XXXXXX",
+    "surface": "#XXXXXX",
+    "accent": "#XXXXXX"
+  }
+}
+- Extract actual colors from the screenshot
+- "text" = dominant text color, "background" = page background
+- "accent" = brand/CTA color, "surface" = card background, "secondary" = border/muted color
+- Always return valid 6-digit HEX
+
 IMPORTANT:
 - Analyze what you SEE in the screenshot — do not invent content
 - All heights must be reasonable proportional estimates
@@ -568,6 +584,27 @@ async function analyzeScreenshotWithRetry(params, maxRetries = 1) {
 }
 
 // ============================================================================
+// Extracted colors validation
+// ============================================================================
+
+/**
+ * Validate AI-extracted colors from screenshot analysis
+ * @param {object|null|undefined} colors
+ * @returns {{ valid: boolean, colors: object|null }}
+ */
+function validateExtractedColors(colors) {
+  if (!colors || typeof colors !== "object") return { valid: false, colors: null };
+  const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+  const KEYS = ["text", "background", "secondary", "surface", "accent"];
+  const out = {};
+  for (const k of KEYS) {
+    if (!colors[k] || !HEX_RE.test(colors[k])) return { valid: false, colors: null };
+    out[k] = colors[k];
+  }
+  return { valid: true, colors: out };
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -586,6 +623,7 @@ module.exports = {
   generateWithRetry,
   analyzeScreenshot,
   analyzeScreenshotWithRetry,
+  validateExtractedColors,
   // For testing: allow replacing the client
   _setClient(client) { _client = client; },
   _getClient: getClient,
