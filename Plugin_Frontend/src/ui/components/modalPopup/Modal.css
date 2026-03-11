@@ -25,8 +25,8 @@
   color: var(--text);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.48);
   backdrop-filter: blur(14px);
-  height: 520px;
-  max-height: 520px;
+  height: 540px;
+  max-height: 540px;
   display: flex;
   flex-direction: column;
 }

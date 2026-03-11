@@ -72,7 +72,7 @@ export default function Settings({
   onClose,
   initialPanel,
 }: SettingsProps) {
-  const [activePanel, setActivePanel] = useState<Panel>("terminology");
+  const [activePanel, setActivePanel] = useState<Panel>("config");
   const [activeTermTab, setActiveTermTab] =
     useState<TerminologyTab>("viewports");
   const { config, updateConfig } = useConfig();

@@ -59,14 +59,14 @@ function AppContent() {
   const [importTab, setImportTab] = useState<ImportTab>("web");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsPanel, setSettingsPanel] =
-    useState<SettingsPanel>("terminology");
+    useState<SettingsPanel>("configuration");
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isPlanOpen, setIsPlanOpen] = useState(false);
 
   const { setOpenSettingsCallback } = useConfig();
 
   // Stable callback to open settings modal
-  const openSettings = useCallback((panel: SettingsPanel = "terminology") => {
+  const openSettings = useCallback((panel: SettingsPanel = "configuration") => {
     setSettingsPanel(panel);
     setIsSettingsOpen(true);
   }, []);
