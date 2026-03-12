@@ -110,6 +110,7 @@ export default function BrowserExtension() {
     pluginFontOptions: string[];
   } | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { config } = useConfig();
   const { shortcutMessage, shortcutKey } = useImportOptionsShortcut();
@@ -228,12 +229,14 @@ export default function BrowserExtension() {
 
         // When complete, show success state then close
         if (isComplete) {
-          setTimeout(() => {
+          if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+          resetTimeoutRef.current = setTimeout(() => {
             setShowRenderingLoader(false);
             setRenderingProgress(undefined);
             setImportState({ status: "idle", message: "" });
             setPendingData(null);
             setHasCssVariables(false);
+            resetTimeoutRef.current = null;
           }, 10000); // Show success state for 10 seconds
         }
       }
@@ -258,7 +261,10 @@ export default function BrowserExtension() {
     };
 
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    };
   }, []);
 
   const handleFontFallbackChoice = (choice: string, fontMapping: Record<string, string>) => {
@@ -283,6 +289,11 @@ export default function BrowserExtension() {
     data: PendingData,
     options: UnifiedImportOptions
   ) => {
+    // Cancel any pending reset from previous import
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({

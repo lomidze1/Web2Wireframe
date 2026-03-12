@@ -239,6 +239,7 @@ export default function AreaSelection() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDataRef = useRef<File | null>(null);
   const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderingProgressRef = useRef<RenderingProgress | undefined>();
   const { config } = useConfig();
   const { shortcutMessage, shortcutKey } = useImportOptionsShortcut();
@@ -262,7 +263,8 @@ export default function AreaSelection() {
 
         // When complete, show success state then close
         if (isComplete) {
-          setTimeout(() => {
+          if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+          resetTimeoutRef.current = setTimeout(() => {
             setShowRenderingLoader(false);
             setRenderingProgress(undefined);
             renderingProgressRef.current = undefined;
@@ -274,6 +276,7 @@ export default function AreaSelection() {
             if (fileInputRef.current) {
               fileInputRef.current.value = "";
             }
+            resetTimeoutRef.current = null;
           }, 10000); // Show success state for 10 seconds
         }
       }
@@ -309,7 +312,10 @@ export default function AreaSelection() {
     };
 
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    };
   }, []);
 
   const handleFileUpload = (e: Event) => {
@@ -336,6 +342,11 @@ export default function AreaSelection() {
     captureResult: UnifiedCaptureResult,
     options: UnifiedImportOptions
   ) => {
+    // Cancel any pending reset from previous import
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({

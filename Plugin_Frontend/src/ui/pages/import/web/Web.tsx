@@ -1,6 +1,6 @@
 /** @jsx h */
 import { h } from "preact";
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useRef } from "preact/hooks";
 import styles from "./Web.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -58,6 +58,7 @@ export default function Web() {
   // Use shared hook for all settings logic
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for messages from Figma plugin main thread
   useEffect(() => {
@@ -71,11 +72,13 @@ export default function Web() {
 
         // When complete, show success state then close
         if (isComplete) {
-          setTimeout(() => {
+          if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+          resetTimeoutRef.current = setTimeout(() => {
             setShowRenderingLoader(false);
             setRenderingProgress(undefined);
             setImportState({ status: "idle", message: "" });
             setUrl("");
+            resetTimeoutRef.current = null;
           }, 10000); // Show success state for 10 seconds
         }
       }
@@ -96,13 +99,21 @@ export default function Web() {
     };
 
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    };
   }, []);
 
   /**
    * Send render message to Figma
    */
   const sendToFigma = (data: RenderData, variableMode: "styles" | "direct") => {
+    // Cancel any pending reset from previous import
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({

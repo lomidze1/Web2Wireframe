@@ -1,6 +1,6 @@
 /** @jsx h */
 import { h } from "preact";
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useRef } from "preact/hooks";
 import styles from "./HTML.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -54,6 +54,7 @@ export default function HTML() {
 
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for messages from Figma plugin main thread
   useEffect(() => {
@@ -66,12 +67,14 @@ export default function HTML() {
         setRenderingProgress({ step, percent, isComplete });
 
         if (isComplete) {
-          setTimeout(() => {
+          if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+          resetTimeoutRef.current = setTimeout(() => {
             setShowRenderingLoader(false);
             setRenderingProgress(undefined);
             setImportState({ status: "idle", message: "" });
             setHtmlCode("");
             setCssCode("");
+            resetTimeoutRef.current = null;
           }, 10000);
         }
       }
@@ -92,10 +95,18 @@ export default function HTML() {
     };
 
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    };
   }, []);
 
   const sendToFigma = (data: RenderData, variableMode: "styles" | "direct") => {
+    // Cancel any pending reset from previous import
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
     setShowRenderingLoader(true);
     setRenderingProgress({
       step: "Creating wireframe...",
