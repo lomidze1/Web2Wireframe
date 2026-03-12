@@ -159,12 +159,15 @@ export function applyTextAlignFallback(
   const mapped = alignMap[textAlign];
   if (!mapped) return;
 
+  // "normal" is the CSS default for non-flex block elements — treat as unset
+  const isDefault = (v: string | undefined) => !v || v === "normal";
+
   // VERTICAL layout: text-align affects horizontal (cross-axis) alignment
-  if (frame.layoutMode === "VERTICAL" && !alignItems) {
+  if (frame.layoutMode === "VERTICAL" && isDefault(alignItems)) {
     frame.counterAxisAlignItems = mapped;
   }
   // HORIZONTAL layout: text-align affects horizontal (primary-axis) alignment
-  if (frame.layoutMode === "HORIZONTAL" && !justifyContent) {
+  if (frame.layoutMode === "HORIZONTAL" && isDefault(justifyContent)) {
     frame.primaryAxisAlignItems = mapped;
   }
 }

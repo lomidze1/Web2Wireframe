@@ -320,4 +320,23 @@ describe("applyTextAlignFallback", () => {
     expect(frame.counterAxisAlignItems).toBe("MIN");
     expect(frame.primaryAxisAlignItems).toBe("MIN");
   });
+
+  // "normal" = CSS default for non-flex block elements — should NOT block fallback
+  it("treats alignItems 'normal' as unset for VERTICAL frame with text-align: center", () => {
+    const frame = createMockFrame("VERTICAL");
+    applyTextAlignFallback(frame, "center", undefined, "normal");
+    expect(frame.counterAxisAlignItems).toBe("CENTER");
+  });
+
+  it("treats justifyContent 'normal' as unset for HORIZONTAL frame with text-align: center", () => {
+    const frame = createMockFrame("HORIZONTAL");
+    applyTextAlignFallback(frame, "center", "normal", undefined);
+    expect(frame.primaryAxisAlignItems).toBe("CENTER");
+  });
+
+  it("treats both 'normal' values as unset for text-align: right on VERTICAL", () => {
+    const frame = createMockFrame("VERTICAL");
+    applyTextAlignFallback(frame, "right", "normal", "normal");
+    expect(frame.counterAxisAlignItems).toBe("MAX");
+  });
 });
