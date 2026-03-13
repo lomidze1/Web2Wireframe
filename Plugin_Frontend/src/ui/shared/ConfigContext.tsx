@@ -21,7 +21,7 @@ export interface PluginColors {
 export interface PluginConfig {
   viewports: string[];
   colorMode: "plugin" | "website";
-  fontMode: "plugin" | "website";
+  fontMode: "plugin" | "website" | "lines";
   textMode: "semantic" | "lorem" | "website";
   pluginColors: PluginColors;
   pluginFont: string;
@@ -120,6 +120,11 @@ function deepMergeConfig(defaults: PluginConfig, saved: Partial<PluginConfig>): 
       // Direct assignment for other properties
       (merged as Record<string, unknown>)[key] = savedValue;
     }
+  }
+
+  // Migration: "wireframe" → "semantic" (renamed back in v3)
+  if ((merged.textMode as string) === "wireframe") {
+    merged.textMode = "semantic";
   }
 
   return merged;

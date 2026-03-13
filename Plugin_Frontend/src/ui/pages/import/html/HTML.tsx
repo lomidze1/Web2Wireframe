@@ -29,7 +29,7 @@ interface RenderData {
   pluginColors: unknown;
   cssVariables?: unknown[];
   colorMode: "plugin" | "website";
-  fontMode: "plugin" | "website";
+  fontMode: "plugin" | "website" | "lines";
   textMode: "website" | "lorem" | "semantic";
   layoutMode: "autoLayout" | "absolute";
 }

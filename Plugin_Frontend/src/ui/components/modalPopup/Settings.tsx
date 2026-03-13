@@ -999,6 +999,30 @@ export default function Settings({
                             </span>
                           </div>
                         </label>
+
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.fontMode === "lines"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-font-mode"
+                            value="lines"
+                            checked={config.fontMode === "lines"}
+                            onChange={() =>
+                              updateConfig({ fontMode: "lines" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Wireframe Lines</strong>
+                            <span>
+                              Use FILLR font for squiggly wireframe-style text.
+                            </span>
+                          </div>
+                        </label>
                       </div>
                     </Fragment>
                   )}

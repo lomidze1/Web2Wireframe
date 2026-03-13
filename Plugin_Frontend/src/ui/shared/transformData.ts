@@ -500,7 +500,7 @@ export function getBackendModes(options: {
 }) {
   return {
     colorMode: options.colorMode === "plugin" ? "plugin-colors" : "website-colors",
-    typographyMode: options.fontMode === "plugin" ? "plugin-fonts" : "website-fonts",
+    typographyMode: options.fontMode === "website" ? "website-fonts" : "plugin-fonts",
     textMode: options.textMode,
   };
 }

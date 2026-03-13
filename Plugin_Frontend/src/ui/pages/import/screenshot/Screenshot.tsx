@@ -19,6 +19,13 @@ export default function Screenshot() {
   const { config } = useConfig();
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
 
+  // Force plugin fonts — website fonts not available in screenshot mode
+  useEffect(() => {
+    if (settings.localFontMode === "website") {
+      settings.setFontMode("plugin");
+    }
+  }, [settings.localFontMode]);
+
   // Listen for wireframe creation results from Figma sandbox
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {

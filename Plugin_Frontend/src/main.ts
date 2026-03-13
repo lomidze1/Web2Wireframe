@@ -105,6 +105,7 @@ export default function () {
         layoutMode,
         colorMode,
         fontMode,
+        textMode,
       } = data;
 
       // Default colors if not provided
@@ -256,6 +257,7 @@ export default function () {
         variableValueMap,
         colorMode: effectiveColorMode,
         fontMode: effectiveFontMode,
+        textMode: textMode || "semantic",
         variableStyleMap,
         fontMapping,
       };

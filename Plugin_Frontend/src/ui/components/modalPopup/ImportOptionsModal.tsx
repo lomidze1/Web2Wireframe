@@ -6,7 +6,7 @@ import { useConfig } from "../../shared/ConfigContext";
 
 // Type exports for consumers
 export type ColorMode = "plugin" | "website";
-export type FontMode = "plugin" | "website";
+export type FontMode = "plugin" | "website" | "lines";
 export type TextMode = "lorem" | "semantic" | "website";
 export type CssVariablesMode = "styles" | "direct";
 export type LayoutMode = "autoLayout" | "absolute";
@@ -174,6 +174,7 @@ export default function ImportOptionsModal({
               >
                 <option value="website">Website Fonts</option>
                 <option value="plugin">Plugin Fonts</option>
+                <option value="lines">Wireframe Lines</option>
               </select>
             </div>
 

@@ -227,6 +227,56 @@ describe("HTML Tab", () => {
       const errorMsg = await findByText("Network error");
       expect(errorMsg).toBeTruthy();
     });
+
+    it("shows HTTP status when response.json() fails to parse", async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.reject(new Error("Invalid JSON")),
+        })
+      ) as unknown as typeof fetch;
+
+      const { container, findByText } = render(<HTML />);
+      const textarea = container.querySelectorAll("textarea")[0];
+      fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+
+      fireEvent.click(findGenerateButton(container));
+
+      const errorMsg = await findByText("HTTP 500");
+      expect(errorMsg).toBeTruthy();
+    });
+
+    it("shows errorData.details when error field is missing", async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          json: () => Promise.resolve({ details: "Validation failed: htmlCode required" }),
+        })
+      ) as unknown as typeof fetch;
+
+      const { container, findByText } = render(<HTML />);
+      const textarea = container.querySelectorAll("textarea")[0];
+      fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+
+      fireEvent.click(findGenerateButton(container));
+
+      const errorMsg = await findByText("Validation failed: htmlCode required");
+      expect(errorMsg).toBeTruthy();
+    });
+
+    it("shows default message for non-Error exceptions", async () => {
+      globalThis.fetch = vi.fn(() => Promise.reject("string error")) as unknown as typeof fetch;
+
+      const { container, findByText } = render(<HTML />);
+      const textarea = container.querySelectorAll("textarea")[0];
+      fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+
+      fireEvent.click(findGenerateButton(container));
+
+      const errorMsg = await findByText("Failed to generate wireframe from HTML");
+      expect(errorMsg).toBeTruthy();
+    });
   });
 
   describe("expand overlay", () => {
@@ -312,6 +362,25 @@ describe("HTML Tab", () => {
       // The normal HTML textarea should have the updated value
       const textareas = container.querySelectorAll("textarea");
       expect(textareas[0].value).toBe("<p>test</p>");
+    });
+
+    it("disables overlay textarea during loading", async () => {
+      globalThis.fetch = vi.fn(() => new Promise(() => {})) as unknown as typeof fetch;
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+
+      // Start loading
+      fireEvent.click(findGenerateButton(container));
+
+      // Open HTML overlay
+      const maximizeBtns = findMaximizeBtns(container);
+      fireEvent.click(maximizeBtns[0]);
+
+      // Overlay textarea (third one) should be disabled
+      const allTextareas = container.querySelectorAll("textarea");
+      expect(allTextareas[2].disabled).toBe(true);
     });
   });
 
@@ -481,6 +550,65 @@ describe("HTML Tab", () => {
       expect(body.colorMode).toBe("plugin-colors");
       expect(body.typographyMode).toBe("plugin-fonts");
     });
+
+    it("handles missing wireframeData gracefully", async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            pluginColors: { text: "#000", surface: "#FFF" },
+          }),
+        })
+      ) as unknown as typeof fetch;
+
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Test</h1>");
+
+      await waitFor(() => {
+        expect(transformFramesData).toHaveBeenCalledWith([], expect.any(Object));
+      });
+    });
+
+    it("falls back to config pluginColors when API response has none", async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            wireframeData: { frames: [] },
+          }),
+        })
+      ) as unknown as typeof fetch;
+
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Test</h1>");
+
+      await waitFor(() => {
+        expect(prepareFramesForRendering).toHaveBeenCalled();
+      });
+
+      const [, colors] = (prepareFramesForRendering as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(colors).toEqual({
+        text: "#1C2F3A",
+        surface: "#FFFFFF",
+      });
+    });
+
+    it("shows RenderingLoader with initial progress after sendToFigma", async () => {
+      const { container } = render(<HTML />);
+      await triggerGenerate(container, "<h1>Test</h1>");
+
+      await waitFor(() => {
+        expect(parent.postMessage).toHaveBeenCalled();
+      });
+
+      expect(mockRenderingLoaderProps.current.isVisible).toBe(true);
+      expect(mockRenderingLoaderProps.current.progress).toEqual({
+        step: "Creating wireframe...",
+        percent: 0,
+      });
+    });
   });
 
   describe("message handling", () => {
@@ -598,6 +726,90 @@ describe("HTML Tab", () => {
         },
         "*"
       );
+    });
+
+    it("shows default error when wireframe-error has no error text", async () => {
+      const { findByText } = render(<HTML />);
+
+      dispatchPluginMessage("wireframe-error", {});
+
+      const errorMsg = await findByText("Failed to create wireframe");
+      expect(errorMsg).toBeTruthy();
+    });
+
+    it("closes font modal after choice is made", async () => {
+      render(<HTML />);
+
+      dispatchPluginMessage("fonts-not-available", {
+        missingFonts: ["CustomFont"],
+        defaultMapping: { CustomFont: "Arial" },
+        pluginFont: "Montserrat",
+        pluginFontOptions: ["Montserrat"],
+      });
+
+      await waitFor(() => {
+        expect(mockFontModalProps.current.isOpen).toBe(true);
+      });
+
+      mockFontModalProps.current.onChoice("use-plugin", { CustomFont: "Montserrat" });
+
+      await waitFor(() => {
+        expect(mockFontModalProps.current.isOpen).toBe(false);
+      });
+    });
+
+    it("clears resetTimeout on unmount to prevent timer leak", async () => {
+      vi.useFakeTimers();
+
+      const { unmount } = render(<HTML />);
+
+      dispatchPluginMessage("render-progress", {
+        step: "Done!",
+        percent: 100,
+        isComplete: true,
+      });
+
+      // Unmount before 10s timeout fires
+      unmount();
+
+      // Should not throw or cause issues after unmount
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+
+    it("cancels pending reset timeout when new import starts", async () => {
+      vi.useFakeTimers();
+
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            wireframeData: { frames: [] },
+            pluginColors: { text: "#000", surface: "#FFF" },
+          }),
+        })
+      ) as unknown as typeof fetch;
+      vi.spyOn(parent, "postMessage");
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+
+      // Complete rendering → sets 10s reset timeout
+      dispatchPluginMessage("render-progress", {
+        step: "Done!",
+        percent: 100,
+        isComplete: true,
+      });
+
+      // Before 10s passes, start new generate → sendToFigma cancels old timeout
+      fireEvent.click(findGenerateButton(container));
+
+      // Flush promises and advance past the original 10s
+      await vi.advanceTimersByTimeAsync(15000);
+
+      // RenderingLoader should still be visible (new import in progress, not reset)
+      expect(mockRenderingLoaderProps.current.isVisible).toBe(true);
     });
   });
 

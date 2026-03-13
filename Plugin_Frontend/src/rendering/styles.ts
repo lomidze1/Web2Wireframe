@@ -1021,11 +1021,11 @@ export function collectTypographyFromTree(
   node: WireframeNode,
   combos: Map<string, TypographyCombo>,
   pluginFontFamily: string,
-  fontMode: "plugin" | "website"
+  fontMode: "plugin" | "website" | "lines"
 ): void {
   // Only collect from text nodes
   if ((node.type === "text" || node.textContent) && node.fontSize) {
-    const family = fontMode === "plugin" ? pluginFontFamily : (node.fontFamily || pluginFontFamily);
+    const family = fontMode === "plugin" || fontMode === "lines" ? pluginFontFamily : (node.fontFamily || pluginFontFamily);
     const fontSize = Math.max(node.fontSize || 14, 8);
     const fontWeight = node.fontWeight || 400;
     const key = buildTextStyleKey(family, fontWeight, node.fontSize, node.lineHeight, node.letterSpacing || 0);
@@ -1072,7 +1072,7 @@ export function collectTypographyFromTree(
 export async function createTextStyles(
   frames: WireframeFrame[],
   fontFamily: string,
-  fontMode: "plugin" | "website",
+  fontMode: "plugin" | "website" | "lines",
   originalFontNames?: Record<string, string>
 ): Promise<Map<string, TextStyle>> {
   const textStyleMap = new Map<string, TextStyle>();
@@ -1097,7 +1097,7 @@ export async function createTextStyles(
   // Get existing text styles once
   const existingTextStyles = figma.getLocalTextStyles();
   let stylesCreated = 0;
-  const prefix = fontMode === "plugin" ? "W2W" : "WEB";
+  const prefix = fontMode === "plugin" ? "W2W" : fontMode === "lines" ? "LNS" : "WEB";
 
   // Detect lineHeight collisions: same base key (font+style+size+ls) with different lineHeights.
   // Only include lh in the display name when needed to disambiguate.

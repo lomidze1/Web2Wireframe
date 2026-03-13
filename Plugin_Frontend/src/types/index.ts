@@ -207,7 +207,7 @@ export interface RenderWireframeData {
   layoutMode?: "autoLayout" | "absolute"; // autoLayout = responsive, absolute = pixel-perfect
   // Import options
   colorMode?: "plugin" | "website";
-  fontMode?: "plugin" | "website";
+  fontMode?: "plugin" | "website" | "lines";
   textMode?: "semantic" | "lorem" | "website";
 }
 
@@ -227,7 +227,9 @@ export interface RenderContext {
   variableValueMap: Map<string, string>;
   // Import options
   colorMode: "plugin" | "website";
-  fontMode: "plugin" | "website";
+  fontMode: "plugin" | "website" | "lines";
+  // Text content mode
+  textMode: "semantic" | "lorem" | "website";
   // Text style linking map (typography key → TextStyle)
   textStyleMap?: Map<string, TextStyle>;
   // Parent background tracking for child-parent contrast

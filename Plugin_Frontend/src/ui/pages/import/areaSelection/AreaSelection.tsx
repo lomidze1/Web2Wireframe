@@ -123,7 +123,7 @@ interface SingleViewportCaptureResult {
   options: {
     viewport: number;
     colorMode: "plugin" | "website";
-    fontMode: "plugin" | "website";
+    fontMode: "plugin" | "website" | "lines";
     textMode: "semantic" | "lorem" | "website";
     variableMode?: "preserve" | "resolve";
   };

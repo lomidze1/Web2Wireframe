@@ -431,6 +431,33 @@ describe("Screenshot", () => {
       expect(labels).toContain("Screenshot Colors");
     });
 
+    it("forces plugin font mode when global config has website fonts", () => {
+      // Override mock to return fontMode: "website"
+      mockContext.config.fontMode = "website";
+      mockContext.getEffectiveConfig.mockImplementation(() => ({
+        ...mockContext.config,
+        fontMode: "website",
+      }));
+
+      const { container } = render(<Screenshot />);
+      expandSettings(container);
+
+      // Font dropdown should show "Plugin Fonts" not "Website Fonts"
+      const selects = container.querySelectorAll("select");
+      const fontSelect = selects[1]; // second dropdown is Fonts
+      expect(fontSelect.value).toBe("plugin");
+
+      // setSessionOverride should have been called with fontMode: "plugin"
+      expect(mockContext.setSessionOverride).toHaveBeenCalledWith(
+        "screenshot",
+        expect.objectContaining({ fontMode: "plugin" })
+      );
+
+      // Restore
+      mockContext.config.fontMode = "plugin";
+      mockContext.getEffectiveConfig.mockImplementation((tabId: string) => mockContext.config);
+    });
+
     it("passes disableFontWebsiteOption to SettingsPanel", () => {
       // The disabled behavior itself is verified in settingsPanel.test.tsx.
       // Here we verify the Screenshot component passes the right label.

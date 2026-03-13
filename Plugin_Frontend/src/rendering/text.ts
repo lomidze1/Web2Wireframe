@@ -9,6 +9,40 @@ import type {
   TextSegment,
   FigmaFill,
 } from "../types";
+
+/**
+ * Determine the text color for FILLR wireframe lines mode.
+ * - colorMode "plugin" → pluginColors.text
+ * - colorMode "website" → node.textColor or first segment color or fallback
+ */
+export function determineFillrTextColor(
+  node: { textColor?: string },
+  segments: { color?: string | null }[],
+  colorMode?: string,
+  pluginColors?: { text: string }
+): string {
+  if (colorMode === "plugin" && pluginColors) {
+    return pluginColors.text;
+  }
+  return node.textColor || segments[0]?.color || "#333333";
+}
+
+/**
+ * Calculate how many characters to keep so FILLR text fits within the original width.
+ * Uses ratio-based estimation (floor to never exceed).
+ */
+export function calculateFillrTrimLength(
+  fullTextLength: number,
+  fillrWidth: number,
+  originalWidth: number
+): number {
+  if (fillrWidth <= originalWidth || fullTextLength === 0) {
+    return fullTextLength;
+  }
+  const ratio = originalWidth / fillrWidth;
+  return Math.floor(fullTextLength * ratio);
+}
+
 import {
   cssColorToFigmaRGB,
   paintKeyFromCSSColor,
@@ -219,6 +253,77 @@ export async function createTextNode(
     if (seg.fontWeight >= 600) fontsToLoad.add("Bold");
     else if (seg.fontWeight >= 500) fontsToLoad.add("Medium");
     else fontsToLoad.add("Regular");
+  }
+
+  // Wireframe lines mode: use FILLR font (squiggly wireframe lines)
+  // FILLR only has Regular style, so force all weights to Regular
+  if (context?.fontMode === "lines") {
+    const fillrFont = "FILLR";
+    try {
+      await figma.loadFontAsync({ family: fillrFont, style: "Regular" });
+    } catch {
+      // FILLR not installed — fall back to Inter
+      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+    }
+
+    textNode.fontName = { family: fillrFont, style: "Regular" };
+
+    const fullText = segments.length > 1
+      ? segments.map((s, i) => {
+          if (i > 0) {
+            const prev = segments[i - 1].text;
+            if (!/\s$/.test(prev) && !/^\s/.test(s.text)) return " " + s.text;
+          }
+          return s.text;
+        }).join("")
+      : segments.map(s => s.text).join("");
+
+    textNode.characters = fullText;
+    textNode.fontSize = node.fontSize || 14;
+
+    // Trim text so FILLR glyphs don't exceed the original element width.
+    // FILLR characters are wider than most fonts, so we measure the natural
+    // FILLR width and trim characters until the text fits.
+    const originalWidth = Math.max(node.width || 100, 1);
+    textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+    const fillrWidth = textNode.width;
+
+    if (fillrWidth > originalWidth && fullText.length > 0) {
+      const ratio = originalWidth / fillrWidth;
+      let trimLength = Math.floor(fullText.length * ratio);
+      textNode.characters = fullText.slice(0, trimLength);
+
+      // Fine-tune: trim more if still too wide
+      while (textNode.width > originalWidth && trimLength > 0) {
+        trimLength--;
+        textNode.characters = fullText.slice(0, trimLength);
+      }
+    }
+
+    textNode.resize(originalWidth, Math.max(node.height || 20, 1));
+    textNode.textAutoResize = "HEIGHT";
+    textNode.name = node.name || node.tag || "Text";
+
+    // Apply text color based on colorMode
+    const fillrTextColor = determineFillrTextColor(
+      node, segments, context?.colorMode, context?.pluginColors
+    );
+    const fillrColorParsed = cssColorToFigmaRGB(fillrTextColor);
+    if (fillrColorParsed) {
+      textNode.fills = [{
+        type: "SOLID",
+        color: fillrColorParsed.color,
+        opacity: context?.colorMode === "plugin" ? 1.0 : fillrColorParsed.opacity,
+      }];
+    }
+
+    // Apply text alignment
+    const align = (node.textAlign || "left").toUpperCase();
+    if (align === "CENTER") textNode.textAlignHorizontal = "CENTER";
+    else if (align === "RIGHT") textNode.textAlignHorizontal = "RIGHT";
+    else textNode.textAlignHorizontal = "LEFT";
+
+    return textNode;
   }
 
   // Resolve font using fontMapping (multi-font) or legacy missingFont (single-font)
@@ -680,6 +785,18 @@ export async function createTextNode(
     return textNode;
   }
 
+  // Semantic placeholder text: use fixed original dimensions + truncation.
+  // Semantic text (e.g. "Subsection Heading") may be longer/shorter than the
+  // original website text. Constrain to original size and let Figma truncate
+  // with "..." anything that doesn't fit.
+  if (context?.textMode === "semantic") {
+    textNode.resize(browserWidth, browserHeight);
+    textNode.textAutoResize = "NONE";
+    textNode.textTruncation = "ENDING";
+    applyDeferredTextStyles();
+    return textNode;
+  }
+
   // Step 1: Measure Figma's HUG dimensions
   textNode.textAutoResize = "WIDTH_AND_HEIGHT";
   const hugWidth = textNode.width;
@@ -883,8 +1000,15 @@ export async function createTextWithBackground(
   const textNode = await createTextNode(node, context.fontFamily, context);
   if (textNode) {
     frame.appendChild(textNode);
-    textNode.layoutSizingHorizontal = "HUG";
-    textNode.layoutSizingVertical = "HUG";
+    if (context.textMode === "semantic") {
+      // Semantic text: preserve NONE + ENDING truncation, don't override to HUG.
+      // FIXED keeps original browser dimensions so truncation works in auto-layout.
+      textNode.layoutSizingHorizontal = "FIXED";
+      textNode.layoutSizingVertical = "FIXED";
+    } else {
+      textNode.layoutSizingHorizontal = "HUG";
+      textNode.layoutSizingVertical = "HUG";
+    }
   }
 
   return frame;

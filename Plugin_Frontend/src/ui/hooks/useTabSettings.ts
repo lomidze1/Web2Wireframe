@@ -28,7 +28,7 @@ export interface TabSettingsResult {
   // Local values
   localViewports: string[];
   localColorMode: "plugin" | "website";
-  localFontMode: "plugin" | "website";
+  localFontMode: "plugin" | "website" | "lines";
   localTextMode: "semantic" | "lorem" | "website";
   localCssVariablesMode: "styles" | "direct";
   localLayoutMode: "autoLayout" | "absolute";
@@ -36,7 +36,7 @@ export interface TabSettingsResult {
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => boolean;
   setColorMode: (mode: "plugin" | "website") => void;
-  setFontMode: (mode: "plugin" | "website") => void;
+  setFontMode: (mode: "plugin" | "website" | "lines") => void;
   setTextMode: (mode: "semantic" | "lorem" | "website") => void;
   setCssVariablesMode: (mode: "styles" | "direct") => void;
   setLayoutMode: (mode: "autoLayout" | "absolute") => void;
@@ -90,7 +90,7 @@ export function useTabSettings(
   const [localColorMode, setLocalColorMode] = useState<"plugin" | "website">(
     effectiveConfig.colorMode
   );
-  const [localFontMode, setLocalFontMode] = useState<"plugin" | "website">(
+  const [localFontMode, setLocalFontMode] = useState<"plugin" | "website" | "lines">(
     effectiveConfig.fontMode
   );
   const [localTextMode, setLocalTextMode] = useState<
@@ -161,7 +161,7 @@ export function useTabSettings(
 
   // Update session override when font mode changes
   const setFontModeHandler = useCallback(
-    (mode: "plugin" | "website") => {
+    (mode: "plugin" | "website" | "lines") => {
       setLocalFontMode(mode);
       setSessionOverride(tabId, { fontMode: mode });
     },

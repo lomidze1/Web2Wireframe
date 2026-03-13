@@ -34,7 +34,7 @@ export interface SettingsPanelProps {
   // Local values
   localViewports: string[];
   localColorMode: "plugin" | "website";
-  localFontMode: "plugin" | "website";
+  localFontMode: "plugin" | "website" | "lines";
   localTextMode: "semantic" | "lorem" | "website";
   localCssVariablesMode?: "styles" | "direct";
   localLayoutMode?: "autoLayout" | "absolute";
@@ -42,7 +42,7 @@ export interface SettingsPanelProps {
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => void;
   setColorMode: (mode: "plugin" | "website") => void;
-  setFontMode: (mode: "plugin" | "website") => void;
+  setFontMode: (mode: "plugin" | "website" | "lines") => void;
   setTextMode: (mode: "semantic" | "lorem" | "website") => void;
   setCssVariablesMode?: (mode: "styles" | "direct") => void;
   setLayoutMode?: (mode: "autoLayout" | "absolute") => void;
@@ -191,7 +191,7 @@ export default function SettingsPanel({
               value={localFontMode}
               onChange={(e) =>
                 setFontMode(
-                  (e.target as HTMLSelectElement).value as "plugin" | "website"
+                  (e.target as HTMLSelectElement).value as "plugin" | "website" | "lines"
                 )
               }
             >
@@ -203,6 +203,7 @@ export default function SettingsPanel({
               >
                 {fontWebsiteLabel || "Website Fonts"}
               </option>
+              <option value="lines">Wireframe Lines</option>
             </select>
           </div>
 

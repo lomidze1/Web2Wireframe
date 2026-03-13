@@ -197,7 +197,8 @@ export function needsMarginWrapper(
 export function createMarginWrapper(
   child: WireframeNode,
   childNode: SceneNode,
-  parentLayoutMode: "HORIZONTAL" | "VERTICAL" | "NONE"
+  parentLayoutMode: "HORIZONTAL" | "VERTICAL" | "NONE",
+  textMode?: string
 ): FrameNode {
   const margin = child.margin!;
   const wrapper = figma.createFrame();
@@ -234,8 +235,15 @@ export function createMarginWrapper(
     fc.layoutSizingVertical = "FILL";
   } else if (childNode.type === "TEXT") {
     const tc = childNode as TextNode;
-    tc.layoutSizingHorizontal = "FILL";
-    tc.textAutoResize = "HEIGHT";
+    if (textMode === "semantic") {
+      // Semantic placeholder: keep FIXED dimensions + NONE + ENDING truncation
+      // set by createTextNode. Don't override to FILL+HEIGHT.
+      tc.layoutSizingHorizontal = "FIXED";
+      tc.layoutSizingVertical = "FIXED";
+    } else {
+      tc.layoutSizingHorizontal = "FILL";
+      tc.textAutoResize = "HEIGHT";
+    }
   }
 
   return wrapper;

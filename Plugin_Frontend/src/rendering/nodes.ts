@@ -42,6 +42,7 @@ import {
 } from "./styles";
 import { createTextNode, createTextWithBackground } from "./text";
 import { createPlaceholder } from "./placeholders";
+// wireframeLines import removed — fontMode "lines" uses FILLR font via text.ts
 
 // ============================================================================
 // Legacy Fill/Stroke Application
@@ -153,6 +154,7 @@ export async function createNodeInFigma(
   }
 
   // Handle text nodes (including those with inline children)
+  // fontMode "lines" uses FILLR font — handled in text.ts font resolution
   if (node.type === "text") {
     // Check if text node has background fills (like buttons)
     const hasBackgroundFills = node.fills && node.fills.length > 0;
@@ -535,7 +537,7 @@ function applyChildInAutoLayout(
   const hasWrapper = needsMarginWrapper(child.margin);
   let wrapper: FrameNode | null = null;
   if (hasWrapper) {
-    wrapper = createMarginWrapper(child, childNode, parentFrame.layoutMode);
+    wrapper = createMarginWrapper(child, childNode, parentFrame.layoutMode, context.textMode);
   }
 
   // Append to parent (wrapper is the direct child; inner childNode already inside)
@@ -656,22 +658,34 @@ function applyChildInAutoLayout(
     }
 
     if (wrapper) {
-      // Wrapper handles parent sizing; inner text already FILL+HEIGHT from createMarginWrapper
-      if (isHorizontalLayout) {
-        if (child.layoutSizingHorizontal === "FILL" || isMultiLine) {
-          wrapper.layoutSizingHorizontal = "FILL";
-        }
-        if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
-          wrapper.layoutSizingVertical = "FILL";
-        }
+      if (context.textMode === "semantic") {
+        // Semantic placeholder: wrapper keeps original browser dimensions (FIXED),
+        // so inner text truncation with "..." works correctly in auto-layout.
+        wrapper.layoutSizingHorizontal = "FIXED";
+        wrapper.layoutSizingVertical = "FIXED";
       } else {
-        if (child.layoutSizingVertical === "FILL") {
-          wrapper.layoutSizingVertical = "FILL";
-        }
-        if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL" || isMultiLine) {
-          wrapper.layoutSizingHorizontal = "FILL";
+        // Wrapper handles parent sizing; inner text already FILL+HEIGHT from createMarginWrapper
+        if (isHorizontalLayout) {
+          if (child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+            wrapper.layoutSizingHorizontal = "FILL";
+          }
+          if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
+            wrapper.layoutSizingVertical = "FILL";
+          }
+        } else {
+          if (child.layoutSizingVertical === "FILL") {
+            wrapper.layoutSizingVertical = "FILL";
+          }
+          if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+            wrapper.layoutSizingHorizontal = "FILL";
+          }
         }
       }
+    } else if (context.textMode === "semantic") {
+      // Semantic placeholder text: preserve NONE + ENDING truncation from createTextNode.
+      // FIXED keeps original browser dimensions so truncation works in auto-layout.
+      textChild.layoutSizingHorizontal = "FIXED";
+      textChild.layoutSizingVertical = "FIXED";
     } else {
       // No wrapper — apply directly to text node
       if (isHorizontalLayout) {
