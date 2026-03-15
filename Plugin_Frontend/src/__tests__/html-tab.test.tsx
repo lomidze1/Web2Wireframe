@@ -3,6 +3,7 @@ import { render, fireEvent, waitFor } from "@testing-library/preact";
 import HTML from "../ui/pages/import/html/HTML";
 import { transformFramesData } from "../ui/shared/transformData";
 import { prepareFramesForRendering } from "../ui/shared/absoluteModeRenderer";
+import { validateHtml } from "../utils/validateHtml";
 
 // Mock ConfigContext
 vi.mock("../ui/shared/ConfigContext", async (importOriginal) => {
@@ -74,6 +75,20 @@ vi.mock("../ui/components/renderingLoader/RenderingLoader", () => ({
   },
 }));
 
+// Mock validateHtml — default: valid HTML (no modal)
+vi.mock("../utils/validateHtml", () => ({
+  validateHtml: vi.fn(() => ({ isValid: true, errorCount: 0, errors: [] })),
+}));
+
+// Mock HtmlWarningModal — capture props
+const mockHtmlWarningModalProps: { current: any } = { current: null };
+vi.mock("../ui/components/modalPopup/HtmlWarningModal", () => ({
+  default: (props: any) => {
+    mockHtmlWarningModalProps.current = props;
+    return null;
+  },
+}));
+
 // Mock transformData and absoluteModeRenderer
 vi.mock("../ui/shared/transformData", () => ({
   transformFramesData: vi.fn(() => []),
@@ -82,6 +97,13 @@ vi.mock("../ui/shared/transformData", () => ({
 vi.mock("../ui/shared/absoluteModeRenderer", () => ({
   prepareFramesForRendering: vi.fn(() => []),
 }));
+
+/** Helper: set default CSS to avoid CSS warning modal */
+function addDefaultCss(container: Element) {
+  fireEvent.input(container.querySelectorAll("textarea")[1], {
+    target: { value: "body{}" },
+  });
+}
 
 /** Helper: find the Generate button by text content */
 function findGenerateButton(container: Element): HTMLButtonElement {
@@ -100,6 +122,13 @@ describe("HTML Tab", () => {
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
     mockFontModalProps.current = null;
     mockRenderingLoaderProps.current = null;
+    mockHtmlWarningModalProps.current = null;
+    // Default: valid HTML
+    (validateHtml as ReturnType<typeof vi.fn>).mockReturnValue({
+      isValid: true,
+      errorCount: 0,
+      errors: [],
+    });
   });
 
   describe("rendering", () => {
@@ -142,6 +171,14 @@ describe("HTML Tab", () => {
       expect(button.disabled).toBe(false);
     });
 
+    it("button is disabled when text has no HTML tags", () => {
+      const { container } = render(<HTML />);
+      const textarea = container.querySelectorAll("textarea")[0];
+      fireEvent.input(textarea, { target: { value: "hello world" } });
+      const button = findGenerateButton(container);
+      expect(button.disabled).toBe(true);
+    });
+
     it("button is disabled when only whitespace in HTML textarea", () => {
       const { container } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
@@ -158,6 +195,7 @@ describe("HTML Tab", () => {
       const { container, getByText } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       const button = findGenerateButton(container);
       fireEvent.click(button);
@@ -171,6 +209,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       const button = findGenerateButton(container);
       fireEvent.click(button);
@@ -186,6 +225,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       const button = findGenerateButton(container);
       fireEvent.click(button);
@@ -206,6 +246,7 @@ describe("HTML Tab", () => {
       const { container, findByText } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       const button = findGenerateButton(container);
       fireEvent.click(button);
@@ -220,6 +261,7 @@ describe("HTML Tab", () => {
       const { container, findByText } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       const button = findGenerateButton(container);
       fireEvent.click(button);
@@ -240,6 +282,7 @@ describe("HTML Tab", () => {
       const { container, findByText } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       fireEvent.click(findGenerateButton(container));
 
@@ -258,6 +301,7 @@ describe("HTML Tab", () => {
       const { container, findByText } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       fireEvent.click(findGenerateButton(container));
 
@@ -271,6 +315,7 @@ describe("HTML Tab", () => {
       const { container, findByText } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       fireEvent.click(findGenerateButton(container));
 
@@ -370,6 +415,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       // Start loading
       fireEvent.click(findGenerateButton(container));
@@ -391,6 +437,7 @@ describe("HTML Tab", () => {
       const { container, findByText } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       const button = findGenerateButton(container);
       fireEvent.click(button);
@@ -433,7 +480,7 @@ describe("HTML Tab", () => {
     async function triggerGenerate(
       container: Element,
       html: string,
-      css?: string
+      css: string = "body{}"
     ) {
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: html } });
@@ -475,9 +522,22 @@ describe("HTML Tab", () => {
       expect(body.pluginColors).toBeDefined();
     });
 
-    it("sends empty CSS as undefined", async () => {
+    it("sends empty CSS as undefined after CSS warning continue", async () => {
       const { container } = render(<HTML />);
-      await triggerGenerate(container, "<h1>Hello</h1>", "   ");
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
+      fireEvent.input(textareas[1], { target: { value: "   " } });
+      fireEvent.click(findGenerateButton(container));
+
+      // CSS warning appears
+      await waitFor(() => {
+        expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+      });
+      mockHtmlWarningModalProps.current.onContinue();
+
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
 
       const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       const body = JSON.parse(callArgs[1].body);
@@ -794,6 +854,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       // Complete rendering → sets 10s reset timeout
       dispatchPluginMessage("render-progress", {
@@ -862,15 +923,20 @@ describe("HTML Tab", () => {
       expect(body.cssCode).toBe(".container { padding: 20px; }");
     });
 
-    it("sends whitespace-only CSS as undefined", async () => {
+    it("sends whitespace-only CSS as undefined after CSS warning continue", async () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
 
       fireEvent.input(textareas[0], { target: { value: "<p>Hello</p>" } });
       fireEvent.input(textareas[1], { target: { value: "   \n  \t  " } });
 
-      const button = findGenerateButton(container);
-      fireEvent.click(button);
+      fireEvent.click(findGenerateButton(container));
+
+      // CSS warning appears
+      await waitFor(() => {
+        expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+      });
+      mockHtmlWarningModalProps.current.onContinue();
 
       await waitFor(() => {
         expect(globalThis.fetch).toHaveBeenCalled();
@@ -886,6 +952,7 @@ describe("HTML Tab", () => {
       const textareas = container.querySelectorAll("textarea");
 
       fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       const button = findGenerateButton(container);
       fireEvent.click(button);
@@ -905,6 +972,7 @@ describe("HTML Tab", () => {
       const { container, findByText } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
+      addDefaultCss(container);
 
       // Trigger first generate → error
       fireEvent.click(findGenerateButton(container));
@@ -938,6 +1006,286 @@ describe("HTML Tab", () => {
 
       // Loader should be hidden
       expect(mockRenderingLoaderProps.current.isVisible).toBe(false);
+    });
+  });
+
+  describe("HTML validation warning", () => {
+    const MOCK_API_RESPONSE = {
+      success: true,
+      wireframeData: { frames: [] },
+      pluginColors: { text: "#000", surface: "#FFF" },
+    };
+
+    function mockSuccessFetch() {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_API_RESPONSE),
+        })
+      ) as unknown as typeof fetch;
+    }
+
+    it("proceeds directly to fetch when HTML is valid and CSS is provided", async () => {
+      mockSuccessFetch();
+      vi.spyOn(parent, "postMessage");
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Valid</h1>" } });
+      addDefaultCss(container);
+      fireEvent.click(findGenerateButton(container));
+
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+
+      // Warning modal should NOT be open
+      expect(mockHtmlWarningModalProps.current.isOpen).toBe(false);
+    });
+
+    it("shows warning modal instead of fetching when HTML is invalid", async () => {
+      (validateHtml as ReturnType<typeof vi.fn>).mockReturnValue({
+        isValid: false,
+        errorCount: 2,
+        errors: ["Unclosed tag: <div>", "Unclosed tag: <p>"],
+      });
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<div><p>Bad" } });
+      fireEvent.click(findGenerateButton(container));
+
+      // Should NOT have called fetch
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+
+      // Warning modal should be open with correct data
+      await waitFor(() => {
+        expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+      });
+      expect(mockHtmlWarningModalProps.current.errorCount).toBe(2);
+      expect(mockHtmlWarningModalProps.current.errors).toEqual([
+        "Unclosed tag: <div>",
+        "Unclosed tag: <p>",
+      ]);
+    });
+
+    it("proceeds with generation when user clicks Continue Anyway", async () => {
+      mockSuccessFetch();
+      vi.spyOn(parent, "postMessage");
+
+      (validateHtml as ReturnType<typeof vi.fn>).mockReturnValue({
+        isValid: false,
+        errorCount: 1,
+        errors: ["Unclosed tag: <div>"],
+      });
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<div>Bad" } });
+      fireEvent.click(findGenerateButton(container));
+
+      // Modal should be open
+      await waitFor(() => {
+        expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+      });
+
+      // Click Continue Anyway
+      mockHtmlWarningModalProps.current.onContinue();
+
+      // Now fetch should be called
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+
+      // Modal should be closed
+      expect(mockHtmlWarningModalProps.current.isOpen).toBe(false);
+    });
+
+    it("returns to editing when user clicks Go Back", async () => {
+      (validateHtml as ReturnType<typeof vi.fn>).mockReturnValue({
+        isValid: false,
+        errorCount: 1,
+        errors: ["Unclosed tag: <div>"],
+      });
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<div>Bad" } });
+      fireEvent.click(findGenerateButton(container));
+
+      // Modal should be open
+      await waitFor(() => {
+        expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+      });
+
+      // Click Go Back
+      mockHtmlWarningModalProps.current.onCancel();
+
+      // Fetch should NOT have been called
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+
+      // Modal should be closed
+      await waitFor(() => {
+        expect(mockHtmlWarningModalProps.current.isOpen).toBe(false);
+      });
+
+      // HTML textarea should still have the value (user can edit)
+      expect(textareas[0].value).toBe("<div>Bad");
+    });
+
+    it("does not generate or show modal when textarea is empty", () => {
+      const { container } = render(<HTML />);
+      fireEvent.click(findGenerateButton(container));
+
+      // No fetch, no modal
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expect(validateHtml).not.toHaveBeenCalled();
+    });
+
+    it("does not generate when textarea has only whitespace", () => {
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "   \n\t  " } });
+      fireEvent.click(findGenerateButton(container));
+
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expect(validateHtml).not.toHaveBeenCalled();
+    });
+
+    it("calls validateHtml with trimmed HTML code", () => {
+      (validateHtml as ReturnType<typeof vi.fn>).mockReturnValue({
+        isValid: true,
+        errorCount: 0,
+        errors: [],
+      });
+      mockSuccessFetch();
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "  <h1>Test</h1>  " } });
+      addDefaultCss(container);
+      fireEvent.click(findGenerateButton(container));
+
+      expect(validateHtml).toHaveBeenCalledWith("<h1>Test</h1>");
+    });
+  });
+
+  describe("CSS missing warning", () => {
+    const MOCK_API_RESPONSE = {
+      success: true,
+      wireframeData: { frames: [] },
+      pluginColors: { text: "#000", surface: "#FFF" },
+    };
+
+    function mockSuccessFetch() {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_API_RESPONSE),
+        })
+      ) as unknown as typeof fetch;
+    }
+
+    it("shows CSS warning modal when CSS textarea is empty", () => {
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
+      fireEvent.click(findGenerateButton(container));
+
+      // Should NOT have called fetch
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+
+      // Warning modal should be open with CSS-specific content
+      expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+      expect(mockHtmlWarningModalProps.current.title).toBe("Missing CSS");
+      expect(mockHtmlWarningModalProps.current.errorCount).toBe(1);
+      expect(mockHtmlWarningModalProps.current.errors[0]).toContain("without CSS");
+    });
+
+    it("proceeds with generation when user clicks Continue Anyway on CSS warning", async () => {
+      mockSuccessFetch();
+      vi.spyOn(parent, "postMessage");
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
+      fireEvent.click(findGenerateButton(container));
+
+      // CSS warning appears
+      expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+      expect(mockHtmlWarningModalProps.current.title).toBe("Missing CSS");
+
+      // Click Continue Anyway
+      mockHtmlWarningModalProps.current.onContinue();
+
+      // Now fetch should be called
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+
+      // Modal should be closed
+      expect(mockHtmlWarningModalProps.current.isOpen).toBe(false);
+    });
+
+    it("returns to editing when user clicks Go Back on CSS warning", async () => {
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
+      fireEvent.click(findGenerateButton(container));
+
+      // CSS warning appears
+      expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+
+      // Click Go Back
+      mockHtmlWarningModalProps.current.onCancel();
+
+      // Fetch should NOT have been called
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+
+      // Modal should be closed
+      await waitFor(() => {
+        expect(mockHtmlWarningModalProps.current.isOpen).toBe(false);
+      });
+
+      // HTML textarea should still have the value
+      expect(textareas[0].value).toBe("<h1>Hello</h1>");
+    });
+
+    it("does NOT show CSS warning when CSS textarea has content", async () => {
+      mockSuccessFetch();
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
+      fireEvent.input(textareas[1], { target: { value: "h1 { color: red; }" } });
+      fireEvent.click(findGenerateButton(container));
+
+      // Should proceed directly to fetch
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+
+      // Modal should NOT be open
+      expect(mockHtmlWarningModalProps.current.isOpen).toBe(false);
+    });
+
+    it("shows HTML warning first when both HTML is invalid and CSS is empty", () => {
+      (validateHtml as ReturnType<typeof vi.fn>).mockReturnValue({
+        isValid: false,
+        errorCount: 1,
+        errors: ["Unclosed tag: <div>"],
+      });
+
+      const { container } = render(<HTML />);
+      const textareas = container.querySelectorAll("textarea");
+      fireEvent.input(textareas[0], { target: { value: "<div>Bad" } });
+      // CSS is empty too
+      fireEvent.click(findGenerateButton(container));
+
+      // Should show HTML warning, not CSS warning
+      expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
+      expect(mockHtmlWarningModalProps.current.title).toBe("HTML Quality Warning");
+      expect(mockHtmlWarningModalProps.current.errors).toEqual(["Unclosed tag: <div>"]);
     });
   });
 });

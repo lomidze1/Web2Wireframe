@@ -8,9 +8,11 @@ import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
+import HtmlWarningModal from "../../../components/modalPopup/HtmlWarningModal";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
+import { validateHtml, type HtmlValidationResult } from "../../../../utils/validateHtml";
 
 const TAB_ID = "html";
 const STORAGE_KEY = "w2w_settings_expanded_html";
@@ -44,6 +46,8 @@ export default function HTML() {
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
   const [expandedField, setExpandedField] = useState<"html" | "css" | null>(null);
+  const [warningType, setWarningType] = useState<"html" | "css" | null>(null);
+  const [htmlValidation, setHtmlValidation] = useState<HtmlValidationResult | null>(null);
   const [showFontModal, setShowFontModal] = useState(false);
   const [fontModalData, setFontModalData] = useState<{
     missingFonts: string[];
@@ -151,10 +155,7 @@ export default function HTML() {
     );
   };
 
-  const handleGenerate = async () => {
-    const trimmedHTML = htmlCode.trim();
-    if (!trimmedHTML) return;
-
+  const proceedWithGenerate = async (trimmedHTML: string) => {
     setImportState({ status: "loading", message: "Generating wireframe from HTML..." });
     settings.collapseSettings();
 
@@ -238,7 +239,37 @@ export default function HTML() {
     }
   };
 
-  const isDisabled = !htmlCode.trim() || importState.status === "loading";
+  const handleGenerate = async () => {
+    const trimmedHTML = htmlCode.trim();
+    if (!trimmedHTML) return;
+
+    const validation = validateHtml(trimmedHTML);
+    if (!validation.isValid) {
+      setHtmlValidation(validation);
+      setWarningType("html");
+      return;
+    }
+
+    if (!cssCode.trim()) {
+      setWarningType("css");
+      return;
+    }
+
+    await proceedWithGenerate(trimmedHTML);
+  };
+
+  const handleWarningContinue = () => {
+    setWarningType(null);
+    setHtmlValidation(null);
+    proceedWithGenerate(htmlCode.trim());
+  };
+
+  const handleWarningCancel = () => {
+    setWarningType(null);
+    setHtmlValidation(null);
+  };
+
+  const isDisabled = !htmlCode.trim() || !/<[a-zA-Z]/.test(htmlCode) || importState.status === "loading";
 
   return (
     <div class={styles.htmlContainer}>
@@ -340,6 +371,20 @@ export default function HTML() {
         pluginFont={fontModalData?.pluginFont || "Montserrat"}
         pluginFontOptions={fontModalData?.pluginFontOptions || []}
         onChoice={handleFontFallbackChoice}
+      />
+
+      {/* Warning Modal (HTML validation or missing CSS) */}
+      <HtmlWarningModal
+        isOpen={warningType !== null}
+        title={warningType === "css" ? "Missing CSS" : "HTML Quality Warning"}
+        errorCount={warningType === "css" ? 1 : htmlValidation?.errorCount ?? 0}
+        errors={
+          warningType === "css"
+            ? ["You're trying to import HTML without CSS styles. The wireframe may not reflect the intended design."]
+            : htmlValidation?.errors ?? []
+        }
+        onContinue={handleWarningContinue}
+        onCancel={handleWarningCancel}
       />
 
       {/* Expand Overlay */}
