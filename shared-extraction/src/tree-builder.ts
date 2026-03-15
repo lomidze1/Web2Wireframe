@@ -56,6 +56,62 @@ export interface BuildTreeOptions {
 }
 
 // ============================================================================
+// MEDIA FALLBACK DIMENSIONS
+// ============================================================================
+
+/** Minimum fallback size for media elements when no other sizing is available */
+const MIN_MEDIA_FALLBACK = 150;
+
+/** Default aspect ratio (height/width) for media fallback: 3:4 */
+const DEFAULT_ASPECT_RATIO = 0.75;
+
+/**
+ * Get fallback dimension for media elements (img, video, etc.) with 0 bounds.
+ *
+ * When Puppeteer blocks external requests (SSRF protection), images don't load
+ * and the browser reports 0×0 bounds. This function provides fallback sizing:
+ *
+ * Priority:
+ * 1. HTML width/height attributes (most accurate)
+ * 2. Derive from other dimension using aspect ratio (if one dimension is known)
+ * 3. Parent container proportion (50% of parent)
+ * 4. Minimum fallback (150px)
+ *
+ * @param dimension - Which dimension to resolve ("width" or "height")
+ * @param attributes - HTML element attributes (may contain width/height)
+ * @param currentValue - Current resolved value (0 means needs fallback)
+ * @param otherDimension - The other dimension's resolved value (for aspect ratio)
+ * @param parentSize - Parent container size for this dimension
+ */
+export function getMediaFallbackDimension(
+  dimension: "width" | "height",
+  attributes: Record<string, string>,
+  currentValue: number,
+  otherDimension: number,
+  parentSize: number
+): number {
+  // No fallback needed
+  if (currentValue > 0) return currentValue;
+
+  // Priority 1: HTML attributes
+  const attrValue = parseFloat(attributes[dimension]);
+  if (!isNaN(attrValue) && attrValue > 0) return attrValue;
+
+  // Priority 2: Derive from other dimension using aspect ratio
+  if (otherDimension > 0) {
+    return dimension === "height"
+      ? otherDimension * DEFAULT_ASPECT_RATIO
+      : otherDimension / DEFAULT_ASPECT_RATIO;
+  }
+
+  // Priority 3: Parent container proportion (50%)
+  if (parentSize > 0) return parentSize * 0.5;
+
+  // Priority 4: Minimum fallback
+  return MIN_MEDIA_FALLBACK;
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
@@ -775,6 +831,7 @@ export function buildElementTree(
       alignItems?: string;
       contentWidth?: number;
       contentHeight?: number;
+      isGridChild?: boolean;
     }
   ): ExtractedElement | null {
     if (depth > MAX_TREE_DEPTH) return null;
@@ -787,29 +844,46 @@ export function buildElementTree(
     // Skip unwanted tags
     if (SKIP_TAGS.includes(tag as (typeof SKIP_TAGS)[number])) return null;
 
-    // Skip invisible nodes
-    if (!node.bounds || node.bounds.width < 1 || node.bounds.height < 1)
+    // Skip invisible nodes — but keep media tags (img, video, etc.)
+    // that may have 0 bounds due to unloaded resources (e.g., SSRF blocking)
+    const isMediaForFilter = MEDIA_TAGS.includes(tag as (typeof MEDIA_TAGS)[number]);
+    if (!node.bounds || ((node.bounds.width < 1 || node.bounds.height < 1) && !isMediaForFilter))
       return null;
 
     // Scale bounds by devicePixelRatio
-    const scaledBounds = {
+    const scaledBounds = node.bounds ? {
       x: node.bounds.x / browserDpr,
       y: node.bounds.y / browserDpr,
       width: node.bounds.width / browserDpr,
       height: node.bounds.height / browserDpr,
-    };
+    } : { x: 0, y: 0, width: 0, height: 0 };
 
     const { x, y } = scaledBounds;
     const computedStyles = node.computedStyles;
     // Sub-pixel precision from computedStyles (layout.bounds snaps to integers)
-    const width = getSubPixelDimension(computedStyles, "width", scaledBounds.width);
-    const height = getSubPixelDimension(computedStyles, "height", scaledBounds.height);
+    let width = getSubPixelDimension(computedStyles, "width", scaledBounds.width);
+    let height = getSubPixelDimension(computedStyles, "height", scaledBounds.height);
     const matchedStyles = matchedStylesMap.get(node.backendNodeId) || null;
 
     // Determine element type
-    const isMedia =
-      MEDIA_TAGS.includes(tag as (typeof MEDIA_TAGS)[number]) ||
-      Boolean(computedStyles["background-image"]?.includes("url("));
+    const isMediaTag = MEDIA_TAGS.includes(tag as (typeof MEDIA_TAGS)[number]);
+
+    // Fallback dimensions for media tags with 0 bounds
+    // (e.g., images blocked by SSRF protection in HTML import)
+    if (isMediaTag && (width <= 0 || height <= 0)) {
+      const parentW = parentContext?.contentWidth || viewportWidth;
+      const parentH = parentContext?.contentHeight || 0;
+
+      // Resolve width first (more commonly derivable from parent)
+      if (width <= 0) {
+        width = getMediaFallbackDimension("width", node.attributes, width, height, parentW);
+      }
+      // Then height (can use resolved width for aspect ratio)
+      if (height <= 0) {
+        height = getMediaFallbackDimension("height", node.attributes, height, width, parentH);
+      }
+    }
+    const hasBackgroundImageUrl = Boolean(computedStyles["background-image"]?.includes("url("));
     const isText = TEXT_TAGS.includes(tag as (typeof TEXT_TAGS)[number]);
 
     // Extract styles
@@ -999,16 +1073,18 @@ export function buildElementTree(
     const flexWrap = computedStyles["flex-wrap"] || undefined;
 
     const flexGrowValue = parseFloat(computedStyles["flex-grow"] || "0") || 0;
-    const layoutGrow: 0 | 1 | undefined = flexGrowValue > 0 ? 1 : undefined;
+    const isGridChild = parentContext?.isGridChild === true;
+    const layoutGrow: 0 | 1 | undefined = (flexGrowValue > 0 || isGridChild) ? 1 : undefined;
     const alignSelf = computedStyles["align-self"];
     const layoutAlign: "STRETCH" | "INHERIT" | undefined =
       alignSelf === "stretch" ? "STRETCH" : undefined;
 
     const layoutSizing = getLayoutSizing(computedStyles, flexGrowValue, alignSelf, parentContext);
 
-    // Override FILL → HUG: if child is significantly smaller than parent content area,
-    // it's not actually stretching (explicit width or inline content sizing)
-    if (parentContext) {
+    // Override FILL → FIXED: if child is significantly smaller than parent content area,
+    // it's not actually stretching (explicit width or inline content sizing).
+    // Skip for grid children: they fill their cell, not the full grid container.
+    if (parentContext && !parentContext.isGridChild) {
       const marginL = parseFloat(computedStyles["margin-left"]) || 0;
       const marginR = parseFloat(computedStyles["margin-right"]) || 0;
       const marginT = parseFloat(computedStyles["margin-top"]) || 0;
@@ -1166,8 +1242,17 @@ export function buildElementTree(
 
     // Determine element type
     let elementType: "frame" | "text" | "placeholder" = "frame";
-    if (isMedia) {
+    if (isMediaTag) {
+      // True media tags (<img>, <video>, <svg>, etc.) are always placeholders
       elementType = "placeholder";
+    } else if (hasBackgroundImageUrl) {
+      // Elements with background-image: url() — only placeholder if no element children
+      const bgChildIndices = childrenMap.get(node.index) || [];
+      const hasElementChildren = bgChildIndices.some((idx) => {
+        const child = nodes[idx];
+        return child && child.nodeType === 1 && child.nodeName.toLowerCase() !== "br";
+      });
+      elementType = hasElementChildren ? "frame" : "placeholder";
     } else if (shouldBeText && finalText) {
       elementType = "text";
     }
@@ -1222,7 +1307,7 @@ export function buildElementTree(
       styledSegments: styledSegments.length > 0 ? styledSegments : undefined,
       listStyleType,
       opacity,
-      isPlaceholder: isMedia,
+      isPlaceholder: elementType === "placeholder",
       horizontallyCentered: horizontallyCentered || undefined,
       margin,
       children: [],
@@ -1248,11 +1333,15 @@ export function buildElementTree(
           continue;
         }
 
+        const display = computedStyles["display"];
+        const isGrid = display === "grid" || display === "inline-grid";
+
         const childElement = buildNode(childNode, x, y, depth + 1, {
           direction: (element.layoutMode && element.layoutMode !== "NONE") ? element.layoutMode : "VERTICAL",
           alignItems,
           contentWidth: parentContentWidth,
           contentHeight: parentContentHeight,
+          isGridChild: isGrid || undefined,
         });
         if (childElement && childElement.width > 3 && childElement.height > 3) {
           // Clip child width if extends beyond viewport

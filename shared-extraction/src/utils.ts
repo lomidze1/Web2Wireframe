@@ -292,6 +292,7 @@ export function getLayoutSizing(
     alignItems?: string;
     contentWidth?: number;
     contentHeight?: number;
+    isGridChild?: boolean;
   }
 ): {
   horizontal: "FIXED" | "HUG" | "FILL" | undefined;
@@ -312,19 +313,22 @@ export function getLayoutSizing(
   const effectiveAlignSelf =
     !alignSelf || alignSelf === "auto" ? normalizedAlignItems : alignSelf;
 
+  // CSS Grid children always fill their cell on the main axis (like flex-grow: 1)
+  const effectiveFlexGrow = parentContext.isGridChild ? 1 : flexGrow;
+
   let horizontal: "FIXED" | "HUG" | "FILL" | undefined;
   let vertical: "FIXED" | "HUG" | "FILL" | undefined;
 
   if (parentIsColumn) {
     // Parent is VERTICAL layout
     // Main axis = vertical: flex-grow → FILL, else → FIXED
-    vertical = flexGrow > 0 ? "FILL" : "FIXED";
+    vertical = effectiveFlexGrow > 0 ? "FILL" : "FIXED";
     // Cross axis = horizontal: stretch → FILL, else → FIXED
     horizontal = effectiveAlignSelf === "stretch" ? "FILL" : "FIXED";
   } else {
     // Parent is HORIZONTAL layout
     // Main axis = horizontal: flex-grow → FILL, else → FIXED
-    horizontal = flexGrow > 0 ? "FILL" : "FIXED";
+    horizontal = effectiveFlexGrow > 0 ? "FILL" : "FIXED";
     // Cross axis = vertical: stretch → FILL, else → FIXED
     vertical = effectiveAlignSelf === "stretch" ? "FILL" : "FIXED";
   }

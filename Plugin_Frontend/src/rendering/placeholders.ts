@@ -140,6 +140,15 @@ export async function createPlaceholder(
   placeholder.name = node.name || "Image";
   placeholder.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
+  // Explicit layout properties prevent Figma from collapsing dimensions
+  // when this placeholder is inside an auto-layout parent.
+  // Without these, height collapses to ~lineHeight (e.g. 25.6px instead of 357px).
+  placeholder.layoutMode = "VERTICAL";
+  placeholder.primaryAxisSizingMode = "FIXED";
+  placeholder.counterAxisSizingMode = "FIXED";
+  placeholder.primaryAxisAlignItems = "CENTER";
+  placeholder.counterAxisAlignItems = "CENTER";
+
   // Surface background color
   const surfaceRgb = hexToFigmaRGB(surfaceColor);
 

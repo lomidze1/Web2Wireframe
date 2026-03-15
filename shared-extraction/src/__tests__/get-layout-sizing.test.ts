@@ -198,4 +198,64 @@ describe("getLayoutSizing", () => {
     expect(result.horizontal).toBe("FIXED");
     expect(result.vertical).toBe("FIXED");
   });
+
+  // =========================================================================
+  // CSS Grid children: should get FILL on main axis (like flex-grow: 1)
+  // Grid children always fill their cell by default
+  // =========================================================================
+
+  it("grid child in HORIZONTAL parent with stretch → FILL × FILL", () => {
+    const result = getLayoutSizing(
+      { display: "block", width: "535px", height: "357px" },
+      0,
+      "auto",
+      { direction: "HORIZONTAL", alignItems: "stretch", isGridChild: true }
+    );
+    expect(result.horizontal).toBe("FILL");
+    expect(result.vertical).toBe("FILL");
+  });
+
+  it("grid child in HORIZONTAL parent with align-items: center → FILL × FIXED", () => {
+    const result = getLayoutSizing(
+      { display: "block", width: "535px", height: "357px" },
+      0,
+      "auto",
+      { direction: "HORIZONTAL", alignItems: "center", isGridChild: true }
+    );
+    expect(result.horizontal).toBe("FILL");
+    expect(result.vertical).toBe("FIXED");
+  });
+
+  it("grid child in VERTICAL parent (single-column) → FILL × FILL", () => {
+    const result = getLayoutSizing(
+      { display: "block", width: "1100px", height: "200px" },
+      0,
+      "auto",
+      { direction: "VERTICAL", isGridChild: true }
+    );
+    expect(result.horizontal).toBe("FILL");
+    expect(result.vertical).toBe("FILL");
+  });
+
+  it("grid child with align-self: flex-start → FILL × FIXED (main axis still fills)", () => {
+    const result = getLayoutSizing(
+      { display: "block", width: "535px", height: "200px" },
+      0,
+      "flex-start",
+      { direction: "HORIZONTAL", isGridChild: true }
+    );
+    expect(result.horizontal).toBe("FILL");
+    expect(result.vertical).toBe("FIXED");
+  });
+
+  it("non-grid child in HORIZONTAL parent without flex-grow → FIXED × FILL (regression)", () => {
+    const result = getLayoutSizing(
+      { display: "block", width: "535px", height: "357px" },
+      0,
+      "auto",
+      { direction: "HORIZONTAL" }
+    );
+    expect(result.horizontal).toBe("FIXED");
+    expect(result.vertical).toBe("FILL");
+  });
 });
