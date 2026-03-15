@@ -374,7 +374,7 @@ describe("Screenshot", () => {
       expect(msg.type).toBe("render-wireframe");
       expect(msg.data.sourceUrl).toBe("screenshot://uploaded");
       expect(msg.data.variableMode).toBe("direct");
-      expect(msg.data.layoutMode).toBe("autoLayout");
+      expect(msg.data.layoutMode).toBe("absolute");
       expect(msg.data.colorMode).toBe("plugin");
       expect(msg.data.fontMode).toBe("plugin");
       expect(msg.data.frames).toBeDefined();

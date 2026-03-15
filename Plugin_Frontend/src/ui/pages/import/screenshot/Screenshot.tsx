@@ -26,6 +26,13 @@ export default function Screenshot() {
     }
   }, [settings.localFontMode]);
 
+  // Force absolute layout — auto-layout not available in screenshot mode
+  useEffect(() => {
+    if (settings.localLayoutMode === "autoLayout") {
+      settings.setLayoutMode("absolute");
+    }
+  }, [settings.localLayoutMode]);
+
   // Listen for wireframe creation results from Figma sandbox
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -76,6 +83,7 @@ export default function Screenshot() {
 
     setIsGenerating(true);
     setError(null);
+    settings.collapseSettings();
 
     try {
       // Get image dimensions
@@ -123,7 +131,7 @@ export default function Screenshot() {
               pluginColors: data.pluginColors,
               pluginFont: config.pluginFont,
               variableMode: "direct",
-              layoutMode: "autoLayout",
+              layoutMode: "absolute",
               colorMode: settings.localColorMode,
               fontMode: "plugin",
               textMode: settings.localTextMode,
@@ -203,6 +211,8 @@ export default function Screenshot() {
         colorWebsiteLabel="Screenshot Colors"
         disableFontWebsiteOption={true}
         fontDisabledTooltip="Not available in Screenshot mode"
+        disableAutoLayoutOption={true}
+        layoutDisabledTooltip="Not available in Screenshot mode"
       />
 
       {/* Error Display */}

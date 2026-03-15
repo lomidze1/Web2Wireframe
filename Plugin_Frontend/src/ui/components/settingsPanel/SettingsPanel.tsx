@@ -72,6 +72,12 @@ export interface SettingsPanelProps {
 
   // Optional: custom label for the "Website Text" option (e.g. "Code Text")
   textWebsiteLabel?: string;
+
+  // Optional: disable the "Auto Layout" option in the layout dropdown
+  disableAutoLayoutOption?: boolean;
+
+  // Optional: tooltip text for disabled layout option
+  layoutDisabledTooltip?: string;
 }
 
 /**
@@ -108,6 +114,8 @@ export default function SettingsPanel({
   fontDisabledTooltip,
   fontWebsiteLabel,
   textWebsiteLabel,
+  disableAutoLayoutOption,
+  layoutDisabledTooltip,
 }: SettingsPanelProps) {
   return (
     <div class={containerClassName || styles.settingsBox}>
@@ -271,7 +279,13 @@ export default function SettingsPanel({
                   )
                 }
               >
-                <option value="autoLayout">Auto Layout (Editable)</option>
+                <option
+                  value="autoLayout"
+                  disabled={disableAutoLayoutOption}
+                  title={disableAutoLayoutOption ? layoutDisabledTooltip : undefined}
+                >
+                  Auto Layout (Editable)
+                </option>
                 <option value="absolute">Absolute (Pixel-perfect)</option>
               </select>
             </div>

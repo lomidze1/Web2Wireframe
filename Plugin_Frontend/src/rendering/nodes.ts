@@ -136,6 +136,25 @@ function applyStrokeToFrame(
 }
 
 // ============================================================================
+// Auto Layout Decision Helper
+// ============================================================================
+
+/**
+ * Determine whether auto layout should be applied to a node.
+ * True when global mode is "autoLayout" OR when the node itself has
+ * a layout mode (e.g. card with VERTICAL) — this ensures internal
+ * auto-layout works even in absolute positioning mode.
+ */
+export function shouldUseAutoLayout(
+  contextLayoutMode: string | undefined,
+  nodeLayoutMode: string | undefined
+): boolean {
+  if (contextLayoutMode === "autoLayout") return true;
+  // Node has its own layout (e.g. card with VERTICAL, button with HORIZONTAL)
+  return !!nodeLayoutMode && nodeLayoutMode !== "NONE";
+}
+
+// ============================================================================
 // Recursive Node Creation
 // ============================================================================
 
@@ -184,7 +203,12 @@ export async function createNodeInFigma(
   }
 
   // Handle placeholders (images/videos)
-  if (node.type === "placeholder" || node.isPlaceholder) {
+  // Skip placeholder path when element has children (e.g. background-image containers)
+  // so children are rendered normally as frame content
+  if (
+    (node.type === "placeholder" || node.isPlaceholder) &&
+    (!node.children || node.children.length === 0)
+  ) {
     return await createPlaceholder(
       node,
       context.pluginColors.secondary,
@@ -198,8 +222,8 @@ export async function createNodeInFigma(
   frame.name = node.name || "Container";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
-  // Apply Auto Layout ONLY if context.layoutMode is "autoLayout"
-  const useAutoLayout = context.layoutMode === "autoLayout";
+  // Apply Auto Layout: global autoLayout mode OR node has its own layout (e.g. card with VERTICAL)
+  const useAutoLayout = shouldUseAutoLayout(context.layoutMode, node.layoutMode);
 
   if (useAutoLayout) {
     // Use CSS layout direction if available

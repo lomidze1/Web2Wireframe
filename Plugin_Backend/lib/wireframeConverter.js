@@ -1152,11 +1152,117 @@ function convertAccordion(element, ctx) {
 }
 
 // ============================================================================
+// Absolute Positioning Converter
+// ============================================================================
+
+/**
+ * Convert absolute AI JSON to a WireframeNode tree
+ * Root frame uses layoutMode: "NONE" with children positioned by x/y
+ * @param {object} absoluteJSON - AI output { pageWidth, pageHeight, elements[] }
+ * @param {number} viewportWidth
+ * @param {object} pluginColors - { text, background, secondary, surface, accent }
+ * @param {string} pluginFont
+ * @returns {object} WireframeNode root (body)
+ */
+function convertAbsoluteToWireframeTree(absoluteJSON, viewportWidth, pluginColors, pluginFont) {
+  const breakpoint = getBreakpoint(viewportWidth);
+  const nextId = createIdGenerator();
+
+  const ctx = {
+    viewportWidth,
+    breakpoint,
+    colors: pluginColors,
+    font: pluginFont,
+    nextId,
+  };
+
+  const rootNode = createDefaultNode(nextId, {
+    name: "Body",
+    type: "frame",
+    tag: "body",
+    width: absoluteJSON.pageWidth || viewportWidth,
+    height: absoluteJSON.pageHeight || 0,
+    layoutMode: "NONE",
+    layoutSizingHorizontal: "FIXED",
+    layoutSizingVertical: "FIXED",
+    backgroundColor: pluginColors.background,
+    fills: [solidFill(pluginColors.background)],
+    textColor: pluginColors.text,
+    fontFamily: pluginFont,
+  });
+
+  for (const element of absoluteJSON.elements || []) {
+    const childNode = convertAbsoluteElement(element, ctx);
+    if (childNode) rootNode.children.push(childNode);
+  }
+
+  return rootNode;
+}
+
+/**
+ * Convert a single element with absolute positioning
+ * Reuses existing convertElement() and overrides x/y/width/height
+ * @param {object} element - Element with x, y, width, height
+ * @param {object} ctx - ConvertContext
+ * @returns {object|null} WireframeNode
+ */
+function convertAbsoluteElement(element, ctx) {
+  if (!element || !element.type) return null;
+
+  // section-bg = colored rectangle
+  if (element.type === "section-bg") {
+    return convertSectionBackground(element, ctx);
+  }
+
+  // Use existing element converter
+  const node = convertElement(element, ctx);
+  if (!node) return null;
+
+  // Override with absolute positioning
+  node.x = element.x || 0;
+  node.y = element.y || 0;
+  node.width = element.width || node.width;
+  node.height = element.height || node.height;
+  node.layoutSizingHorizontal = "FIXED";
+  node.layoutSizingVertical = "FIXED";
+
+  return node;
+}
+
+/**
+ * Convert section-bg element to a colored rectangle
+ * @param {object} element - { type: "section-bg", name, x, y, width, height, background }
+ * @param {object} ctx - ConvertContext
+ * @returns {object} WireframeNode
+ */
+function convertSectionBackground(element, ctx) {
+  const bgColor = resolveBackgroundColor(element.background, ctx.colors);
+
+  return createDefaultNode(ctx.nextId, {
+    name: element.name || "Section Background",
+    type: "frame",
+    tag: "section",
+    x: element.x || 0,
+    y: element.y || 0,
+    width: element.width || ctx.viewportWidth,
+    height: element.height || 0,
+    layoutMode: "NONE",
+    layoutSizingHorizontal: "FIXED",
+    layoutSizingVertical: "FIXED",
+    backgroundColor: bgColor,
+    fills: bgColor ? [solidFill(bgColor)] : [],
+    textColor: ctx.colors.text,
+    fontFamily: ctx.font,
+  });
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
 module.exports = {
   convertToWireframeTree,
+  convertAbsoluteToWireframeTree,
   // Exported for testing
   hexToFigmaColor,
   solidFill,
@@ -1164,6 +1270,8 @@ module.exports = {
   createDefaultNode,
   createIdGenerator,
   convertElement,
+  convertAbsoluteElement,
+  convertSectionBackground,
   convertSection,
   convertCenterStacked,
   convertTwoColumn,

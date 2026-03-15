@@ -13,10 +13,11 @@ const {
   getFontByMode,
 } = require("../utils/styleUtils");
 const { validateUrl } = require("../utils/urlValidation");
-const { convertToWireframeTree } = require("../lib/wireframeConverter");
+const { convertToWireframeTree, convertAbsoluteToWireframeTree } = require("../lib/wireframeConverter");
 const {
   generateWithRetry,
   analyzeScreenshotWithRetry,
+  analyzeScreenshotAbsoluteWithRetry,
   validateSimplifiedFormat,
   validateExtractedColors,
   VALID_PAGE_TYPES,
@@ -930,11 +931,11 @@ app.post("/api/import-screenshot", async (req, res) => {
     // Coerce viewports to numbers (frontend may send string[])
     const numericViewports = viewports.map((v) => Number(v) || 1440);
 
-    // Analyze and generate for each viewport
+    // Analyze and generate for each viewport (absolute positioning mode)
     const frames = [];
     let renderColors = finalPluginColors;
     for (const vp of numericViewports) {
-      const simplified = await analyzeScreenshotWithRetry({
+      const absoluteResult = await analyzeScreenshotAbsoluteWithRetry({
         imageBase64,
         imageWidth: Number(imageWidth) || 1440,
         imageHeight: Number(imageHeight) || 900,
@@ -944,15 +945,15 @@ app.post("/api/import-screenshot", async (req, res) => {
 
       // Use AI-extracted colors when colorMode is "website"
       if (colorMode === "website") {
-        const { valid, colors } = validateExtractedColors(simplified.extractedColors);
+        const { valid, colors } = validateExtractedColors(absoluteResult.extractedColors);
         renderColors = valid ? colors : finalPluginColors;
       }
 
-      const tree = convertToWireframeTree(simplified, vp, renderColors, pluginFont);
+      const tree = convertAbsoluteToWireframeTree(absoluteResult, vp, renderColors, pluginFont);
 
       frames.push({
         viewportWidth: vp,
-        viewportHeight: Number(simplified.totalHeight) || 0,
+        viewportHeight: Number(absoluteResult.pageHeight) || 0,
         tree,
       });
     }
