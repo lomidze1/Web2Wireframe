@@ -17,7 +17,7 @@ interface SettingsProps {
 }
 
 type Panel = "terminology" | "config" | "tutorials";
-type TerminologyTab = "viewports" | "colors" | "fonts" | "text" | "css-vars" | "layout";
+type TerminologyTab = "viewports" | "colors" | "fonts" | "text" | "assets" | "css-vars" | "layout";
 
 // Collapsible section states
 interface CollapsibleState {
@@ -27,6 +27,7 @@ interface CollapsibleState {
   fonts: boolean;
   pluginFonts: boolean;
   text: boolean;
+  assets: boolean;
   cssVariables: boolean;
   layoutMode: boolean;
 }
@@ -42,6 +43,7 @@ const DEFAULT_COLLAPSED: CollapsibleState = {
   fonts: true,
   pluginFonts: true,
   text: true,
+  assets: true,
   cssVariables: true,
   layoutMode: true,
 };
@@ -245,6 +247,12 @@ export default function Settings({
                     Text
                   </button>
                   <button
+                    class={`${styles.termSidebarBtn} ${activeTermTab === "assets" ? styles.termSidebarBtnActive : ""}`}
+                    onClick={() => setActiveTermTab("assets")}
+                  >
+                    Assets
+                  </button>
+                  <button
                     class={`${styles.termSidebarBtn} ${activeTermTab === "css-vars" ? styles.termSidebarBtnActive : ""}`}
                     onClick={() => setActiveTermTab("css-vars")}
                   >
@@ -424,6 +432,30 @@ export default function Settings({
                       <div class={styles.accordionContent}>
                         Keep the website's original text and lengths for
                         fidelity when mocking the source experience.
+                      </div>
+                    </details>
+                  </div>
+                )}
+
+                {/* Assets Tab */}
+                {activeTermTab === "assets" && (
+                  <div class={styles.accordionList}>
+                    <details class={styles.accordion} open>
+                      <summary>Plugin Placeholders</summary>
+                      <div class={styles.accordionContent}>
+                        Replace all images with simple gray placeholder boxes
+                        that match the original dimensions. This keeps
+                        wireframes clean and lightweight, focusing attention on
+                        layout and structure rather than visual content.
+                      </div>
+                    </details>
+                    <details class={styles.accordion}>
+                      <summary>Real Assets</summary>
+                      <div class={styles.accordionContent}>
+                        Download and embed the original images from the website
+                        directly into the wireframe. Use this when you need
+                        high-fidelity mockups that closely match the live site's
+                        visual appearance.
                       </div>
                     </details>
                   </div>
@@ -1116,6 +1148,80 @@ export default function Settings({
                             <span>
                               Keep the website's original text with its original
                               size/length.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </Fragment>
+                  )}
+                </div>
+
+                {/* Assets - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.assets ? styles.configSectionActive : ""}`}
+                >
+                  <div
+                    class={styles.configTitleCollapsible}
+                    onClick={() => toggleCollapse("assets")}
+                  >
+                    <span>Assets</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.assets ? "" : styles.collapseArrowOpen}`}
+                    >
+                      ▾
+                    </span>
+                  </div>
+                  {!collapsed.assets && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Choose how images are handled in generated wireframes.
+                      </div>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.assetMode === "placeholders"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-asset-mode"
+                            value="placeholders"
+                            checked={config.assetMode === "placeholders"}
+                            onChange={() =>
+                              updateConfig({ assetMode: "placeholders" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Plugin Placeholders</strong>
+                            <span>
+                              Replace images with simple placeholder boxes. Fast
+                              and lightweight.
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.assetMode === "realAssets"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-asset-mode"
+                            value="realAssets"
+                            checked={config.assetMode === "realAssets"}
+                            onChange={() =>
+                              updateConfig({ assetMode: "realAssets" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Real Assets</strong>
+                            <span>
+                              Download and embed original images from the website
+                              into the wireframe.
                             </span>
                           </div>
                         </label>

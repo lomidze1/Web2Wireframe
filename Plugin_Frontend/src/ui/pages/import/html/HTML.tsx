@@ -134,6 +134,7 @@ export default function HTML() {
             fontMode: data.fontMode,
             textMode: data.textMode,
             layoutMode: data.layoutMode,
+            assetMode: settings.localAssetMode,
           },
         },
       },
@@ -339,12 +340,14 @@ export default function HTML() {
         localTextMode={settings.localTextMode}
         localCssVariablesMode={settings.localCssVariablesMode}
         localLayoutMode={settings.localLayoutMode}
+        localAssetMode={settings.localAssetMode}
         toggleViewport={settings.toggleViewport}
         setColorMode={settings.setColorMode}
         setFontMode={settings.setFontMode}
         setTextMode={settings.setTextMode}
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
+        setAssetMode={settings.setAssetMode}
         handleReset={settings.handleReset}
         handleSaveAsDefault={settings.handleSaveAsDefault}
         hasOverrides={settings.hasOverrides}

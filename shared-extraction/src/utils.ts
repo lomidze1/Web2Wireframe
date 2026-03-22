@@ -4,6 +4,41 @@
  */
 
 /**
+ * Resolve a potentially relative URL against a base document URL.
+ *
+ * - `""` / `undefined` → `undefined`
+ * - Already absolute (`https:`, `http:`, `//`, `data:`, `blob:`) → pass-through
+ * - Relative + valid baseUrl → `new URL(url, baseUrl).href`
+ * - Relative + missing/invalid baseUrl → as-is (backward compat)
+ */
+export function resolveUrl(
+  url: string | undefined,
+  baseUrl: string | undefined
+): string | undefined {
+  if (!url) return undefined;
+
+  // Already absolute — pass through
+  if (
+    url.startsWith("https://") ||
+    url.startsWith("http://") ||
+    url.startsWith("//") ||
+    url.startsWith("data:") ||
+    url.startsWith("blob:")
+  ) {
+    return url;
+  }
+
+  // No base → can't resolve, return as-is
+  if (!baseUrl) return url;
+
+  try {
+    return new URL(url, baseUrl).href;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Parse color string to hex format
  */
 export function parseColor(color: string | null | undefined): string | null {

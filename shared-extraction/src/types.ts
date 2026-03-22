@@ -210,6 +210,7 @@ export interface FigmaFill {
 
   // IMAGE → placeholder
   isImagePlaceholder?: boolean;
+  imageUrl?: string; // Original image URL for real asset extraction
 
   // CSS variable reference (e.g. "--primary-color") if this fill came from a var()
   cssVariable?: string;
@@ -350,6 +351,7 @@ export interface ExtractedElement {
   // States
   opacity: number;
   isPlaceholder: boolean;
+  imageUrl?: string; // Original image URL for real asset extraction
   overflow?: "visible" | "hidden" | "scroll" | "auto";
   horizontallyCentered?: boolean;
 
@@ -381,6 +383,7 @@ export interface CapturedFrame {
     height: number;
   };
   tree: ExtractedElement;
+  assets?: Record<string, string>; // URL → base64 map for real asset extraction
 }
 
 export interface DetectedColors {

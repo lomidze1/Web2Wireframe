@@ -23,6 +23,7 @@ import {
   getSemanticName,
   getLayoutMode,
   getLayoutSizing,
+  resolveUrl,
 } from "./utils";
 import {
   SKIP_TAGS,
@@ -53,6 +54,8 @@ export interface BuildTreeOptions {
   browserDpr?: number;
   /** Map from backendNodeId to actual rendered platform fonts (from CSS.getPlatformFontsForNode) */
   platformFontMap?: Map<number, PlatformFontInfo[]>;
+  /** Document URL for resolving relative imageUrl values (from parseSnapshot) */
+  documentURL?: string;
 }
 
 // ============================================================================
@@ -307,6 +310,88 @@ const INLINE_TAGS = [
   "a", "span", "strong", "em", "b", "i", "u", "s", "small", "mark",
   "sub", "sup", "code", "kbd", "var", "abbr", "cite", "q", "del", "ins",
 ];
+
+// ============================================================================
+// ICON FONT DETECTION & PSEUDO-ELEMENT EXTRACTION
+// ============================================================================
+
+/**
+ * Known icon font family patterns (lowercase).
+ * Checked via substring match against font-family values.
+ */
+const ICON_FONT_PATTERNS = [
+  "font awesome", "fontawesome", "fa-solid", "fa-regular", "fa-brands", "fa-light", "fa-thin",
+  "material icons", "material symbols",
+  "bootstrap-icons", "remixicon", "icomoon", "ionicons",
+  "boxicons", "phosphor", "tabler-icons", "lucide",
+  "typicons", "linearicons", "simple-line-icons", "feather",
+];
+
+/**
+ * Check if a font family name is a known icon font.
+ * Case-insensitive, handles quoted values.
+ */
+export function isIconFont(fontFamily: string): boolean {
+  if (!fontFamily) return false;
+  const lower = fontFamily.toLowerCase().replace(/['"]/g, "").trim();
+  return ICON_FONT_PATTERNS.some(pattern => lower.includes(pattern));
+}
+
+/**
+ * Extract icon content from ::before/::after pseudo-element children.
+ * Only extracts when the pseudo-element uses an icon font family.
+ *
+ * @returns Icon data (text glyph, font info, color) or null if no icon pseudo-element found
+ */
+export function extractPseudoIconContent(
+  nodeIndex: number,
+  nodes: ParsedSnapshotNode[],
+  childrenMap: Map<number, number[]>
+): {
+  text: string;
+  fontFamily: string;
+  fontFamilyList: string[];
+  fontSize: number;
+  fontWeight: number;
+  color: string | null;
+  tag: string;
+} | null {
+  const childIndices = childrenMap.get(nodeIndex) || [];
+
+  // Prefer ::before over ::after (most icon fonts use ::before)
+  for (const pseudoName of ["::before", "::after"]) {
+    for (const childIdx of childIndices) {
+      const child = nodes[childIdx];
+      if (!child) continue;
+      if (child.nodeName !== pseudoName) continue;
+      if (child.nodeType !== -1 && child.nodeType !== 1) continue;
+
+      const text = (child.textContent || "").trim();
+      if (!text) continue;
+
+      const rawFontFamily = child.computedStyles["font-family"] || "";
+      const fontFamilyList = rawFontFamily
+        .split(",")
+        .map((f: string) => f.replace(/['"]/g, "").trim())
+        .filter((f: string) => f.length > 0);
+      const primaryFont = fontFamilyList[0] || "";
+
+      if (!isIconFont(primaryFont)) continue;
+
+      return {
+        text,
+        fontFamily: primaryFont,
+        fontFamilyList,
+        fontSize: parseInt(child.computedStyles["font-size"] || "16") || 16,
+        fontWeight: parseInt(child.computedStyles["font-weight"] || "400") || 400,
+        color: parseColor(child.computedStyles["color"]) || null,
+        tag: pseudoName,
+      };
+    }
+  }
+
+  return null;
+}
 
 /**
  * Collect styled text segments from element and its inline children
@@ -801,6 +886,7 @@ export function buildElementTree(
     bodyOriginalCSS = null,
     browserDpr = 1,
     platformFontMap,
+    documentURL,
   } = options;
 
   // Find body node
@@ -972,7 +1058,7 @@ export function buildElementTree(
     }
 
     // Text color
-    const textColor = parseColor(computedStyles["color"]);
+    let textColor = parseColor(computedStyles["color"]);
 
     // Parse strokes
     const strokes = parseBordersToStrokes(
@@ -1045,13 +1131,13 @@ export function buildElementTree(
     if (!fontFamilyRaw) {
       fontFamilyRaw = computedStyles["font-family"] || "Inter";
     }
-    const fontFamilyList = fontFamilyRaw
+    let fontFamilyList = fontFamilyRaw
       .split(",")
       .map((f: string) => f.replace(/['"]/g, "").trim())
       .filter((f: string) => f.length > 0);
-    const fontFamily = fontFamilyList[0] || "Inter";
-    const fontSize = parseFloat(computedStyles["font-size"] || "14") || 14;
-    const fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
+    let fontFamily = fontFamilyList[0] || "Inter";
+    let fontSize = parseFloat(computedStyles["font-size"] || "14") || 14;
+    let fontWeight = parseInt(computedStyles["font-weight"] || "400") || 400;
     let lineHeight: number | string = computedStyles["line-height"] || "normal";
     const letterSpacing =
       parseFloat(computedStyles["letter-spacing"] || "0") || 0;
@@ -1195,6 +1281,30 @@ export function buildElementTree(
       }
     }
 
+    // Extract icon content from ::before/::after pseudo-elements (e.g., Font Awesome)
+    // Always check — DOMSnapshot layout.text may leak the pseudo glyph into parent's textContent,
+    // so aggregatedText can be non-empty even when the only content is from a pseudo-element.
+    {
+      const pseudoIcon = extractPseudoIconContent(node.index, nodes, childrenMap);
+      if (pseudoIcon) {
+        aggregatedText = pseudoIcon.text;
+        fontFamily = pseudoIcon.fontFamily;
+        fontFamilyList = pseudoIcon.fontFamilyList;
+        fontSize = pseudoIcon.fontSize;
+        fontWeight = pseudoIcon.fontWeight;
+        textColor = pseudoIcon.color || textColor;
+        styledSegments = [{
+          text: pseudoIcon.text,
+          color: pseudoIcon.color,
+          fontWeight: pseudoIcon.fontWeight,
+          fontSize: pseudoIcon.fontSize,
+          fontFamily: pseudoIcon.fontFamily,
+          fontFamilyList: pseudoIcon.fontFamilyList,
+          tag: pseudoIcon.tag,
+        }];
+      }
+    }
+
     // Collect styled segments for elements with inline children
     if (hasInlineChildren && TEXT_CONTENT_TAGS.includes(tag)) {
       // Parse parent's text-decoration
@@ -1239,6 +1349,43 @@ export function buildElementTree(
 
     const shouldBeText = wouldBeText && !requiresWrapper;
     const shouldBeFrameWithTextChild = wouldBeText && requiresWrapper;
+
+    // Extract imageUrl for real asset extraction
+    let imageUrl: string | undefined;
+    if (isMediaTag) {
+      if (tag === "img") {
+        imageUrl = (node.attributes["src"] || node.attributes["data-src"] || undefined) as string | undefined;
+      } else if (tag === "video") {
+        imageUrl = (node.attributes["poster"] || undefined) as string | undefined;
+      }
+    } else if (hasBackgroundImageUrl) {
+      const bgImg = computedStyles["background-image"] || "";
+      const urlMatch = bgImg.match(/url\(\s*['"]?(.*?)['"]?\s*\)/);
+      imageUrl = urlMatch?.[1] || undefined;
+    }
+    // Filter out empty strings
+    if (imageUrl === "") imageUrl = undefined;
+    // Resolve relative URLs against document URL
+    imageUrl = resolveUrl(imageUrl, documentURL);
+
+    // [W2W Debug] Icon/empty element diagnostics
+    if ((tag === "i" || tag === "span" || tag === "svg") && !finalText && !imageUrl) {
+      const childIdxs = childrenMap.get(node.index) || [];
+      const childTags = childIdxs.map((idx) => nodes[idx]?.nodeName || "?");
+      console.log("[W2W Debug] Empty icon-like element:", {
+        tag,
+        classes: (node.attributes["class"] || "").substring(0, 80),
+        width: Math.round(width),
+        height: Math.round(height),
+        hasText: !!finalText,
+        hasImageUrl: !!imageUrl,
+        childCount: childIdxs.length,
+        childTags: childTags.slice(0, 5),
+        bgImage: (computedStyles["background-image"] || "none").substring(0, 60),
+        display: computedStyles["display"] || "?",
+        fontFamily: (computedStyles["font-family"] || "?").substring(0, 40),
+      });
+    }
 
     // Determine element type
     let elementType: "frame" | "text" | "placeholder" = "frame";
@@ -1308,6 +1455,7 @@ export function buildElementTree(
       listStyleType,
       opacity,
       isPlaceholder: elementType === "placeholder",
+      imageUrl,
       horizontallyCentered: horizontallyCentered || undefined,
       margin,
       children: [],

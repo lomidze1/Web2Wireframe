@@ -32,6 +32,7 @@ export interface TabSettingsResult {
   localTextMode: "semantic" | "lorem" | "website";
   localCssVariablesMode: "styles" | "direct";
   localLayoutMode: "autoLayout" | "absolute";
+  localAssetMode: "placeholders" | "realAssets";
 
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => boolean;
@@ -40,6 +41,7 @@ export interface TabSettingsResult {
   setTextMode: (mode: "semantic" | "lorem" | "website") => void;
   setCssVariablesMode: (mode: "styles" | "direct") => void;
   setLayoutMode: (mode: "autoLayout" | "absolute") => void;
+  setAssetMode: (mode: "placeholders" | "realAssets") => void;
   handleReset: () => void;
   handleSaveAsDefault: () => void;
 
@@ -102,6 +104,9 @@ export function useTabSettings(
   const [localLayoutMode, setLocalLayoutMode] = useState<
     "autoLayout" | "absolute"
   >(effectiveConfig.layoutModeDefault);
+  const [localAssetMode, setLocalAssetMode] = useState<
+    "placeholders" | "realAssets"
+  >(effectiveConfig.assetMode);
 
   // Check if there are any session overrides for this tab
   const hasOverrides = !!sessionOverrides[tabId];
@@ -127,6 +132,7 @@ export function useTabSettings(
       setLocalTextMode(effective.textMode);
       setLocalCssVariablesMode(effective.cssVariablesDefault);
       setLocalLayoutMode(effective.layoutModeDefault);
+      setLocalAssetMode(effective.assetMode);
     }
   }, [
     // Use config values as dependencies since getEffectiveConfig returns config when no overrides
@@ -136,6 +142,7 @@ export function useTabSettings(
     config.textMode,
     config.cssVariablesDefault,
     config.layoutModeDefault,
+    config.assetMode,
     hasOverrides,
     tabId,
     getEffectiveConfig,
@@ -182,6 +189,15 @@ export function useTabSettings(
     (mode: "styles" | "direct") => {
       setLocalCssVariablesMode(mode);
       setSessionOverride(tabId, { cssVariablesDefault: mode });
+    },
+    [tabId, setSessionOverride]
+  );
+
+  // Update session override when asset mode changes
+  const setAssetModeHandler = useCallback(
+    (mode: "placeholders" | "realAssets") => {
+      setLocalAssetMode(mode);
+      setSessionOverride(tabId, { assetMode: mode });
     },
     [tabId, setSessionOverride]
   );
@@ -239,6 +255,7 @@ export function useTabSettings(
     setLocalTextMode(config.textMode);
     setLocalCssVariablesMode(config.cssVariablesDefault);
     setLocalLayoutMode(config.layoutModeDefault);
+    setLocalAssetMode(config.assetMode);
   }, [tabId, resetToConfig, config]);
 
   // Save current local values as persistent config defaults
@@ -250,6 +267,7 @@ export function useTabSettings(
       textMode: localTextMode,
       cssVariablesDefault: localCssVariablesMode,
       layoutModeDefault: localLayoutMode,
+      assetMode: localAssetMode,
     });
     // Clear session override since config now matches local state
     resetToConfig(tabId);
@@ -260,6 +278,7 @@ export function useTabSettings(
     localTextMode,
     localCssVariablesMode,
     localLayoutMode,
+    localAssetMode,
     updateConfig,
     resetToConfig,
     tabId,
@@ -290,12 +309,14 @@ export function useTabSettings(
     localTextMode,
     localCssVariablesMode,
     localLayoutMode,
+    localAssetMode,
     toggleViewport,
     setColorMode: setColorModeHandler,
     setFontMode: setFontModeHandler,
     setTextMode: setTextModeHandler,
     setCssVariablesMode: setCssVariablesModeHandler,
     setLayoutMode: setLayoutModeHandler,
+    setAssetMode: setAssetModeHandler,
     handleReset,
     handleSaveAsDefault,
     hasOverrides,

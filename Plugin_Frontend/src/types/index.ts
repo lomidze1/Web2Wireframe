@@ -170,6 +170,7 @@ export interface WireframeNode {
 
   // Media
   isPlaceholder: boolean;
+  imageUrl?: string; // URL pointing into frame.assets map for real image extraction
 
   // Nested children
   children: WireframeNode[];
@@ -179,6 +180,7 @@ export interface WireframeFrame {
   viewportWidth: number;
   viewportHeight: number;
   tree: WireframeNode;
+  assets?: Record<string, string>; // URL → base64 data URI map for real asset extraction
 }
 
 // CSS Variable extracted from the page
@@ -209,6 +211,7 @@ export interface RenderWireframeData {
   colorMode?: "plugin" | "website";
   fontMode?: "plugin" | "website" | "lines";
   textMode?: "semantic" | "lorem" | "website";
+  assetMode?: "placeholders" | "realAssets";
 }
 
 /** Map from missing/website font name → replacement font name */
@@ -242,6 +245,10 @@ export interface RenderContext {
   missingFont?: string;
   // Multi-font mapping: each missing/website font → its replacement
   fontMapping?: FontMapping;
+  // Asset extraction mode
+  assetMode?: "placeholders" | "realAssets";
+  // Map from image URL → base64 data URI (for real asset rendering)
+  assetsMap?: Map<string, string>;
 }
 
 /**

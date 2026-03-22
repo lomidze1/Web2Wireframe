@@ -132,6 +132,8 @@ export {
   collectAllInlineText,
   collectStyledText,
   isLeafElement,
+  isIconFont,
+  extractPseudoIconContent,
   type BuildTreeOptions,
   type BodyOriginalCSS,
 } from "./tree-builder";
@@ -148,6 +150,7 @@ export {
   getSemanticName,
   getLayoutMode,
   getLayoutSizing,
+  resolveUrl,
 } from "./utils";
 
 // ============================================================================
@@ -208,7 +211,7 @@ export async function extract(
   const snapshot = await captureSnapshot(client);
 
   // 3. Parse snapshot into usable nodes
-  const { nodes, nodesByBackendId } = parseSnapshot(snapshot);
+  const { nodes, nodesByBackendId, documentURL } = parseSnapshot(snapshot);
 
   // 4. Find nodes that need matched styles (gradients, variables, etc.)
   const nodesNeedingStyles = findNodesNeedingMatchedStyles(nodes);
@@ -248,6 +251,7 @@ export async function extract(
     cssVariablesMap,
     bodyOriginalCSS,
     browserDpr,
+    documentURL,
   };
 
   const tree = buildElementTree(

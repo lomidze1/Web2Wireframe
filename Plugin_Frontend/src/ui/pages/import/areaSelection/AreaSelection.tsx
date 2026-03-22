@@ -106,7 +106,7 @@ interface MultiFrameCaptureResult {
   url: string;
   title: string;
   timestamp: number;
-  frames: Array<{ viewport: { width: number; height: number }; tree: unknown }>;
+  frames: Array<{ viewport: { width: number; height: number }; tree: unknown; assets?: Record<string, string> }>;
   fonts: unknown[];
   assets: unknown[];
   stylesheets: unknown[];
@@ -139,7 +139,7 @@ interface UnifiedCaptureResult {
   url: string;
   title: string;
   timestamp: number;
-  frames: Array<{ viewport: { width: number; height: number }; tree: unknown }>;
+  frames: Array<{ viewport: { width: number; height: number }; tree: unknown; assets?: Record<string, string> }>;
   fonts: unknown[];
   assets: unknown[];
   stylesheets: unknown[];
@@ -379,6 +379,14 @@ export default function AreaSelection() {
     );
     console.log("[W2W UI] prepareFramesForRendering done.");
 
+    // Carry over assets from input frames to output frames
+    const inputFrames = captureResult.frames;
+    for (let i = 0; i < framesData.length; i++) {
+      if (inputFrames[i]?.assets) {
+        (framesData[i] as { assets?: Record<string, string> }).assets = inputFrames[i].assets;
+      }
+    }
+
     // Send to Figma main thread with all options
     console.log("[W2W UI] Sending render-wireframe, frames:", framesData.length,
       "data size ~", JSON.stringify(framesData).length, "chars");
@@ -399,6 +407,7 @@ export default function AreaSelection() {
             colorMode: options.colorMode,
             fontMode: options.fontMode,
             textMode: options.textMode,
+            assetMode: options.assetMode,
           },
         },
       },
@@ -526,6 +535,7 @@ export default function AreaSelection() {
           textMode: config.textMode,
           cssVariablesMode: config.cssVariablesDefault,
           layoutMode: config.layoutModeDefault,
+          assetMode: config.assetMode,
         });
       }
     } catch (error) {

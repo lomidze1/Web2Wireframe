@@ -1,0 +1,152 @@
+/**
+ * Real image rendering for Figma
+ * Creates IMAGE fills from base64 data instead of placeholder frames
+ */
+
+import type { WireframeNode, RenderContext } from "../types";
+import { getBorderRadius } from "./layout";
+
+// Base64 lookup table for pure JS decoding (Figma sandbox has no atob)
+const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const B64_LOOKUP = new Uint8Array(256);
+for (let i = 0; i < B64_CHARS.length; i++) {
+  B64_LOOKUP[B64_CHARS.charCodeAt(i)] = i;
+}
+
+/**
+ * Decode base64 string to Uint8Array — pure JS, no atob needed.
+ * Works in Figma's restricted sandbox environment.
+ */
+function base64ToBytes(base64: string): Uint8Array {
+  let len = base64.length;
+  let bufferLength = Math.floor(len * 3 / 4);
+  if (base64[len - 1] === "=") bufferLength--;
+  if (base64[len - 2] === "=") bufferLength--;
+
+  const bytes = new Uint8Array(bufferLength);
+  let p = 0;
+  for (let i = 0; i < len; i += 4) {
+    const a = B64_LOOKUP[base64.charCodeAt(i)];
+    const b = B64_LOOKUP[base64.charCodeAt(i + 1)];
+    const c = B64_LOOKUP[base64.charCodeAt(i + 2)];
+    const d = B64_LOOKUP[base64.charCodeAt(i + 3)];
+    bytes[p++] = (a << 2) | (b >> 4);
+    bytes[p++] = ((b & 15) << 4) | (c >> 2);
+    bytes[p++] = ((c & 3) << 6) | d;
+  }
+  return bytes;
+}
+
+/**
+ * Decode a data URI to Uint8Array for figma.createImage()
+ * Supports: data:image/png;base64,... and data:image/jpeg;base64,...
+ */
+function dataUriToBytes(dataUri: string): Uint8Array {
+  const commaIndex = dataUri.indexOf(",");
+  if (commaIndex === -1) throw new Error("Invalid data URI");
+  return base64ToBytes(dataUri.substring(commaIndex + 1));
+}
+
+/**
+ * Check if data URI is an SVG
+ */
+function isSvgDataUri(dataUri: string): boolean {
+  return (
+    dataUri.startsWith("data:image/svg") ||
+    dataUri.includes("<svg")
+  );
+}
+
+/**
+ * Decode SVG data URI back to SVG string for figma.createNodeFromSvg()
+ */
+function svgDataUriToString(dataUri: string): string {
+  const commaIndex = dataUri.indexOf(",");
+  if (commaIndex === -1) throw new Error("Invalid SVG data URI");
+
+  // Decode base64 to bytes, then bytes to UTF-8 string
+  const bytes = base64ToBytes(dataUri.substring(commaIndex + 1));
+  let str = "";
+  for (let i = 0; i < bytes.length; i++) {
+    str += String.fromCharCode(bytes[i]);
+  }
+  // Handle UTF-8 encoded characters
+  try {
+    return decodeURIComponent(escape(str));
+  } catch {
+    return str;
+  }
+}
+
+/**
+ * Create a real image frame from base64 data
+ *
+ * For raster images (PNG, JPEG, WebP):
+ *   figma.createImage(bytes) → IMAGE fill with scaleMode: "FILL"
+ *
+ * For SVG:
+ *   figma.createNodeFromSvg(string) → native SVG node
+ *
+ * On error: returns a fallback frame (no icon, just surface color)
+ */
+export async function createRealImage(
+  node: WireframeNode,
+  base64Data: string,
+  context: RenderContext
+): Promise<FrameNode> {
+  const frame = figma.createFrame();
+  frame.name = node.name || "Image";
+  frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
+  frame.clipsContent = true;
+
+  // Border radius
+  const cornerRadius = getBorderRadius(node.borderRadius);
+  if (cornerRadius > 0) {
+    frame.cornerRadius = Math.min(
+      cornerRadius,
+      Math.min(node.width, node.height) / 2
+    );
+  }
+
+  // Fixed sizing to prevent collapse in auto-layout
+  frame.layoutMode = "NONE";
+
+  try {
+    // SVG handling
+    if (isSvgDataUri(base64Data)) {
+      const svgString = svgDataUriToString(base64Data);
+      const svgNode = figma.createNodeFromSvg(svgString);
+      svgNode.resize(Math.max(node.width, 1), Math.max(node.height, 1));
+      frame.appendChild(svgNode);
+      return frame;
+    }
+
+    // Raster image handling (PNG, JPEG, WebP, etc.)
+    const bytes = dataUriToBytes(base64Data);
+    const image = figma.createImage(bytes);
+
+    frame.fills = [
+      {
+        type: "IMAGE",
+        imageHash: image.hash,
+        scaleMode: "FILL",
+        visible: true,
+        opacity: 1,
+      } as ImagePaint,
+    ];
+  } catch (error) {
+    // Fallback: empty frame with surface color
+    console.warn(`[W2W] Failed to create real image for ${node.name}:`, error);
+    const { hexToFigmaRGB } = await import("./colors");
+    const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);
+    frame.fills = [
+      {
+        type: "SOLID",
+        color: surfaceRgb,
+        opacity: 0.6,
+      },
+    ];
+  }
+
+  return frame;
+}

@@ -48,7 +48,7 @@ async function extractDOMTreeWithCDP(page, options = {}) {
     const snapshot = await captureSnapshot(client);
 
     // 2. Parse snapshot into usable structures
-    const { nodes, nodesByBackendId } = parseSnapshot(snapshot);
+    const { nodes, nodesByBackendId, documentURL } = parseSnapshot(snapshot);
 
     // 3. Find nodes that need getMatchedStylesForNode (gradients, variables)
     const nodesNeedingStyles = findNodesNeedingMatchedStyles(nodes);
@@ -87,6 +87,7 @@ async function extractDOMTreeWithCDP(page, options = {}) {
       cssVariablesMap,
       bodyOriginalCSS,
       browserDpr: 1, // Puppeteer at deviceScaleFactor:1; sub-pixel from computedStyles
+      documentURL,
     });
 
     return { tree, cssVariables };

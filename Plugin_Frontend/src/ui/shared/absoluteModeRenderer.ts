@@ -137,6 +137,7 @@ export interface ExtractedElement {
   listStyleType?: string;
   opacity: number;
   isPlaceholder: boolean;
+  imageUrl?: string;
   overflow?: "visible" | "hidden" | "scroll" | "auto";
   horizontallyCentered?: boolean;
   margin?: { top: number; right: number; bottom: number; left: number };
@@ -206,6 +207,7 @@ export interface WireframeNode {
   browserLineCount?: number;
   computedStyles?: Record<string, string>;
   isPlaceholder: boolean;
+  imageUrl?: string;
   children: WireframeNode[];
 }
 
@@ -214,6 +216,7 @@ export interface WireframeFrame {
   viewportWidth: number;
   viewportHeight: number;
   tree: WireframeNode;
+  assets?: Record<string, string>;
 }
 
 // ============================================================================
@@ -354,6 +357,7 @@ export function convertToWireframeNode(
     browserLineCount: element.browserLineCount,
     computedStyles: element.computedStyles,
     isPlaceholder: element.isPlaceholder,
+    imageUrl: element.imageUrl,
     children,
   };
 }
@@ -368,6 +372,7 @@ interface TransformedFrame {
   viewportWidth?: number;
   viewportHeight?: number;
   tree: ExtractedElement;
+  assets?: Record<string, string>;
 }
 
 // ============================================================================
@@ -403,6 +408,7 @@ export function prepareFramesForRendering(
       viewportWidth: frame.viewport?.width ?? frame.viewportWidth ?? 1440,
       viewportHeight: frame.viewport?.height ?? frame.viewportHeight ?? 900,
       tree: wireframeTree,
+      ...(frame.assets ? { assets: frame.assets } : {}),
     };
   });
 }

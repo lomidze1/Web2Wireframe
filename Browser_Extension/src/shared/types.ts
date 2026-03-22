@@ -196,6 +196,7 @@ export interface CapturedFrame {
     height: number;
   };
   tree: ExtractedElement;
+  assets?: Record<string, string>; // URL → base64 map for real asset extraction
 }
 
 // Detected colors from the page (for smart color palette)

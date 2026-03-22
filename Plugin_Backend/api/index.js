@@ -532,12 +532,16 @@ app.post("/api/import-cdp", async (req, res) => {
     }
 
     // CDP data now contains frames array (multi-viewport support)
-    // Each frame has { viewport: { width, height }, tree: ExtractedElement }
-    const frames = (captureData.frames || []).map(frame => ({
-      viewportWidth: frame.viewport.width,
-      viewportHeight: frame.viewport.height,
-      tree: frame.tree,
-    }));
+    // Each frame has { viewport: { width, height }, tree: ExtractedElement, assets?: Record<string,string> }
+    const frames = (captureData.frames || []).map((frame, idx) => {
+      const assetCount = frame.assets ? Object.keys(frame.assets).length : 0;
+      return {
+        viewportWidth: frame.viewport.width,
+        viewportHeight: frame.viewport.height,
+        tree: frame.tree,
+        assets: frame.assets || {},
+      };
+    });
 
     // Extract viewport widths for response
     const viewports = frames.map(f => f.viewportWidth);

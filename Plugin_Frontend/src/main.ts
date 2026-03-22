@@ -23,6 +23,7 @@ import { logger } from "./utils/logger";
 import { errorHandler, ErrorCode } from "./utils/errorHandler";
 import type {
   WireframeNode,
+  WireframeFrame,
   RenderWireframeData,
   RenderContext,
   FontMapping,
@@ -59,17 +60,16 @@ export default function () {
   figma.ui.onmessage = async (msg) => {
     // Relay debug logs from UI iframe to sandbox console
     if (msg.type === "debug-log") {
-      console.log("[W2W UI Debug]", JSON.stringify(msg.data));
+      // relay UI debug to sandbox console
+      console.log(msg.data);
       return;
     }
     // Handle font fallback choice from popup
     if (msg.type === "font-fallback-choice") {
-      console.log("[W2W Font Debug] font-fallback-choice received:", JSON.stringify(msg.data));
       if (pendingRenderData) {
         const { executeRender } = pendingRenderData;
         const fontMapping: FontMapping = msg.data.fontMapping || {};
         const choice: string = msg.data.choice || "";
-        console.log("[W2W Font Debug] fontMapping:", JSON.stringify(fontMapping), "choice:", choice);
         pendingRenderData = null;
 
         if (choice === "continue") {
@@ -85,7 +85,7 @@ export default function () {
           await executeRender(primaryFont, fontMapping);
         }
       } else {
-        console.log("[W2W Font Debug] WARNING: no pendingRenderData!");
+        console.warn("font-fallback-choice received but no pendingRenderData");
       }
       return;
     }
@@ -93,7 +93,6 @@ export default function () {
     // Handle render-wireframe message
     if (msg.type === "render-wireframe") {
       try {
-      console.log("[W2W Sandbox] Received render-wireframe, msg keys:", Object.keys(msg.data || {}));
       const data = msg.data as RenderWireframeData;
       const {
         frames,
@@ -106,6 +105,7 @@ export default function () {
         colorMode,
         fontMode,
         textMode,
+        assetMode,
       } = data;
 
       // Default colors if not provided
@@ -130,16 +130,6 @@ export default function () {
           ? pluginFont || "Montserrat"
           : websiteFont;
 
-      console.log("[W2W Font Debug] === INITIAL FONT SETUP ===", {
-        websiteFont,
-        websiteFontList,
-        initialFontFamily,
-        effectiveFontMode,
-        pluginFont,
-        treeHasFontFamily: !!frames[0]?.tree?.fontFamily,
-        treeHasFontFamilyList: !!frames[0]?.tree?.fontFamilyList,
-      });
-      console.log("[W2W Sandbox] frames count:", frames?.length, "sourceUrl:", sourceUrl);
 
       if (!frames || frames.length === 0) {
         errorHandler.handle({
@@ -149,12 +139,10 @@ export default function () {
         return;
       }
 
-      console.log("[W2W Sandbox] About to call executeRender, fontFamily:", initialFontFamily);
 
       // Extract rendering into a function for font fallback flow
       const executeRender = async (fontFamily: string, fontMapping?: FontMapping, originalFontNames?: FontMapping) => {
 
-      console.log("[W2W Font Debug] executeRender called. fontFamily:", fontFamily, "fontMapping:", JSON.stringify(fontMapping));
 
       logger.info("Creating wireframe", {
         frameCount: frames.length,
@@ -246,6 +234,20 @@ export default function () {
         }
       }
 
+      // Build unified assets map from all frames
+      const assetsMap = new Map<string, string>();
+      if (assetMode === "realAssets") {
+        for (const frame of frames) {
+          const frameAssets = (frame as WireframeFrame).assets;
+          if (frameAssets) {
+            for (const [url, base64] of Object.entries(frameAssets)) {
+              assetsMap.set(url, base64);
+            }
+          }
+        }
+      }
+
+
       // Create render context
       const renderContext: RenderContext = {
         pluginColors: colors,
@@ -260,6 +262,8 @@ export default function () {
         textMode: textMode || "semantic",
         variableStyleMap,
         fontMapping,
+        assetMode: assetMode || "placeholders",
+        assetsMap,
       };
 
       // Create text styles if "Create Figma Styles" is enabled
@@ -476,7 +480,6 @@ export default function () {
 
       // Pre-render font availability check
       const allFonts = collectAllFonts(frames);
-      console.log("[W2W Font Debug] All fonts found:", Array.from(allFonts));
 
       if (effectiveFontMode === "website") {
         const { missing } = await checkFontsAvailability(allFonts);
@@ -495,11 +498,6 @@ export default function () {
             pluginFont || "Montserrat",
             uniqueOptions
           );
-
-          console.log("[W2W Font Debug] === FONTS NOT AVAILABLE ===", {
-            missing,
-            pluginFont: pluginFont || "Montserrat",
-          });
 
           pendingRenderData = { data, executeRender, missingFonts: missing };
           figma.ui.postMessage(message);

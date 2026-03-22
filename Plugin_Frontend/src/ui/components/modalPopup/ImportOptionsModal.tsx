@@ -11,12 +11,15 @@ export type TextMode = "lorem" | "semantic" | "website";
 export type CssVariablesMode = "styles" | "direct";
 export type LayoutMode = "autoLayout" | "absolute";
 
+export type AssetMode = "placeholders" | "realAssets";
+
 export interface UnifiedImportOptions {
   colorMode: ColorMode;
   fontMode: FontMode;
   textMode: TextMode;
   cssVariablesMode: CssVariablesMode;
   layoutMode: LayoutMode;
+  assetMode?: AssetMode;
 }
 
 // Legacy interface for backward compatibility
@@ -66,6 +69,7 @@ export default function ImportOptionsModal({
     textMode: config.textMode,
     cssVariablesMode: config.cssVariablesDefault,
     layoutMode: config.layoutModeDefault,
+    assetMode: config.assetMode,
   });
 
   const [dontShowAgain, setDontShowAgain] = useState(false);
@@ -79,6 +83,7 @@ export default function ImportOptionsModal({
         textMode: config.textMode,
         cssVariablesMode: config.cssVariablesDefault,
         layoutMode: config.layoutModeDefault,
+        assetMode: config.assetMode,
       });
       setDontShowAgain(false);
     }
@@ -96,6 +101,7 @@ export default function ImportOptionsModal({
         textMode: options.textMode,
         cssVariablesDefault: options.cssVariablesMode,
         layoutModeDefault: options.layoutMode,
+        assetMode: options.assetMode,
       });
     }
     onConfirm(options);
@@ -194,6 +200,25 @@ export default function ImportOptionsModal({
                 <option value="website">Website Text</option>
                 <option value="lorem">Lorem Ipsum</option>
                 <option value="semantic">Semantic Placeholders</option>
+              </select>
+            </div>
+
+            {/* Assets Dropdown */}
+            <div class={styles.unifiedOptionRow}>
+              <label class={styles.unifiedOptionLabel}>Assets</label>
+              <select
+                class={styles.unifiedDropdown}
+                value={options.assetMode || "placeholders"}
+                onChange={(e) =>
+                  setOptions((prev) => ({
+                    ...prev,
+                    assetMode: (e.target as HTMLSelectElement)
+                      .value as AssetMode,
+                  }))
+                }
+              >
+                <option value="placeholders">Plugin Placeholders</option>
+                <option value="realAssets">Real Assets</option>
               </select>
             </div>
 

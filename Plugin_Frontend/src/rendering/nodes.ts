@@ -42,6 +42,7 @@ import {
 } from "./styles";
 import { createTextNode, createTextWithBackground } from "./text";
 import { createPlaceholder } from "./placeholders";
+import { createRealImage } from "./realImages";
 // wireframeLines import removed — fontMode "lines" uses FILLR font via text.ts
 
 // ============================================================================
@@ -209,6 +210,20 @@ export async function createNodeInFigma(
     (node.type === "placeholder" || node.isPlaceholder) &&
     (!node.children || node.children.length === 0)
   ) {
+    // Real assets mode: render actual image if available
+    if (
+      context.assetMode === "realAssets" &&
+      node.imageUrl &&
+      context.assetsMap?.has(node.imageUrl)
+    ) {
+      return await createRealImage(
+        node,
+        context.assetsMap.get(node.imageUrl)!,
+        context
+      );
+    }
+
+    // Default: wireframe placeholder
     return await createPlaceholder(
       node,
       context.pluginColors.secondary,

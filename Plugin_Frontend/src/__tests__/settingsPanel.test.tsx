@@ -234,5 +234,44 @@ describe("SettingsPanel", () => {
       expect(websiteFontOption).toBeTruthy();
       expect(websiteFontOption.disabled).toBe(false);
     });
+
+    it("renders Assets dropdown when setAssetMode is provided", () => {
+      const { getByText } = render(
+        <SettingsPanel
+          {...expandedProps}
+          localAssetMode="placeholders"
+          setAssetMode={vi.fn()}
+        />
+      );
+      expect(getByText("Assets")).toBeTruthy();
+    });
+
+    it("hides Assets dropdown when setAssetMode is not provided", () => {
+      const { queryByText } = render(
+        <SettingsPanel {...expandedProps} />
+      );
+      expect(queryByText("Assets")).toBeNull();
+    });
+
+    it("calls setAssetMode when Assets dropdown changes", () => {
+      const setAssetMode = vi.fn();
+      const { container } = render(
+        <SettingsPanel
+          {...expandedProps}
+          localAssetMode="placeholders"
+          setAssetMode={setAssetMode}
+        />
+      );
+
+      // Find the Assets select (last select with realAssets option)
+      const selects = container.querySelectorAll("select");
+      const assetsSelect = Array.from(selects).find((s) =>
+        s.querySelector('option[value="realAssets"]')
+      );
+      expect(assetsSelect).toBeTruthy();
+
+      fireEvent.change(assetsSelect!, { target: { value: "realAssets" } });
+      expect(setAssetMode).toHaveBeenCalledWith("realAssets");
+    });
   });
 });

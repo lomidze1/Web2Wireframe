@@ -1,218 +1,342 @@
 /**
- * Asset extraction using CDP
+ * Asset extraction using CDP — Page.getResourceTree approach
+ *
+ * Instead of Runtime.evaluate + fetch (CORS issues, extra network),
+ * we use Page.getResourceTree + Page.getResourceContent to read images
+ * directly from the browser cache. Zero CORS, zero extra requests,
+ * original quality preserved.
+ *
+ * Based on html.to.design reverse-engineering research.
  */
 
 import { CDPClient } from "./client";
-import type { ExtractedAsset } from "@/shared/types";
 
-/**
- * Extract all assets (images, SVGs, videos) from the page
- */
-export async function extractAssets(client: CDPClient): Promise<ExtractedAsset[]> {
-  const assets: ExtractedAsset[] = [];
+// Size limits
+const MAX_SINGLE_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB per image (base64)
+const MAX_TOTAL_BYTES = 30 * 1024 * 1024; // 30MB total payload
 
-  // Extract images
-  const images = await extractImages(client);
-  assets.push(...images);
+/** MIME types that figma.createImage() supports natively */
+const FIGMA_SUPPORTED_MIMES = new Set([
+  "image/png", "image/jpeg", "image/gif", "image/webp", "image/tiff",
+]);
 
-  // Extract SVGs
-  const svgs = await extractSVGs(client);
-  assets.push(...svgs);
+/** Check if a MIME type needs conversion for Figma compatibility */
+function needsFigmaConversion(mimeType: string): boolean {
+  if (!mimeType.startsWith("image/")) return false;
+  if (mimeType === "image/svg+xml") return false; // SVGs handled separately
+  return !FIGMA_SUPPORTED_MIMES.has(mimeType);
+}
 
-  // Extract background images
-  const bgImages = await extractBackgroundImages(client);
-  assets.push(...bgImages);
-
-  // Extract videos (just metadata, not content)
-  const videos = await extractVideos(client);
-  assets.push(...videos);
-
-  return assets;
+/** Encode Uint8Array to base64 string — works in service worker */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 /**
- * Extract img elements
+ * Convert an unsupported image format (AVIF, HEIC, etc.) to PNG
+ * using OffscreenCanvas in the service worker.
+ *
+ * @returns converted { base64, mimeType } or null on failure
  */
-async function extractImages(client: CDPClient): Promise<ExtractedAsset[]> {
-  const result = await client.send<{ result: { value: ExtractedAsset[] } }>(
-    "Runtime.evaluate",
-    {
-      expression: `
-        (function() {
-          const images = [];
-          const imgElements = document.querySelectorAll('img');
-
-          for (const img of imgElements) {
-            const rect = img.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-              images.push({
-                type: 'image',
-                src: img.src || img.currentSrc,
-                alt: img.alt || '',
-                width: rect.width, /* was: Math.round(rect.width) */
-                height: rect.height /* was: Math.round(rect.height) */
-              });
-            }
-          }
-          return images;
-        })()
-      `,
-      returnByValue: true,
+async function convertToFigmaFormat(
+  base64: string,
+  mimeType: string
+): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    // base64 → binary → Blob
+    const binaryStr = atob(base64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
     }
-  );
+    const blob = new Blob([bytes], { type: mimeType });
 
-  return result.result.value;
+    // Blob → ImageBitmap (Chrome decodes AVIF/HEIC here)
+    const bitmap = await createImageBitmap(blob);
+
+    // ImageBitmap → OffscreenCanvas → PNG Blob
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Failed to get 2d context");
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const pngBlob = await canvas.convertToBlob({ type: "image/png" });
+
+    // PNG Blob → base64
+    const arrayBuffer = await pngBlob.arrayBuffer();
+    const pngBase64 = uint8ToBase64(new Uint8Array(arrayBuffer));
+
+    console.log(`[W2W] Converted ${mimeType} → image/png (${Math.round(pngBase64.length / 1024)}KB)`);
+    return { base64: pngBase64, mimeType: "image/png" };
+  } catch (error) {
+    console.warn(`[W2W] Failed to convert ${mimeType} to PNG:`, error);
+    return null;
+  }
+}
+
+/** Resource info from Page.getResourceTree */
+interface ResourceInfo {
+  frameId: string;
+  mimeType: string;
+}
+
+/** CDP FrameResourceTree structure */
+interface FrameResourceTree {
+  frame: { id: string; url: string };
+  resources: Array<{
+    url: string;
+    type: string;
+    mimeType: string;
+    contentSize?: number;
+  }>;
+  childFrames?: Array<{ frameResourceTree: FrameResourceTree }>;
 }
 
 /**
- * Extract SVG elements
+ * Build a map of all image resources available in the browser cache.
+ * Uses Page.getResourceTree to enumerate all loaded resources across frames.
+ *
+ * @returns Map<url, { frameId, mimeType }> — only image/* resources
  */
-async function extractSVGs(client: CDPClient): Promise<ExtractedAsset[]> {
-  const result = await client.send<{ result: { value: ExtractedAsset[] } }>(
-    "Runtime.evaluate",
-    {
-      expression: `
-        (function() {
-          const svgs = [];
-          const svgElements = document.querySelectorAll('svg');
+export async function buildResourceMap(
+  client: CDPClient
+): Promise<Map<string, ResourceInfo>> {
+  const resourceMap = new Map<string, ResourceInfo>();
 
-          for (const svg of svgElements) {
-            const rect = svg.getBoundingClientRect();
-            if (rect.width > 10 && rect.height > 10) {
-              // Clone and serialize the SVG
-              const clone = svg.cloneNode(true);
-              const svgString = new XMLSerializer().serializeToString(clone);
+  try {
+    const result = await client.send<{ frameTree: FrameResourceTree }>(
+      "Page.getResourceTree"
+    );
 
-              svgs.push({
-                type: 'svg',
-                src: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString))),
-                width: rect.width, /* was: Math.round(rect.width) */
-                height: rect.height /* was: Math.round(rect.height) */
-              });
-            }
-          }
-          return svgs;
-        })()
-      `,
-      returnByValue: true,
+    // Recursively flatten all frames' resources
+    flattenResources(result.frameTree, resourceMap);
+
+  } catch (error) {
+    console.warn("[W2W] Failed to get resource tree:", error);
+  }
+
+  return resourceMap;
+}
+
+/**
+ * Recursively flatten FrameResourceTree into a flat Map of image resources
+ */
+function flattenResources(
+  tree: FrameResourceTree,
+  map: Map<string, ResourceInfo>
+): void {
+  const frameId = tree.frame.id;
+
+  for (const resource of tree.resources) {
+    // Only collect image resources
+    if (resource.mimeType.startsWith("image/")) {
+      map.set(resource.url, {
+        frameId,
+        mimeType: resource.mimeType,
+      });
     }
-  );
+  }
 
-  return result.result.value;
-}
-
-/**
- * Extract background images from CSS
- */
-async function extractBackgroundImages(client: CDPClient): Promise<ExtractedAsset[]> {
-  const result = await client.send<{ result: { value: ExtractedAsset[] } }>(
-    "Runtime.evaluate",
-    {
-      expression: `
-        (function() {
-          const bgImages = [];
-          const allElements = document.querySelectorAll('*');
-
-          for (const el of allElements) {
-            const style = window.getComputedStyle(el);
-            const bgImage = style.backgroundImage;
-
-            if (bgImage && bgImage !== 'none' && bgImage.includes('url(')) {
-              const rect = el.getBoundingClientRect();
-              if (rect.width > 30 && rect.height > 30) {
-                // Extract URL from url("...")
-                const urlMatch = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
-                if (urlMatch && !urlMatch[1].startsWith('data:image/svg')) {
-                  bgImages.push({
-                    type: 'image',
-                    src: urlMatch[1],
-                    width: rect.width, /* was: Math.round(rect.width) */
-                    height: rect.height /* was: Math.round(rect.height) */
-                  });
-                }
-              }
-            }
-          }
-          return bgImages;
-        })()
-      `,
-      returnByValue: true,
+  // Recurse into child frames (iframes)
+  if (tree.childFrames) {
+    for (const child of tree.childFrames) {
+      flattenResources(child.frameResourceTree, map);
     }
-  );
-
-  return result.result.value;
+  }
 }
 
 /**
- * Extract video elements (metadata only)
+ * Get a single resource's content as base64 from the browser cache.
+ * Uses Page.getResourceContent — no CORS, no extra network requests.
+ *
+ * @returns base64 string or null on failure
  */
-async function extractVideos(client: CDPClient): Promise<ExtractedAsset[]> {
-  const result = await client.send<{ result: { value: ExtractedAsset[] } }>(
-    "Runtime.evaluate",
-    {
-      expression: `
-        (function() {
-          const videos = [];
-          const videoElements = document.querySelectorAll('video');
-
-          for (const video of videoElements) {
-            const rect = video.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-              videos.push({
-                type: 'video',
-                src: video.src || video.currentSrc || video.poster || '',
-                width: rect.width, /* was: Math.round(rect.width) */
-                height: rect.height /* was: Math.round(rect.height) */
-              });
-            }
-          }
-          return videos;
-        })()
-      `,
-      returnByValue: true,
-    }
-  );
-
-  return result.result.value;
-}
-
-/**
- * Convert image URL to base64 (if needed)
- */
-export async function imageToBase64(
+export async function getResourceBase64(
   client: CDPClient,
+  frameId: string,
   url: string
 ): Promise<string | null> {
   try {
-    const result = await client.send<{ result: { value: string } }>(
-      "Runtime.evaluate",
-      {
-        expression: `
-          (async function() {
-            try {
-              const response = await fetch('${url}');
-              const blob = await response.blob();
-              return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.readAsDataURL(blob);
-              });
-            } catch (e) {
-              return null;
-            }
-          })()
-        `,
-        awaitPromise: true,
-        returnByValue: true,
-      }
+    const result = await client.send<{ content: string; base64Encoded: boolean }>(
+      "Page.getResourceContent",
+      { frameId, url }
     );
-    return result.result.value;
-  } catch {
+
+    if (result.base64Encoded) {
+      return result.content;
+    }
+
+    // If not base64-encoded (e.g., SVG text), encode it
+    // In browser extension context, we use btoa-compatible encoding
+    // Note: This handles text-based resources like SVGs
+    return btoa(unescape(encodeURIComponent(result.content)));
+  } catch (error) {
+    console.warn(`[W2W] Failed to get resource content for ${url}:`, error);
     return null;
   }
 }
 
 /**
+ * Walk the ExtractedElement tree and collect all image URLs that need resolving.
+ * Returns a Set of unique URLs found across all nodes.
+ */
+function collectImageUrls(tree: TreeNode): Set<string> {
+  const urls = new Set<string>();
+
+  function walk(node: TreeNode): void {
+    if (node.imageUrl) {
+      urls.add(node.imageUrl);
+    }
+    if (node.children) {
+      for (const child of node.children) {
+        walk(child);
+      }
+    }
+  }
+
+  walk(tree);
+  return urls;
+}
+
+/** Minimal tree node shape for walking — avoids importing full ExtractedElement */
+interface TreeNode {
+  imageUrl?: string;
+  children?: TreeNode[];
+}
+
+/**
+ * Extract real image assets for a tree of elements.
+ *
+ * Walks the tree to find all imageUrl references, then resolves each
+ * against the resource map (browser cache). Returns a URL→base64 map.
+ *
+ * Handles:
+ * - data: URIs — already base64, used directly
+ * - Normal URLs — resolved via Page.getResourceContent (browser cache)
+ * - Size limits: skip images >2MB, stop collecting at >30MB total
+ * - Deduplication: each URL resolved only once
+ */
+export async function extractAssetsForTree(
+  client: CDPClient,
+  tree: TreeNode,
+  resourceMap: Map<string, ResourceInfo>
+): Promise<Record<string, string>> {
+  const assets: Record<string, string> = {};
+  let totalBytes = 0;
+
+  // Collect all unique imageUrls from the tree
+  const urls = collectImageUrls(tree);
+
+  // [W2W Debug #9] All image URLs from tree
+  console.log("[W2W Debug #9] Image URLs from tree:", {
+    count: urls.size,
+    urls: Array.from(urls).map((u) => u.substring(0, 120)),
+  });
+
+  if (urls.size === 0) {
+    return assets;
+  }
+
+
+  for (const url of urls) {
+    // Stop if total size limit reached
+    if (totalBytes >= MAX_TOTAL_BYTES) {
+      console.warn(`[W2W] Total asset size limit reached (${Math.round(totalBytes / 1024 / 1024)}MB), skipping remaining images`);
+      break;
+    }
+
+    // Handle data: URIs — already inline, use directly
+    if (url.startsWith("data:")) {
+      const commaIndex = url.indexOf(",");
+      if (commaIndex !== -1) {
+        let base64Data = url.substring(commaIndex + 1);
+        const header = url.substring(0, commaIndex); // "data:image/avif;base64"
+        let effectiveMime = header.replace("data:", "").replace(";base64", "");
+
+        // Convert unsupported inline data URIs (e.g., data:image/avif;base64,...)
+        if (needsFigmaConversion(effectiveMime)) {
+          const converted = await convertToFigmaFormat(base64Data, effectiveMime);
+          if (!converted) continue;
+          base64Data = converted.base64;
+          effectiveMime = converted.mimeType;
+        }
+
+        if (base64Data.length <= MAX_SINGLE_IMAGE_BYTES) {
+          assets[url] = `data:${effectiveMime};base64,${base64Data}`;
+          totalBytes += base64Data.length;
+        } else {
+          console.warn(`[W2W] Skipping data URI (${Math.round(base64Data.length / 1024)}KB > 2MB limit)`);
+        }
+      }
+      continue;
+    }
+
+    // Look up URL in resource map (browser cache)
+    const resourceInfo = resourceMap.get(url);
+
+    if (!resourceInfo) {
+      // [W2W Debug #8] Find similar URLs in resource map for missed images
+      const urlPath = url.split("?")[0]; // strip query params
+      const partialMatches = Array.from(resourceMap.keys()).filter(
+        (k) => k.includes(urlPath.split("/").pop() || "") || urlPath.includes(k.split("?")[0])
+      );
+      console.warn("[W2W Debug #8] URL NOT in resource map:", {
+        treeUrl: url,
+        urlWithoutQuery: urlPath,
+        partialMatches: partialMatches.slice(0, 5),
+        resourceMapSample: Array.from(resourceMap.keys()).slice(0, 10),
+      });
+      continue;
+    }
+
+    // Fetch from browser cache
+    const base64 = await getResourceBase64(client, resourceInfo.frameId, url);
+    if (!base64) {
+      continue;
+    }
+
+    // Check single image size limit
+    if (base64.length > MAX_SINGLE_IMAGE_BYTES) {
+      console.warn(`[W2W] Skipping large image (${Math.round(base64.length / 1024)}KB): ${url}`);
+      continue;
+    }
+
+    // Convert unsupported formats (AVIF, HEIC, etc.) to PNG for Figma
+    let finalBase64 = base64;
+    let finalMimeType = resourceInfo.mimeType;
+
+    if (needsFigmaConversion(resourceInfo.mimeType)) {
+      const converted = await convertToFigmaFormat(base64, resourceInfo.mimeType);
+      if (!converted) continue;
+      finalBase64 = converted.base64;
+      finalMimeType = converted.mimeType;
+      // Re-check size after conversion (PNG can be larger than AVIF)
+      if (finalBase64.length > MAX_SINGLE_IMAGE_BYTES) {
+        console.warn(`[W2W] Converted image too large (${Math.round(finalBase64.length / 1024)}KB): ${url}`);
+        continue;
+      }
+    }
+
+    // Build data URI with (possibly converted) mime type
+    const dataUri = `data:${finalMimeType};base64,${finalBase64}`;
+    assets[url] = dataUri;
+    totalBytes += finalBase64.length;
+  }
+
+
+  return assets;
+}
+
+// ============================================================================
+// LEGACY EXPORTS — kept for backward compatibility
+// ============================================================================
+
+/**
+ * @deprecated Use extractAssetsForTree instead
  * Take screenshot of a specific node
  */
 export async function captureNodeScreenshot(
@@ -220,7 +344,6 @@ export async function captureNodeScreenshot(
   nodeId: number
 ): Promise<string | null> {
   try {
-    // Get the box model to know the clip region
     const boxModel = await client.send<{
       model: { content: number[]; width: number; height: number };
     }>("DOM.getBoxModel", { nodeId });
@@ -228,16 +351,9 @@ export async function captureNodeScreenshot(
     const [x, y] = boxModel.model.content;
     const { width, height } = boxModel.model;
 
-    // Capture screenshot
     const screenshot = await client.send<{ data: string }>("Page.captureScreenshot", {
       format: "png",
-      clip: {
-        x,
-        y,
-        width,
-        height,
-        scale: 1,
-      },
+      clip: { x, y, width, height, scale: 1 },
     });
 
     return `data:image/png;base64,${screenshot.data}`;

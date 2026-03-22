@@ -335,6 +335,7 @@ interface CapturedFrame {
   tree: ExtractedElement;
   viewportWidth?: number;
   viewportHeight?: number;
+  assets?: Record<string, string>;
 }
 
 /**

@@ -38,6 +38,7 @@ export interface SettingsPanelProps {
   localTextMode: "semantic" | "lorem" | "website";
   localCssVariablesMode?: "styles" | "direct";
   localLayoutMode?: "autoLayout" | "absolute";
+  localAssetMode?: "placeholders" | "realAssets";
 
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => void;
@@ -46,6 +47,7 @@ export interface SettingsPanelProps {
   setTextMode: (mode: "semantic" | "lorem" | "website") => void;
   setCssVariablesMode?: (mode: "styles" | "direct") => void;
   setLayoutMode?: (mode: "autoLayout" | "absolute") => void;
+  setAssetMode?: (mode: "placeholders" | "realAssets") => void;
   handleReset: () => void;
   handleSaveAsDefault: () => void;
 
@@ -98,12 +100,14 @@ export default function SettingsPanel({
   localTextMode,
   localCssVariablesMode,
   localLayoutMode,
+  localAssetMode,
   toggleViewport,
   setColorMode,
   setFontMode,
   setTextMode,
   setCssVariablesMode,
   setLayoutMode,
+  setAssetMode,
   handleReset,
   handleSaveAsDefault,
   hasOverrides,
@@ -238,6 +242,30 @@ export default function SettingsPanel({
               <option value="website">{textWebsiteLabel || "Website Text"}</option>
             </select>
           </div>
+
+          {/* Assets */}
+          {setAssetMode && (
+            <div class={styles.settingRow}>
+              <div class={styles.settingLabel}>
+                <span>🖼️</span>
+                <span>Assets</span>
+              </div>
+              <select
+                class={styles.dropdown}
+                value={localAssetMode || "placeholders"}
+                onChange={(e) =>
+                  setAssetMode(
+                    (e.target as HTMLSelectElement).value as
+                      | "placeholders"
+                      | "realAssets"
+                  )
+                }
+              >
+                <option value="placeholders">Plugin Placeholders</option>
+                <option value="realAssets">Real Assets</option>
+              </select>
+            </div>
+          )}
 
           {/* CSS Variables */}
           {setCssVariablesMode && (

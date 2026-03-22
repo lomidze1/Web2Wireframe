@@ -301,6 +301,42 @@ describe("convertFillsToPaints", () => {
     });
   });
 
+  describe("IMAGE_PLACEHOLDER with assetMode", () => {
+    it("returns SOLID surface paint when assetMode is placeholders", () => {
+      const fills: FigmaFill[] = [
+        {
+          type: "IMAGE_PLACEHOLDER",
+          visible: true,
+          opacity: 1,
+          imageUrl: "https://example.com/logo.png",
+        },
+      ];
+      const ctx = makeContext({ assetMode: "placeholders" } as Partial<RenderContext>);
+      const result = convertFillsToPaints(fills, ctx, "img");
+      expect(result).toHaveLength(1);
+      expect(result[0]).toHaveProperty("type", "SOLID");
+    });
+
+    it("returns SOLID surface paint when assetMode is realAssets but no assetsMap", () => {
+      const fills: FigmaFill[] = [
+        {
+          type: "IMAGE_PLACEHOLDER",
+          visible: true,
+          opacity: 1,
+          imageUrl: "https://example.com/logo.png",
+        },
+      ];
+      const ctx = makeContext({
+        assetMode: "realAssets",
+        assetsMap: new Map(),
+      } as Partial<RenderContext>);
+      const result = convertFillsToPaints(fills, ctx, "img");
+      expect(result).toHaveLength(1);
+      // No matching URL in assetsMap → fallback to SOLID
+      expect(result[0]).toHaveProperty("type", "SOLID");
+    });
+  });
+
   describe("plugin color palette consistency", () => {
     it("only uses the 5 plugin colors for solid fills", () => {
       const ctx = makeContext();

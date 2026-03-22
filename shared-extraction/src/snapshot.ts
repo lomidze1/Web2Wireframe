@@ -233,9 +233,15 @@ export function parseSnapshot(snapshot: CaptureSnapshotResult): {
   nodes: ParsedSnapshotNode[];
   strings: string[];
   nodesByBackendId: Map<number, ParsedSnapshotNode>;
+  documentURL: string | undefined;
 } {
   const { documents, strings } = snapshot;
   const doc = documents[0]; // Main document
+
+  // Extract document URL (baseURL takes priority — respects <base href>)
+  const baseURLStr = doc.baseURL?.index != null ? strings[doc.baseURL.index] : undefined;
+  const docURLStr = doc.documentURL?.index != null ? strings[doc.documentURL.index] : undefined;
+  const documentURL = baseURLStr || docURLStr || undefined;
   const nodes: ParsedSnapshotNode[] = [];
   const nodesByBackendId = new Map<number, ParsedSnapshotNode>();
 
@@ -375,11 +381,28 @@ export function parseSnapshot(snapshot: CaptureSnapshotResult): {
       }
     }
 
+    // Parse pseudoType RareStringData (::before, ::after, ::marker)
+    let finalNodeName = nodeName.toLowerCase();
+    let finalNodeType = nodeType;
+    if (nodeTree.pseudoType) {
+      const pseudoIdx = nodeTree.pseudoType.index.indexOf(i);
+      if (pseudoIdx >= 0) {
+        const stringIndex = nodeTree.pseudoType.value[pseudoIdx];
+        if (stringIndex >= 0) {
+          const pseudoValue = strings[stringIndex] || "";
+          if (pseudoValue) {
+            finalNodeName = `::${pseudoValue}`;
+            finalNodeType = -1;
+          }
+        }
+      }
+    }
+
     const parsedNode: ParsedSnapshotNode = {
       index: i,
       backendNodeId,
-      nodeType,
-      nodeName: nodeName.toLowerCase(),
+      nodeType: finalNodeType,
+      nodeName: finalNodeName,
       parentIndex,
       attributes,
       bounds,
@@ -394,7 +417,7 @@ export function parseSnapshot(snapshot: CaptureSnapshotResult): {
     nodesByBackendId.set(backendNodeId, parsedNode);
   }
 
-  return { nodes, strings, nodesByBackendId };
+  return { nodes, strings, nodesByBackendId, documentURL };
 }
 
 /**

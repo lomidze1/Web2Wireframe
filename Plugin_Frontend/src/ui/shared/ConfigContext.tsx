@@ -23,6 +23,7 @@ export interface PluginConfig {
   colorMode: "plugin" | "website";
   fontMode: "plugin" | "website" | "lines";
   textMode: "semantic" | "lorem" | "website";
+  assetMode: "placeholders" | "realAssets";
   pluginColors: PluginColors;
   pluginFont: string;
   // Import options settings
@@ -65,6 +66,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   colorMode: "plugin",
   fontMode: "plugin",
   textMode: "semantic",
+  assetMode: "placeholders",
   pluginColors: { ...DEFAULT_PLUGIN_COLORS },
   pluginFont: DEFAULT_PLUGIN_FONT,
   // Import options defaults

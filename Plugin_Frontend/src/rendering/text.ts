@@ -50,6 +50,7 @@ import {
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
 import { linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey } from "./styles";
+import { isIconFont } from "../utils/fontUtils";
 
 // ============================================================================
 // Text Segment Collection
@@ -331,7 +332,10 @@ export async function createTextNode(
   if (context?.fontMode === "plugin") {
     // Plugin mode: use fontMapping if available, otherwise single plugin font
     const nodeFont = node.fontFamily || fontFamily;
-    if (context.fontMapping && context.fontMapping[nodeFont]) {
+    if (isIconFont(nodeFont)) {
+      // Preserve icon font — remapping would break glyph rendering
+      targetFont = nodeFont;
+    } else if (context.fontMapping && context.fontMapping[nodeFont]) {
       targetFont = context.fontMapping[nodeFont];
     } else {
       targetFont = fontFamily;
@@ -525,7 +529,10 @@ export async function createTextNode(
       let segFontFamily: string;
       if (context?.fontMode === "plugin") {
         const segFont = segment.fontFamily || usedFontFamily;
-        if (context.fontMapping && context.fontMapping[segFont]) {
+        if (isIconFont(segFont)) {
+          // Preserve icon font — remapping would break glyph rendering
+          segFontFamily = segFont;
+        } else if (context.fontMapping && context.fontMapping[segFont]) {
           segFontFamily = context.fontMapping[segFont];
         } else {
           segFontFamily = usedFontFamily;

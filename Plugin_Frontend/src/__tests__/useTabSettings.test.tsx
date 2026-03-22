@@ -232,6 +232,7 @@ describe("useTabSettings", () => {
         textMode: "lorem",
         cssVariablesDefault: "styles",
         layoutModeDefault: "absolute",
+        assetMode: DEFAULT_CONFIG.assetMode,
       });
     });
 
@@ -266,6 +267,74 @@ describe("useTabSettings", () => {
 
       expect(mockContext.resetToConfig).toHaveBeenCalledWith("web");
       expect(result.current.localColorMode).toBe(DEFAULT_CONFIG.colorMode);
+    });
+  });
+
+  describe("setAssetMode", () => {
+    it("initializes localAssetMode from config default", () => {
+      const { result } = renderHook(() =>
+        useTabSettings("web", "web-settings-expanded")
+      );
+
+      expect(result.current.localAssetMode).toBe(DEFAULT_CONFIG.assetMode);
+    });
+
+    it("updates local asset mode and creates session override", () => {
+      const { result } = renderHook(() =>
+        useTabSettings("web", "web-settings-expanded")
+      );
+
+      act(() => {
+        result.current.setAssetMode("realAssets");
+      });
+
+      expect(result.current.localAssetMode).toBe("realAssets");
+      expect(mockContext.setSessionOverride).toHaveBeenCalledWith("web", {
+        assetMode: "realAssets",
+      });
+    });
+  });
+
+  describe("handleReset resets assetMode", () => {
+    it("resets assetMode to config default after override", () => {
+      const { result } = renderHook(() =>
+        useTabSettings("web", "web-settings-expanded")
+      );
+
+      // Change asset mode
+      act(() => {
+        result.current.setAssetMode("realAssets");
+      });
+      expect(result.current.localAssetMode).toBe("realAssets");
+
+      // Reset
+      act(() => {
+        result.current.handleReset();
+      });
+
+      expect(result.current.localAssetMode).toBe(DEFAULT_CONFIG.assetMode);
+    });
+  });
+
+  describe("handleSaveAsDefault saves assetMode", () => {
+    it("includes assetMode in updateConfig call", () => {
+      const { result } = renderHook(() =>
+        useTabSettings("web", "web-settings-expanded")
+      );
+
+      act(() => {
+        result.current.setAssetMode("realAssets");
+      });
+
+      act(() => {
+        result.current.handleSaveAsDefault();
+      });
+
+      expect(mockContext.updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assetMode: "realAssets",
+        })
+      );
     });
   });
 

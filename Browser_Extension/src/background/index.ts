@@ -13,6 +13,7 @@
 import { createCDPClient, CDPClient } from "./cdp/client";
 import { getDocument, getScrollDimensions } from "./cdp/dom";
 import { extractFonts, collectPlatformFonts } from "./cdp/fonts";
+import { buildResourceMap, extractAssetsForTree } from "./cdp/assets";
 
 // Shared extraction logic (unified with Plugin_Backend)
 import {
@@ -529,7 +530,7 @@ async function handleCapturePage(
       updateProgress(baseProgress + progressPerViewport * 0.3, "Capturing snapshot...");
       console.log(`[W2W] Capturing snapshot for viewport ${targetViewport}px...`);
       const snapshot = await captureSnapshot(client);
-      const { nodes, nodesByBackendId } = parseSnapshot(snapshot);
+      const { nodes, nodesByBackendId, documentURL } = parseSnapshot(snapshot);
       console.log(`[W2W] Snapshot parsed: ${nodes.length} nodes`);
 
       // Find nodes needing matched styles
@@ -600,6 +601,7 @@ async function handleCapturePage(
           bodyOriginalCSS,
           browserDpr,
           platformFontMap,
+          documentURL,
         }
       );
       console.log(`[W2W] Tree built: ${tree.children.length} top-level children`);
@@ -634,7 +636,22 @@ async function handleCapturePage(
       ? analyzeColorsFromTree(frames[0].tree as Parameters<typeof analyzeColorsFromTree>[0])
       : undefined;
 
-    updateProgress(95, "Finalizing...");
+    // Extract real image assets from browser cache (per frame)
+    const settings = await getSettings();
+    if (settings.captureAssets && frames.length > 0) {
+      updateProgress(94, "Extracting images from cache...");
+      const resourceMap = await buildResourceMap(client);
+
+      for (const frame of frames) {
+        const assetsMap = await extractAssetsForTree(client, frame.tree, resourceMap);
+        const assetCount = Object.keys(assetsMap).length;
+        if (assetCount > 0) {
+          frame.assets = assetsMap;
+        }
+      }
+    }
+
+    updateProgress(97, "Finalizing...");
 
     const result: CaptureResult = {
       url: tab.url,
@@ -806,7 +823,19 @@ async function handleCaptureElement(
     // Analyze colors from the tree
     const detectedColors = analyzeColorsFromTree(tree as Parameters<typeof analyzeColorsFromTree>[0]);
 
-    updateProgress(95, "Finalizing...");
+    // Extract real image assets from browser cache
+    let frameAssets: Record<string, string> | undefined;
+    const elSettings = await getSettings();
+    if (elSettings.captureAssets) {
+      updateProgress(94, "Extracting images from cache...");
+      const resourceMap = await buildResourceMap(client);
+      const assetsMap = await extractAssetsForTree(client, tree, resourceMap);
+      if (Object.keys(assetsMap).length > 0) {
+        frameAssets = assetsMap;
+      }
+    }
+
+    updateProgress(97, "Finalizing...");
 
     const result: CaptureResult = {
       url: tab.url,
@@ -815,12 +844,11 @@ async function handleCaptureElement(
       frames: [
         {
           viewport: {
-            // width: Math.ceil(elementBounds.width),
-            // height: Math.ceil(elementBounds.height),
             width: elementBounds.width,
             height: elementBounds.height,
           },
           tree,
+          assets: frameAssets,
         },
       ],
       fonts,
@@ -985,7 +1013,19 @@ async function handleCaptureElementByBackendId(
     // Analyze colors from the tree
     const detectedColors = analyzeColorsFromTree(tree as Parameters<typeof analyzeColorsFromTree>[0]);
 
-    updateProgress(95, "Finalizing...");
+    // Extract real image assets from browser cache
+    let frameAssets2: Record<string, string> | undefined;
+    const biSettings = await getSettings();
+    if (biSettings.captureAssets) {
+      updateProgress(94, "Extracting images from cache...");
+      const resourceMap = await buildResourceMap(client);
+      const assetsMap = await extractAssetsForTree(client, tree, resourceMap);
+      if (Object.keys(assetsMap).length > 0) {
+        frameAssets2 = assetsMap;
+      }
+    }
+
+    updateProgress(97, "Finalizing...");
 
     const result: CaptureResult = {
       url: tab.url,
@@ -994,12 +1034,11 @@ async function handleCaptureElementByBackendId(
       frames: [
         {
           viewport: {
-            // width: Math.ceil(elementBounds.width),
-            // height: Math.ceil(elementBounds.height),
             width: elementBounds.width,
             height: elementBounds.height,
           },
           tree,
+          assets: frameAssets2,
         },
       ],
       fonts,

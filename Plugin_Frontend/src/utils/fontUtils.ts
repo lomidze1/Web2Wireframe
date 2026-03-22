@@ -10,6 +10,30 @@
 import type { WireframeNode, FontMapping } from "../types";
 
 // ============================================================================
+// Icon Font Detection
+// ============================================================================
+
+/** Known icon font name patterns (lowercase). Must stay in sync with shared-extraction. */
+const ICON_FONT_PATTERNS = [
+  "font awesome", "fontawesome",
+  "material icons", "material symbols",
+  "bootstrap-icons", "remixicon", "icomoon", "ionicons",
+  "boxicons", "phosphor", "tabler-icons", "lucide",
+  "typicons", "linearicons", "simple-line-icons", "feather",
+];
+
+/**
+ * Check if a font family is an icon font (Font Awesome, Material Icons, etc.).
+ * Icon fonts must NOT be remapped to the plugin font — their glyphs are
+ * Unicode codepoints that only render correctly with the original font.
+ */
+export function isIconFont(fontFamily: string): boolean {
+  if (!fontFamily) return false;
+  const lower = fontFamily.toLowerCase().replace(/['"]/g, "").trim();
+  return ICON_FONT_PATTERNS.some(pattern => lower.includes(pattern));
+}
+
+// ============================================================================
 // CSS Generic Font Keywords
 // ============================================================================
 
@@ -143,6 +167,9 @@ export function buildDefaultFontMapping(
   const mapping: FontMapping = {};
 
   for (const font of missingFonts) {
+    // Skip icon fonts — they must keep their original font for glyphs to render
+    if (isIconFont(font)) continue;
+
     const lower = font.toLowerCase();
     if (lower.includes("mono")) {
       mapping[font] = "Courier";
@@ -204,7 +231,8 @@ export function buildPluginModeFontMapping(
   const mapping: FontMapping = {};
 
   for (const font of Array.from(allFonts)) {
-    if (!CSS_GENERIC_FONTS.has(font)) {
+    // Skip CSS generic keywords and icon fonts
+    if (!CSS_GENERIC_FONTS.has(font) && !isIconFont(font)) {
       mapping[font] = pluginFont;
     }
   }

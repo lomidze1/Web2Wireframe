@@ -66,7 +66,6 @@ function buildFontDownloads(
     if (!font.family || !missingSet.has(font.family.toLowerCase())) continue;
 
     const urls = font.src ? parseFontSrcUrls(font.src) : [];
-    console.log("[W2W FontDL] Font match:", { family: font.family, src: font.src?.substring(0, 80), urls });
     // Only process if we have actual download URLs
     if (urls.length > 0 || font.isGoogleFont) {
       // Aggregate URLs across variants (different weights/styles) for same family
@@ -85,7 +84,6 @@ function buildFontDownloads(
     }
   }
 
-  console.log("[W2W FontDL] Result:", downloads);
   return downloads.length > 0 ? downloads : undefined;
 }
 
@@ -169,6 +167,7 @@ export default function BrowserExtension() {
             textMode: config.textMode,
             cssVariablesMode: config.cssVariablesDefault,
             layoutMode: config.layoutModeDefault,
+            assetMode: config.assetMode,
           });
         }
       }
@@ -303,13 +302,21 @@ export default function BrowserExtension() {
 
     // Convert frames to WireframeNode format using shared unified function
     // This ensures URL Import uses the same conversion logic as JSON Import
+    const inputFrames = frames as { viewport: { width: number; height: number }; tree: ExtractedElement; assets?: Record<string, string> }[];
     const framesData = prepareFramesForRendering(
-      frames as { viewport: { width: number; height: number }; tree: ExtractedElement }[],
+      inputFrames,
       {
         text: config.pluginColors.text,
         surface: config.pluginColors.surface,
       }
     );
+
+    // Carry over assets from input frames to output frames
+    for (let i = 0; i < framesData.length; i++) {
+      if (inputFrames[i]?.assets) {
+        (framesData[i] as { assets?: Record<string, string> }).assets = inputFrames[i].assets;
+      }
+    }
 
     parent.postMessage(
       {
@@ -327,6 +334,7 @@ export default function BrowserExtension() {
             colorMode: options.colorMode,
             fontMode: options.fontMode,
             textMode: options.textMode,
+            assetMode: options.assetMode,
           },
         },
       },

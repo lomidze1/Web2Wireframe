@@ -330,11 +330,15 @@ function parseBackgroundLayer(
 
   // URL (image) → placeholder
   if (layer.includes("url(")) {
+    // Extract URL from url('...') or url("...") or url(...)
+    const urlMatch = layer.match(/url\(\s*['"]?(.*?)['"]?\s*\)/);
+    const imageUrl = urlMatch?.[1] || undefined;
     return {
       type: "IMAGE_PLACEHOLDER",
       visible: true,
       opacity: 1,
       isImagePlaceholder: true,
+      imageUrl,
     };
   }
 
