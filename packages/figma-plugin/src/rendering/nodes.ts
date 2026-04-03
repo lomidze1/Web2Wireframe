@@ -150,6 +150,8 @@ export function shouldUseAutoLayout(
   contextLayoutMode: string | undefined,
   nodeLayoutMode: string | undefined
 ): boolean {
+  // Absolute mode: never use auto layout — all frames use x/y positioning
+  if (contextLayoutMode === "absolute") return false;
   if (contextLayoutMode === "autoLayout") return true;
   // Node has its own layout (e.g. card with VERTICAL, button with HORIZONTAL)
   return !!nodeLayoutMode && nodeLayoutMode !== "NONE";
@@ -404,7 +406,11 @@ export async function createNodeInFigma(
             } else {
               childNode.x = child.x;
             }
-            childNode.y = child.y;
+            // Sticky elements: use y=0 because their getBoundingClientRect
+            // returns the "stuck" position (viewport-relative) when page is
+            // scrolled during capture, not their natural flow position.
+            // Figma has no scroll, so sticky = natural flow position.
+            childNode.y = child.position === "sticky" ? 0 : child.y;
           }
         }
       } catch (err) {
@@ -540,37 +546,9 @@ function applyChildInAutoLayout(
     return;
   }
 
-  // Sticky: spacer maintains flow space, element positioned absolutely.
-  // CSS sticky = in normal flow + sticks on scroll. Figma has no scroll,
-  // so we use a transparent spacer for flow space + ABSOLUTE for the element.
-  if (child.position === "sticky") {
-    const spacer = figma.createFrame();
-    spacer.name = `${child.name || child.tag}:spacer`;
-    spacer.fills = [];
-    spacer.clipsContent = false;
-
-    // MUST appendChild BEFORE setting layout sizing (Figma requires auto layout parent)
-    parentFrame.appendChild(spacer);
-
-    if (parentFrame.layoutMode === "VERTICAL") {
-      spacer.layoutSizingHorizontal = "FILL";
-      spacer.layoutSizingVertical = "FIXED";
-      spacer.resize(spacer.width, Math.max(1, child.height));
-    } else {
-      spacer.layoutSizingHorizontal = "FIXED";
-      spacer.layoutSizingVertical = "FILL";
-      spacer.resize(Math.max(1, child.width), spacer.height);
-    }
-
-    // Append the actual element as ABSOLUTE (out of flow)
-    parentFrame.appendChild(childNode);
-    if ("layoutPositioning" in childNode) {
-      (childNode as FrameNode | TextNode).layoutPositioning = "ABSOLUTE";
-    }
-    childNode.x = child.x;
-    childNode.y = child.y;
-    return;
-  }
+  // Sticky: treat as normal flow. Figma has no scroll, so sticky
+  // behaves identically to static — the element stays in its natural
+  // flow position. No spacer or ABSOLUTE positioning needed.
 
   // Create margin wrapper if needed
   const hasWrapper = needsMarginWrapper(child.margin);
@@ -935,7 +913,8 @@ export async function createWireframeFrame(
             } else {
               childNode.x = child.x;
             }
-            childNode.y = child.y;
+            // Sticky elements: use y=0 (see nested comment for explanation)
+            childNode.y = child.position === "sticky" ? 0 : child.y;
             wireframeFrame.appendChild(childNode);
           }
         }
