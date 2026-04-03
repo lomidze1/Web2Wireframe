@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+      target: builder
+    command: ["pnpm", "--filter", "@w2w/api", "dev"]
+    volumes:
+      - ./packages/api/src:/app/packages/api/src
+      - ./packages/shared/src:/app/packages/shared/src
+    ports:
+      - "3002:3002"
+    environment:
+      - API_PORT=3002
+      - MONGODB_URI=mongodb://mongo:27017/web2wireframe
+      - NODE_ENV=development
+    env_file: .env
+
+  web:
+    image: node:18-slim
+    working_dir: /app/packages/web
+    command: ["npx", "vite", "--host", "0.0.0.0", "--port", "5173"]
+    volumes:
+      - ./packages/web:/app/packages/web
+      - /app/packages/web/node_modules
+    ports:
+      - "5173:5173"
+    depends_on: []
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: mongosh --eval "db.runCommand('ping')" --quiet
+      interval: 10s
+      retries: 3

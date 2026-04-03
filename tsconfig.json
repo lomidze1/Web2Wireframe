@@ -11,7 +11,7 @@
     "resolveJsonModule": true
   },
   "include": [
-    "Website_Backend/src/**/*.ts"
+    "packages/api/src/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "Website_Frontend", "Plugin_Frontend", "Plugin_Backend", "License_Backend"]
+  "exclude": ["node_modules", "dist", "packages/web", "packages/figma-plugin", "packages/browser-extension"]
 }

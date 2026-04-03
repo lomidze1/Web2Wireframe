@@ -1,0 +1,98 @@
+import { describe, it, expect } from "vitest";
+import request from "supertest";
+
+// Use random port to avoid EADDRINUSE conflicts
+process.env.API_PORT = "0";
+
+const { default: app } = await import("../src/index.js");
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function buildCaptureData(overrides: Record<string, unknown> = {}) {
+  return {
+    url: "https://example.com",
+    title: "Example",
+    frames: [
+      {
+        viewport: { width: 1440, height: 900 },
+        tree: { tag: "BODY", children: [] },
+      },
+    ],
+    fonts: [],
+    cssVariables: [],
+    stylesheets: [],
+    ...overrides,
+  };
+}
+
+// ============================================================================
+// Tests: import-cdp stores webStorage and it flows to pending-import
+// ============================================================================
+
+describe("POST /api/import-cdp — webStorage round-trip", () => {
+  it("stores webStorage and returns it via pending-import", async () => {
+    const webStorage = {
+      localStorage: { theme: "dark", lang: "en" },
+      sessionStorage: { cart: "item1,item2" },
+    };
+
+    const res = await request(app)
+      .post("/api/import-cdp")
+      .send({
+        captureData: buildCaptureData(),
+        cookies: [],
+        webStorage,
+        timestamp: Date.now(),
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const pending = await request(app).get("/api/pending-import");
+    expect(pending.body.success).toBe(true);
+    expect(pending.body.webStorage).toEqual(webStorage);
+    expect(pending.body.cdpMetadata.hasWebStorage).toBe(true);
+  });
+
+  it("defaults webStorage to empty objects when not provided", async () => {
+    const res = await request(app)
+      .post("/api/import-cdp")
+      .send({
+        captureData: buildCaptureData(),
+        timestamp: Date.now(),
+      });
+
+    expect(res.status).toBe(200);
+
+    const pending = await request(app).get("/api/pending-import");
+    expect(pending.body.webStorage).toEqual({ localStorage: {}, sessionStorage: {} });
+    expect(pending.body.cdpMetadata.hasWebStorage).toBe(false);
+  });
+});
+
+// ============================================================================
+// Tests: capture-with-auth accepts webStorage parameter
+// ============================================================================
+
+describe("POST /api/capture-with-auth — webStorage parameter", () => {
+  it("accepts webStorage field without returning 400", async () => {
+    // Note: This will likely fail with a Puppeteer/rendering error (no real browser),
+    // but it should NOT fail with a 400 "bad request" for the webStorage field.
+    const res = await request(app)
+      .post("/api/capture-with-auth")
+      .send({
+        url: "https://example.com",
+        viewports: [1440],
+        cookies: [],
+        webStorage: {
+          localStorage: { theme: "dark" },
+          sessionStorage: {},
+        },
+      });
+
+    // A 500 is expected (no browser available in test), but NOT 400
+    expect(res.status).not.toBe(400);
+  });
+});

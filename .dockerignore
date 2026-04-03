@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.turbo
+**/.turbo
+*.md
+!pnpm-workspace.yaml
+packages/figma-plugin
+packages/browser-extension
+.claude
+studyH2D
+html.to.design
+scripts

@@ -1,133 +1,68 @@
 # Deployment Guide
 
-Production deployment for Web2Wireframe services.
+## Docker Deployment (Recommended)
 
-For local development setup, see service-specific README files.
-
-## Services Overview
-
-| Service | Build | Start | Port |
-|---------|-------|-------|------|
-| Website_Frontend | `npm run build` → `dist/` | Static hosting | — |
-| Website_Backend | `npm run build` → `dist/` | `npm start` | 3001 |
-| Plugin_Backend | — (JavaScript) | `node api/index.js` | 3002 |
-| License_Backend | `npm run build` → `dist/` | `npm start` | 3003 |
-| Plugin_Frontend | `npm run build` → `build/` | Figma plugin | — |
-| Browser_Extension | `npm run build` → `dist/` | Chrome extension | — |
-| shared-extraction | `npm run build` → `dist/` | Library (dependency) | — |
-
-## Build Order
-
-shared-extraction must build first (it's a dependency):
+### Production
 
 ```bash
-npm run build:shared     # 1. Shared library first
-npm run build:all        # 2. Everything else
+docker compose up -d --build
+
+# Verify
+docker compose ps          # All services "healthy"
+curl http://localhost:3002/api/health
+curl http://localhost:80    # Website
 ```
 
-## Website_Frontend
+### Services
 
-### Build
-
-```bash
-cd Website_Frontend
-npm run build
-```
+| Service | Port | Image | Health Check |
+|---------|------|-------|-------------|
+| api | 3002 | node:18-slim + chromium | `GET /api/health` |
+| web | 80 | nginx:alpine (SSG static files) | - |
+| mongo | 27017 | mongo:7 | `mongosh ping` |
 
 ### Environment Variables
 
-```env
-VITE_API_URL=https://your-backend-url
-```
-
-### Hosting
-
-Serve `Website_Frontend/dist` with any static host (Vercel, Netlify, etc.). Configure SPA rewrites for React Router.
-
-## Website_Backend
-
-### Build and Start
-
-```bash
-cd Website_Backend
-npm run build
-npm start
-```
-
-### Environment Variables
+Single `.env` file at project root (see `.env.example`):
 
 ```env
-RESEND_API_KEY=          # Required
-SUPPORT_TO_EMAIL=        # Required
-NOREPLY_EMAIL=           # Required
-ALLOWED_ORIGIN=          # Required (frontend URL)
-PORT=3001
-NODE_ENV=production
-FIGMA_CLIENT_ID=         # Optional (Figma OAuth)
-FIGMA_CLIENT_SECRET=     # Optional (Figma OAuth)
-```
-
-## Plugin_Backend
-
-### Start
-
-```bash
-cd Plugin_Backend
-node api/index.js
-```
-
-### Environment Variables
-
-```env
-MONGODB_URI=             # Optional
 API_PORT=3002
-NODE_ENV=production
-CORS_ORIGIN=https://www.figma.com
+MONGODB_URI=mongodb://mongo:27017/web2wireframe
+AUTH_SECRET=<random-secret>
+SESSION_SECRET=<random-secret>
+ANTHROPIC_API_KEY=sk-ant-...
+RESEND_API_KEY=re_...
+FIGMA_CLIENT_ID=...
+FIGMA_CLIENT_SECRET=...
+CORS_ORIGIN=https://www.figma.com,https://www.web2wireframe.design
 ```
 
-## License_Backend
+## Build-only Packages
 
-### Build and Start
+### Figma Plugin (`packages/figma-plugin`)
 
 ```bash
-cd License_Backend
-npm run build
-npm start
+cd packages/figma-plugin && pnpm build
+# Output: build/main.js + build/ui.js → upload to Figma
 ```
 
-### Environment Variables
-
-```env
-PORT=3003
-DEV_TOKEN=               # Auth token
-ADMIN_TOKEN=             # Admin token
-ALLOWED_ORIGINS=         # Comma-separated origins
-```
-
-## Plugin_Frontend
-
-Build and submit to Figma Community:
+### Browser Extension (`packages/browser-extension`)
 
 ```bash
-cd Plugin_Frontend
-npm run build
+cd packages/browser-extension && pnpm build
+# Output: dist/ → upload to Chrome Web Store
 ```
 
-Submit `Plugin_Frontend/manifest.json` via Figma's plugin review process.
+## Build Order (handled by Turborepo)
 
-## Browser_Extension
-
-Build and submit to Chrome Web Store:
-
-```bash
-cd Browser_Extension
-npm run build
+```
+1. packages/shared     (tsup)
+2. packages/api        (tsc)
+3. packages/web        (vite + SSG prerender)
+4. packages/figma-plugin, packages/browser-extension (parallel)
 ```
 
-Package `Browser_Extension/dist/` as a zip for Chrome Web Store submission.
+## Production Domains
 
-## Resend Setup
-
-- Create account at https://resend.com
-- Get API key and configure `RESEND_API_KEY`
-- Verify domain for `NOREPLY_EMAIL`
+- **API:** `api.web2wireframe.design` (port 3002)
+- **Website:** `www.web2wireframe.design` (port 80, nginx)
