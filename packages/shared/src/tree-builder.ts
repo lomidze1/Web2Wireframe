@@ -2305,7 +2305,8 @@ export function buildElementTree(
     }
 
     // Add synthetic text child for wrapped text elements (buttons, etc.)
-    if (shouldBeFrameWithTextChild && finalText) {
+    // Skip li — already handled by isListItemWithText block above
+    if (shouldBeFrameWithTextChild && finalText && !isListItemWithText) {
       // Use textBounds > calculated fallback for text dimensions
       const textWidth = textBounds ? textBounds.width
                        : width - padding.left - padding.right;
