@@ -2,6 +2,6 @@
   "buildCommand": "pnpm build --filter @w2w/web",
   "outputDirectory": "packages/web/dist/client",
   "installCommand": "pnpm install",
-  "framework": "vite",
+  "framework": null,
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
