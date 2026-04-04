@@ -1,3 +1,6 @@
 {
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "cd ../.. && pnpm build --filter @w2w/web",
+  "outputDirectory": "dist/client",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
