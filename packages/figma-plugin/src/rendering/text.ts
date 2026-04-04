@@ -930,9 +930,9 @@ export async function createTextWithBackground(
   frame.name = node.name || "Button";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
-  // Apply Auto Layout for proper text containment
+  // Apply Auto Layout for proper text containment (text backgrounds never use Grid)
   frame.layoutMode =
-    node.layoutMode && node.layoutMode !== "NONE"
+    node.layoutMode && node.layoutMode !== "NONE" && node.layoutMode !== "GRID"
       ? node.layoutMode
       : "HORIZONTAL";
   frame.primaryAxisSizingMode = "FIXED";

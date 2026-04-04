@@ -152,6 +152,8 @@ export function shouldUseAutoLayout(
 ): boolean {
   // Absolute mode: never use auto layout — all frames use x/y positioning
   if (contextLayoutMode === "absolute") return false;
+  // Grid uses its own rendering path, not auto layout
+  if (nodeLayoutMode === "GRID") return false;
   if (contextLayoutMode === "autoLayout") return true;
   // Node has its own layout (e.g. card with VERTICAL, button with HORIZONTAL)
   return !!nodeLayoutMode && nodeLayoutMode !== "NONE";
@@ -241,11 +243,26 @@ export async function createNodeInFigma(
 
   // Apply Auto Layout: global autoLayout mode OR node has its own layout (e.g. card with VERTICAL)
   const useAutoLayout = shouldUseAutoLayout(context.layoutMode, node.layoutMode);
+  const isGrid = node.layoutMode === "GRID" && context.layoutMode !== "absolute";
 
-  if (useAutoLayout) {
-    // Use CSS layout direction if available
+  let gridApplied = false;
+  if (isGrid) {
+    // === CSS GRID LAYOUT → Figma Grid ===
+    try {
+      applyGridLayout(frame, node);
+      gridApplied = true;
+    } catch (err) {
+      // Fallback to VERTICAL auto layout if Grid API fails
+      logger.warn("Grid layout failed, falling back to auto layout", { error: err, nodeName: node.name });
+      frame.layoutMode = "VERTICAL";
+      frame.layoutSizingHorizontal = "FIXED";
+      frame.layoutSizingVertical = "HUG";
+    }
+  }
+  if (useAutoLayout && !gridApplied) {
+    // Use CSS layout direction if available (GRID filtered above by isGrid check)
     frame.layoutMode =
-      node.layoutMode && node.layoutMode !== "NONE"
+      node.layoutMode && node.layoutMode !== "NONE" && node.layoutMode !== "GRID"
         ? node.layoutMode
         : "VERTICAL";
 
@@ -391,12 +408,29 @@ export async function createNodeInFigma(
       parentWidth: node.width,
     };
 
-    for (const child of node.children) {
+    // Sort grid children by position for correct auto-placement
+    const childrenToRender = gridApplied
+      ? sortGridChildren(node.children, node.gridAutoFlow)
+      : node.children;
+
+    for (const child of childrenToRender) {
       try {
         const childNode = await createNodeInFigma(child, childContext, depth + 1);
 
         if (childNode) {
-          if (parentHasAutoLayout) {
+          if (gridApplied) {
+            // Grid: append child and set spans
+            frame.appendChild(childNode);
+            const colSpan = getGridSpanFromNode(child.gridColumnStart, child.gridColumnEnd);
+            const rowSpan = getGridSpanFromNode(child.gridRowStart, child.gridRowEnd);
+            const gridChild = childNode as unknown as Record<string, unknown>;
+            if (colSpan > 1) {
+              gridChild.gridColumnSpan = colSpan;
+            }
+            if (rowSpan > 1) {
+              gridChild.gridRowSpan = rowSpan;
+            }
+          } else if (parentHasAutoLayout) {
             applyChildInAutoLayout(childNode, child, frame, childContext);
           } else {
             // Absolute mode: use x/y positioning
@@ -851,10 +885,11 @@ export async function createWireframeFrame(
     const rootTree = frameData.tree;
 
     // Use body's detected layout or default to VERTICAL
-    wireframeFrame.layoutMode =
-      rootTree.layoutMode && rootTree.layoutMode !== "NONE"
-        ? rootTree.layoutMode
-        : "VERTICAL";
+    // Skip GRID for root frame — body-level grid is rare and root needs auto layout
+    const rootLayout = rootTree.layoutMode && rootTree.layoutMode !== "NONE" && rootTree.layoutMode !== "GRID"
+      ? rootTree.layoutMode
+      : "VERTICAL";
+    wireframeFrame.layoutMode = rootLayout;
 
     // Root frame: fixed viewport width, height hugs content
     wireframeFrame.layoutSizingHorizontal = "FIXED";
@@ -928,6 +963,101 @@ export async function createWireframeFrame(
   }
 
   return wireframeFrame;
+}
+
+// ============================================================================
+// CSS Grid Layout Helpers
+// ============================================================================
+
+import { parseGridTemplate, getGridSpan, type FigmaGridTrackSize } from "@w2w/shared";
+
+/**
+ * Apply Figma Grid layout to a frame based on CSS Grid properties.
+ * Uses type assertions because @figma/plugin-typings 1.109.0 doesn't
+ * include the Grid Layout API yet (available in Figma runtime).
+ */
+function applyGridLayout(frame: FrameNode, node: WireframeNode): void {
+  const gridFrame = frame as unknown as Record<string, unknown>;
+  gridFrame.layoutMode = "GRID";
+
+  // Parse column/row templates
+  const columnSizes = parseGridTemplate(node.gridTemplateColumns || "");
+  const rowSizes = parseGridTemplate(node.gridTemplateRows || "");
+
+  // Set grid dimensions
+  const columnCount = columnSizes.length || 1;
+  gridFrame.gridColumnCount = columnCount;
+
+  // Row count: explicit rows OR computed from children
+  const explicitRowCount = rowSizes.length;
+  const childCount = node.children?.length || 0;
+  const implicitRowCount = Math.ceil(childCount / columnCount);
+  const rowCount = Math.max(explicitRowCount, implicitRowCount, 1);
+  gridFrame.gridRowCount = rowCount;
+
+  // Apply track sizes
+  const gridColSizes = gridFrame.gridColumnSizes as FigmaGridTrackSize[] | undefined;
+  if (gridColSizes) {
+    for (let i = 0; i < columnCount; i++) {
+      if (columnSizes[i]) {
+        gridColSizes[i] = columnSizes[i];
+      }
+    }
+  }
+  const gridRowSizesArr = gridFrame.gridRowSizes as FigmaGridTrackSize[] | undefined;
+  if (gridRowSizesArr) {
+    for (let i = 0; i < rowCount; i++) {
+      if (rowSizes[i]) {
+        gridRowSizesArr[i] = rowSizes[i];
+      }
+    }
+  }
+
+  // Apply gaps
+  gridFrame.gridColumnGap = Math.max(node.gridColumnGap || 0, 0);
+  gridFrame.gridRowGap = Math.max(node.gridRowGap || 0, 0);
+
+  // Container sizing: always FIXED (FLEX tracks + HUG is invalid in Figma)
+  frame.layoutSizingHorizontal = "FIXED";
+  frame.layoutSizingVertical = "FIXED";
+
+  // Apply padding
+  if (node.padding) {
+    frame.paddingTop = node.padding.top || 0;
+    frame.paddingRight = node.padding.right || 0;
+    frame.paddingBottom = node.padding.bottom || 0;
+    frame.paddingLeft = node.padding.left || 0;
+  }
+}
+
+/**
+ * Sort grid children by their grid position for correct Figma auto-placement.
+ * Figma's gridColumnAnchorIndex is read-only, so children must be appended in order.
+ */
+function sortGridChildren(
+  children: WireframeNode[],
+  gridAutoFlow?: string
+): WireframeNode[] {
+  return [...children].sort((a, b) => {
+    const aRow = a.gridRowStart || Infinity;
+    const aCol = a.gridColumnStart || Infinity;
+    const bRow = b.gridRowStart || Infinity;
+    const bCol = b.gridColumnStart || Infinity;
+
+    if (gridAutoFlow?.includes("column")) {
+      // Column flow: sort by column first, then row
+      return aCol - bCol || aRow - bRow;
+    }
+    // Row flow (default): sort by row first, then column
+    return aRow - bRow || aCol - bCol;
+  });
+}
+
+/**
+ * Compute grid span from CSS grid-column-start/end line numbers.
+ */
+function getGridSpanFromNode(start?: number, end?: number): number {
+  return getGridSpan(start, end);
 }
 
 /**

@@ -99,7 +99,7 @@ export interface WireframeNode {
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
 
   // Layout
-  layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
+  layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
   // Layout Alignment (for Auto Layout)
@@ -112,6 +112,18 @@ export interface WireframeNode {
   // Sizing mode (how element sizes itself)
   layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL"; // width behavior
   layoutSizingVertical?: "FIXED" | "HUG" | "FILL"; // height behavior
+
+  // CSS Grid (container)
+  gridTemplateColumns?: string;
+  gridTemplateRows?: string;
+  gridColumnGap?: number;
+  gridRowGap?: number;
+  gridAutoFlow?: string;
+  // CSS Grid (child placement — 1-based CSS line numbers)
+  gridColumnStart?: number;
+  gridColumnEnd?: number;
+  gridRowStart?: number;
+  gridRowEnd?: number;
 
   // =========================================================================
   // NEW: Figma-ready arrays (multiple layers support)

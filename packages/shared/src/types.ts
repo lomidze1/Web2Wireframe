@@ -482,7 +482,7 @@ export interface ExtractedElement {
   zIndex?: number;
 
   // Layout
-  layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL";
+  layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL" | "GRID";
   itemSpacing: number;
   padding: {
     top: number;
@@ -499,6 +499,18 @@ export interface ExtractedElement {
   layoutAlign?: "STRETCH" | "INHERIT";
   layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
   layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
+
+  // CSS Grid (container properties)
+  gridTemplateColumns?: string;
+  gridTemplateRows?: string;
+  gridColumnGap?: number;
+  gridRowGap?: number;
+  gridAutoFlow?: string;
+  // CSS Grid (child placement — 1-based CSS line numbers)
+  gridColumnStart?: number;
+  gridColumnEnd?: number;
+  gridRowStart?: number;
+  gridRowEnd?: number;
 
   // Figma-ready arrays (multiple layers support)
   fills: FigmaFill[];

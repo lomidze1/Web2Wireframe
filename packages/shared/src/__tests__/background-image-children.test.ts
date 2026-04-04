@@ -252,13 +252,13 @@ describe("grid children sizing", () => {
     const result = buildTree(nodes);
     const gridContainer = result.children[0];
     expect(gridContainer).toBeDefined();
-    expect(gridContainer.layoutMode).toBe("HORIZONTAL");
+    expect(gridContainer.layoutMode).toBe("GRID");
 
     // Find the img placeholder (second child of grid)
     const imgChild = gridContainer.children.find(c => c.type === "placeholder");
     expect(imgChild).toBeDefined();
-    expect(imgChild!.layoutGrow).toBe(1);
-    expect(imgChild!.layoutSizingHorizontal).toBe("FILL");
+    // Grid children use FIXED sizing (grid tracks control dimensions)
+    expect(imgChild!.layoutSizingHorizontal).toBe("FIXED");
   });
 
   it("div inside grid parent → frame with layoutGrow=1 and layoutSizingHorizontal='FILL'", () => {
@@ -285,8 +285,9 @@ describe("grid children sizing", () => {
     const gridContainer = result.children[0];
 
     for (const child of gridContainer.children) {
-      expect(child.layoutGrow).toBe(1);
-      expect(child.layoutSizingHorizontal).toBe("FILL");
+      // Grid children use FIXED sizing (grid tracks control dimensions)
+      expect(child.layoutSizingHorizontal).toBe("FIXED");
+      expect(child.layoutSizingVertical).toBe("FIXED");
     }
   });
 

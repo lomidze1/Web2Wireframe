@@ -121,7 +121,7 @@ export interface ExtractedElement {
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
   zIndex?: number;
   // Layout
-  layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL";
+  layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL" | "GRID";
   itemSpacing: number;
   padding: {
     top: number;

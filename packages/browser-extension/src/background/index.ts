@@ -1239,7 +1239,7 @@ function buildElementTreeFromBounds(
     parentY: number,
     depth: number,
     parentContext?: {
-      direction: "HORIZONTAL" | "VERTICAL" | "NONE";
+      direction: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
       alignItems?: string;
     },
   ): ExtractedElement | null {

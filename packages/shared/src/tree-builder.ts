@@ -1106,6 +1106,10 @@ const CSS_DEFAULT_VALUES: Record<string, string[]> = {
   "grid-template-columns": ["none"],
   "grid-template-rows": ["none"],
   "grid-auto-flow": ["row"],
+  "grid-column-start": ["auto"],
+  "grid-column-end": ["auto"],
+  "grid-row-start": ["auto"],
+  "grid-row-end": ["auto"],
 };
 
 /**
@@ -1339,7 +1343,7 @@ export function buildElementTree(
     parentY: number,
     depth: number,
     parentContext?: {
-      direction: "HORIZONTAL" | "VERTICAL" | "NONE";
+      direction: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
       alignItems?: string;
       contentWidth?: number;
       contentHeight?: number;
@@ -1889,6 +1893,20 @@ export function buildElementTree(
 
     // Build element
     const selector = getSelector(node.index);
+    const layoutMode = getLayoutMode(computedStyles, tag);
+
+    // Extract CSS Grid container properties
+    const gridTemplateColumns = layoutMode === "GRID"
+      ? (computedStyles["grid-template-columns"] || undefined) : undefined;
+    const gridTemplateRows = layoutMode === "GRID"
+      ? (computedStyles["grid-template-rows"] || undefined) : undefined;
+    const gridColumnGap = layoutMode === "GRID"
+      ? (parseFloat(computedStyles["column-gap"] || computedStyles["gap"] || "0") || 0) : undefined;
+    const gridRowGap = layoutMode === "GRID"
+      ? (parseFloat(computedStyles["row-gap"] || computedStyles["gap"] || "0") || 0) : undefined;
+    const gridAutoFlow = layoutMode === "GRID"
+      ? (computedStyles["grid-auto-flow"] || undefined) : undefined;
+
     const element: ExtractedElement = {
       id: generateId(selector),
       type: elementType,
@@ -1901,7 +1919,7 @@ export function buildElementTree(
       height,
       position,
       zIndex,
-      layoutMode: getLayoutMode(computedStyles, tag),
+      layoutMode,
       itemSpacing,
       padding,
       justifyContent,
@@ -1911,6 +1929,11 @@ export function buildElementTree(
       layoutAlign,
       layoutSizingHorizontal: layoutSizing.horizontal,
       layoutSizingVertical: layoutSizing.vertical,
+      gridTemplateColumns,
+      gridTemplateRows,
+      gridColumnGap,
+      gridRowGap,
+      gridAutoFlow,
       fills,
       strokes,
       effects,
@@ -2080,6 +2103,18 @@ export function buildElementTree(
             // Clip child width if extends beyond viewport
             if (childElement.x + childElement.width > viewportWidth) {
               childElement.width = Math.max(0, viewportWidth - childElement.x);
+            }
+            // Extract grid child placement from computed styles
+            if (isGrid) {
+              const childCS = childNode.computedStyles;
+              const gcs = parseInt(childCS["grid-column-start"]) || undefined;
+              const gce = parseInt(childCS["grid-column-end"]) || undefined;
+              const grs = parseInt(childCS["grid-row-start"]) || undefined;
+              const gre = parseInt(childCS["grid-row-end"]) || undefined;
+              if (gcs) childElement.gridColumnStart = gcs;
+              if (gce) childElement.gridColumnEnd = gce;
+              if (grs) childElement.gridRowStart = grs;
+              if (gre) childElement.gridRowEnd = gre;
             }
             element.children.push(childElement);
           }

@@ -30,6 +30,10 @@ export const SNAPSHOT_COMPUTED_STYLES = [
   "gap",
   "row-gap",
   "column-gap",
+  "grid-column-start",
+  "grid-column-end",
+  "grid-row-start",
+  "grid-row-end",
 
   // Box model
   "box-sizing",

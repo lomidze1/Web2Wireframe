@@ -248,6 +248,17 @@ describe("getLayoutSizing", () => {
     expect(result.vertical).toBe("FIXED");
   });
 
+  it("grid child in GRID parent → FIXED × FIXED (grid tracks control sizing)", () => {
+    const result = getLayoutSizing(
+      { display: "block", width: "200px", height: "150px" },
+      0,
+      "auto",
+      { direction: "GRID", isGridChild: true }
+    );
+    expect(result.horizontal).toBe("FIXED");
+    expect(result.vertical).toBe("FIXED");
+  });
+
   it("non-grid child in HORIZONTAL parent without flex-grow → FIXED × FILL (regression)", () => {
     const result = getLayoutSizing(
       { display: "block", width: "535px", height: "357px" },

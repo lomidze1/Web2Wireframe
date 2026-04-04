@@ -1,0 +1,1602 @@
+{
+  "meta": {
+    "captureDate": "2026-03-22T14:36:50.094Z",
+    "elapsedMs": 83313
+  },
+  "stats": {
+    "totalCDPCalls": 102,
+    "callsByMethod": {
+      "DOM.enable": 1,
+      "CSS.enable": 1,
+      "Page.enable": 1,
+      "Debugger.enable": 1,
+      "Page.getLayoutMetrics": 1,
+      "Emulation.setDeviceMetricsOverride": 1,
+      "DOM.getDocument": 1,
+      "Runtime.callFunctionOn": 10,
+      "Page.getResourceTree": 4,
+      "Page.getResourceContent": 8,
+      "DOM.querySelector": 21,
+      "DOM.describeNode": 21,
+      "CSS.getPlatformFontsForNode": 12,
+      "DOM.getBoxModel": 9,
+      "DOM.resolveNode": 9,
+      "Emulation.clearDeviceMetricsOverride": 1
+    },
+    "fontRelatedCalls": 77,
+    "platformFontQueries": 12,
+    "multiFontNodes": 0,
+    "stylesheetEvents": 26,
+    "fontStylesheetTexts": 0,
+    "fontResources": 12,
+    "fontResourceFetches": 3,
+    "fontEvals": 0,
+    "elapsedMs": 83313
+  },
+  "fontReport": {
+    "summary": {
+      "totalPlatformFontQueries": 12,
+      "uniqueFontFamilies": [
+        "Font Awesome 6 Brands Regular",
+        "Font Awesome 6 Free Solid",
+        "Space Grotesk Light"
+      ],
+      "customWebFonts": [
+        "Font Awesome 6 Brands Regular",
+        "Font Awesome 6 Free Solid",
+        "Space Grotesk Light"
+      ],
+      "fontFaceFamilies": [],
+      "multiFontNodeCount": 0,
+      "fontResourcesFound": 12,
+      "fontResourcesFetched": 3,
+      "fontRelatedEvals": 0
+    },
+    "multiFontNodes": [],
+    "fontProperties": [],
+    "stylesheetSummary": []
+  },
+  "platformFontResults": [
+    {
+      "timestamp": 18223,
+      "nodeId": 22,
+      "fonts": [
+        {
+          "familyName": "Space Grotesk Light",
+          "postScriptName": "SpaceGrotesk-Light_Regular",
+          "isCustomFont": true,
+          "glyphCount": 18
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18227,
+      "nodeId": 24,
+      "fonts": [
+        {
+          "familyName": "Space Grotesk Light",
+          "postScriptName": "SpaceGrotesk-Light_Bold",
+          "isCustomFont": true,
+          "glyphCount": 37
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18227,
+      "nodeId": 24,
+      "fonts": [
+        {
+          "familyName": "Space Grotesk Light",
+          "postScriptName": "SpaceGrotesk-Light_Bold",
+          "isCustomFont": true,
+          "glyphCount": 37
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18242,
+      "nodeId": 156,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Free Solid",
+          "postScriptName": "FontAwesome6Free-Solid",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18247,
+      "nodeId": 159,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Free Solid",
+          "postScriptName": "FontAwesome6Free-Solid",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18252,
+      "nodeId": 162,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Free Solid",
+          "postScriptName": "FontAwesome6Free-Solid",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18261,
+      "nodeId": 165,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Free Solid",
+          "postScriptName": "FontAwesome6Free-Solid",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18267,
+      "nodeId": 168,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Free Solid",
+          "postScriptName": "FontAwesome6Free-Solid",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18273,
+      "nodeId": 171,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Free Solid",
+          "postScriptName": "FontAwesome6Free-Solid",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18284,
+      "nodeId": 174,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Brands Regular",
+          "postScriptName": "FontAwesome6Brands-Regular",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18288,
+      "nodeId": 177,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Brands Regular",
+          "postScriptName": "FontAwesome6Brands-Regular",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    },
+    {
+      "timestamp": 18292,
+      "nodeId": 180,
+      "fonts": [
+        {
+          "familyName": "Font Awesome 6 Brands Regular",
+          "postScriptName": "FontAwesome6Brands-Regular",
+          "isCustomFont": true,
+          "glyphCount": 1
+        }
+      ],
+      "fontCount": 1,
+      "isMultiFont": false
+    }
+  ],
+  "matchedStyleFontProps": [],
+  "stylesheetTexts": [],
+  "resourceTreeFonts": [
+    {
+      "timestamp": 18188,
+      "fonts": [
+        {
+          "url": "https://fonts.gstatic.com/s/spacegrotesk/v22/V8mDoQDjQSkFtoMM3T6r8E7mPbF4C_k3HqU.woff2",
+          "type": "Font",
+          "mimeType": "font/woff2",
+          "contentSize": 22320
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.woff2",
+          "type": "Font",
+          "mimeType": "application/octet-stream",
+          "contentSize": 156496
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-brands-400.woff2",
+          "type": "Font",
+          "mimeType": "application/octet-stream",
+          "contentSize": 117372
+        }
+      ],
+      "count": 3
+    },
+    {
+      "timestamp": 18189,
+      "fonts": [
+        {
+          "url": "https://fonts.gstatic.com/s/spacegrotesk/v22/V8mDoQDjQSkFtoMM3T6r8E7mPbF4C_k3HqU.woff2",
+          "type": "Font",
+          "mimeType": "font/woff2",
+          "contentSize": 22320
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.woff2",
+          "type": "Font",
+          "mimeType": "application/octet-stream",
+          "contentSize": 156496
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-brands-400.woff2",
+          "type": "Font",
+          "mimeType": "application/octet-stream",
+          "contentSize": 117372
+        }
+      ],
+      "count": 3
+    },
+    {
+      "timestamp": 18189,
+      "fonts": [
+        {
+          "url": "https://fonts.gstatic.com/s/spacegrotesk/v22/V8mDoQDjQSkFtoMM3T6r8E7mPbF4C_k3HqU.woff2",
+          "type": "Font",
+          "mimeType": "font/woff2",
+          "contentSize": 22320
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.woff2",
+          "type": "Font",
+          "mimeType": "application/octet-stream",
+          "contentSize": 156496
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-brands-400.woff2",
+          "type": "Font",
+          "mimeType": "application/octet-stream",
+          "contentSize": 117372
+        }
+      ],
+      "count": 3
+    },
+    {
+      "timestamp": 18305,
+      "fonts": [
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-solid-900.woff2",
+          "type": "Font",
+          "mimeType": "application/octet-stream",
+          "contentSize": 156496
+        },
+        {
+          "url": "https://fonts.gstatic.com/s/spacegrotesk/v22/V8mDoQDjQSkFtoMM3T6r8E7mPbF4C_k3HqU.woff2",
+          "type": "Font",
+          "mimeType": "font/woff2",
+          "contentSize": 22320
+        },
+        {
+          "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/webfonts/fa-brands-400.woff2",
+          "type": "Font",
+          "mimeType": "application/octet-stream",
+          "contentSize": 117372
+        }
+      ],
+      "count": 3
+    }
+  ],
+  "resourceContents": [
+    {
+      "timestamp": 18190,
+      "url": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap",
+      "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+      "base64Encoded": false,
+      "contentLength": 3915
+    },
+    {
+      "timestamp": 18191,
+      "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css",
+      "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+      "base64Encoded": false,
+      "contentLength": 102641
+    },
+    {
+      "timestamp": 18191,
+      "url": "https://fonts.googleapis.com/css?family=Inter:400,600&display=swap",
+      "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+      "base64Encoded": false,
+      "contentLength": 5014
+    }
+  ],
+  "runtimeEvalCalls": [],
+  "stylesheetEvents": [
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-65",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "injected",
+      "length": 0,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-65",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "injected",
+      "length": 0,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-69",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 490,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-69",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 490,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-67",
+      "sourceURL": "http://127.0.0.1:5500/styles.css",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 3924,
+      "hasSourceURL": true,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-67",
+      "sourceURL": "http://127.0.0.1:5500/styles.css",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 3924,
+      "hasSourceURL": true,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-68",
+      "sourceURL": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 102641,
+      "hasSourceURL": true,
+      "isFontStylesheet": true
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-68",
+      "sourceURL": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 102641,
+      "hasSourceURL": true,
+      "isFontStylesheet": true
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-64",
+      "sourceURL": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 3915,
+      "hasSourceURL": true,
+      "isFontStylesheet": true
+    },
+    {
+      "timestamp": 16629,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-64",
+      "sourceURL": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 3915,
+      "hasSourceURL": true,
+      "isFontStylesheet": true
+    },
+    {
+      "timestamp": 16630,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-66",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "injected",
+      "length": 0,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16630,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-66",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "injected",
+      "length": 0,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16630,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-70",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 96,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16630,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-70",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 96,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16630,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-72",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 82,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16630,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-72",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 82,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 16772,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-73",
+      "sourceURL": "https://fonts.googleapis.com/css?family=Inter:400,600&display=swap",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 5014,
+      "hasSourceURL": true,
+      "isFontStylesheet": true
+    },
+    {
+      "timestamp": 16772,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-73",
+      "sourceURL": "https://fonts.googleapis.com/css?family=Inter:400,600&display=swap",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 5014,
+      "hasSourceURL": true,
+      "isFontStylesheet": true
+    },
+    {
+      "timestamp": 18072,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-74",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 108,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 18072,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-74",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 108,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 18072,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-75",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 37,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 18072,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-75",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 37,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 18180,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-76",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 596,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 18180,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-76",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 596,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 18241,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-80",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 139,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    },
+    {
+      "timestamp": 18241,
+      "method": "CSS.styleSheetAdded",
+      "styleSheetId": "style-sheet-87325-80",
+      "sourceURL": "",
+      "title": "",
+      "isInline": false,
+      "origin": "regular",
+      "length": 139,
+      "hasSourceURL": false,
+      "isFontStylesheet": false
+    }
+  ],
+  "allCallCounts": {
+    "DOM.enable": 1,
+    "CSS.enable": 1,
+    "Page.enable": 1,
+    "Debugger.enable": 1,
+    "Page.getLayoutMetrics": 1,
+    "Emulation.setDeviceMetricsOverride": 1,
+    "DOM.getDocument": 1,
+    "Runtime.callFunctionOn": 10,
+    "Page.getResourceTree": 4,
+    "Page.getResourceContent": 8,
+    "DOM.querySelector": 21,
+    "DOM.describeNode": 21,
+    "CSS.getPlatformFontsForNode": 12,
+    "DOM.getBoxModel": 9,
+    "DOM.resolveNode": 9,
+    "Emulation.clearDeviceMetricsOverride": 1
+  },
+  "cdpCallTimeline": [
+    {
+      "timestamp": 16621,
+      "method": "CSS.enable",
+      "params": null,
+      "resultSummary": {
+        "keys": []
+      }
+    },
+    {
+      "timestamp": 16757,
+      "method": "DOM.getDocument",
+      "params": {
+        "depth": 95,
+        "pierce": true
+      },
+      "resultSummary": {
+        "keys": ["root"]
+      }
+    },
+    {
+      "timestamp": 18188,
+      "method": "Page.getResourceTree",
+      "params": {},
+      "resultSummary": {
+        "hasFrameTree": true
+      }
+    },
+    {
+      "timestamp": 18189,
+      "method": "Page.getResourceTree",
+      "params": {},
+      "resultSummary": {
+        "hasFrameTree": true
+      }
+    },
+    {
+      "timestamp": 18189,
+      "method": "Page.getResourceTree",
+      "params": {},
+      "resultSummary": {
+        "hasFrameTree": true
+      }
+    },
+    {
+      "timestamp": 18190,
+      "method": "Page.getResourceContent",
+      "params": {
+        "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+        "url": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      },
+      "resultSummary": {
+        "base64Encoded": false,
+        "contentLength": 3915
+      }
+    },
+    {
+      "timestamp": 18191,
+      "method": "Page.getResourceContent",
+      "params": {
+        "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+        "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+      },
+      "resultSummary": {
+        "base64Encoded": false,
+        "contentLength": 102641
+      }
+    },
+    {
+      "timestamp": 18191,
+      "method": "Page.getResourceContent",
+      "params": {
+        "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+        "url": "https://fonts.googleapis.com/css?family=Inter:400,600&display=swap"
+      },
+      "resultSummary": {
+        "base64Encoded": false,
+        "contentLength": 5014
+      }
+    },
+    {
+      "timestamp": 18221,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-429654ab"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18222,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 21,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18223,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 22
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Space Grotesk Light",
+            "postScriptName": "SpaceGrotesk-Light_Regular",
+            "isCustomFont": true,
+            "glyphCount": 18
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18226,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-262fcd32"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18226,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-262fcd32"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18226,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 23,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18227,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 23,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18227,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 24
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Space Grotesk Light",
+            "postScriptName": "SpaceGrotesk-Light_Bold",
+            "isCustomFont": true,
+            "glyphCount": 37
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18227,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 24
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Space Grotesk Light",
+            "postScriptName": "SpaceGrotesk-Light_Bold",
+            "isCustomFont": true,
+            "glyphCount": 37
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18231,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-6d044dfb"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18231,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 37
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18232,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1350,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18241,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18241,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 155,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18242,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 156
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Free Solid",
+            "postScriptName": "FontAwesome6Free-Solid",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18244,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-be9034c0"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18244,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 41
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18244,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1355,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18246,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18247,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 158,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18247,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 159
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Free Solid",
+            "postScriptName": "FontAwesome6Free-Solid",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18248,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-c7d6d6d5"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18248,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 45
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18249,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1360,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18251,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18251,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 161,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18252,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 162
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Free Solid",
+            "postScriptName": "FontAwesome6Free-Solid",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18255,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-b5652c4d"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18256,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 64
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18256,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1397,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18260,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18260,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 164,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18261,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 165
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Free Solid",
+            "postScriptName": "FontAwesome6Free-Solid",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18262,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-b5c21ba3"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18262,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 71
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18263,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1408,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18266,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18267,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 167,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18267,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 168
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Free Solid",
+            "postScriptName": "FontAwesome6Free-Solid",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18269,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-fcfc7c12"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18269,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 78
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18269,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1420,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18272,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18273,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 170,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18273,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 171
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Free Solid",
+            "postScriptName": "FontAwesome6Free-Solid",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18278,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-f11bf7a9"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18279,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 130
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18280,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1520,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18282,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18283,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 173,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18284,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 174
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Brands Regular",
+            "postScriptName": "FontAwesome6Brands-Regular",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18285,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-f689976f"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18285,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 132
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18285,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1523,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18287,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18288,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 176,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18288,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 177
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Brands Regular",
+            "postScriptName": "FontAwesome6Brands-Regular",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18289,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".h2d-fdfaf2d9"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18289,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 134
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18289,
+      "method": "DOM.resolveNode",
+      "params": {
+        "backendNodeId": 1526,
+        "executionContextId": 158
+      },
+      "resultSummary": {
+        "keys": ["object"]
+      }
+    },
+    {
+      "timestamp": 18291,
+      "method": "DOM.querySelector",
+      "params": {
+        "nodeId": 1,
+        "selector": ".__h2d-remove-after"
+      },
+      "resultSummary": {
+        "keys": ["nodeId"]
+      }
+    },
+    {
+      "timestamp": 18292,
+      "method": "DOM.describeNode",
+      "params": {
+        "nodeId": 179,
+        "depth": 2
+      },
+      "resultSummary": {
+        "keys": ["node"]
+      }
+    },
+    {
+      "timestamp": 18292,
+      "method": "CSS.getPlatformFontsForNode",
+      "params": {
+        "nodeId": 180
+      },
+      "resultSummary": {
+        "fontCount": 1,
+        "fonts": [
+          {
+            "familyName": "Font Awesome 6 Brands Regular",
+            "postScriptName": "FontAwesome6Brands-Regular",
+            "isCustomFont": true,
+            "glyphCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "timestamp": 18305,
+      "method": "Page.getResourceTree",
+      "params": {},
+      "resultSummary": {
+        "hasFrameTree": true
+      }
+    },
+    {
+      "timestamp": 18307,
+      "method": "Page.getResourceContent",
+      "params": {
+        "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+        "url": "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&w=1600&q=80"
+      },
+      "resultSummary": {
+        "base64Encoded": true,
+        "contentLength": 305892
+      }
+    },
+    {
+      "timestamp": 18307,
+      "method": "Page.getResourceContent",
+      "params": {
+        "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+        "url": "https://images.pexels.com/photos/1181244/pexels-photo-1181244.jpeg?auto=compress&cs=tinysrgb&w=1200"
+      },
+      "resultSummary": {
+        "base64Encoded": true,
+        "contentLength": 106472
+      }
+    },
+    {
+      "timestamp": 18307,
+      "method": "Page.getResourceContent",
+      "params": {
+        "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+        "url": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?auto=format&fit=crop&w=800&q=80"
+      },
+      "resultSummary": {
+        "base64Encoded": true,
+        "contentLength": 67312
+      }
+    },
+    {
+      "timestamp": 18307,
+      "method": "Page.getResourceContent",
+      "params": {
+        "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+        "url": "https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=800&q=80"
+      },
+      "resultSummary": {
+        "base64Encoded": true,
+        "contentLength": 36332
+      }
+    },
+    {
+      "timestamp": 18307,
+      "method": "Page.getResourceContent",
+      "params": {
+        "frameId": "79C4DF78DF1112DF5E840A027EF5D445",
+        "url": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=800&q=80"
+      },
+      "resultSummary": {
+        "base64Encoded": true,
+        "contentLength": 87660
+      }
+    }
+  ]
+}

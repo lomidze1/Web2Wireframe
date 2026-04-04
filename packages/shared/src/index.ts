@@ -255,6 +255,18 @@ export {
 } from "./font-css-parser";
 
 // ============================================================================
+// GRID PARSER - CSS Grid template to Figma GridTrackSize conversion
+// ============================================================================
+
+export {
+  parseGridTemplate,
+  parseTrackValue,
+  getGridSpan,
+  parseGridLineIndex,
+  type FigmaGridTrackSize,
+} from "./grid-parser";
+
+// ============================================================================
 // MAIN EXTRACTION FUNCTION
 // ============================================================================
 

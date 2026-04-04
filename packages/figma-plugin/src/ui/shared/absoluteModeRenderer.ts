@@ -99,7 +99,7 @@ export interface ExtractedElement {
   width: number;
   height: number;
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
-  layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL";
+  layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL" | "GRID";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
   justifyContent?: string;
@@ -109,6 +109,15 @@ export interface ExtractedElement {
   layoutAlign?: "STRETCH" | "INHERIT";
   layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
   layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
+  gridTemplateColumns?: string;
+  gridTemplateRows?: string;
+  gridColumnGap?: number;
+  gridRowGap?: number;
+  gridAutoFlow?: string;
+  gridColumnStart?: number;
+  gridColumnEnd?: number;
+  gridRowStart?: number;
+  gridRowEnd?: number;
   fills?: FigmaFill[];
   strokes?: FigmaStroke[];
   effects?: FigmaEffect[];
@@ -161,7 +170,7 @@ export interface WireframeNode {
   width: number;
   height: number;
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
-  layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
+  layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
   justifyContent?: string;
@@ -171,6 +180,15 @@ export interface WireframeNode {
   layoutAlign?: "STRETCH" | "INHERIT";
   layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
   layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
+  gridTemplateColumns?: string;
+  gridTemplateRows?: string;
+  gridColumnGap?: number;
+  gridRowGap?: number;
+  gridAutoFlow?: string;
+  gridColumnStart?: number;
+  gridColumnEnd?: number;
+  gridRowStart?: number;
+  gridRowEnd?: number;
   fills?: FigmaFill[];
   strokes?: FigmaStroke[];
   effects?: FigmaEffect[];
@@ -329,6 +347,16 @@ export function convertToWireframeNode(
     // Sizing mode
     layoutSizingHorizontal: element.layoutSizingHorizontal,
     layoutSizingVertical: element.layoutSizingVertical,
+    // CSS Grid properties (pass through from Extension)
+    gridTemplateColumns: element.gridTemplateColumns,
+    gridTemplateRows: element.gridTemplateRows,
+    gridColumnGap: element.gridColumnGap,
+    gridRowGap: element.gridRowGap,
+    gridAutoFlow: element.gridAutoFlow,
+    gridColumnStart: element.gridColumnStart,
+    gridColumnEnd: element.gridColumnEnd,
+    gridRowStart: element.gridRowStart,
+    gridRowEnd: element.gridRowEnd,
     // NEW: Figma-ready arrays (pass through from Extension)
     fills: element.fills,
     strokes: element.strokes,

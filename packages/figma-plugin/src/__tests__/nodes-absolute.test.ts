@@ -25,4 +25,10 @@ describe("shouldUseAutoLayout", () => {
     expect(shouldUseAutoLayout(undefined, "NONE")).toBe(false);
     expect(shouldUseAutoLayout(undefined, undefined)).toBe(false);
   });
+
+  it("should always be false for GRID nodes (grid has its own rendering path)", () => {
+    expect(shouldUseAutoLayout("autoLayout", "GRID")).toBe(false);
+    expect(shouldUseAutoLayout("absolute", "GRID")).toBe(false);
+    expect(shouldUseAutoLayout(undefined, "GRID")).toBe(false);
+  });
 });

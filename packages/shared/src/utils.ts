@@ -380,7 +380,7 @@ export function getSemanticName(
 export function getLayoutMode(
   computedStyles: Record<string, string>,
   tag?: string
-): "NONE" | "HORIZONTAL" | "VERTICAL" {
+): "NONE" | "HORIZONTAL" | "VERTICAL" | "GRID" {
   const display = computedStyles.display;
 
   // Flexbox
@@ -391,40 +391,9 @@ export function getLayoutMode(
       : "HORIZONTAL";
   }
 
-  // Grid
+  // Grid — native Figma Grid layout
   if (display === "grid" || display === "inline-grid") {
-    const gridAutoFlow = computedStyles["grid-auto-flow"];
-    if (gridAutoFlow?.includes("column")) {
-      return "HORIZONTAL";
-    }
-
-    const gridColumns = computedStyles["grid-template-columns"];
-    if (gridColumns && gridColumns !== "none") {
-      // auto-fit/auto-fill grids are responsive - treat as HORIZONTAL (wrap)
-      if (
-        gridColumns.includes("auto-fit") ||
-        gridColumns.includes("auto-fill")
-      ) {
-        return "HORIZONTAL";
-      }
-
-      // Check if multiple columns by counting column values
-      const normalizedColumns = gridColumns
-        .replace(/repeat\s*\(\s*(\d+)\s*,/g, (_, count) => {
-          return Array(parseInt(count)).fill("1fr").join(" ") + " ";
-        })
-        .trim();
-
-      const columnCount = normalizedColumns
-        .split(/\s+/)
-        .filter((v) => v && v !== "none" && !v.includes("(")).length;
-
-      if (columnCount > 1) {
-        return "HORIZONTAL";
-      }
-    }
-
-    return "VERTICAL";
+    return "GRID";
   }
 
   // Inline elements
@@ -459,7 +428,7 @@ export function getLayoutSizing(
   flexGrow: number,
   alignSelf: string | undefined,
   parentContext?: {
-    direction: "HORIZONTAL" | "VERTICAL" | "NONE";
+    direction: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
     alignItems?: string;
     contentWidth?: number;
     contentHeight?: number;
@@ -483,6 +452,11 @@ export function getLayoutSizing(
   // Effective align-self: "auto"/undefined → inherit parent's align-items
   const effectiveAlignSelf =
     !alignSelf || alignSelf === "auto" ? normalizedAlignItems : alignSelf;
+
+  // CSS Grid children: track sizes control dimensions, use FIXED sizing
+  if (parentContext.direction === "GRID") {
+    return { horizontal: "FIXED", vertical: "FIXED" };
+  }
 
   // CSS Grid children always fill their cell on the main axis (like flex-grow: 1)
   const effectiveFlexGrow = parentContext.isGridChild ? 1 : flexGrow;
