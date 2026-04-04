@@ -45,7 +45,6 @@ const plans: Plan[] = [
       "Styles & assets included",
       "Clean, structured components",
       "No AI generation",
-      "No library access",
       "Support: Standard",
     ],
     cta: "Get Plus",
