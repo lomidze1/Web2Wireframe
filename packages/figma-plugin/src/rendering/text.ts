@@ -50,7 +50,10 @@ import {
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
 import { linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey } from "./styles";
-import { isIconFont } from "../utils/fontUtils";
+import { isIconFont, stripFontStyleSuffix } from "../utils/fontUtils";
+
+/** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
+const ICON_FONT_EXTRA_STYLES = ["Solid", "Brands", "Regular", "Bold", "Light", "Thin"];
 
 // ============================================================================
 // Text Segment Collection
@@ -357,50 +360,125 @@ export async function createTextNode(
   const fontStyles = Array.from(fontsToLoad);
   const fallbackList = (context?.fontMode === "website" && node.fontFamilyList) || [];
 
-  try {
-    for (const style of fontStyles) {
-      await figma.loadFontAsync({ family: targetFont, style });
+  // Helper: try loading a font with a specific style
+  const tryLoad = async (family: string, style: string): Promise<boolean> => {
+    try {
+      await figma.loadFontAsync({ family, style });
+      return true;
+    } catch {
+      return false;
     }
-  } catch {
-    let loaded = false;
-    // Try each font in the CSS fallback chain
-    for (const fallback of fallbackList) {
-      if (fallback === targetFont) continue;
-      try {
-        for (const style of fontStyles) {
-          await figma.loadFontAsync({ family: fallback, style });
-        }
-        usedFontFamily = fallback;
+  };
+
+  // Helper: try a family with multiple styles, return first that works
+  const tryLoadWithStyles = async (family: string, styles: string[]): Promise<string | null> => {
+    for (const style of styles) {
+      if (await tryLoad(family, style)) return style;
+    }
+    return null;
+  };
+
+  // Build list of styles to try (icon fonts get extra FA-specific styles)
+  const isIcon = isIconFont(targetFont);
+  const allStylesToTry = isIcon
+    ? Array.from(new Set([...fontStyles, ...ICON_FONT_EXTRA_STYLES]))
+    : fontStyles;
+
+  let loaded = false;
+
+  // Step 1: Try target font with all style variants
+  const foundStyle = await tryLoadWithStyles(targetFont, allStylesToTry);
+  if (foundStyle) {
+    mainFontStyle = foundStyle;
+    loaded = true;
+  }
+
+  // Step 2: Try suffix-stripped version (e.g., "FA 6 Brands Regular" → "FA 6 Brands" + "Regular")
+  if (!loaded) {
+    const stripped = stripFontStyleSuffix(targetFont);
+    if (stripped) {
+      const strippedStyles = isIcon
+        ? Array.from(new Set([stripped.style, ...allStylesToTry]))
+        : [stripped.style, ...fontStyles];
+      const sFoundStyle = await tryLoadWithStyles(stripped.family, strippedStyles);
+      if (sFoundStyle) {
+        usedFontFamily = stripped.family;
+        mainFontStyle = sFoundStyle;
         loaded = true;
-        break;
-      } catch { /* try next fallback */ }
-    }
-    // Try popup choice font before falling back to Inter
-    if (!loaded && fontFamily !== targetFont) {
-      try {
-        for (const style of fontStyles) {
-          await figma.loadFontAsync({ family: fontFamily, style });
-        }
-        usedFontFamily = fontFamily;
-        loaded = true;
-      } catch { /* popup choice also failed */ }
-    }
-    // Final fallback: Inter
-    if (!loaded) {
-      try {
-        usedFontFamily = "Inter";
-        for (const style of fontStyles) {
-          await figma.loadFontAsync({ family: "Inter", style });
-        }
-      } catch {
-        await figma.loadFontAsync({ family: "Inter", style: "Regular" });
-        usedFontFamily = "Inter";
       }
     }
   }
 
-  // Set initial font
-  textNode.fontName = { family: usedFontFamily, style: mainFontStyle };
+  // Step 3: For icon fonts — try version variants (v6→v5, v5→v6)
+  if (!loaded && isIcon) {
+    const versionMatch = targetFont.match(/^(.+?)(\d+)(.+)$/);
+    if (versionMatch) {
+      const [, prefix, version, suffix] = versionMatch;
+      const otherVersions = version === "6" ? ["5"] : version === "5" ? ["6"] : [];
+      for (const v of otherVersions) {
+        const altFamily = `${prefix}${v}${suffix}`;
+        const vFoundStyle = await tryLoadWithStyles(altFamily, allStylesToTry);
+        if (vFoundStyle) {
+          usedFontFamily = altFamily;
+          mainFontStyle = vFoundStyle;
+          loaded = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // Step 4: Try CSS fallback chain (non-icon fonts only)
+  if (!loaded && !isIcon) {
+    for (const fallback of fallbackList) {
+      if (fallback === targetFont) continue;
+      const fFoundStyle = await tryLoadWithStyles(fallback, fontStyles);
+      if (fFoundStyle) {
+        usedFontFamily = fallback;
+        mainFontStyle = fFoundStyle;
+        loaded = true;
+        break;
+      }
+    }
+  }
+
+  // Step 5: Try popup choice font (non-icon fonts only)
+  if (!loaded && fontFamily !== targetFont && !isIcon) {
+    const cFoundStyle = await tryLoadWithStyles(fontFamily, fontStyles);
+    if (cFoundStyle) {
+      usedFontFamily = fontFamily;
+      mainFontStyle = cFoundStyle;
+      loaded = true;
+    }
+  }
+
+  // Step 7: Final fallback — Inter
+  if (!loaded) {
+    usedFontFamily = "Inter";
+    mainFontStyle = "Regular";
+    if (!(await tryLoad("Inter", "Regular"))) {
+      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+    }
+  }
+
+  // Set initial font (may fail for fonts that aren't installed)
+  try {
+    textNode.fontName = { family: usedFontFamily, style: mainFontStyle };
+  } catch {
+    const stripped = stripFontStyleSuffix(usedFontFamily);
+    let recovered = false;
+    if (stripped) {
+      try {
+        await figma.loadFontAsync({ family: stripped.family, style: stripped.style });
+        textNode.fontName = { family: stripped.family, style: stripped.style };
+        recovered = true;
+      } catch { /* suffix stripping didn't help */ }
+    }
+    if (!recovered) {
+      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+      textNode.fontName = { family: "Inter", style: "Regular" };
+    }
+  }
 
   // Combine all text content
   // Add whitespace separator between segments when missing (ensures proper spacing)
@@ -548,35 +626,87 @@ export async function createTextNode(
         }
       }
 
+      const isSegIcon = isIconFont(segFontFamily);
+      const segStylesToTry = isSegIcon
+        ? Array.from(new Set([segStyle, ...ICON_FONT_EXTRA_STYLES]))
+        : [segStyle];
+
       let resolvedSegFont = segFontFamily;
+      let resolvedSegStyle = segStyle;
       if (segFontFamily !== usedFontFamily) {
-        try {
-          await figma.loadFontAsync({ family: segFontFamily, style: segStyle });
-        } catch {
-          // Try segment fallback list
-          let segLoaded = false;
-          if (segment.fontFamilyList) {
-            for (const fb of segment.fontFamilyList) {
-              if (fb === segFontFamily) continue;
-              try {
-                await figma.loadFontAsync({ family: fb, style: segStyle });
-                resolvedSegFont = fb;
+        let segLoaded = false;
+
+        // Step 1: Try segment font with all style variants
+        for (const sty of segStylesToTry) {
+          if (await tryLoad(segFontFamily, sty)) {
+            resolvedSegStyle = sty;
+            segLoaded = true;
+            break;
+          }
+        }
+
+        // Step 2: Try suffix-stripped version
+        if (!segLoaded) {
+          const stripped = stripFontStyleSuffix(segFontFamily);
+          if (stripped) {
+            const sStyles = isSegIcon
+              ? Array.from(new Set([stripped.style, ...segStylesToTry]))
+              : [stripped.style, segStyle];
+            for (const sty of sStyles) {
+              if (await tryLoad(stripped.family, sty)) {
+                resolvedSegFont = stripped.family;
+                resolvedSegStyle = sty;
                 segLoaded = true;
                 break;
-              } catch { /* next */ }
+              }
             }
           }
-          if (!segLoaded) {
-            // Try popup choice font before falling back to usedFontFamily
-            if (fontFamily !== segFontFamily && fontFamily !== usedFontFamily) {
-              try {
-                await figma.loadFontAsync({ family: fontFamily, style: segStyle });
-                resolvedSegFont = fontFamily;
-                segLoaded = true;
-              } catch { /* fall through */ }
+        }
+
+        // Step 3: Icon fonts — try version variants
+        if (!segLoaded && isSegIcon) {
+          const vMatch = segFontFamily.match(/^(.+?)(\d+)(.+)$/);
+          if (vMatch) {
+            const [, prefix, version, suffix] = vMatch;
+            const altVersions = version === "6" ? ["5"] : version === "5" ? ["6"] : [];
+            for (const v of altVersions) {
+              const altFamily = `${prefix}${v}${suffix}`;
+              for (const sty of segStylesToTry) {
+                if (await tryLoad(altFamily, sty)) {
+                  resolvedSegFont = altFamily;
+                  resolvedSegStyle = sty;
+                  segLoaded = true;
+                  break;
+                }
+              }
+              if (segLoaded) break;
             }
-            if (!segLoaded) resolvedSegFont = usedFontFamily;
           }
+        }
+
+        // Step 4: Non-icon: try segment fallback list
+        if (!segLoaded && !isSegIcon && segment.fontFamilyList) {
+          for (const fb of segment.fontFamilyList) {
+            if (fb === segFontFamily) continue;
+            if (await tryLoad(fb, segStyle)) {
+              resolvedSegFont = fb;
+              segLoaded = true;
+              break;
+            }
+          }
+        }
+
+        // Step 5: Non-icon: try popup choice font
+        if (!segLoaded && !isSegIcon && fontFamily !== segFontFamily && fontFamily !== usedFontFamily) {
+          if (await tryLoad(fontFamily, segStyle)) {
+            resolvedSegFont = fontFamily;
+            segLoaded = true;
+          }
+        }
+
+        if (!segLoaded) {
+          resolvedSegFont = usedFontFamily;
+          resolvedSegStyle = mainFontStyle;
         }
       }
 
@@ -586,10 +716,17 @@ export async function createTextNode(
       try {
         textNode.setRangeFontName(startIdx, endIdx, {
           family: resolvedSegFont,
-          style: segStyle,
+          style: resolvedSegStyle,
         });
       } catch {
-        // Keep default
+        // Try with suffix stripping as last resort
+        const stripped = stripFontStyleSuffix(resolvedSegFont);
+        if (stripped) {
+          try {
+            await figma.loadFontAsync({ family: stripped.family, style: stripped.style });
+            textNode.setRangeFontName(startIdx, endIdx, { family: stripped.family, style: stripped.style });
+          } catch { /* keep default */ }
+        }
       }
 
       if (segment.fontSize && segment.fontSize !== node.fontSize) {

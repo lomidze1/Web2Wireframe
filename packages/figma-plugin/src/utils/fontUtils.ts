@@ -15,7 +15,7 @@ import type { WireframeNode, FontMapping } from "../types";
 
 /** Known icon font name patterns (lowercase). Must stay in sync with shared-extraction. */
 const ICON_FONT_PATTERNS = [
-  "font awesome", "fontawesome",
+  "font awesome", "fontawesome", "fa-solid", "fa-regular", "fa-brands", "fa-light", "fa-thin",
   "material icons", "material symbols",
   "bootstrap-icons", "remixicon", "icomoon", "ionicons",
   "boxicons", "phosphor", "tabler-icons", "lucide",
@@ -31,6 +31,41 @@ export function isIconFont(fontFamily: string): boolean {
   if (!fontFamily) return false;
   const lower = fontFamily.toLowerCase().replace(/['"]/g, "").trim();
   return ICON_FONT_PATTERNS.some(pattern => lower.includes(pattern));
+}
+
+// ============================================================================
+// Font Style Suffix Stripping
+// ============================================================================
+
+/**
+ * Common font style suffixes that CDP sometimes appends to family names.
+ * e.g., "Font Awesome 6 Brands Regular" → family "Font Awesome 6 Brands" + style "Regular"
+ * Ordered longest-first to avoid partial matches (e.g., "ExtraBold" before "Bold").
+ */
+const FONT_STYLE_SUFFIXES = [
+  "ExtraBold", "SemiBold", "ExtraLight", "UltraLight", "UltraBold",
+  "Regular", "Solid", "Light", "Thin", "Medium", "Bold", "Black",
+  "Italic", "Heavy", "Normal",
+];
+
+/**
+ * Strip a style suffix from a font family name.
+ * CDP's CSS.getPlatformFontsForNode sometimes returns "Font Awesome 6 Brands Regular"
+ * instead of family "Font Awesome 6 Brands" + style "Regular".
+ *
+ * Returns null if no suffix found.
+ */
+export function stripFontStyleSuffix(family: string): { family: string; style: string } | null {
+  if (!family) return null;
+  for (const suffix of FONT_STYLE_SUFFIXES) {
+    if (family.endsWith(" " + suffix)) {
+      const stripped = family.slice(0, -(suffix.length + 1)).trim();
+      if (stripped.length > 0) {
+        return { family: stripped, style: suffix };
+      }
+    }
+  }
+  return null;
 }
 
 // ============================================================================
@@ -125,6 +160,7 @@ export function collectAllFonts(
 /**
  * Check each font against Figma's loadFontAsync.
  * Filters out CSS generic keywords before checking.
+ * For icon fonts, tries extra styles (Solid, Brands, etc.) and suffix stripping.
  * Returns { available, missing } arrays.
  */
 export async function checkFontsAvailability(
@@ -133,16 +169,69 @@ export async function checkFontsAvailability(
   const available: string[] = [];
   const missing: string[] = [];
 
+  // Try multiple styles — some fonts only have Bold/Medium/Light, not Regular
+  const stylesToTry = ["Regular", "Bold", "Medium", "Light", "Normal"];
+  // Icon fonts use extra styles like "Solid", "Brands"
+  const iconStylesExtra = ["Solid", "Brands", "Thin"];
+
   for (const font of Array.from(allFonts)) {
     // Skip CSS generic keywords
     if (CSS_GENERIC_FONTS.has(font)) {
       continue;
     }
 
-    try {
-      await figma.loadFontAsync({ family: font, style: "Regular" });
+    const isIcon = isIconFont(font);
+    const styles = isIcon ? [...stylesToTry, ...iconStylesExtra] : stylesToTry;
+
+    let isAvailable = false;
+    for (const style of styles) {
+      try {
+        await figma.loadFontAsync({ family: font, style });
+        isAvailable = true;
+        break;
+      } catch {
+        // Try next style
+      }
+    }
+
+    // If not found, try suffix stripping (e.g., "Font Awesome 6 Brands Regular" → "Font Awesome 6 Brands")
+    if (!isAvailable) {
+      const stripped = stripFontStyleSuffix(font);
+      if (stripped) {
+        const strippedStyles = isIcon ? [stripped.style, ...styles] : [stripped.style, ...stylesToTry];
+        for (const style of strippedStyles) {
+          try {
+            await figma.loadFontAsync({ family: stripped.family, style });
+            isAvailable = true;
+            break;
+          } catch { /* try next */ }
+        }
+      }
+    }
+
+    // If still not found and icon font, try version variants (v6→v5, v5→v6)
+    if (!isAvailable && isIcon) {
+      const vMatch = font.match(/^(.+?)(\d+)(.+)$/);
+      if (vMatch) {
+        const [, prefix, version, suffix] = vMatch;
+        const altVersions = version === "6" ? ["5"] : version === "5" ? ["6"] : [];
+        for (const v of altVersions) {
+          const altFamily = `${prefix}${v}${suffix}`;
+          for (const style of styles) {
+            try {
+              await figma.loadFontAsync({ family: altFamily, style });
+              isAvailable = true;
+              break;
+            } catch { /* try next */ }
+          }
+          if (isAvailable) break;
+        }
+      }
+    }
+
+    if (isAvailable) {
       available.push(font);
-    } catch {
+    } else {
       missing.push(font);
     }
   }
@@ -167,8 +256,11 @@ export function buildDefaultFontMapping(
   const mapping: FontMapping = {};
 
   for (const font of missingFonts) {
-    // Skip icon fonts — they must keep their original font for glyphs to render
-    if (isIconFont(font)) continue;
+    // Icon fonts: identity mapping — preserve original font for Unicode glyphs
+    if (isIconFont(font)) {
+      mapping[font] = font;
+      continue;
+    }
 
     const lower = font.toLowerCase();
     if (lower.includes("mono")) {

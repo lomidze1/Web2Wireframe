@@ -220,11 +220,20 @@ export async function createNodeInFigma(
       node.imageUrl &&
       context.assetsMap?.has(node.imageUrl)
     ) {
+      console.log(`[W2W] ✅ Real image: ${node.imageUrl.substring(0, 60)}...`);
       return await createRealImage(
         node,
         context.assetsMap.get(node.imageUrl)!,
         context
       );
+    }
+
+    // Debug: log why placeholder was used instead of real image
+    if (node.imageUrl) {
+      const reasons: string[] = [];
+      if (context.assetMode !== "realAssets") reasons.push(`assetMode="${context.assetMode}"`);
+      if (!context.assetsMap?.has(node.imageUrl)) reasons.push(`URL not in assetsMap (map size=${context.assetsMap?.size || 0})`);
+      console.log(`[W2W] ⚠️ Placeholder for: ${node.imageUrl.substring(0, 60)}... — ${reasons.join(", ")}`);
     }
 
     // Default: wireframe placeholder

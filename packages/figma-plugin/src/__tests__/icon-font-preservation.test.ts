@@ -115,8 +115,9 @@ describe("buildDefaultFontMapping — icon font exclusion", () => {
     const mapping = buildDefaultFontMapping(missingFonts, "Inter");
 
     expect(mapping["CustomSans"]).toBe("Inter");
-    expect(mapping["Font Awesome 6 Free"]).toBeUndefined();
-    expect(mapping["Material Icons"]).toBeUndefined();
+    // Icon fonts get identity mapping (preserve original for glyph rendering)
+    expect(mapping["Font Awesome 6 Free"]).toBe("Font Awesome 6 Free");
+    expect(mapping["Material Icons"]).toBe("Material Icons");
   });
 
   it("still applies smart defaults (mono/serif) for regular fonts", () => {
@@ -131,7 +132,8 @@ describe("buildDefaultFontMapping — icon font exclusion", () => {
     expect(mapping["JetBrains Mono"]).toBe("Courier");
     expect(mapping["Playfair Display Serif"]).toBe("Georgia");
     expect(mapping["Nunito"]).toBe("Inter");
-    expect(mapping["Font Awesome 6 Free"]).toBeUndefined();
+    // Icon fonts get identity mapping (preserve original for glyph rendering)
+    expect(mapping["Font Awesome 6 Free"]).toBe("Font Awesome 6 Free");
   });
 });
 

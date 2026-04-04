@@ -15,9 +15,12 @@ import { CDPClient } from "./client";
 const MAX_SINGLE_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB per image (base64)
 const MAX_TOTAL_BYTES = 30 * 1024 * 1024; // 30MB total payload
 
-/** MIME types that figma.createImage() supports natively */
+/** MIME types that figma.createImage() supports natively.
+ * NOTE: WebP is NOT supported by figma.createImage() — it throws "Image type is unsupported".
+ * TIFF is also unsupported. Both need conversion to PNG via convertToFigmaFormat().
+ */
 const FIGMA_SUPPORTED_MIMES = new Set([
-  "image/png", "image/jpeg", "image/gif", "image/webp", "image/tiff",
+  "image/png", "image/jpeg", "image/gif",
 ]);
 
 /** Check if a MIME type needs conversion for Figma compatibility */

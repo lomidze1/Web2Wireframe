@@ -28,7 +28,10 @@ import {
   extractPropertyFromMatchedRules,
   extractCSSVariables,
   extractBackgroundFromCSS,
+  getPlatformFontForPseudoElement,
+  extractPseudoContentRuntime,
   type CSSOMBackground,
+  type RuntimePseudoContent,
   // Style parsers
   parseBackgroundToFills,
   parseBoxShadowToEffects,
@@ -56,6 +59,9 @@ import {
   DEFAULT_CAPTURE_OPTIONS,
   // Tree builder
   buildElementTree,
+  buildTreeFromSnapshot,
+  findIconFontNodes,
+  findIconClassElements,
 } from "@w2w/shared";
 
 // Browser extension-specific types (local)
@@ -588,6 +594,48 @@ async function handleCapturePage(
       const platformFontMap = await collectPlatformFonts(client, textNodePairs);
       console.log(`[W2W] Platform fonts collected: ${platformFontMap.size} nodes with font data`);
 
+      // Collect platform fonts for icon pseudo-elements (Layer #4)
+      const childrenMap = buildTreeFromSnapshot(nodes);
+      const iconNodes = findIconFontNodes(nodes, childrenMap);
+      const iconPlatformFontMap = new Map<number, Array<{ familyName: string; postScriptName: string; isCustomFont: boolean; glyphCount: number }>>();
+      if (iconNodes.length > 0) {
+        console.log(`[W2W] Probing platform fonts for ${iconNodes.length} icon pseudo-elements...`);
+        for (const iconNode of iconNodes) {
+          const fonts = await getPlatformFontForPseudoElement(
+            client, iconNode.backendNodeId, iconNode.pseudoType
+          );
+          if (fonts) {
+            iconPlatformFontMap.set(iconNode.backendNodeId, fonts);
+          }
+        }
+        console.log(`[W2W] Icon platform fonts collected: ${iconPlatformFontMap.size} icons`);
+      }
+
+      // Runtime fallback: extract pseudo-element content for icon elements
+      // whose ::before/::after was NOT captured by DOMSnapshot
+      const missedIconElements = findIconClassElements(nodes, childrenMap);
+      const runtimePseudoContentMap = new Map<number, RuntimePseudoContent>();
+      if (missedIconElements.length > 0) {
+        console.log(`[W2W] Runtime-probing ${missedIconElements.length} icon elements missing from snapshot...`);
+        for (const el of missedIconElements) {
+          const content = await extractPseudoContentRuntime(client, el.backendNodeId, el.pseudoType);
+          if (content) {
+            runtimePseudoContentMap.set(el.backendNodeId, content);
+          }
+          // Also fetch CSS matched styles for icon elements (Tier 3 fallback)
+          if (!matchedStylesMap.has(el.backendNodeId)) {
+            const nodeId = nodeIdMap.get(el.backendNodeId);
+            if (nodeId) {
+              const matched = await getMatchedStylesForNode(client, nodeId);
+              if (matched) {
+                matchedStylesMap.set(el.backendNodeId, matched);
+              }
+            }
+          }
+        }
+        console.log(`[W2W] Runtime pseudo content extracted: ${runtimePseudoContentMap.size} icons`);
+      }
+
       // Build element tree (uses shared-extraction unified logic)
       updateProgress(baseProgress + progressPerViewport * 0.7, "Building tree...");
       console.log(`[W2W] Building element tree...`);
@@ -602,6 +650,8 @@ async function handleCapturePage(
           browserDpr,
           platformFontMap,
           documentURL,
+          iconPlatformFontMap,
+          runtimePseudoContentMap: runtimePseudoContentMap.size > 0 ? runtimePseudoContentMap : undefined,
         }
       );
       console.log(`[W2W] Tree built: ${tree.children.length} top-level children`);

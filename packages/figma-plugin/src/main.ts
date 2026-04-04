@@ -236,14 +236,27 @@ export default function () {
 
       // Build unified assets map from all frames
       const assetsMap = new Map<string, string>();
+      console.log(`[W2W] assetMode="${assetMode}", frames count=${frames.length}`);
       if (assetMode === "realAssets") {
         for (const frame of frames) {
           const frameAssets = (frame as WireframeFrame).assets;
+          console.log(`[W2W] Frame assets: ${frameAssets ? Object.keys(frameAssets).length : 0} entries`);
           if (frameAssets) {
             for (const [url, base64] of Object.entries(frameAssets)) {
               assetsMap.set(url, base64);
             }
           }
+        }
+        console.log(`[W2W] assetsMap built: ${assetsMap.size} entries`);
+      } else {
+        // Check if assets exist but mode is placeholders
+        let totalAssets = 0;
+        for (const frame of frames) {
+          const frameAssets = (frame as WireframeFrame).assets;
+          if (frameAssets) totalAssets += Object.keys(frameAssets).length;
+        }
+        if (totalAssets > 0) {
+          console.warn(`[W2W] ⚠️ ${totalAssets} assets available but assetMode="${assetMode}" — images will be placeholders. Switch to "Real Assets" in More Options.`);
         }
       }
 
