@@ -18,7 +18,6 @@ const PLAN_FEATURES: PlanFeature[] = [
   { name: "Real text content", plus: true, pro: true },
   { name: "Styles & assets", plus: true, pro: true },
   { name: "AI generation", plus: false, pro: true },
-  { name: "Component library", plus: false, pro: true },
   { name: "Priority support", plus: false, pro: true },
 ];
 

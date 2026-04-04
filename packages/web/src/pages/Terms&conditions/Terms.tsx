@@ -138,7 +138,7 @@ const Terms = (): ReactElement => {
               The Free plan is limited as follows: Colors and Fonts are
               plugin-only; Viewports are limited to 1920 and 1440; Text Content
               uses placeholders only; Styles & Assets are not included; AI
-              Generation is not available; Library access is not available; and
+              Generation is not available; and
               Support is provided through community channels.
             </p>
             <p>

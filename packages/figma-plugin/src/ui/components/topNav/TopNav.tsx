@@ -2,7 +2,7 @@
 import { h } from "preact";
 import styles from "./TopNav.css";
 
-type Page = "import" | "ai" | "library";
+type Page = "import" | "ai";
 
 interface TopNavProps {
   currentPage: Page;
@@ -25,14 +25,6 @@ export default function TopNav({ currentPage, onPageChange }: TopNavProps) {
         onClick={() => onPageChange("ai")}
       >
         AI Generations
-      </button>
-      <button
-        class={
-          currentPage === "library" ? styles.navButtonActive : styles.navButton
-        }
-        onClick={() => onPageChange("library")}
-      >
-        Library
       </button>
     </div>
   );

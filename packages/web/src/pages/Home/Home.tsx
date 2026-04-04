@@ -42,7 +42,6 @@ const featureGroups: FeatureGroup[] = [
     items: [
       "Clean & Editable Wireframe",
       "AI wireframe generation (Pro)",
-      "Library of Wireframe (Pro)",
     ],
   },
 ];
@@ -97,7 +96,6 @@ const comparisonRows: ComparisonRow[] = [
   },
   { feature: "Styles & Assets", free: "No", plus: "Included", pro: "Included" },
   { feature: "AI Generation", free: "No", plus: "No", pro: "Yes" },
-  { feature: "Library Access", free: "No", plus: "No", pro: "Yes" },
   { feature: "Support", free: "Community", plus: "Standard", pro: "Priority" },
 ];
 

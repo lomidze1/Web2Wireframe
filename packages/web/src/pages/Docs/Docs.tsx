@@ -20,12 +20,6 @@ import AIGenerationOverview from "./pages/AIGenerationOverview";
 import AIGenerationPage from "./pages/AIGenerationPage";
 import AIGenerationBlock from "./pages/AIGenerationBlock";
 import AIGenerationPricing from "./pages/AIGenerationPricing";
-import LibraryOverview from "./pages/LibraryOverview";
-import LibraryMy from "./pages/LibraryMy";
-import LibraryCommunity from "./pages/LibraryCommunity";
-import LibraryContributing from "./pages/LibraryContributing";
-import LibraryBestPractices from "./pages/LibraryBestPractices";
-import LibraryValue from "./pages/LibraryValue";
 import PricingOverview from "./pages/PricingOverview";
 import PricingPurchase from "./pages/PricingPurchase";
 import PricingAdditional from "./pages/PricingAdditional";
@@ -127,22 +121,6 @@ const Docs = (): ReactElement => {
           path="/ai-generation/pricing"
           element={<AIGenerationPricing />}
         />
-        <Route
-          path="/library"
-          element={<Navigate to="/docs/library/overview" replace />}
-        />
-        <Route path="/library/overview" element={<LibraryOverview />} />
-        <Route path="/library/my-library" element={<LibraryMy />} />
-        <Route
-          path="/library/community-library"
-          element={<LibraryCommunity />}
-        />
-        <Route path="/library/contributing" element={<LibraryContributing />} />
-        <Route
-          path="/library/best-practices"
-          element={<LibraryBestPractices />}
-        />
-        <Route path="/library/value" element={<LibraryValue />} />
         <Route
           path="/pricing"
           element={<Navigate to="/docs/pricing/overview" replace />}

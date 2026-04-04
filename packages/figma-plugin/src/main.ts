@@ -538,18 +538,6 @@ export default function () {
       }
     }
 
-    // Handle open-wireframe message from Library
-    if (msg.type === "open-wireframe") {
-      logger.debug("Open wireframe requested", { data: msg.data });
-      // TODO: Implement opening saved wireframes
-    }
-
-    // Handle community wireframe usage
-    if (msg.type === "use-community-wireframe") {
-      logger.debug("Use community wireframe requested", { data: msg.data });
-      // TODO: Implement community wireframe insertion
-    }
-
     // Handle save-config message
     if (msg.type === "save-config") {
       const { config } = msg.data;

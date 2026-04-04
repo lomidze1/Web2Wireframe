@@ -4,8 +4,6 @@ import { useState, useEffect, useCallback } from "preact/hooks";
 
 // Import main pages
 import AIGenerationPage from "./pages/aiGeneration/AIGenerationPage";
-import LibraryPage from "./pages/library/LibraryPage";
-
 // Import sub-pages
 import Web from "./pages/import/web";
 import Screenshot from "./pages/import/screenshot";
@@ -43,7 +41,7 @@ const CSS_VARS_TO_CHECK = [
   "--main-gradient",
 ];
 
-type Page = "import" | "ai" | "library";
+type Page = "import" | "ai";
 type ImportTab = "web" | "screenshot" | "html" | "area" | "extension";
 
 export default function App() {
@@ -115,7 +113,6 @@ function AppContent() {
       <div class={importStyles.content}>
         {page === "import" && renderImportContent()}
         {page === "ai" && <AIGenerationPage />}
-        {page === "library" && <LibraryPage />}
       </div>
 
       {/* Footer Bar */}

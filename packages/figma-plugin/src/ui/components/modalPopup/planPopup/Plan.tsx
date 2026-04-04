@@ -94,7 +94,6 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                 </li>
                 <li class={styles.planListItem}>Real text content</li>
                 <li class={styles.planListItem}>No AI generations</li>
-                <li class={styles.planListItem}>No library access</li>
               </ul>
               <a
                 class={styles.planCardBtn}
@@ -106,11 +105,10 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               </a>
             </div>
             <div class={`${styles.planCard} ${styles.planCardPro}`}>
-              <div class={styles.planCardHeader}>PRO - AI & Library</div>
+              <div class={styles.planCardHeader}>PRO - AI</div>
               <ul class={styles.planList}>
                 <li class={styles.planListItem}>Everything in Plus</li>
                 <li class={styles.planListItem}>AI-powered generation</li>
-                <li class={styles.planListItem}>Full library access</li>
               </ul>
               <a
                 class={`${styles.planCardBtn} ${styles.planCardBtnPro}`}

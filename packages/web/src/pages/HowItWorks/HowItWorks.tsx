@@ -17,12 +17,6 @@ import iconAreaSelection from "../../assets/how-it-work/card-icons/area-selectio
 import aiGeneratingPageIcon from "../../assets/how-it-work/card-icons/ai-generating-page-icon.png";
 import aiGeneratingBlockIcon from "../../assets/how-it-work/card-icons/ai-generating-block-icon.png";
 
-// 4. Library Card Icons
-import libraryWebImportedIcon from "../../assets/how-it-work/card-icons/library-web-imported-icon.png";
-import libraryAiGeneratedIcon from "../../assets/how-it-work/card-icons/library-ai-generated-icon.png";
-import libraryPageWireframesIcon from "../../assets/how-it-work/card-icons/library-page-wireframes-icon.png";
-import libraryBlockWireframesIcon from "../../assets/how-it-work/card-icons/library-block-wireframes-icon.png";
-
 // Card Cover images
 // 1. Cover images for Configuration Cards
 import textCardCover from "../../assets/how-it-work/card-cover/text-card-cover.png";
@@ -36,12 +30,6 @@ import areaCardCover from "../../assets/how-it-work/card-cover/area-card-cover.p
 // 3. Cover images for AI Features
 import aiPageGenerateCover from "../../assets/how-it-work/card-cover/ai-page-generate-cover.png";
 import aiBlockGenerateCover from "../../assets/how-it-work/card-cover/ai-block-generate-cover.png";
-
-// 4. Cover images for Library Cards
-import libraryWebImportedCover from "../../assets/how-it-work/card-cover/library-web-imported-cover.png";
-import libraryAiGeneratedCover from "../../assets/how-it-work/card-cover/library-ai-generated-cover.png";
-import libraryPageWireframeCover from "../../assets/how-it-work/card-cover/library-page-wireframes-cover.png";
-import libraryBlockWireframeCover from "../../assets/how-it-work/card-cover/library-block-wireframes-cover.png";
 
 // Card Details images :
 // 1. Configuration details
@@ -66,19 +54,6 @@ import aiPageGenerating1 from "../../assets/how-it-work/card-details/ai-page-gen
 import aiPageGenerating2 from "../../assets/how-it-work/card-details/ai-page-generating-2.png";
 import aiBlockGenerating1 from "../../assets/how-it-work/card-details/ai-block-generating-1.png";
 import aiBlockGenerating2 from "../../assets/how-it-work/card-details/ai-block-generating-2.png";
-import libraryWebImport1 from "../../assets/how-it-work/card-details/library-web-import-details-1.png";
-import libraryWebImport2 from "../../assets/how-it-work/card-details/library-web-import-details-2.png";
-
-import libraryAiGeneration1 from "../../assets/how-it-work/card-details/library-ai-generation-details-1.png";
-import libraryAiGeneration2 from "../../assets/how-it-work/card-details/library-ai-generation-details-2.png";
-
-import libraryPageWireframe1 from "../../assets/how-it-work/card-details/library-page-wireframes-1.png";
-import libraryPageWireframe2 from "../../assets/how-it-work/card-details/library-page-wireframes-2.png";
-
-import libraryBlockWireframeCover1 from "../../assets/how-it-work/card-details/library-block-wireframes-1.png";
-import libraryBlockWireframeCover2 from "../../assets/how-it-work/card-details/library-block-wireframes-2.png";
-
-// 4. Library Card Details
 
 type Card = {
   id: string;
@@ -260,69 +235,6 @@ const sections: Section[] = [
       },
     ],
   },
-  {
-    id: "library",
-    number: "04",
-    title: "Library",
-    subtitle: "Access saved imports and generated outputs in one place.",
-    cards: [
-      {
-        id: "web-imported",
-        icon: libraryWebImportedIcon,
-        title: "Web Imported",
-        cardImage: libraryWebImportedCover,
-        description:
-          "Wireframes imported from real websites, preserving authentic layouts and UX patterns.",
-        details: {
-          howToUse:
-            "Wireframes imported from real websites. This library collects pages and blocks converted by users, reflecting real-world layouts, structures, and UX patterns. The most downloaded and reused wireframes are ranked automatically.",
-          screenshots: [libraryWebImport1, libraryWebImport2],
-        },
-      },
-      {
-        id: "ai-generated",
-        icon: libraryAiGeneratedIcon,
-        title: "AI Generated",
-        cardImage: libraryAiGeneratedCover,
-        description:
-          "AI-generated wireframes designed for speed, clarity, and modern layout structure.",
-        details: {
-          howToUse:
-            "A curated collection of AI-generated wireframes. Access the most frequently used and downloaded designs, built with strong structure, hierarchy, and modern UX principles. Ideal for rapid ideation and inspiration.",
-          screenshots: [libraryAiGeneration1, libraryAiGeneration2],
-        },
-      },
-      {
-        id: "pages-wireframes",
-        icon: libraryPageWireframesIcon,
-        title: "Page Wireframes",
-        cardImage: libraryPageWireframeCover,
-        description:
-          "Complete page wireframes for landing pages, home, pricing, and more.",
-        details: {
-          howToUse:
-            "Full-page wireframes including landing pages, home pages, about, pricing, and more. Designed for building complete page structures and kickstarting real projects quickly.",
-          screenshots: [libraryPageWireframe1, libraryPageWireframe2],
-        },
-      },
-      {
-        id: "block-wireframes",
-        icon: libraryBlockWireframesIcon,
-        title: "Block Wireframes",
-        cardImage: libraryBlockWireframeCover,
-        description:
-          "Reusable UI blocks like heroes, headers, footers, and content sections.",
-        details: {
-          howToUse:
-            "Individual UI block wireframes such as hero sections, headers, footers, testimonials, FAQs, and more. Perfect for modular design workflows and fast layout composition.",
-          screenshots: [
-            libraryBlockWireframeCover1,
-            libraryBlockWireframeCover2,
-          ],
-        },
-      },
-    ],
-  },
 ];
 
 type ActiveKey = string | null;
@@ -362,8 +274,8 @@ const HowItWorks = (): ReactElement => {
             </div>
             <h1>Learn how Web2Wireframe works.</h1>
             <p>
-              Explore inputs, settings, AI features, and the Library - with
-              clear, step-by-step visuals.
+              Explore inputs, settings, and AI features - with clear,
+              step-by-step visuals.
             </p>
           </div>
         </div>

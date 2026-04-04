@@ -80,7 +80,6 @@ router.get("/me", licenseAuth, async (req: Request, res: Response) => {
       usage: {
         importsToday: license.usage.importsToday,
         aiGenerationsToday: license.usage.aiGenerationsToday,
-        librarySavesTotal: license.usage.librarySavesTotal,
       },
       updatedAt: license.updatedAt,
     });

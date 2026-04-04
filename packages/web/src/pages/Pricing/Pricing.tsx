@@ -26,7 +26,6 @@ const plans: Plan[] = [
       "Text content: placeholders only",
       "Styles & assets: not included",
       "AI generation: not available",
-      "Library access: not included",
       "Support: Community",
     ],
     cta: "Start Free",
@@ -55,11 +54,10 @@ const plans: Plan[] = [
     price: "$20",
     period: "/month",
     summary:
-      "Everything in Plus, with AI-powered generation and access to reusable wireframe and layout libraries.",
+      "Everything in Plus, with AI-powered wireframe generation.",
     features: [
       "Everything in Plus",
       "AI-powered generation",
-      "Component & layout library access",
       "Priority support queue",
       "Best for teams, agencies, and power users",
     ],

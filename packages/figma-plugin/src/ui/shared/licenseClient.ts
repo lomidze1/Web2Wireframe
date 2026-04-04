@@ -9,12 +9,10 @@ export interface License {
   limits: {
     importsPerDay: number;
     aiGenerationsPerDay: number;
-    librarySaves: number;
   };
   usage: {
     importsToday: number;
     aiGenerationsToday: number;
-    librarySavesTotal: number;
   };
   updatedAt: string;
 }

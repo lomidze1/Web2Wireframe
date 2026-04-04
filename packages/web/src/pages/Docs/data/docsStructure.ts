@@ -151,50 +151,6 @@ export const docsNavigation: DocsTopic[] = [
     ],
   },
   {
-    id: "library",
-    title: "Library",
-    icon: "📚",
-    path: "/docs/library/overview",
-    pages: [
-      {
-        id: "overview",
-        title: "Library Overview",
-        path: "overview",
-        source: "LibraryOverview",
-      },
-      {
-        id: "my-library",
-        title: "My Library",
-        path: "my-library",
-        source: "LibraryMy",
-      },
-      {
-        id: "community-library",
-        title: "Community Library",
-        path: "community-library",
-        source: "LibraryCommunity",
-      },
-      {
-        id: "contributing",
-        title: "Contributing to the Community",
-        path: "contributing",
-        source: "LibraryContributing",
-      },
-      {
-        id: "best-practices",
-        title: "Best Practices for Using the Library",
-        path: "best-practices",
-        source: "LibraryBestPractices",
-      },
-      {
-        id: "value",
-        title: "Value of the Library in Your Workflow",
-        path: "value",
-        source: "LibraryValue",
-      },
-    ],
-  },
-  {
     id: "pricing",
     title: "Pricing & Plans",
     icon: "💳",
