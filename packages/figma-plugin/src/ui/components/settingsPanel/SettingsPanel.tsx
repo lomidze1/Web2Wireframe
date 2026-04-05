@@ -84,6 +84,9 @@ export interface SettingsPanelProps {
   // Interaction mode
   localInteractionMode?: "none" | "variants";
   setInteractionMode?: (mode: "none" | "variants") => void;
+
+  // Optional: hide viewports section (e.g. for AreaSelection where viewports are in the file)
+  hideViewports?: boolean;
 }
 
 /**
@@ -126,37 +129,40 @@ export default function SettingsPanel({
   layoutDisabledTooltip,
   localInteractionMode,
   setInteractionMode,
+  hideViewports,
 }: SettingsPanelProps) {
   return (
     <div class={containerClassName || styles.settingsBox}>
-      {/* Viewports - Multi-select */}
-      <div class={styles.settingRow}>
-        <div class={styles.settingLabel}>
-          <span>📐</span>
-          <span>Viewports</span>
+      {/* Viewports - Multi-select (hidden when hideViewports is true) */}
+      {!hideViewports && (
+        <div class={styles.settingRow}>
+          <div class={styles.settingLabel}>
+            <span>📐</span>
+            <span>Viewports</span>
+          </div>
+          <div class={styles.checkboxGroup}>
+            {VIEWPORT_OPTIONS.map((opt) => (
+              <label
+                key={opt.value}
+                class={`${styles.checkboxItem} ${
+                  localViewports.includes(opt.value) ? styles.checked : ""
+                }`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  toggleViewport(opt.value);
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={localViewports.includes(opt.value)}
+                  readOnly
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
         </div>
-        <div class={styles.checkboxGroup}>
-          {VIEWPORT_OPTIONS.map((opt) => (
-            <label
-              key={opt.value}
-              class={`${styles.checkboxItem} ${
-                localViewports.includes(opt.value) ? styles.checked : ""
-              }`}
-              onClick={(e) => {
-                e.preventDefault();
-                toggleViewport(opt.value);
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={localViewports.includes(opt.value)}
-                readOnly
-              />
-              {opt.label}
-            </label>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* Collapsible Header */}
       <button

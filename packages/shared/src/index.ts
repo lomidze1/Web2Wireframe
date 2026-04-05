@@ -255,6 +255,15 @@ export {
 } from "./font-css-parser";
 
 // ============================================================================
+// FONT BINARY EXTRACTION - h2d-style font binary extraction from browser cache
+// ============================================================================
+
+export {
+  extractFontBinaries,
+  extractUrlsFromSrc,
+} from "./font-binary-extraction";
+
+// ============================================================================
 // GRID PARSER - CSS Grid template to Figma GridTrackSize conversion
 // ============================================================================
 

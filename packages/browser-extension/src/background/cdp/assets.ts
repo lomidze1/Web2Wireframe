@@ -135,8 +135,14 @@ function flattenResources(
   const frameId = tree.frame.id;
 
   for (const resource of tree.resources) {
-    // Only collect image resources
-    if (resource.mimeType.startsWith("image/")) {
+    // Collect image and font resources
+    if (
+      resource.mimeType.startsWith("image/") ||
+      resource.mimeType.startsWith("font/") ||
+      resource.mimeType.startsWith("application/font-") ||
+      resource.mimeType === "application/x-font-woff" ||
+      resource.mimeType === "application/x-font-ttf"
+    ) {
       map.set(resource.url, {
         frameId,
         mimeType: resource.mimeType,

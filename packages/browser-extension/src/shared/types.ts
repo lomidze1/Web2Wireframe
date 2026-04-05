@@ -237,6 +237,10 @@ export interface ExtractedFont {
   src: string;
   format: string;
   isGoogleFont: boolean;
+  /** Base64-encoded font binary (extracted from browser cache via Page.getResourceContent) */
+  fontBase64?: string;
+  /** MIME type of the font binary (e.g., "font/woff2", "font/woff", "font/ttf") */
+  fontMimeType?: string;
 }
 
 // Extracted asset (image, SVG, etc.)

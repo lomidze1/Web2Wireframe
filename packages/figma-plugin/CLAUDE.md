@@ -64,9 +64,8 @@ src/
       topNav/           # Main navigation
       subHeader/        # Import tab switcher
       footer/           # Settings/Help/Plan
-      modalPopup/       # Settings, Help, Purchase, FontFallback, ImportOptions, LayoutChoice
+      modalPopup/       # Settings, Help, Purchase, FontFallback, LayoutChoice
     hooks/
-      useImportOptionsShortcut.ts
       useTabSettings.ts
     styles/
       global.css        # CSS variables (design tokens)

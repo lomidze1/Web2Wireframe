@@ -25,7 +25,7 @@ interface FontFallbackModalProps {
   pluginFontOptions: string[];
   fallbackChains?: Record<string, string[]>;
   fontDownloads?: FontDownloadInfo[];
-  extractedFonts?: Array<{ family: string; style?: string; weight?: string; format?: string; src?: string }>;
+  extractedFonts?: Array<{ family: string; style?: string; weight?: string; format?: string; src?: string; fontBase64?: string; fontMimeType?: string }>;
   onChoice: (choice: FontFallbackChoice, fontMapping: FontMapping) => void;
 }
 

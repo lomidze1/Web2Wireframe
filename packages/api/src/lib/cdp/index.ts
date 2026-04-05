@@ -228,6 +228,10 @@ export async function extractDOMTreeWithCDP(
     }
     const dedupedFonts = deduplicateFonts(fonts);
 
+    // 11.5. Extract font binary files from browser cache (h2d-style)
+    const { extractFontBinaries } = await import("@w2w/shared");
+    const fontsWithBinaries = await extractFontBinaries(client, dedupedFonts, resourceGraph);
+
     // 12. Build stylesheets list from resource graph
     const stylesheets: ExtractedStylesheet[] = resourceGraph.stylesheets.map((entry) => ({
       url: entry.url,
@@ -241,7 +245,7 @@ export async function extractDOMTreeWithCDP(
     const assets = await extractAssetsForTree(client, tree, resourceMap, { convertImage: convertToFigmaFormat });
     console.log(`[W2W-DEBUG] Plugin_Backend: extractAssetsForTree returned ${Object.keys(assets).length} assets`);
 
-    return { tree, cssVariables, fonts: dedupedFonts, stylesheets, assets };
+    return { tree, cssVariables, fonts: fontsWithBinaries, stylesheets, assets };
   } finally {
     await client.detach();
   }

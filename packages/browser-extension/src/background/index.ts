@@ -13,7 +13,7 @@
 import { createCDPClient, CDPClient } from "./cdp/client";
 import { getDocument, getScrollDimensions } from "./cdp/dom";
 import { extractFonts, collectPlatformFonts } from "./cdp/fonts";
-import { buildResourceMap, extractAssetsForTree } from "./cdp/assets";
+import { buildResourceMap, extractAssetsForTree, getResourceBase64 } from "./cdp/assets";
 
 // Shared extraction logic (unified with Plugin_Backend)
 import {
@@ -668,6 +668,27 @@ async function handleCapturePage(
     // Extract fonts (once, after all viewports)
     updateProgress(85, "Extracting fonts...");
     const fonts = await extractFonts(client, tab.url);
+
+    // Extract font binary files from browser cache (h2d-style)
+    updateProgress(87, "Extracting font files...");
+    const fontResourceMap = await buildResourceMap(client);
+    for (const font of fonts) {
+      // Extract URLs from CSS src property
+      const srcUrlRegex = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
+      let match;
+      while ((match = srcUrlRegex.exec(font.src)) !== null) {
+        const fontUrl = match[1];
+        const resource = fontResourceMap.get(fontUrl);
+        if (resource) {
+          const base64 = await getResourceBase64(client, resource.frameId, fontUrl);
+          if (base64) {
+            font.fontBase64 = base64;
+            font.fontMimeType = resource.mimeType;
+            break; // First successful extraction wins
+          }
+        }
+      }
+    }
 
     // Extract CSS variables for result
     updateProgress(90, "Extracting CSS variables...");

@@ -8,6 +8,7 @@ import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
+import { buildFontDownloads } from "../../../../utils/fontDownload";
 import HtmlWarningModal from "../../../components/modalPopup/HtmlWarningModal";
 import RenderingLoader, {
   type RenderingProgress,
@@ -55,6 +56,7 @@ export default function HTML() {
     pluginFont: string;
     pluginFontOptions: string[];
   } | null>(null);
+  const [extractedFonts, setExtractedFonts] = useState<unknown[]>([]);
 
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
@@ -196,6 +198,11 @@ export default function HTML() {
       }
 
       const data = await response.json();
+
+      // Store extracted fonts for font fallback download
+      if (data.fonts && Array.isArray(data.fonts)) {
+        setExtractedFonts(data.fonts);
+      }
 
       // Transform text content
       const rawFrames = data.wireframeData?.frames || [];
@@ -376,6 +383,8 @@ export default function HTML() {
         defaultMapping={fontModalData?.defaultMapping || {}}
         pluginFont={fontModalData?.pluginFont || "Montserrat"}
         pluginFontOptions={fontModalData?.pluginFontOptions || []}
+        fontDownloads={buildFontDownloads(fontModalData?.missingFonts || [], extractedFonts)}
+        extractedFonts={extractedFonts as Array<{ family: string; style?: string; weight?: string; format?: string; src?: string; fontBase64?: string; fontMimeType?: string }>}
         onChoice={handleFontFallbackChoice}
       />
 

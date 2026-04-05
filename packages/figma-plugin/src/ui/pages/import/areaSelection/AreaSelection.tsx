@@ -4,16 +4,14 @@ import { useState, useRef, useEffect } from "preact/hooks";
 import { decode } from "@msgpack/msgpack";
 import styles from "./AreaSelection.css";
 import { useConfig } from "../../../shared/ConfigContext";
-import ImportOptionsModal, {
-  type UnifiedImportOptions,
-} from "../../../components/modalPopup/ImportOptionsModal";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer";
-import { useImportOptionsShortcut } from "../../../hooks/useImportOptionsShortcut";
+import { useTabSettings } from "../../../hooks/useTabSettings";
+import SettingsPanel from "../../../components/settingsPanel";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -215,16 +213,15 @@ async function decompressGzip(compressedData: ArrayBuffer): Promise<Uint8Array> 
   return new Uint8Array(arrayBuffer);
 }
 
+const TAB_ID = "areaSelection";
+const STORAGE_KEY = "w2w_settings_expanded_areaSelection";
+
 export default function AreaSelection() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [importState, setImportState] = useState<ImportState>({
     status: "idle",
     message: "",
   });
-  const [showImportOptionsModal, setShowImportOptionsModal] = useState(false);
-  const [hasCssVariables, setHasCssVariables] = useState(false);
-  const [pendingCaptureResult, setPendingCaptureResult] =
-    useState<UnifiedCaptureResult | null>(null);
   // Font fallback modal state
   const [showFontModal, setShowFontModal] = useState(false);
   const [fontModalData, setFontModalData] = useState<{
@@ -242,7 +239,7 @@ export default function AreaSelection() {
   const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderingProgressRef = useRef<RenderingProgress | undefined>();
   const { config } = useConfig();
-  const { shortcutMessage, shortcutKey } = useImportOptionsShortcut();
+  const settings = useTabSettings(TAB_ID, STORAGE_KEY);
 
   // Listen for messages from Figma plugin main thread
   useEffect(() => {
@@ -271,8 +268,7 @@ export default function AreaSelection() {
             setImportState({ status: "idle", message: "" });
             setFileName(null);
             fileDataRef.current = null;
-            setPendingCaptureResult(null);
-            setHasCssVariables(false);
+
             if (fileInputRef.current) {
               fileInputRef.current.value = "";
             }
@@ -337,11 +333,14 @@ export default function AreaSelection() {
   /**
    * Process file and render wireframe(s)
    * Handles both single and multi-frame files
+   * Uses inline settings from useTabSettings hook
    */
   const processAndRender = (
-    captureResult: UnifiedCaptureResult,
-    options: UnifiedImportOptions
+    captureResult: UnifiedCaptureResult
   ) => {
+    // Collapse settings panel during import
+    settings.collapseSettings();
+
     // Cancel any pending reset from previous import
     if (resetTimeoutRef.current) {
       clearTimeout(resetTimeoutRef.current);
@@ -357,16 +356,14 @@ export default function AreaSelection() {
 
     // Transform text content based on textMode (lorem, semantic, or website)
     // This must happen BEFORE converting to wireframe nodes
-    console.log("[W2W UI] Starting transformFramesData...");
     const transformedFrames = transformFramesData(
       captureResult.frames as unknown as Parameters<typeof transformFramesData>[0],
       {
-        colorMode: options.colorMode,
-        fontMode: options.fontMode,
-        textMode: options.textMode,
+        colorMode: settings.localColorMode,
+        fontMode: settings.localFontMode,
+        textMode: settings.localTextMode,
       }
     );
-    console.log("[W2W UI] transformFramesData done. Starting prepareFramesForRendering...");
 
     // Convert all frames to wireframe format using shared function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -377,7 +374,6 @@ export default function AreaSelection() {
         surface: config.pluginColors.surface,
       }
     );
-    console.log("[W2W UI] prepareFramesForRendering done.");
 
     // Carry over assets from input frames to output frames
     const inputFrames = captureResult.frames;
@@ -387,9 +383,7 @@ export default function AreaSelection() {
       }
     }
 
-    // Send to Figma main thread with all options
-    console.log("[W2W UI] Sending render-wireframe, frames:", framesData.length,
-      "data size ~", JSON.stringify(framesData).length, "chars");
+    // Send to Figma main thread with all options from inline settings
     renderingProgressRef.current = { step: "Preparing wireframe data...", percent: 0 };
     parent.postMessage(
       {
@@ -401,14 +395,13 @@ export default function AreaSelection() {
             pluginColors: config.pluginColors,
             pluginFont: config.pluginFont,
             cssVariables: captureResult.cssVariables || [],
-            variableMode: options.cssVariablesMode,
-            layoutMode: options.layoutMode,
-            // Import mode options
-            colorMode: options.colorMode,
-            fontMode: options.fontMode,
-            textMode: options.textMode,
-            assetMode: options.assetMode,
-            interactionMode: config.interactionMode,
+            variableMode: settings.localCssVariablesMode,
+            layoutMode: settings.localLayoutMode,
+            colorMode: settings.localColorMode,
+            fontMode: settings.localFontMode,
+            textMode: settings.localTextMode,
+            assetMode: settings.localAssetMode,
+            interactionMode: settings.localInteractionMode,
           },
         },
       },
@@ -416,7 +409,6 @@ export default function AreaSelection() {
     );
 
     // Safety timeout: if sandbox doesn't respond within 60s, assume failure
-    // (e.g., postMessage data too large, sandbox crash without error message)
     renderTimeoutRef.current = setTimeout(() => {
       if (renderingProgressRef.current?.percent === 0) {
         setShowRenderingLoader(false);
@@ -428,27 +420,6 @@ export default function AreaSelection() {
         });
       }
     }, 60000);
-  };
-
-  /**
-   * Handle import options confirm from unified modal
-   */
-  const handleImportOptionsConfirm = (options: UnifiedImportOptions) => {
-    setShowImportOptionsModal(false);
-    if (pendingCaptureResult) {
-      try {
-        processAndRender(pendingCaptureResult, options);
-      } catch (error) {
-        console.error("Import error:", error);
-        setShowRenderingLoader(false);
-        setRenderingProgress(undefined);
-        setImportState({
-          status: "error",
-          message:
-            error instanceof Error ? error.message : "Failed to import file",
-        });
-      }
-    }
   };
 
   /**
@@ -466,16 +437,6 @@ export default function AreaSelection() {
       },
       "*"
     );
-  };
-
-  /**
-   * Handle import options cancel
-   */
-  const handleImportOptionsCancel = () => {
-    setShowImportOptionsModal(false);
-    setPendingCaptureResult(null);
-    setHasCssVariables(false);
-    setImportState({ status: "idle", message: "" });
   };
 
   const handleGenerate = async () => {
@@ -515,30 +476,8 @@ export default function AreaSelection() {
         throw new Error("Invalid file format - expected wireframe data with tree structure");
       }
 
-      // Check if CSS variables exist
-      const hasCSSVars = Boolean(
-        unifiedResult.cssVariables && unifiedResult.cssVariables.length > 0
-      );
-      setHasCssVariables(hasCSSVars);
-
-      // Store result for processing
-      setPendingCaptureResult(unifiedResult);
-
-      // Check if we should show import options modal
-      if (config.showImportOptions) {
-        // Show unified import options modal
-        setShowImportOptionsModal(true);
-      } else {
-        // Use defaults from config without showing modal
-        processAndRender(unifiedResult, {
-          colorMode: config.colorMode,
-          fontMode: config.fontMode,
-          textMode: config.textMode,
-          cssVariablesMode: config.cssVariablesDefault,
-          layoutMode: config.layoutModeDefault,
-          assetMode: config.assetMode,
-        });
-      }
+      // Render directly using inline settings (no modal)
+      processAndRender(unifiedResult);
     } catch (error) {
       console.error("Import error:", error);
       setShowRenderingLoader(false);
@@ -626,6 +565,35 @@ export default function AreaSelection() {
         </div>
       )}
 
+      {/* More Options (inline settings panel) */}
+      <SettingsPanel
+        styles={styles}
+        containerClassName={styles.settingsBox}
+        hideViewports={true}
+        isExpanded={settings.isExpanded}
+        toggleExpanded={settings.toggleExpanded}
+        localViewports={settings.localViewports}
+        localColorMode={settings.localColorMode}
+        localFontMode={settings.localFontMode}
+        localTextMode={settings.localTextMode}
+        localCssVariablesMode={settings.localCssVariablesMode}
+        localLayoutMode={settings.localLayoutMode}
+        localAssetMode={settings.localAssetMode}
+        localInteractionMode={settings.localInteractionMode}
+        toggleViewport={settings.toggleViewport}
+        setColorMode={settings.setColorMode}
+        setFontMode={settings.setFontMode}
+        setTextMode={settings.setTextMode}
+        setCssVariablesMode={settings.setCssVariablesMode}
+        setLayoutMode={settings.setLayoutMode}
+        setAssetMode={settings.setAssetMode}
+        setInteractionMode={settings.setInteractionMode}
+        handleReset={settings.handleReset}
+        handleSaveAsDefault={settings.handleSaveAsDefault}
+        hasOverrides={settings.hasOverrides}
+        openSettings={settings.openSettings}
+      />
+
       {/* Generate Button */}
       <button
         class={styles.areaGenerate}
@@ -636,20 +604,6 @@ export default function AreaSelection() {
           ? "Processing..."
           : "Generate Wireframe"}
       </button>
-
-      {/* Shortcut Toast Message */}
-      {shortcutMessage && (
-        <div key={shortcutKey} class={styles.shortcutToast}>{shortcutMessage}</div>
-      )}
-
-      {/* Unified Import Options Modal */}
-      <ImportOptionsModal
-        isOpen={showImportOptionsModal}
-        onConfirm={handleImportOptionsConfirm}
-        onCancel={handleImportOptionsCancel}
-        sourceUrl={pendingCaptureResult?.url}
-        hasCssVariables={hasCssVariables}
-      />
 
       {/* Font Fallback Modal */}
       <FontFallbackModal
@@ -671,8 +625,6 @@ export default function AreaSelection() {
           setImportState({ status: "idle", message: "" });
           setFileName(null);
           fileDataRef.current = null;
-          setPendingCaptureResult(null);
-          setHasCssVariables(false);
           if (fileInputRef.current) {
             fileInputRef.current.value = "";
           }
