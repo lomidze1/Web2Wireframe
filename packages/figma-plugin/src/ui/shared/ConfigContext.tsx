@@ -30,6 +30,7 @@ export interface PluginConfig {
   showImportOptions: boolean;
   cssVariablesDefault: "styles" | "direct";
   layoutModeDefault: "autoLayout" | "absolute";
+  interactionMode: "none" | "variants";
 }
 
 // Default plugin colors - Minimalist 5-color wireframe palette
@@ -73,6 +74,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   showImportOptions: true,
   cssVariablesDefault: "direct",
   layoutModeDefault: "autoLayout",
+  interactionMode: "none",
 };
 
 // Available viewport options

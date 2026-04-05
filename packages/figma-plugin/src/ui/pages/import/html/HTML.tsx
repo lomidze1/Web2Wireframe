@@ -135,6 +135,7 @@ export default function HTML() {
             textMode: data.textMode,
             layoutMode: data.layoutMode,
             assetMode: settings.localAssetMode,
+            interactionMode: settings.localInteractionMode,
           },
         },
       },
@@ -348,6 +349,8 @@ export default function HTML() {
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
         setAssetMode={settings.setAssetMode}
+        localInteractionMode={settings.localInteractionMode}
+        setInteractionMode={settings.setInteractionMode}
         handleReset={settings.handleReset}
         handleSaveAsDefault={settings.handleSaveAsDefault}
         hasOverrides={settings.hasOverrides}

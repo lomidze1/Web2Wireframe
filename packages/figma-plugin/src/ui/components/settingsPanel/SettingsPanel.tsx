@@ -80,6 +80,10 @@ export interface SettingsPanelProps {
 
   // Optional: tooltip text for disabled layout option
   layoutDisabledTooltip?: string;
+
+  // Interaction mode
+  localInteractionMode?: "none" | "variants";
+  setInteractionMode?: (mode: "none" | "variants") => void;
 }
 
 /**
@@ -120,6 +124,8 @@ export default function SettingsPanel({
   textWebsiteLabel,
   disableAutoLayoutOption,
   layoutDisabledTooltip,
+  localInteractionMode,
+  setInteractionMode,
 }: SettingsPanelProps) {
   return (
     <div class={containerClassName || styles.settingsBox}>
@@ -315,6 +321,28 @@ export default function SettingsPanel({
                   Auto Layout (Editable)
                 </option>
                 <option value="absolute">Absolute (Pixel-perfect)</option>
+              </select>
+            </div>
+          )}
+
+          {/* Interactions */}
+          {setInteractionMode && (
+            <div class={styles.settingRow}>
+              <div class={styles.settingLabel}>
+                <span>🎯</span>
+                <span>Interactions</span>
+              </div>
+              <select
+                class={styles.dropdown}
+                value={localInteractionMode || "none"}
+                onChange={(e) =>
+                  setInteractionMode(
+                    (e.target as HTMLSelectElement).value as "none" | "variants"
+                  )
+                }
+              >
+                <option value="none">None</option>
+                <option value="variants">Hover Variants</option>
               </select>
             </div>
           )}

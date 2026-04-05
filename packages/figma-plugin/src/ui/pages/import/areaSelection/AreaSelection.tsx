@@ -408,6 +408,7 @@ export default function AreaSelection() {
             fontMode: options.fontMode,
             textMode: options.textMode,
             assetMode: options.assetMode,
+            interactionMode: config.interactionMode,
           },
         },
       },

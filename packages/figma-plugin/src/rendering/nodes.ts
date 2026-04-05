@@ -560,6 +560,23 @@ export async function createNodeInFigma(
     }
   }
 
+  // Pseudo-state variants: convert to ComponentSet if enabled
+  if (
+    context.interactionMode === "variants" &&
+    node.pseudoStateStyles &&
+    Object.keys(node.pseudoStateStyles).length > 0
+  ) {
+    try {
+      const { createPseudoStateVariants } = await import("./pseudoStates");
+      const { componentSet, defaultInstance } =
+        await createPseudoStateVariants(frame, node.pseudoStateStyles);
+      context.componentSets?.push(componentSet);
+      return defaultInstance;
+    } catch (err) {
+      logger.error("Pseudo-state variant creation failed", err);
+    }
+  }
+
   return frame;
 }
 

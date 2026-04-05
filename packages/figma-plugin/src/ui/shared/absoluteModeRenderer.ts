@@ -151,6 +151,12 @@ export interface ExtractedElement {
   horizontallyCentered?: boolean;
   margin?: { top: number; right: number; bottom: number; left: number };
   computedStyles?: Record<string, string>;
+  pseudoStateStyles?: {
+    hover?: Record<string, string>;
+    focus?: Record<string, string>;
+    active?: Record<string, string>;
+    focusVisible?: Record<string, string>;
+  };
   children: ExtractedElement[];
 }
 
@@ -224,6 +230,12 @@ export interface WireframeNode {
   letterSpacing: number;
   browserLineCount?: number;
   computedStyles?: Record<string, string>;
+  pseudoStateStyles?: {
+    hover?: Record<string, string>;
+    focus?: Record<string, string>;
+    active?: Record<string, string>;
+    focusVisible?: Record<string, string>;
+  };
   isPlaceholder: boolean;
   imageUrl?: string;
   children: WireframeNode[];
@@ -384,6 +396,7 @@ export function convertToWireframeNode(
     letterSpacing: element.letterSpacing || 0,
     browserLineCount: element.browserLineCount,
     computedStyles: element.computedStyles,
+    pseudoStateStyles: element.pseudoStateStyles || undefined,
     isPlaceholder: element.isPlaceholder,
     imageUrl: element.imageUrl,
     children,

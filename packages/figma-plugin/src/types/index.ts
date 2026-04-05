@@ -177,6 +177,14 @@ export interface WireframeNode {
   // Raw computed styles passthrough (filtered non-default values)
   computedStyles?: Record<string, string>;
 
+  // Pseudo-state CSS diffs (hover/focus/active/focus-visible)
+  pseudoStateStyles?: {
+    hover?: Record<string, string>;
+    focus?: Record<string, string>;
+    active?: Record<string, string>;
+    focusVisible?: Record<string, string>;
+  };
+
   // CSS variable reference for text color (e.g. "--text-primary")
   textColorVariable?: string;
 
@@ -224,6 +232,7 @@ export interface RenderWireframeData {
   fontMode?: "plugin" | "website" | "lines";
   textMode?: "semantic" | "lorem" | "website";
   assetMode?: "placeholders" | "realAssets";
+  interactionMode?: "none" | "variants";
 }
 
 /** Map from missing/website font name → replacement font name */
@@ -261,6 +270,10 @@ export interface RenderContext {
   assetMode?: "placeholders" | "realAssets";
   // Map from image URL → base64 data URI (for real asset rendering)
   assetsMap?: Map<string, string>;
+  // Interaction mode for pseudo-state variants
+  interactionMode?: "none" | "variants";
+  // Collected ComponentSets from pseudo-state variant creation
+  componentSets?: ComponentSetNode[];
 }
 
 /**

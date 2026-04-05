@@ -139,6 +139,7 @@ export default function Web() {
             textMode: data.textMode,
             layoutMode: data.layoutMode, // "autoLayout" or "absolute"
             assetMode: settings.localAssetMode,
+            interactionMode: settings.localInteractionMode,
           },
         },
       },
@@ -321,6 +322,8 @@ export default function Web() {
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
         setAssetMode={settings.setAssetMode}
+        localInteractionMode={settings.localInteractionMode}
+        setInteractionMode={settings.setInteractionMode}
         handleReset={settings.handleReset}
         handleSaveAsDefault={settings.handleSaveAsDefault}
         hasOverrides={settings.hasOverrides}

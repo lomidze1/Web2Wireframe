@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "preact/hooks";
-import { useConfig } from "../shared/ConfigContext";
+import { useConfig, DEFAULT_CONFIG } from "../shared/ConfigContext";
 
 // Safe localStorage helper for Figma plugin environment
 const safeGetStorage = (key: string, defaultValue: boolean): boolean => {
@@ -33,6 +33,7 @@ export interface TabSettingsResult {
   localCssVariablesMode: "styles" | "direct";
   localLayoutMode: "autoLayout" | "absolute";
   localAssetMode: "placeholders" | "realAssets";
+  localInteractionMode: "none" | "variants";
 
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => boolean;
@@ -42,6 +43,7 @@ export interface TabSettingsResult {
   setCssVariablesMode: (mode: "styles" | "direct") => void;
   setLayoutMode: (mode: "autoLayout" | "absolute") => void;
   setAssetMode: (mode: "placeholders" | "realAssets") => void;
+  setInteractionMode: (mode: "none" | "variants") => void;
   handleReset: () => void;
   handleSaveAsDefault: () => void;
 
@@ -107,6 +109,9 @@ export function useTabSettings(
   const [localAssetMode, setLocalAssetMode] = useState<
     "placeholders" | "realAssets"
   >(effectiveConfig.assetMode);
+  const [localInteractionMode, setLocalInteractionMode] = useState<"none" | "variants">(
+    effectiveConfig.interactionMode || "none"
+  );
 
   // Check if there are any session overrides for this tab
   const hasOverrides = !!sessionOverrides[tabId];
@@ -133,6 +138,7 @@ export function useTabSettings(
       setLocalCssVariablesMode(effective.cssVariablesDefault);
       setLocalLayoutMode(effective.layoutModeDefault);
       setLocalAssetMode(effective.assetMode);
+      setLocalInteractionMode(effective.interactionMode || "none");
     }
   }, [
     // Use config values as dependencies since getEffectiveConfig returns config when no overrides
@@ -256,6 +262,7 @@ export function useTabSettings(
     setLocalCssVariablesMode(config.cssVariablesDefault);
     setLocalLayoutMode(config.layoutModeDefault);
     setLocalAssetMode(config.assetMode);
+    setLocalInteractionMode(config.interactionMode || "none");
   }, [tabId, resetToConfig, config]);
 
   // Save current local values as persistent config defaults
@@ -268,6 +275,7 @@ export function useTabSettings(
       cssVariablesDefault: localCssVariablesMode,
       layoutModeDefault: localLayoutMode,
       assetMode: localAssetMode,
+      interactionMode: localInteractionMode,
     });
     // Clear session override since config now matches local state
     resetToConfig(tabId);
@@ -317,6 +325,11 @@ export function useTabSettings(
     setCssVariablesMode: setCssVariablesModeHandler,
     setLayoutMode: setLayoutModeHandler,
     setAssetMode: setAssetModeHandler,
+    localInteractionMode,
+    setInteractionMode: (mode: "none" | "variants") => {
+      setLocalInteractionMode(mode);
+      setSessionOverride(tabId, { interactionMode: mode });
+    },
     handleReset,
     handleSaveAsDefault,
     hasOverrides,

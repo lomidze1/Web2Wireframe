@@ -106,6 +106,7 @@ export default function () {
         fontMode,
         textMode,
         assetMode,
+        interactionMode,
       } = data;
 
       // Default colors if not provided
@@ -277,6 +278,8 @@ export default function () {
         fontMapping,
         assetMode: assetMode || "placeholders",
         assetsMap,
+        interactionMode: interactionMode || "none",
+        componentSets: [],
       };
 
       // Create text styles if "Create Figma Styles" is enabled
@@ -424,6 +427,56 @@ export default function () {
         section.y = viewport.y - section.height / 2;
 
         const selectionTarget: SceneNode[] = [section];
+
+        // Create separate Components Section for interaction variant ComponentSets
+        if (renderContext.componentSets && renderContext.componentSets.length > 0) {
+          const compSection = figma.createSection();
+          compSection.name = `Components — ${hostname}`;
+          compSection.fills = [
+            { type: "SOLID", color: { r: 0xC0 / 255, g: 0xC0 / 255, b: 0xC0 / 255 } },
+          ];
+
+          const compPadding = 80;
+          let compX = compPadding;
+          let compY = compPadding;
+          let rowMaxHeight = 0;
+          let actualMaxRight = 0; // Track actual rightmost edge
+          const maxRowWidth = 1400;
+
+          for (const cs of renderContext.componentSets) {
+            // Wrap to next row if this element would exceed max width
+            if (compX + cs.width + compPadding > maxRowWidth && compX > compPadding) {
+              compX = compPadding;
+              compY += rowMaxHeight + compPadding;
+              rowMaxHeight = 0;
+            }
+
+            compSection.appendChild(cs);
+            cs.x = compX;
+            cs.y = compY;
+
+            // Track the actual rightmost edge of placed elements
+            actualMaxRight = Math.max(actualMaxRight, compX + cs.width);
+            compX += cs.width + compPadding;
+            rowMaxHeight = Math.max(rowMaxHeight, cs.height);
+          }
+
+          // Size section to exactly fit all elements with padding
+          compSection.resizeWithoutConstraints(
+            actualMaxRight + compPadding,
+            compY + rowMaxHeight + compPadding
+          );
+
+          // Position to the right of wireframe section
+          compSection.x = section.x + section.width + 200;
+          compSection.y = section.y;
+
+          selectionTarget.push(compSection);
+
+          logger.info("Created Components Section", {
+            componentSetCount: renderContext.componentSets.length,
+          });
+        }
 
         logger.info("Created Section with frames", {
           frameCount: createdFrames.length,

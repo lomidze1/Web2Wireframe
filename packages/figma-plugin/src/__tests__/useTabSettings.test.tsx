@@ -233,6 +233,7 @@ describe("useTabSettings", () => {
         cssVariablesDefault: "styles",
         layoutModeDefault: "absolute",
         assetMode: DEFAULT_CONFIG.assetMode,
+        interactionMode: DEFAULT_CONFIG.interactionMode,
       });
     });
 
