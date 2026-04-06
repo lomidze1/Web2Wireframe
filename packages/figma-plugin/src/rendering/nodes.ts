@@ -463,7 +463,16 @@ export async function createNodeInFigma(
       ? sortGridChildren(node.children, node.gridAutoFlow)
       : node.children;
 
+    // h2d model: when parent has styledSegments, skip inline #text children
+    // (styledSegments already covers their content with proper formatting)
+    const skipInlineTextChildren = node.styledSegments && node.styledSegments.length > 0;
+
     for (const child of childrenToRender) {
+      // Skip DOM text node children when styledSegments handles inline formatting
+      if (skipInlineTextChildren && child.type === "text" && child.tag === "#text") {
+        continue;
+      }
+
       try {
         const childNode = await createNodeInFigma(child, childContext, depth + 1);
 
@@ -506,11 +515,47 @@ export async function createNodeInFigma(
     }
   }
 
-  // Create text node for frame's textContent (like li elements with text)
+  // h2d model: frame with styledSegments → single Figma TextNode with per-range formatting
   const hasSyntheticTextChild = node.children?.some(
     (child) => child.type === "text"
   );
   if (
+    node.styledSegments &&
+    node.styledSegments.length > 0 &&
+    hasSyntheticTextChild &&
+    node.type === "frame"
+  ) {
+    try {
+      // Create a combined text node from styledSegments (preserves inline bold/italic/link)
+      const combinedTextContent = node.styledSegments.map(s => s.text).join("");
+      if (combinedTextContent.trim()) {
+        const combinedNode = {
+          ...node,
+          type: "text" as const,
+          textContent: combinedTextContent,
+          children: [] as typeof node.children,
+        };
+        const styledTextNode = await createTextNode(
+          combinedNode,
+          context.fontFamily,
+          context
+        );
+        if (styledTextNode) {
+          frame.appendChild(styledTextNode);
+          styledTextNode.name = combinedTextContent.substring(0, 30);
+          if (useAutoLayout) {
+            styledTextNode.layoutSizingHorizontal = "FILL";
+            styledTextNode.layoutSizingVertical = "HUG";
+          }
+        }
+      }
+    } catch (err) {
+      logger.error("Error creating styled text node for frame", err, {
+        nodeId: node.id,
+        nodeName: node.name,
+      });
+    }
+  } else if (
     node.textContent &&
     node.textContent.trim() &&
     node.type === "frame" &&
