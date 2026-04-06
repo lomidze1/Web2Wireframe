@@ -543,4 +543,127 @@ describe("Text Node Extraction — DOM text nodes as TEXT children", () => {
     const withWelcome = allElements.filter(el => el.textContent.includes("Welcome"));
     expect(withWelcome.length).toBeGreaterThanOrEqual(1);
   });
+
+  // -----------------------------------------------------------------------
+  // 11. <li> with ::marker pseudo-element (bullet)
+  // -----------------------------------------------------------------------
+  it("should include ::marker bullet as text child of <li>", () => {
+    // <body><ul><li>::marker("•") Text content</li></ul></body>
+    // DOMSnapshot includes ::marker as a separate pseudo-element node
+    const nodes: ParsedSnapshotNode[] = [
+      makeElementNode(0, -1, "body", {
+        bounds: { x: 0, y: 0, width: 1440, height: 900 },
+        computedStyles: { ...baseStyles, width: "1440", height: "900" },
+      }),
+      makeElementNode(1, 0, "ul", {
+        bounds: { x: 0, y: 0, width: 400, height: 200 },
+        computedStyles: { ...baseStyles, width: "400", height: "200" },
+      }),
+      makeElementNode(2, 1, "li", {
+        bounds: { x: 40, y: 0, width: 360, height: 24 },
+        textContent: "• List item",
+        computedStyles: {
+          ...baseStyles,
+          display: "list-item",
+          width: "360",
+          height: "24",
+          "list-style-type": "disc",
+          "padding-left": "0",
+        },
+      }),
+      // ::marker pseudo-element (bullet)
+      makeElementNode(3, 2, "::marker", {
+        bounds: { x: 20, y: 0, width: 16, height: 24 },
+        textContent: "•",
+        computedStyles: {
+          ...baseStyles,
+          display: "inline",
+          width: "16",
+          height: "24",
+        },
+      }),
+      makeTextNode(4, 2, "List item"),
+    ];
+
+    const tree = buildTree(nodes);
+    const ul = tree.children[0];
+    const li = ul.children[0];
+    expect(li).toBeDefined();
+
+    // li should have children: ::marker text child + "List item" text child
+    const allText = findTextChildren(li);
+
+    // Bullet should be present
+    const bulletChild = allText.find(t => t.textContent === "•");
+    expect(bulletChild).toBeDefined();
+
+    // Text should be present
+    const textChild = allText.find(t => t.textContent === "List item");
+    expect(textChild).toBeDefined();
+  });
+
+  // -----------------------------------------------------------------------
+  // 12. <br> between text nodes
+  // -----------------------------------------------------------------------
+  it("should handle br elements between text nodes", () => {
+    // <body><p>Line 1<br>Line 2</p></body>
+    // Text content should include both lines
+    const nodes: ParsedSnapshotNode[] = [
+      makeElementNode(0, -1, "body", {
+        bounds: { x: 0, y: 0, width: 1440, height: 900 },
+        computedStyles: { ...baseStyles, width: "1440", height: "900" },
+      }),
+      makeElementNode(1, 0, "p", {
+        bounds: { x: 0, y: 0, width: 400, height: 48 },
+        textContent: "Line 1\nLine 2",
+        computedStyles: { ...baseStyles, width: "400", height: "48" },
+      }),
+      makeTextNode(2, 1, "Line 1"),
+      makeElementNode(3, 1, "br", {
+        bounds: null,
+        computedStyles: { ...baseStyles },
+      }),
+      makeTextNode(4, 1, "Line 2"),
+    ];
+
+    const tree = buildTree(nodes);
+    const p = tree.children[0];
+    expect(p).toBeDefined();
+
+    // Both "Line 1" and "Line 2" should be present
+    const allText = findTextChildren(p);
+    const line1 = allText.find(t => t.textContent.includes("Line 1"));
+    const line2 = allText.find(t => t.textContent.includes("Line 2"));
+    expect(line1).toBeDefined();
+    expect(line2).toBeDefined();
+  });
+
+  // -----------------------------------------------------------------------
+  // 13. Multiple text nodes in a single parent
+  // -----------------------------------------------------------------------
+  it("should handle multiple text nodes in a single parent", () => {
+    // <body><span>Hello World</span></body> (but DOMSnapshot splits into 2 text nodes)
+    const nodes: ParsedSnapshotNode[] = [
+      makeElementNode(0, -1, "body", {
+        bounds: { x: 0, y: 0, width: 1440, height: 900 },
+        computedStyles: { ...baseStyles, width: "1440", height: "900" },
+      }),
+      makeElementNode(1, 0, "span", {
+        bounds: { x: 0, y: 0, width: 100, height: 20 },
+        textContent: "Hello World",
+        computedStyles: { ...inlineStyles, width: "100", height: "20" },
+      }),
+      makeTextNode(2, 1, "Hello "),
+      makeTextNode(3, 1, "World"),
+    ];
+
+    const tree = buildTree(nodes);
+    const allElements = findAllElements(tree);
+
+    // "Hello" and "World" should both be present
+    const allText = allElements.filter(el => el.type === "text");
+    const fullText = allText.map(t => t.textContent).join("");
+    expect(fullText).toContain("Hello");
+    expect(fullText).toContain("World");
+  });
 });
