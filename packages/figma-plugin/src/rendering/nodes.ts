@@ -46,6 +46,39 @@ import { createRealImage } from "./realImages";
 // wireframeLines import removed — fontMode "lines" uses FILLR font via text.ts
 
 // ============================================================================
+// Blend Mode Mapping (CSS mix-blend-mode → Figma BlendMode)
+// ============================================================================
+
+const CSS_TO_FIGMA_BLEND_MODE: Record<string, BlendMode> = {
+  "multiply": "MULTIPLY",
+  "screen": "SCREEN",
+  "overlay": "OVERLAY",
+  "darken": "DARKEN",
+  "lighten": "LIGHTEN",
+  "color-dodge": "COLOR_DODGE",
+  "color-burn": "COLOR_BURN",
+  "hard-light": "HARD_LIGHT",
+  "soft-light": "SOFT_LIGHT",
+  "difference": "DIFFERENCE",
+  "exclusion": "EXCLUSION",
+  "hue": "HUE",
+  "saturation": "SATURATION",
+  "color": "COLOR",
+  "luminosity": "LUMINOSITY",
+};
+
+/**
+ * Maps CSS mix-blend-mode value to Figma BlendMode.
+ * Returns undefined for "normal", unknown, or empty values.
+ */
+export function mapCSSBlendMode(
+  cssBlendMode: string | undefined
+): BlendMode | undefined {
+  if (!cssBlendMode) return undefined;
+  return CSS_TO_FIGMA_BLEND_MODE[cssBlendMode];
+}
+
+// ============================================================================
 // Legacy Fill/Stroke Application
 // ============================================================================
 
@@ -394,6 +427,14 @@ export async function createNodeInFigma(
   // Apply opacity - skip in plugin colors mode
   if (context.colorMode !== "plugin" && node.opacity < 1 && node.opacity > 0) {
     frame.opacity = node.opacity;
+  }
+
+  // Apply blend mode (CSS mix-blend-mode → Figma BlendMode)
+  if (node.blendMode) {
+    const figmaBlendMode = mapCSSBlendMode(node.blendMode);
+    if (figmaBlendMode) {
+      frame.blendMode = figmaBlendMode;
+    }
   }
 
   // Clips content based on CSS overflow

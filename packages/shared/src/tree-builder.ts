@@ -486,6 +486,25 @@ export function isLeafElement(
 }
 
 /**
+ * Checks if a string is a single icon font glyph (Unicode Private Use Area).
+ * PUA ranges: U+E000–U+F8FF (BMP), U+F0000–U+FFFFD, U+100000–U+10FFFD.
+ * These glyphs are NOT human-readable text and should not count as "text content"
+ * when deciding whether a <li> already has text children.
+ */
+export function isIconGlyph(text: string): boolean {
+  if (!text || text.length === 0) return false;
+  const code = text.codePointAt(0) || 0;
+  // Single character (1-2 code units for surrogate pairs)
+  const charLen = code > 0xFFFF ? 2 : 1;
+  if (text.length !== charLen) return false;
+  // BMP Private Use Area
+  if (code >= 0xE000 && code <= 0xF8FF) return true;
+  // Supplementary PUA-A and PUA-B
+  if (code >= 0xF0000 && code <= 0x10FFFD) return true;
+  return false;
+}
+
+/**
  * Inline tags that should be collected as styled segments (not as separate elements)
  */
 const INLINE_TAGS = [
@@ -2251,8 +2270,8 @@ export function buildElementTree(
       //         <li><div><strong>Title</strong></div></li> (div is type:"frame" with children)
       const hasChildrenWithText = element.children.some(
         (c) => c.tag !== "::before" && c.tag !== "::after" && c.tag !== "::marker" &&
-          ((c.type === "text" && c.textContent && c.textContent.trim()) ||
-           (c.type === "frame" && (c.children?.length > 0 || (c.textContent && c.textContent.trim()))))
+          ((c.type === "text" && c.textContent && c.textContent.trim() && !isIconGlyph(c.textContent.trim())) ||
+           (c.type === "frame" && (c.children?.length > 0 || (c.textContent && c.textContent.trim() && !isIconGlyph(c.textContent.trim())))))
       );
       if (!hasTextChild && !hasChildrenWithText) {
         // Use textBounds > calculated fallback for text dimensions

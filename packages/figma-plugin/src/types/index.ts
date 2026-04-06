@@ -149,6 +149,7 @@ export interface WireframeNode {
         bottomLeft: number;
       };
   opacity: number;
+  blendMode?: string; // CSS mix-blend-mode → Figma BlendMode
   // Overflow (for clipsContent)
   overflow?: "visible" | "hidden" | "scroll" | "auto";
   // Centering (margin: 0 auto detected from original CSS)

@@ -138,6 +138,7 @@ export {
   collectStyledText,
   isLeafElement,
   isIconFont,
+  isIconGlyph,
   extractPseudoIconContent,
   findIconFontNodes,
   findIconClassElements,
