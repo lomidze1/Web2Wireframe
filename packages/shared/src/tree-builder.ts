@@ -1373,7 +1373,44 @@ export function buildElementTree(
 
     const tag = node.nodeName;
 
-    // Skip non-element nodes
+    // Handle text nodes (nodeType === 3) as leaf TEXT elements
+    if (node.nodeType === 3) {
+      const textContent = (node.textContent || "").replace(/[\r\n\t]+/g, " ").trim();
+      if (!textContent) return null; // Skip whitespace-only text nodes
+
+      // Look up parent for inherited typography styles
+      const parentNode = node.parentIndex >= 0 ? nodes[node.parentIndex] : null;
+      const parentStyles = parentNode?.computedStyles || {};
+      const parentBounds = parentNode?.bounds || { x: 0, y: 0, width: 200, height: 20 };
+
+      const tColor = parseColor(parentStyles["color"]) || null;
+      const tFamily = extractFontFamilyList(parentStyles["font-family"] || "Inter")[0] || "Inter";
+      const tSize = parseFloat(parentStyles["font-size"]) || 14;
+      const tWeight = parseFloat(parentStyles["font-weight"]) || 400;
+      const tLineHeight = parentStyles["line-height"] || "normal";
+      const tLetterSpacing = parseFloat(parentStyles["letter-spacing"]) || 0;
+      const tTextAlign = parentStyles["text-align"] || "left";
+      const parentSelector = parentNode ? getSelector(parentNode.index) : undefined;
+
+      return createSyntheticTextChild(
+        parentBounds.width / browserDpr,
+        parentBounds.height / browserDpr,
+        tColor,
+        tFamily,
+        tSize,
+        tWeight,
+        tLineHeight,
+        tLetterSpacing,
+        tTextAlign,
+        textContent,
+        0, 0, // Relative to parent — text nodes don't have individual bounds
+        undefined, // browserLineCount
+        undefined, // computedStyles
+        parentSelector
+      );
+    }
+
+    // Skip other non-element nodes (comments, processing instructions, etc.)
     if (node.nodeType !== 1) return null;
 
     // Skip unwanted tags
@@ -1843,14 +1880,13 @@ export function buildElementTree(
     const isLeaf = isLeafElement(node.index, nodes, childrenMap);
     const finalText = aggregatedText;
 
-    // Smart wrapping
+    // Determine if this element should be a TEXT node directly
     const wouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
     const requiresWrapper =
       wouldBeText &&
       needsFrameWrapper(padding, fills, strokes, effects, borderRadius);
 
     const shouldBeText = wouldBeText && !requiresWrapper;
-    const shouldBeFrameWithTextChild = wouldBeText && requiresWrapper;
 
     // Extract imageUrl for real asset extraction
     let imageUrl: string | undefined;
@@ -1904,11 +1940,8 @@ export function buildElementTree(
       elementType = "text";
     }
 
-    const isListItemWithText = tag === "li" && !!finalText;
-    const isLinkWithText = tag === "a" && !!finalText;
-    const needsSyntheticTextChild =
-      isListItemWithText || shouldBeFrameWithTextChild || isLinkWithText;
-    const frameTextContent = needsSyntheticTextChild ? "" : finalText;
+    // Text content goes directly on the element (no synthetic child pipeline)
+    const frameTextContent = finalText;
 
     // Build element
     const selector = getSelector(node.index);
@@ -2256,202 +2289,10 @@ export function buildElementTree(
     }
 
     // Add synthetic text child for list items
-    // Note: Don't require element.children.length === 0 because ::before pseudo-elements
-    // are already added as children, but we still need the text content.
-    // BUT: skip if li already has element children (div, span, etc.) that contain the text —
-    // otherwise we get duplicate text (the element children already render the text).
-    if (isListItemWithText && finalText) {
-      // Check if we already have a text child with the same content (avoid duplicates)
-      const hasTextChild = element.children.some(
-        (c) => c.type === "text" && c.textContent?.trim() === finalText?.trim()
-      );
-      // Check if any non-pseudo child already renders text content
-      // Covers: <li><span>text</span></li> (span is type:"text")
-      //         <li><div><strong>Title</strong></div></li> (div is type:"frame" with children)
-      const hasChildrenWithText = element.children.some(
-        (c) => c.tag !== "::before" && c.tag !== "::after" && c.tag !== "::marker" &&
-          ((c.type === "text" && c.textContent && c.textContent.trim() && !isIconGlyph(c.textContent.trim())) ||
-           (c.type === "frame" && (c.children?.length > 0 || (c.textContent && c.textContent.trim() && !isIconGlyph(c.textContent.trim())))))
-      );
-      if (!hasTextChild && !hasChildrenWithText) {
-        // Use textBounds > calculated fallback for text dimensions
-        const bulletWidth = padding.left || 16;
-        const textWidth = textBounds ? textBounds.width
-                        : width - bulletWidth - padding.right;
-        let textX = textBounds ? textBounds.x : bulletWidth;
-        const textY = textBounds ? textBounds.y : 0;
-        const textHeight = textBounds ? textBounds.height
-                         : height;
-
-        // Safety: if ::before child exists and textX < padding.left, the text
-        // should start after the bullet area (padding.left)
-        const hasPseudoBefore = element.children.some(
-          (c) => c.tag === "::before"
-        );
-        if (hasPseudoBefore && textX < (padding.left || 0)) {
-          textX = padding.left || bulletWidth;
-        }
-
-        // Add bullet character to styled segments (for proper bullet rendering)
-        const bulletChar = getBulletCharacter(listStyleType || "disc");
-        const bulletSpacing = "  "; // Two spaces between bullet and text
-
-        // Create styled segments with bullet
-        let textWithBulletSegments: StyledTextSegment[] = [];
-        if (bulletChar) {
-          // Add bullet as first segment
-          textWithBulletSegments.push({
-            text: bulletChar + bulletSpacing,
-            color: textColor,
-            fontWeight,
-            fontSize,
-            fontFamily,
-            tag: "::marker",
-          });
-
-          // Add text segments
-          if (styledSegments.length > 0) {
-            textWithBulletSegments.push(...styledSegments);
-          } else {
-            textWithBulletSegments.push({
-              text: finalText,
-              color: textColor,
-              fontWeight,
-              fontSize,
-              fontFamily,
-              tag: "li",
-            });
-          }
-        }
-
-        // Create text child with full text (including bullet)
-        const fullTextWithBullet = bulletChar
-          ? bulletChar + bulletSpacing + finalText
-          : finalText;
-
-        const textChild = createSyntheticTextChild(
-          textWidth,
-          textHeight,
-          textColor,
-          fontFamily,
-          fontSize,
-          fontWeight,
-          lineHeight,
-          letterSpacing,
-          textAlign,
-          fullTextWithBullet,
-          textX,
-          textY,
-          browserLineCount,
-          element.computedStyles,
-          selector
-        );
-        textChild.fontFamilyList = fontFamilyList;
-      if (platformFontFamily) textChild.platformFontFamily = platformFontFamily;
-
-        // Add styled segments to the text child
-        if (textWithBulletSegments.length > 0) {
-          textChild.styledSegments = textWithBulletSegments;
-        }
-
-        element.children.push(textChild);
-      }
-    }
-
-    // Add synthetic text child for wrapped text elements (buttons, etc.)
-    // Skip li — already handled by isListItemWithText block above
-    if (shouldBeFrameWithTextChild && finalText && !isListItemWithText) {
-      // Use textBounds > calculated fallback for text dimensions
-      const textWidth = textBounds ? textBounds.width
-                       : width - padding.left - padding.right;
-      const textX = textBounds ? textBounds.x : padding.left;
-      const textY = textBounds ? textBounds.y : padding.top;
-      const textHeight = textBounds ? textBounds.height
-                        : height - padding.top - padding.bottom;
-
-      const textChild = createSyntheticTextChild(
-        textWidth,
-        textHeight,
-        textColor,
-        fontFamily,
-        fontSize,
-        fontWeight,
-        lineHeight,
-        letterSpacing,
-        textAlign,
-        finalText,
-        textX,
-        textY,
-        browserLineCount,
-        element.computedStyles,
-        selector
-      );
-      textChild.fontFamilyList = fontFamilyList;
-      if (platformFontFamily) textChild.platformFontFamily = platformFontFamily;
-
-      // Pass through styled segments if available
-      if (styledSegments.length > 0) {
-        textChild.styledSegments = styledSegments;
-      }
-
-      element.children.push(textChild);
-    }
-
-    // Add synthetic text child for links
-    // Note: Don't require element.children.length === 0 because some links may have
-    // pseudo-elements or other children, but we still need the text content
-    if (isLinkWithText && finalText) {
-      // Recursively check if any descendant already has the same text (avoid duplicates)
-      // This handles cases like <a><div><span>Text</span></div></a> where text is nested
-      const hasTextInDescendants = (children: ExtractedElement[]): boolean => {
-        for (const c of children) {
-          if (c.type === "text" && c.textContent?.trim() === finalText?.trim()) {
-            return true;
-          }
-          if (c.children?.length > 0 && hasTextInDescendants(c.children)) {
-            return true;
-          }
-        }
-        return false;
-      };
-      if (!hasTextInDescendants(element.children)) {
-        // Use textBounds > calculated fallback for text dimensions
-        const textWidth = textBounds ? textBounds.width
-                         : width - padding.left - padding.right;
-        const textX = textBounds ? textBounds.x : padding.left;
-        const textY = textBounds ? textBounds.y : padding.top;
-        const textHeight = textBounds ? textBounds.height
-                          : height - padding.top - padding.bottom;
-
-        const textChild = createSyntheticTextChild(
-          textWidth,
-          textHeight,
-          textColor,
-          fontFamily,
-          fontSize,
-          fontWeight,
-          lineHeight,
-          letterSpacing,
-          textAlign,
-          finalText,
-          textX,
-          textY,
-          browserLineCount,
-          element.computedStyles,
-          selector
-        );
-
-        textChild.fontFamilyList = fontFamilyList;
-      if (platformFontFamily) textChild.platformFontFamily = platformFontFamily;
-
-        // Pass through styled segments if available
-        if (styledSegments.length > 0) {
-          textChild.styledSegments = styledSegments;
-        }
-
-        element.children.push(textChild);
-      }
-    }
+    // Synthetic text child pipeline REMOVED — text nodes now flow through
+    // buildNode directly as type:"text" leaf elements (Step 1 of text refactoring).
+    // Previously: isListItemWithText, shouldBeFrameWithTextChild, isLinkWithText
+    // blocks created synthetic children here (~190 lines).
 
     return element;
   }
