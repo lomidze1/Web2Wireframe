@@ -337,8 +337,45 @@ function getOverflowValue(
 }
 
 /**
- * needsFrameWrapper removed — h2d model: all HTML elements are type=frame.
+ * Check if element needs frame wrapper for text
+ * (has padding, background, border, shadow, or border-radius)
  */
+function needsFrameWrapper(
+  padding: { top: number; right: number; bottom: number; left: number },
+  fills: unknown[],
+  strokes: unknown[],
+  effects: unknown[],
+  borderRadius: {
+    topLeft: number;
+    topRight: number;
+    bottomRight: number;
+    bottomLeft: number;
+  }
+): boolean {
+  if (
+    padding.top > 0 ||
+    padding.right > 0 ||
+    padding.bottom > 0 ||
+    padding.left > 0
+  ) {
+    return true;
+  }
+
+  if (fills.length > 0) return true;
+  if (strokes.length > 0) return true;
+  if (effects.length > 0) return true;
+
+  if (
+    borderRadius.topLeft > 0 ||
+    borderRadius.topRight > 0 ||
+    borderRadius.bottomRight > 0 ||
+    borderRadius.bottomLeft > 0
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Collect direct text content from immediate TEXT_NODE children only
@@ -1159,7 +1196,7 @@ function createSyntheticTextChild(
     id: generateId(textSelector),
     type: "text",
     tag: "#text",
-    name: textContent.substring(0, 30) || "Text",
+    name: "Text",
     x: xOffset,
     y: yOffset,
     width: Math.max(10, width),
@@ -1427,6 +1464,8 @@ export function buildElementTree(
       }
     }
     const hasBackgroundImageUrl = Boolean(computedStyles["background-image"]?.includes("url("));
+    const isText = TEXT_TAGS.includes(tag as (typeof TEXT_TAGS)[number]);
+
     // Extract styles
     const resolvedVariables = cssVariablesMap;
 
@@ -1841,8 +1880,13 @@ export function buildElementTree(
     const isLeaf = isLeafElement(node.index, nodes, childrenMap);
     const finalText = aggregatedText;
 
-    // h2d model: HTML elements are always type=frame.
-    // Only DOM text nodes (nodeType===3, handled at line ~1377) become type=text.
+    // Determine if this element should be a TEXT node directly
+    const wouldBeText = isText || (isLeaf && aggregatedText && tag !== "a");
+    const requiresWrapper =
+      wouldBeText &&
+      needsFrameWrapper(padding, fills, strokes, effects, borderRadius);
+
+    const shouldBeText = wouldBeText && !requiresWrapper;
 
     // Extract imageUrl for real asset extraction
     let imageUrl: string | undefined;
@@ -1892,15 +1936,12 @@ export function buildElementTree(
         return child && child.nodeType === 1 && child.nodeName.toLowerCase() !== "br";
       });
       elementType = hasElementChildren ? "frame" : "placeholder";
+    } else if (shouldBeText && finalText) {
+      elementType = "text";
     }
 
-    // h2d model: when element has DOM text node children, parent textContent is empty
-    // (text lives on children). Fallback: keep finalText for elements without text children (iframe, etc.)
-    const hasTextNodeChildren = (childrenMap.get(node.index) || []).some(childIdx => {
-      const child = nodes[childIdx];
-      return child && child.nodeType === 3 && (child.textContent || "").replace(/[\r\n\t]+/g, " ").trim() !== "";
-    });
-    const frameTextContent = hasTextNodeChildren ? "" : finalText;
+    // Text content goes directly on the element (no synthetic child pipeline)
+    const frameTextContent = finalText;
 
     // Build element
     const selector = getSelector(node.index);
@@ -2221,8 +2262,8 @@ export function buildElementTree(
     // Count text lines from browser (from textBoxes.length)
     const browserLineCount = countTextLines(node.index, nodes, childrenMap);
 
-    // Set browserLineCount on element (used by text children for line count)
-    if (browserLineCount > 0) {
+    // Set browserLineCount for text elements
+    if (elementType === "text" && browserLineCount > 0) {
       element.browserLineCount = browserLineCount;
     }
 
