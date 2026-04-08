@@ -502,6 +502,7 @@ export async function createTextNode(
     fullText = segments.map((s) => s.text).join("");
   }
   textNode.characters = fullText;
+  textNode.name = node.name || node.tag || "Text";
 
   // Apply base font size
   textNode.fontSize = Math.max(node.fontSize || 14, 8);
