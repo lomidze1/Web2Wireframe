@@ -63,6 +63,59 @@ function AppContent() {
 
   const { setOpenSettingsCallback } = useConfig();
 
+  // Handle asset conversion requests from sandbox (AVIF/WebP → JPEG via Canvas)
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg.type !== "convert-assets") return;
+
+      const assets: Array<{ url: string; dataUri: string; frameIdx: number }> = msg.data?.assets || [];
+      if (assets.length === 0) {
+        parent.postMessage({ pluginMessage: { type: "assets-converted", data: { convertedAssets: [] } } }, "*");
+        return;
+      }
+
+      // Convert each asset via Canvas
+      const convertAll = async () => {
+        const results: Array<{ url: string; dataUri: string; frameIdx: number }> = [];
+
+        for (const asset of assets) {
+          try {
+            // Create image from data URI
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            await new Promise<void>((resolve, reject) => {
+              img.onload = () => resolve();
+              img.onerror = () => reject(new Error("Image load failed"));
+              img.src = asset.dataUri;
+            });
+
+            // Draw to canvas and export as JPEG
+            const canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) throw new Error("No 2d context");
+            ctx.drawImage(img, 0, 0);
+            const jpegDataUri = canvas.toDataURL("image/jpeg", 0.85);
+
+            results.push({ url: asset.url, dataUri: jpegDataUri, frameIdx: asset.frameIdx });
+            console.log(`[W2W-UI] Converted: ${asset.url.substring(0, 50)}... → JPEG (${Math.round(jpegDataUri.length / 1024)}KB)`);
+          } catch (err) {
+            console.warn(`[W2W-UI] Conversion failed for ${asset.url.substring(0, 50)}:`, err);
+          }
+        }
+
+        parent.postMessage({ pluginMessage: { type: "assets-converted", data: { convertedAssets: results } } }, "*");
+      };
+
+      convertAll();
+    };
+
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
   // Stable callback to open settings modal
   const openSettings = useCallback((panel: SettingsPanel = "configuration") => {
     setSettingsPanel(panel);

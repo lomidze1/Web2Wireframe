@@ -15,6 +15,7 @@ import {
 } from "../../utils/styleUtils.js";
 import { validateUrl } from "../../utils/urlValidation.js";
 import { pendingCDPImports } from "../../state.js";
+import { convertAssetsForFigma } from "../../lib/cdp/convertImage.js";
 
 const router = Router();
 
@@ -118,6 +119,88 @@ router.post("/import-cdp", async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/import-h2d — h2d-style capture import (content script extraction)
+ *
+ * Receives H2DCaptureResult from Browser Extension (content script path).
+ * Pass-through storage — Figma plugin handles CSS→Figma conversion.
+ *
+ * Request body:
+ * - capturedData: H2DCaptureResult (raw CSS node tree)
+ * - timestamp: number
+ */
+router.post("/import-h2d", async (req: Request, res: Response) => {
+  try {
+    const { capturedData, timestamp } = req.body;
+
+    if (!capturedData || !capturedData.frame) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing or invalid capturedData (frame is required)",
+      });
+    }
+
+    const importId = `h2d-${Date.now()}-${randomUUID().slice(0, 8)}`;
+
+    // Convert h2d format to WireframeFrame structure for the plugin
+    const frames = [{
+      viewportWidth: capturedData.width || 1440,
+      viewportHeight: capturedData.doc?.innerHeight || 900,
+      tree: {}, // Empty tree — plugin will use capturedData.frame for conversion
+      capturedData: {
+        frame: capturedData.frame,
+        assets: capturedData.assets || {},
+        doc: capturedData.doc,
+      },
+    }];
+
+    const localStyles = createLocalStylesStructure(DEFAULT_PLUGIN_COLORS, {
+      primary: "Montserrat",
+    });
+
+    const importData: Record<string, unknown> = {
+      success: true,
+      importId,
+      sourceUrl: capturedData.url || capturedData.name,
+      title: capturedData.doc?.title || "Untitled",
+      viewports: [capturedData.width || 1440],
+      frameCount: 1,
+      wireframeData: { frames },
+      localStyles,
+      fonts: capturedData.fonts || [],
+      cssVariables: capturedData.cssVariables || [],
+      stylesheets: [],
+      cdpMetadata: {
+        captureTimestamp: timestamp || Date.now(),
+        extractionMethod: "h2d-content-script",
+        hasMatchedStyles: false,
+        hasGradients: false,
+        hasCookies: false,
+        hasWebStorage: false,
+      },
+    };
+
+    pendingCDPImports.set(importId, {
+      data: importData,
+      timestamp: Date.now(),
+      expires: Date.now() + 10 * 60 * 1000,
+    });
+
+    res.json({
+      success: true,
+      importId,
+      message: "H2D data received. Open Figma plugin to import.",
+    });
+  } catch (error) {
+    console.error("[H2D Import] Error:", error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message,
+      errorCode: "H2D_IMPORT_ERROR",
+    });
+  }
+});
+
+/**
  * POST /api/capture-with-auth - Capture URL with forwarded cookies (Layer #5)
  *
  * Receives cookies from Browser Extension and injects them into Puppeteer
@@ -201,7 +284,7 @@ router.post("/capture-with-auth", async (req: Request, res: Response) => {
  * GET /api/pending-import - Check for pending CDP imports
  * Returns the most recent pending import and removes it from storage.
  */
-router.get("/pending-import", (req: Request, res: Response) => {
+router.get("/pending-import", async (req: Request, res: Response) => {
   // Find the most recent pending import
   let latestEntry: { data: Record<string, unknown>; timestamp: number; expires: number } | null = null;
   let latestId: string | null = null;
@@ -223,6 +306,20 @@ router.get("/pending-import", (req: Request, res: Response) => {
 
   // Remove from pending (one-time fetch)
   pendingCDPImports.delete(latestId!);
+
+  // Convert AVIF/WebP assets to JPEG for Figma compatibility (sharp on server)
+  try {
+    const wireframeData = latestEntry.data.wireframeData as { frames: Array<{ capturedData?: { assets?: Record<string, { base64Encoded: boolean; content: string; mimeType: string }> } }> } | undefined;
+    if (wireframeData?.frames) {
+      for (const frame of wireframeData.frames) {
+        if (frame.capturedData?.assets) {
+          await convertAssetsForFigma(frame.capturedData.assets);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[API] Asset conversion warning:", err);
+  }
 
   res.json({
     success: true,

@@ -137,7 +137,16 @@ interface UnifiedCaptureResult {
   url: string;
   title: string;
   timestamp: number;
-  frames: Array<{ viewport: { width: number; height: number }; tree: unknown; assets?: Record<string, string> }>;
+  frames: Array<{
+    viewport: { width: number; height: number };
+    tree: unknown;
+    assets?: Record<string, string>;
+    capturedData?: {
+      frame: Record<string, unknown>;
+      assets?: Record<string, { base64Encoded: boolean; content: string; mimeType?: string }>;
+      doc?: Record<string, unknown>;
+    };
+  }>;
   fonts: unknown[];
   assets: unknown[];
   stylesheets: unknown[];
@@ -147,9 +156,36 @@ interface UnifiedCaptureResult {
 
 /**
  * Convert any capture format to unified multi-frame format
- * Handles both new multi-frame format and legacy single-viewport format
+ * Handles: multi-frame, legacy single-viewport, and h2d format
  */
-function toUnifiedFormat(data: MultiFrameCaptureResult | SingleViewportCaptureResult): UnifiedCaptureResult | null {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toUnifiedFormat(data: any): UnifiedCaptureResult | null {
+  // Check for h2d format: has 'frame' (singular) + 'doc' + 'assets' object
+  if ('frame' in data && 'doc' in data && typeof data.frame === 'object' && data.frame !== null) {
+    return {
+      url: data.url || data.name || '',
+      title: data.doc?.title || '',
+      timestamp: Date.now(),
+      frames: [{
+        viewport: {
+          width: data.width || data.doc?.innerWidth || 1440,
+          height: data.doc?.innerHeight || 900,
+        },
+        tree: null, // Will be populated from capturedData via convertH2DToWireframe()
+        assets: {},
+        capturedData: {
+          frame: data.frame,
+          assets: data.assets,
+          doc: data.doc,
+        },
+      }],
+      fonts: data.fonts || [],
+      assets: [],
+      stylesheets: [],
+      cssVariables: data.cssVariables,
+    };
+  }
+
   // Check for new multi-frame format
   if ('frames' in data && Array.isArray(data.frames) && data.frames.length > 0) {
     const multiFrame = data as MultiFrameCaptureResult;
@@ -365,21 +401,38 @@ export default function AreaSelection() {
       }
     );
 
-    // Convert all frames to wireframe format using shared function
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const framesData = prepareFramesForRendering(
-      transformedFrames as any,
-      {
-        text: config.pluginColors.text,
-        surface: config.pluginColors.surface,
-      }
-    );
-
-    // Carry over assets from input frames to output frames
+    // Check if frames have capturedData (new content script extraction)
     const inputFrames = captureResult.frames;
-    for (let i = 0; i < framesData.length; i++) {
-      if (inputFrames[i]?.assets) {
-        (framesData[i] as { assets?: Record<string, string> }).assets = inputFrames[i].assets;
+    const hasCapturedData = inputFrames.some(f => f.capturedData?.frame);
+
+    let framesData;
+
+    if (hasCapturedData) {
+      // New capture format — skip old convertToWireframeNode, pass directly to main.ts
+      // main.ts sandbox will call convertH2DToWireframe() (has access to css-converter)
+      framesData = inputFrames.map((frame) => ({
+        viewportWidth: frame.viewport?.width ?? 1440,
+        viewportHeight: frame.viewport?.height ?? 900,
+        tree: {} as unknown, // Placeholder — main.ts will replace with converted tree
+        assets: frame.assets || {},
+        capturedData: frame.capturedData,
+      }));
+    } else {
+      // Legacy format — use old conversion pipeline
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      framesData = prepareFramesForRendering(
+        transformedFrames as any,
+        {
+          text: config.pluginColors.text,
+          surface: config.pluginColors.surface,
+        }
+      );
+
+      // Carry over assets from input frames to output frames
+      for (let i = 0; i < framesData.length; i++) {
+        if (inputFrames[i]?.assets) {
+          (framesData[i] as { assets?: Record<string, string> }).assets = inputFrames[i].assets;
+        }
       }
     }
 

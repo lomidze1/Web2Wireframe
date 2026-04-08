@@ -3,14 +3,14 @@ import { DocumentIcon, SelectionIcon } from "./Icons";
 interface CaptureButtonsProps {
   isCapturing: boolean;
   canCapture: boolean;
-  onCapturePage: () => void;
+  onCapture: () => void;
   onSelectArea: () => void;
 }
 
 export function CaptureButtons({
   isCapturing,
   canCapture,
-  onCapturePage,
+  onCapture,
   onSelectArea,
 }: CaptureButtonsProps) {
   return (
@@ -18,14 +18,14 @@ export function CaptureButtons({
       {/* Capture Full Page */}
       <button
         class="btn btn-primary btn-capture"
-        onClick={onCapturePage}
+        onClick={onCapture}
         disabled={!canCapture || isCapturing}
         type="button"
       >
         <span class="btn-icon">
           <DocumentIcon />
         </span>
-        <span>{isCapturing ? "Capturing..." : "Capture Page"}</span>
+        <span>{isCapturing ? "Capturing..." : "Capture"}</span>
       </button>
 
       {/* Select Area Button */}

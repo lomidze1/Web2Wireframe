@@ -58,6 +58,31 @@ export type {
 
 export { DEFAULT_CAPTURE_OPTIONS } from "./types";
 
+// h2d-compatible types (content script extraction)
+export type {
+  H2DFrameNode,
+  H2DTextNode,
+  H2DSVGNode,
+  H2DNode,
+  H2DBaseNode,
+  H2DAttributes,
+  H2DStyles,
+  H2DPlatformFont,
+  H2DFontEntry,
+  H2DFontVariationAxis,
+  H2DAssetEntry,
+  H2DDocMeta,
+  H2DCaptureResult,
+  H2DCSSVariable,
+  Quad,
+} from "./h2d-types";
+
+export {
+  H2D_CSS_PROPERTIES,
+  H2D_NUMERIC_PROPERTIES,
+  H2D_SKIP_TAGS,
+} from "./h2d-types";
+
 // ============================================================================
 // SNAPSHOT - DOM capture
 // ============================================================================

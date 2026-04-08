@@ -85,7 +85,43 @@ export function parseFontFaceRules(cssText: string, sourceURL: string): Extracte
       resolvedSrc.includes("fonts.gstatic.com") ||
       resolvedSrc.includes("fonts.googleapis.com");
 
-    results.push({ family, style, weight, src: resolvedSrc, format, isGoogleFont });
+    // Extract font-display
+    const displayMatch = block.match(/font-display\s*:\s*([^;]+);?/i);
+    const fontDisplay = displayMatch ? displayMatch[1].trim() : undefined;
+
+    // Extract font-stretch
+    const stretchMatch = block.match(/font-stretch\s*:\s*([^;]+);?/i);
+    const fontStretch = stretchMatch ? stretchMatch[1].trim() : undefined;
+
+    // Extract font-variant
+    const variantMatch = block.match(/font-variant\s*:\s*([^;]+);?/i);
+    const fontVariant = variantMatch ? variantMatch[1].trim() : undefined;
+
+    // Extract unicode-range
+    const rangeMatch = block.match(/unicode-range\s*:\s*([^;]+);?/i);
+    const unicodeRange = rangeMatch ? rangeMatch[1].trim() : undefined;
+
+    // Parse font-weight range for variable font axes (e.g., "300 700")
+    let fontVariationAxes: ExtractedFont["fontVariationAxes"] | undefined;
+    if (weight.includes(" ")) {
+      const [minStr, maxStr] = weight.split(/\s+/);
+      const minVal = parseInt(minStr, 10);
+      const maxVal = parseInt(maxStr, 10);
+      if (!isNaN(minVal) && !isNaN(maxVal) && minVal !== maxVal) {
+        fontVariationAxes = [{
+          tag: "wght",
+          name: "Weight",
+          minValue: minVal,
+          maxValue: maxVal,
+          defaultValue: minVal,
+        }];
+      }
+    }
+
+    results.push({
+      family, style, weight, src: resolvedSrc, format, isGoogleFont,
+      fontDisplay, fontStretch, fontVariant, unicodeRange, fontVariationAxes,
+    });
   }
 
   return results;

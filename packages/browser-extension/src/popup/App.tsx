@@ -1,5 +1,5 @@
 import { useState, useEffect } from "preact/hooks";
-import type { ExtensionMessage, CaptureResult, CaptureOptions } from "@/shared/types";
+import type { ExtensionMessage, CaptureOptions } from "@/shared/types";
 import {
   VisualFlow,
   ViewportsSection,
@@ -16,7 +16,6 @@ interface CaptureState {
   status: CaptureStatus;
   progress: number;
   message: string;
-  result?: CaptureResult;
   error?: string;
 }
 
@@ -36,14 +35,12 @@ export function App() {
   const [showPlanModal, setShowPlanModal] = useState(false);
 
   useEffect(() => {
-    // Get current tab
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
         setCurrentTab(tabs[0]);
       }
     });
 
-    // Listen for progress updates
     const handleMessage = (message: ExtensionMessage) => {
       if (message.type === "CAPTURE_PROGRESS") {
         setState((prev) => ({
@@ -58,7 +55,7 @@ export function App() {
     return () => chrome.runtime.onMessage.removeListener(handleMessage);
   }, []);
 
-  const handleCapturePage = async () => {
+  const handleCapture = async () => {
     if (!currentTab?.id) return;
 
     setState({
@@ -70,20 +67,17 @@ export function App() {
     try {
       const options: CaptureOptions = { viewports };
       const response = await chrome.runtime.sendMessage({
-        type: "CAPTURE_PAGE",
+        type: "CAPTURE_PAGE_H2D",
         tabId: currentTab.id,
         options,
-      });
+      } as ExtensionMessage);
 
       if (response.success) {
         setState({
           status: "success",
           progress: 100,
           message: "Capture complete!",
-          result: response.data,
         });
-        // Download is handled by background service worker (autoDownloadResult)
-        // This ensures JSON is saved even if popup closes during capture
       } else {
         throw new Error(response.error || "Capture failed");
       }
@@ -101,12 +95,10 @@ export function App() {
     if (!currentTab?.id) return;
 
     try {
-      // Store save option for auto-download after capture
       await chrome.storage.session.set({
         pendingSaveOption: saveOption,
       });
 
-      // Send message to background script to start CDP Inspect Mode
       const response = await chrome.runtime.sendMessage({
         type: "START_SELECTION",
         tabId: currentTab.id,
@@ -117,7 +109,6 @@ export function App() {
         throw new Error(response?.error || "Failed to start selection");
       }
 
-      // Close popup - the background script handles the selection via CDP
       window.close();
     } catch (error) {
       setState({
@@ -144,10 +135,8 @@ export function App() {
       </header>
 
       <main class="popup-content">
-        {/* Visual Flow: Page → Logo → Wireframe */}
         <VisualFlow />
 
-        {/* Viewports Section */}
         {state.status !== "success" && (
           <>
             <ViewportsSection
@@ -156,24 +145,21 @@ export function App() {
               disabled={isCapturing}
             />
 
-            {/* Save Options */}
             <SaveOptions
               saveOption={saveOption}
               onChange={setSaveOption}
               disabled={isCapturing}
             />
 
-            {/* Capture Buttons */}
             <CaptureButtons
               isCapturing={isCapturing}
               canCapture={!!canCapture}
-              onCapturePage={handleCapturePage}
+              onCapture={handleCapture}
               onSelectArea={handleSelectArea}
             />
           </>
         )}
 
-        {/* Progress */}
         {state.status === "capturing" && (
           <div class="progress-section">
             <div class="progress-bar">
@@ -183,22 +169,15 @@ export function App() {
           </div>
         )}
 
-        {/* Error */}
         {state.status === "error" && (
           <div class="error-message">
             <span>{state.error}</span>
           </div>
         )}
 
-        {/* Success */}
-        {state.status === "success" && state.result && (
+        {state.status === "success" && (
           <div class="success-section">
             <div class="success-message">Page captured successfully!</div>
-            <div class="capture-stats">
-              <span>
-                Viewports: {state.result.frames.map((f) => f.viewport.width).join(", ")}px
-              </span>
-            </div>
             <div class="thanks-message">
               Thanks for using Web2Wireframe!
             </div>
@@ -211,7 +190,6 @@ export function App() {
           </div>
         )}
 
-        {/* Warning for non-capturable pages */}
         {!canCapture && state.status === "idle" && (
           <div class="warning-message">
             Cannot capture this page. Try a regular website.
@@ -219,13 +197,11 @@ export function App() {
         )}
       </main>
 
-      {/* Footer with Plan and Help icons only */}
       <Footer
         onPlanClick={() => setShowPlanModal(true)}
         onHelpClick={() => setShowHelpModal(true)}
       />
 
-      {/* Modals */}
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
       <PlanModal isOpen={showPlanModal} onClose={() => setShowPlanModal(false)} />
     </div>

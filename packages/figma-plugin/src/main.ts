@@ -35,6 +35,7 @@ import {
   createTextStyles,
   createWireframeFrame,
 } from "./rendering";
+import { convertH2DToWireframe } from "./rendering/css-converter";
 import {
   collectAllFonts,
   checkFontsAvailability,
@@ -235,13 +236,84 @@ export default function () {
         }
       }
 
+      // Pre-process: merge capturedData assets into frame assets before building assetsMap
+      const FIGMA_SUPPORTED_MIMES = new Set(["image/png", "image/jpeg", "image/gif"]);
+
+      // Collect assets that need conversion (AVIF/WebP → JPEG)
+      const assetsToConvert: Array<{ url: string; dataUri: string; frameIdx: number }> = [];
+
+      for (let fi = 0; fi < frames.length; fi++) {
+        const fd = frames[fi] as WireframeFrame;
+        if (fd.capturedData?.assets) {
+          if (!fd.assets) fd.assets = {};
+          for (const [url, entry] of Object.entries(fd.capturedData.assets)) {
+            const e = entry as { base64Encoded?: boolean; content?: string; mimeType?: string };
+            if (e.base64Encoded && e.content) {
+              const mime = e.mimeType || 'image/png';
+              const dataUri = `data:${mime};base64,${e.content}`;
+
+              if (mime.startsWith('image/') && mime !== 'image/svg+xml' && !FIGMA_SUPPORTED_MIMES.has(mime)) {
+                // Need conversion — collect for batch UI conversion
+                assetsToConvert.push({ url, dataUri, frameIdx: fi });
+              } else {
+                // Supported format — use directly
+                fd.assets[url] = dataUri;
+              }
+            }
+          }
+        }
+      }
+
+      // Convert unsupported image formats via UI iframe (has Canvas/createImageBitmap)
+      if (assetsToConvert.length > 0 && assetMode === "realAssets") {
+        figma.ui.postMessage({
+          type: "render-progress",
+          data: { step: "Converting images for Figma...", percent: 8 },
+        });
+
+        console.log(`[W2W] Converting ${assetsToConvert.length} images (AVIF/WebP → JPEG) via UI iframe...`);
+
+        // Send to UI for conversion and wait for response
+        const convertedAssets = await new Promise<Array<{ url: string; dataUri: string; frameIdx: number }>>((resolve) => {
+          const handler = (msg: { type: string; data?: { convertedAssets?: Array<{ url: string; dataUri: string; frameIdx: number }> } }) => {
+            if (msg.type === "assets-converted") {
+              resolve(msg.data?.convertedAssets || []);
+            }
+          };
+          // Temporarily add handler (will be overridden by next onmessage call)
+          const origHandler = figma.ui.onmessage;
+          figma.ui.onmessage = (msg) => {
+            if (msg.type === "assets-converted") {
+              figma.ui.onmessage = origHandler;
+              resolve(msg.data?.convertedAssets || []);
+            } else if (origHandler) {
+              origHandler(msg, { origin: '' } as never);
+            }
+          };
+
+          figma.ui.postMessage({
+            type: "convert-assets",
+            data: { assets: assetsToConvert },
+          });
+
+          // Timeout after 30s
+          setTimeout(() => resolve([]), 30000);
+        });
+
+        // Merge converted assets
+        for (const converted of convertedAssets) {
+          const fd = frames[converted.frameIdx] as WireframeFrame;
+          if (!fd.assets) fd.assets = {};
+          fd.assets[converted.url] = converted.dataUri;
+        }
+        console.log(`[W2W] Image conversion complete: ${convertedAssets.length}/${assetsToConvert.length} converted`);
+      }
+
       // Build unified assets map from all frames
       const assetsMap = new Map<string, string>();
-      console.log(`[W2W] assetMode="${assetMode}", frames count=${frames.length}`);
       if (assetMode === "realAssets") {
         for (const frame of frames) {
           const frameAssets = (frame as WireframeFrame).assets;
-          console.log(`[W2W] Frame assets: ${frameAssets ? Object.keys(frameAssets).length : 0} entries`);
           if (frameAssets) {
             for (const [url, base64] of Object.entries(frameAssets)) {
               assetsMap.set(url, base64);
@@ -249,16 +321,6 @@ export default function () {
           }
         }
         console.log(`[W2W] assetsMap built: ${assetsMap.size} entries`);
-      } else {
-        // Check if assets exist but mode is placeholders
-        let totalAssets = 0;
-        for (const frame of frames) {
-          const frameAssets = (frame as WireframeFrame).assets;
-          if (frameAssets) totalAssets += Object.keys(frameAssets).length;
-        }
-        if (totalAssets > 0) {
-          console.warn(`[W2W] ⚠️ ${totalAssets} assets available but assetMode="${assetMode}" — images will be placeholders. Switch to "Real Assets" in More Options.`);
-        }
       }
 
 
@@ -338,8 +400,32 @@ export default function () {
             },
           });
 
+          // Convert captured website data (content script extraction) to WireframeNode
+          const frameData = frames[i];
+          if (frameData.capturedData?.frame) {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const capturedFrame = frameData.capturedData.frame as any;
+              const convertedTree = convertH2DToWireframe(capturedFrame);
+              frameData.tree = convertedTree;
+
+              if (frameData.capturedData.assets) {
+                const assetMap: Record<string, string> = {};
+                for (const [url, entry] of Object.entries(frameData.capturedData.assets)) {
+                  if (entry.base64Encoded && entry.content) {
+                    const mime = entry.mimeType || 'image/png';
+                    assetMap[url] = `data:${mime};base64,${entry.content}`;
+                  }
+                }
+                frameData.assets = { ...frameData.assets, ...assetMap };
+              }
+            } catch (err) {
+              logger.warn("Captured data conversion failed, using existing tree", { error: err });
+            }
+          }
+
           const wireframeFrame = await createWireframeFrame(
-            frames[i],
+            frameData,
             sourceUrl,
             renderContext,
             i

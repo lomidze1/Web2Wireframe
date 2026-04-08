@@ -1,14 +1,83 @@
 /**
  * Content Script
  * Runs in the context of web pages
- * Handles UI overlay for selection mode and page info queries
+ * Handles UI overlay for selection mode, page info queries,
+ * and h2d-style DOM extraction.
  */
+
+import { extractPage, cleanupMarkers, extractSubtree } from './extractor';
 
 // Listen for messages from background script or popup
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "PING") {
     sendResponse({ status: "ready" });
     return true;
+  }
+
+  // h2d-style DOM extraction via content script
+  if (message.type === "EXTRACT_DOM") {
+    try {
+      const result = extractPage();
+      sendResponse({ success: true, data: result });
+    } catch (err) {
+      sendResponse({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return true;
+  }
+
+  // Re-extract a subtree for hover state capture
+  if (message.type === "EXTRACT_SUBTREE") {
+    try {
+      const selector = message.selector as string;
+      const result = extractSubtree(selector);
+      sendResponse({ success: true, data: result });
+    } catch (err) {
+      sendResponse({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return true;
+  }
+
+  // Cleanup data-w2w-idx markers (called by service worker after font collection)
+  if (message.type === "CLEANUP_MARKERS") {
+    cleanupMarkers();
+    sendResponse({ success: true });
+    return true;
+  }
+
+  // Fetch font binary from page context (bypasses CORS since page already has access)
+  if (message.type === "FETCH_FONT_DATA") {
+    const urls: string[] = message.urls;
+    const results: Record<string, string> = {};
+
+    (async () => {
+      for (const url of urls) {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) continue;
+          const blob = await resp.blob();
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const dataUrl = reader.result as string;
+              // Strip "data:...;base64," prefix
+              resolve(dataUrl.split(',')[1] || '');
+            };
+            reader.readAsDataURL(blob);
+          });
+          if (base64) results[url] = base64;
+        } catch {
+          // Skip failed fetches
+        }
+      }
+      sendResponse({ success: true, data: results });
+    })();
+    return true; // async response
   }
 
   if (message.type === "GET_PAGE_INFO") {

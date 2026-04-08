@@ -121,9 +121,19 @@ export async function createRealImage(
       return frame;
     }
 
-    // Raster image handling (PNG, JPEG, WebP, etc.)
+    // Detect MIME and log for debugging
+    const mimeMatch = base64Data.match(/^data:([^;,]+)/);
+    const detectedMime = mimeMatch?.[1] || 'unknown';
+    const commaIdx = base64Data.indexOf(',');
+    const b64Length = commaIdx > 0 ? base64Data.length - commaIdx - 1 : 0;
+    console.log(`[W2W-IMG] createRealImage: mime=${detectedMime} b64size=${Math.round(b64Length/1024)}KB name=${node.name}`);
+
+    // Try to create image directly — Figma supports PNG/JPEG/GIF.
+    // If createImage() throws, the catch block creates a placeholder fallback.
     const bytes = dataUriToBytes(base64Data);
+    console.log(`[W2W-IMG] decoded ${bytes.length} bytes, calling figma.createImage()...`);
     const image = figma.createImage(bytes);
+    console.log(`[W2W-IMG] ✅ createImage success! hash=${image.hash}`);
 
     frame.fills = [
       {

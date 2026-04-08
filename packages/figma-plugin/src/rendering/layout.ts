@@ -138,6 +138,42 @@ export function cssAlignSelfToFigma(
   return map[alignSelf] || "INHERIT";
 }
 
+// ============================================================================
+// CSS → Figma Grid Child Alignment
+// ============================================================================
+
+type GridChildAlign = "MIN" | "CENTER" | "MAX" | "STRETCH";
+
+const GRID_ALIGN_MAP: Record<string, GridChildAlign> = {
+  "flex-start": "MIN",
+  start: "MIN",
+  "self-start": "MIN",
+  "flex-end": "MAX",
+  end: "MAX",
+  "self-end": "MAX",
+  center: "CENTER",
+  stretch: "STRETCH",
+  normal: "STRETCH", // CSS grid default for align-items is stretch
+};
+
+/**
+ * Convert CSS align-items to Figma gridChildVerticalAlign for grid children.
+ * CSS align-items on a grid container controls vertical alignment of items in their cells.
+ */
+export function cssAlignToGridChild(align: string | undefined): GridChildAlign {
+  if (!align) return "STRETCH";
+  return GRID_ALIGN_MAP[align] || "STRETCH";
+}
+
+/**
+ * Convert CSS justify-items to Figma gridChildHorizontalAlign for grid children.
+ * CSS justify-items on a grid container controls horizontal alignment of items in their cells.
+ */
+export function cssJustifyToGridChild(justify: string | undefined): GridChildAlign {
+  if (!justify) return "STRETCH";
+  return GRID_ALIGN_MAP[justify] || "STRETCH";
+}
+
 /**
  * Use text-align as fallback for frame alignment when no explicit
  * justify-content/align-items is set. In CSS, text-align on a block

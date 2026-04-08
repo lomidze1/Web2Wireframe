@@ -49,6 +49,7 @@ export interface FigmaFill {
   elementWidth?: number;
   elementHeight?: number;
   isImagePlaceholder?: boolean;
+  imageUrl?: string; // URL for background-image (resolved from assets map)
   // CSS variable reference (e.g. "--primary-color") if this fill came from a var()
   cssVariable?: string;
 }
@@ -202,6 +203,14 @@ export interface WireframeFrame {
   viewportHeight: number;
   tree: WireframeNode;
   assets?: Record<string, string>; // URL → base64 data URI map for real asset extraction
+
+  // Captured website data (content script extraction)
+  // When present, `tree` should be generated from this via convertH2DToWireframe()
+  capturedData?: {
+    frame: Record<string, unknown>; // Raw CSS node tree
+    assets?: Record<string, { base64Encoded: boolean; content: string; mimeType?: string }>;
+    doc?: Record<string, unknown>;
+  };
 }
 
 // CSS Variable extracted from the page

@@ -134,18 +134,30 @@ function flattenResources(
 ): void {
   const frameId = tree.frame.id;
 
+  const fontExtensions = [".woff2", ".woff", ".ttf", ".otf", ".eot"];
+
   for (const resource of tree.resources) {
-    // Collect image and font resources
-    if (
-      resource.mimeType.startsWith("image/") ||
-      resource.mimeType.startsWith("font/") ||
-      resource.mimeType.startsWith("application/font-") ||
-      resource.mimeType === "application/x-font-woff" ||
-      resource.mimeType === "application/x-font-ttf"
-    ) {
-      map.set(resource.url, {
+    const mime = resource.mimeType;
+    const url = resource.url;
+
+    // Collect image resources
+    const isImage = mime.startsWith("image/");
+
+    // Collect font resources by MIME type
+    const isFontMime =
+      mime.startsWith("font/") ||
+      mime.startsWith("application/font-") ||
+      mime === "application/x-font-woff" ||
+      mime === "application/x-font-ttf" ||
+      mime.startsWith("application/octet-stream"); // woff2 often served as this from CDNs
+
+    // Collect font resources by file extension (fallback for unusual MIME types)
+    const isFontExt = fontExtensions.some((ext) => url.toLowerCase().includes(ext));
+
+    if (isImage || isFontMime || isFontExt) {
+      map.set(url, {
         frameId,
-        mimeType: resource.mimeType,
+        mimeType: mime,
       });
     }
   }

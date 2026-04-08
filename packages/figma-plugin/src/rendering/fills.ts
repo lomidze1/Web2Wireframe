@@ -185,7 +185,48 @@ export function convertFillsToPaints(
         }
         break;
 
-      case "IMAGE_PLACEHOLDER":
+      case "IMAGE_PLACEHOLDER": {
+        // Try to render real image if URL is available in assets map
+        if (fill.imageUrl && context.assetsMap?.has(fill.imageUrl)) {
+          try {
+            const dataUri = context.assetsMap.get(fill.imageUrl)!;
+            const commaIndex = dataUri.indexOf(",");
+            if (commaIndex > 0) {
+              const base64Str = dataUri.substring(commaIndex + 1);
+              // Decode base64 to bytes (pure JS — no atob in Figma sandbox)
+              const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+              const lookup = new Uint8Array(256);
+              for (let k = 0; k < B64.length; k++) lookup[B64.charCodeAt(k)] = k;
+              let bufLen = Math.floor(base64Str.length * 3 / 4);
+              if (base64Str[base64Str.length - 1] === "=") bufLen--;
+              if (base64Str[base64Str.length - 2] === "=") bufLen--;
+              const bytes = new Uint8Array(bufLen);
+              let p = 0;
+              for (let k = 0; k < base64Str.length; k += 4) {
+                const a = lookup[base64Str.charCodeAt(k)];
+                const b = lookup[base64Str.charCodeAt(k + 1)];
+                const c = lookup[base64Str.charCodeAt(k + 2)];
+                const d = lookup[base64Str.charCodeAt(k + 3)];
+                bytes[p++] = (a << 2) | (b >> 4);
+                bytes[p++] = ((b & 15) << 4) | (c >> 2);
+                bytes[p++] = ((c & 3) << 6) | d;
+              }
+              const image = figma.createImage(bytes);
+              paints.push({
+                type: "IMAGE",
+                imageHash: image.hash,
+                scaleMode: "FILL",
+                visible: true,
+                opacity: 1,
+              } as Paint);
+              console.log(`[W2W] ✅ Background image fill: ${fill.imageUrl.substring(0, 60)}...`);
+              break;
+            }
+          } catch (err) {
+            console.warn(`[W2W] Background image failed, using placeholder:`, err);
+          }
+        }
+        // Fallback: solid surface color
         const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);
         paints.push({
           type: "SOLID",
@@ -193,6 +234,7 @@ export function convertFillsToPaints(
           opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity,
         });
         break;
+      }
     }
   }
 

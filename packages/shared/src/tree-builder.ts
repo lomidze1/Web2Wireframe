@@ -1378,8 +1378,19 @@ export function buildElementTree(
       const textContent = (node.textContent || "").replace(/[\r\n\t]+/g, " ").trim();
       if (!textContent) return null; // Skip whitespace-only text nodes
 
-      // Look up parent for inherited typography styles
+      // Skip text node children when parent will become type=text itself
+      // (parent already carries textContent — creating a child would duplicate it)
       const parentNode = node.parentIndex >= 0 ? nodes[node.parentIndex] : null;
+      if (parentNode) {
+        const parentTag = parentNode.nodeName;
+        const parentIsTextTag = TEXT_TAGS.includes(parentTag as (typeof TEXT_TAGS)[number]);
+        const parentIsLeaf = isLeafElement(parentNode.index, nodes, childrenMap);
+        // Parent becomes type=text when: (TEXT_TAG || leaf with text) && no frame wrapper needed
+        // In those cases, parent.textContent already has the text — skip child
+        if (parentIsTextTag || (parentIsLeaf && parentTag !== "a")) {
+          return null;
+        }
+      }
       const parentStyles = parentNode?.computedStyles || {};
       const parentBounds = parentNode?.bounds || { x: 0, y: 0, width: 200, height: 20 };
 

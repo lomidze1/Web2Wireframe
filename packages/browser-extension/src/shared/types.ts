@@ -241,6 +241,18 @@ export interface ExtractedFont {
   fontBase64?: string;
   /** MIME type of the font binary (e.g., "font/woff2", "font/woff", "font/ttf") */
   fontMimeType?: string;
+  // h2d-compatible extended fields
+  fontDisplay?: string;
+  fontStretch?: string;
+  fontVariant?: string;
+  unicodeRange?: string;
+  fontVariationAxes?: Array<{
+    tag: string;
+    name: string;
+    minValue: number;
+    maxValue: number;
+    defaultValue: number;
+  }>;
 }
 
 // Extracted asset (image, SVG, etc.)
@@ -395,6 +407,10 @@ export type ExtensionMessage =
   // Content script UI messages
   | { type: "SHOW_SELECTION_UI" }
   | { type: "HIDE_SELECTION_UI" }
+  // h2d-style content script DOM extraction
+  | { type: "EXTRACT_DOM" }
+  // h2d-style page capture (content script + CDP fonts/assets)
+  | { type: "CAPTURE_PAGE_H2D"; tabId: number; options: CaptureOptions }
   // Legacy (kept for compatibility)
   | { type: "ELEMENT_PICKED"; selector: string; bounds: SelectionBounds; tabId: number; options: CaptureOptions };
 

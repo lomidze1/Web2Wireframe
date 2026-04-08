@@ -30,6 +30,8 @@ import {
   applyTextAlignFallback,
   needsMarginWrapper,
   createMarginWrapper,
+  cssAlignToGridChild,
+  cssJustifyToGridChild,
 } from "./layout";
 import {
   convertFillsToPaints,
@@ -425,8 +427,8 @@ export async function createNodeInFigma(
   }
 
   // Apply opacity - skip in plugin colors mode
-  if (context.colorMode !== "plugin" && node.opacity < 1 && node.opacity > 0) {
-    frame.opacity = node.opacity;
+  if (context.colorMode !== "plugin" && typeof node.opacity === 'number' && node.opacity < 1 && node.opacity > 0) {
+    frame.opacity = Math.max(0, Math.min(1, node.opacity));
   }
 
   // Apply blend mode (CSS mix-blend-mode → Figma BlendMode)
@@ -469,16 +471,24 @@ export async function createNodeInFigma(
 
         if (childNode) {
           if (gridApplied) {
-            // Grid: append child and set spans
+            // Grid: append child and set spans (wrapped in try-catch for Figma API Symbol proxies)
             frame.appendChild(childNode);
-            const colSpan = getGridSpanFromNode(child.gridColumnStart, child.gridColumnEnd);
-            const rowSpan = getGridSpanFromNode(child.gridRowStart, child.gridRowEnd);
-            const gridChild = childNode as unknown as Record<string, unknown>;
-            if (colSpan > 1) {
-              gridChild.gridColumnSpan = colSpan;
-            }
-            if (rowSpan > 1) {
-              gridChild.gridRowSpan = rowSpan;
+            try {
+              const colSpan = getGridSpanFromNode(child.gridColumnStart, child.gridColumnEnd);
+              const rowSpan = getGridSpanFromNode(child.gridRowStart, child.gridRowEnd);
+              if (typeof colSpan === 'number' && colSpan > 1) {
+                (childNode as unknown as Record<string, unknown>).gridColumnSpan = colSpan;
+              }
+              if (typeof rowSpan === 'number' && rowSpan > 1) {
+                (childNode as unknown as Record<string, unknown>).gridRowSpan = rowSpan;
+              }
+              // Apply grid cell alignment from parent's CSS align-items
+              const vertAlign = cssAlignToGridChild(node.alignItems);
+              if (vertAlign !== "STRETCH") {
+                (childNode as unknown as Record<string, unknown>).gridChildVerticalAlign = vertAlign;
+              }
+            } catch {
+              // Grid span/alignment properties may use Symbol proxies — silently skip
             }
           } else if (parentHasAutoLayout) {
             applyChildInAutoLayout(childNode, child, frame, childContext);
@@ -1055,7 +1065,6 @@ function applyGridLayout(frame: FrameNode, node: WireframeNode): void {
   const columnCount = columnSizes.length || 1;
   gridFrame.gridColumnCount = columnCount;
 
-  // Row count: explicit rows OR computed from children
   const explicitRowCount = rowSizes.length;
   const childCount = node.children?.length || 0;
   const implicitRowCount = Math.ceil(childCount / columnCount);
@@ -1063,26 +1072,30 @@ function applyGridLayout(frame: FrameNode, node: WireframeNode): void {
   gridFrame.gridRowCount = rowCount;
 
   // Apply track sizes
-  const gridColSizes = gridFrame.gridColumnSizes as FigmaGridTrackSize[] | undefined;
-  if (gridColSizes) {
-    for (let i = 0; i < columnCount; i++) {
-      if (columnSizes[i]) {
-        gridColSizes[i] = columnSizes[i];
+  try {
+    const gridColSizes = gridFrame.gridColumnSizes;
+    if (Array.isArray(gridColSizes)) {
+      for (let i = 0; i < columnCount; i++) {
+        if (columnSizes[i]) (gridColSizes as FigmaGridTrackSize[])[i] = columnSizes[i];
       }
     }
-  }
-  const gridRowSizesArr = gridFrame.gridRowSizes as FigmaGridTrackSize[] | undefined;
-  if (gridRowSizesArr) {
-    for (let i = 0; i < rowCount; i++) {
-      if (rowSizes[i]) {
-        gridRowSizesArr[i] = rowSizes[i];
+  } catch { /* Grid API may throw */ }
+  try {
+    const gridRowSizesArr = gridFrame.gridRowSizes;
+    if (Array.isArray(gridRowSizesArr)) {
+      for (let i = 0; i < rowCount; i++) {
+        if (rowSizes[i]) (gridRowSizesArr as FigmaGridTrackSize[])[i] = rowSizes[i];
       }
     }
-  }
+  } catch { /* Grid API may throw */ }
 
-  // Apply gaps
-  gridFrame.gridColumnGap = Math.max(node.gridColumnGap || 0, 0);
-  gridFrame.gridRowGap = Math.max(node.gridRowGap || 0, 0);
+  // Apply gaps (guard against Symbol/non-numeric values)
+  const colGap = typeof node.gridColumnGap === 'number' ? node.gridColumnGap : 0;
+  const rowGap = typeof node.gridRowGap === 'number' ? node.gridRowGap : 0;
+  try {
+    gridFrame.gridColumnGap = Math.max(colGap, 0);
+    gridFrame.gridRowGap = Math.max(rowGap, 0);
+  } catch { /* Grid API may throw */ }
 
   // Container sizing: always FIXED (FLEX tracks + HUG is invalid in Figma)
   frame.layoutSizingHorizontal = "FIXED";
@@ -1106,10 +1119,10 @@ function sortGridChildren(
   gridAutoFlow?: string
 ): WireframeNode[] {
   return [...children].sort((a, b) => {
-    const aRow = a.gridRowStart || Infinity;
-    const aCol = a.gridColumnStart || Infinity;
-    const bRow = b.gridRowStart || Infinity;
-    const bCol = b.gridColumnStart || Infinity;
+    const aRow = typeof a.gridRowStart === 'number' ? a.gridRowStart : Infinity;
+    const aCol = typeof a.gridColumnStart === 'number' ? a.gridColumnStart : Infinity;
+    const bRow = typeof b.gridRowStart === 'number' ? b.gridRowStart : Infinity;
+    const bCol = typeof b.gridColumnStart === 'number' ? b.gridColumnStart : Infinity;
 
     if (gridAutoFlow?.includes("column")) {
       // Column flow: sort by column first, then row
