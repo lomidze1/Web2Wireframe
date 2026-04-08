@@ -4,11 +4,8 @@ import { describe, it, expect } from "vitest";
 const { isPrivateHost, PRIVATE_IP_PATTERNS } = await import("../src/utils/urlValidation.js");
 
 describe("isPrivateHost", () => {
-  // Should block private/internal hosts
+  // Should block private/internal hosts (but NOT localhost/127.x.x.x)
   it.each([
-    ["localhost", "loopback hostname"],
-    ["LOCALHOST", "case-insensitive loopback"],
-    ["127.0.0.1", "IPv4 loopback"],
     ["10.0.0.1", "Class A private"],
     ["10.255.255.255", "Class A private upper"],
     ["192.168.1.1", "Class C private"],
@@ -16,11 +13,20 @@ describe("isPrivateHost", () => {
     ["172.16.0.1", "Class B private lower"],
     ["172.31.255.255", "Class B private upper"],
     ["0.0.0.0", "unspecified address"],
-    ["[::1]", "IPv6 loopback"],
     ["example.local", ".local domain"],
     ["server.internal", ".internal domain"],
   ])("blocks %s (%s)", (hostname) => {
     expect(isPrivateHost(hostname)).toBe(true);
+  });
+
+  // Should allow localhost and 127.x.x.x (user's own dev servers)
+  it.each([
+    ["localhost", "loopback hostname"],
+    ["LOCALHOST", "case-insensitive loopback"],
+    ["127.0.0.1", "IPv4 loopback"],
+    ["127.0.0.2", "IPv4 loopback alternate"],
+  ])("allows %s (%s)", (hostname) => {
+    expect(isPrivateHost(hostname)).toBe(false);
   });
 
   // Should allow public hosts
@@ -73,13 +79,14 @@ describe("HTML import request filter logic", () => {
       return false;
     }
 
-    // Only HTTPS
-    if (parsed.protocol !== "https:") {
+    // Block private hosts
+    if (isPrivateHost(parsed.hostname)) {
       return false;
     }
 
-    // Block private hosts
-    if (isPrivateHost(parsed.hostname)) {
+    // Only HTTPS for public hosts (localhost/127.x.x.x can use HTTP)
+    const isLoopback = /^localhost$/i.test(parsed.hostname) || /^127\.\d+\.\d+\.\d+$/.test(parsed.hostname);
+    if (parsed.protocol !== "https:" && !isLoopback) {
       return false;
     }
 
@@ -138,8 +145,16 @@ describe("HTML import request filter logic", () => {
     expect(shouldAllowRequest("https://ws.example.com", "websocket")).toBe(false);
   });
 
-  it("blocks requests to localhost", () => {
-    expect(shouldAllowRequest("https://localhost:3000/api", "stylesheet")).toBe(false);
+  it("allows requests to localhost (dev servers)", () => {
+    expect(shouldAllowRequest("https://localhost:3000/style.css", "stylesheet")).toBe(true);
+  });
+
+  it("allows HTTP requests to localhost (dev servers)", () => {
+    expect(shouldAllowRequest("http://localhost:3000/style.css", "stylesheet")).toBe(true);
+  });
+
+  it("allows requests to 127.0.0.1 (dev servers)", () => {
+    expect(shouldAllowRequest("http://127.0.0.1:8080/image.png", "image")).toBe(true);
   });
 
   it("blocks requests to private IPs", () => {

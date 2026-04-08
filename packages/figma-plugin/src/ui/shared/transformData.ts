@@ -492,7 +492,7 @@ export function transformFramesData(
 }
 
 /**
- * Transform options to backend format (for future use)
+ * Transform options to backend format
  */
 export function getBackendModes(options: {
   colorMode: ColorMode;
@@ -500,8 +500,8 @@ export function getBackendModes(options: {
   textMode: TextMode;
 }) {
   return {
-    colorMode: options.colorMode === "plugin" ? "plugin-colors" : "website-colors",
-    typographyMode: options.fontMode === "website" ? "website-fonts" : "plugin-fonts",
+    colorMode: options.colorMode,
+    typographyMode: options.fontMode,
     textMode: options.textMode,
   };
 }

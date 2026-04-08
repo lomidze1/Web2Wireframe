@@ -174,12 +174,30 @@ function findChromePath(): string | undefined {
  * - Page.getLayoutMetrics (not clientWidth eval)
  * - Returns viewportMetadata
  */
+/**
+ * In Docker, localhost/127.0.0.1 refers to the container itself.
+ * Remap to host.docker.internal so Puppeteer can reach the host machine's dev servers.
+ */
+function remapLocalhostForDocker(inputUrl: string): string {
+  // Only remap when running inside Docker (host.docker.internal is resolvable)
+  if (!process.env.MONGODB_URI?.includes("mongo:")) return inputUrl;
+  try {
+    const parsed = new URL(inputUrl);
+    if (/^localhost$/i.test(parsed.hostname) || /^127\.\d+\.\d+\.\d+$/.test(parsed.hostname)) {
+      parsed.hostname = "host.docker.internal";
+      return parsed.toString();
+    }
+  } catch { /* return original */ }
+  return inputUrl;
+}
+
 export async function renderWebsite(
   url: string,
   viewportWidth: number = 1440,
   options: RenderOptions = {},
 ): Promise<RenderResult> {
   let browser: Browser | undefined;
+  const effectiveUrl = remapLocalhostForDocker(url);
   try {
     browser = await puppeteer.launch({
       headless: true,
@@ -242,7 +260,7 @@ export async function renderWebsite(
     // hides scrollbar -> captures final metrics
     const { viewportMetadata, cleanup } = await orchestratePuppeteerViewport(page, viewportWidth, {
       navigationFn: async () => {
-        await page.goto(url, { waitUntil: "networkidle0", timeout: 60000 });
+        await page.goto(effectiveUrl, { waitUntil: "networkidle0", timeout: 60000 });
       },
       autoScrollFn: async () => {
         await autoScroll(page);
@@ -421,14 +439,15 @@ export async function renderHTMLContent(
         return;
       }
 
-      // Only allow HTTPS (block http, file, ftp, etc.)
-      if (parsed.protocol !== "https:") {
+      // Block private/internal hosts (SSRF protection)
+      if (isPrivateHost(parsed.hostname)) {
         void req.abort();
         return;
       }
 
-      // Block private/internal hosts (SSRF protection)
-      if (isPrivateHost(parsed.hostname)) {
+      // Only allow HTTPS for public hosts (localhost/127.x.x.x can use HTTP)
+      const isLoopback = /^localhost$/i.test(parsed.hostname) || /^127\.\d+\.\d+\.\d+$/.test(parsed.hostname);
+      if (parsed.protocol !== "https:" && !isLoopback) {
         void req.abort();
         return;
       }

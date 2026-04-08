@@ -546,6 +546,102 @@ describe("Text Node Extraction", () => {
   });
 
   // -----------------------------------------------------------------------
+  // 11b. <li> with ::marker + padding → FRAME with text child preserved
+  // -----------------------------------------------------------------------
+  it("should preserve text in <li> with ::marker when li has padding (frame wrapper)", () => {
+    // <li> with padding → becomes FRAME (not TEXT) → text node child must not be skipped
+    const nodes: ParsedSnapshotNode[] = [
+      makeElementNode(0, -1, "body", {
+        bounds: { x: 0, y: 0, width: 1440, height: 900 },
+        computedStyles: { ...baseStyles, width: "1440", height: "900" },
+      }),
+      makeElementNode(1, 0, "ul", {
+        bounds: { x: 0, y: 0, width: 400, height: 200 },
+        computedStyles: { ...baseStyles, width: "400", height: "200" },
+      }),
+      makeElementNode(2, 1, "li", {
+        bounds: { x: 40, y: 0, width: 360, height: 24 },
+        textContent: "\u2022 Colors: plugin only",
+        computedStyles: {
+          ...baseStyles,
+          display: "list-item",
+          width: "360",
+          height: "24",
+          "list-style-type": "disc",
+          "padding-left": "16",
+          "padding-top": "8",
+          "padding-bottom": "8",
+        },
+      }),
+      makeElementNode(3, 2, "::marker", {
+        bounds: { x: 20, y: 0, width: 16, height: 24 },
+        textContent: "\u2022",
+        computedStyles: {
+          ...baseStyles,
+          display: "inline",
+          width: "16",
+          height: "24",
+        },
+      }),
+      makeTextNode(4, 2, "Colors: plugin only"),
+    ];
+
+    // Override ::marker nodeType to -1 (pseudo-element)
+    nodes[3] = { ...nodes[3], nodeType: -1 };
+
+    const tree = buildTree(nodes);
+    const ul = tree.children[0];
+    const li = ul.children[0];
+    const allText = findTextChildren(li);
+
+    // Text content must be preserved even when <li> has padding (becomes FRAME)
+    const textChild = allText.find(t => t.textContent === "Colors: plugin only");
+    expect(textChild).toBeDefined();
+  });
+
+  // -----------------------------------------------------------------------
+  // 11c. <li> WITHOUT ::marker + padding → text node must not be skipped
+  // -----------------------------------------------------------------------
+  it("should preserve text in <li> without ::marker when li has padding", () => {
+    // <li> with padding but no ::marker pseudo-element in snapshot
+    // Text node child must NOT be skipped even though parent is leaf
+    const nodes: ParsedSnapshotNode[] = [
+      makeElementNode(0, -1, "body", {
+        bounds: { x: 0, y: 0, width: 1440, height: 900 },
+        computedStyles: { ...baseStyles, width: "1440", height: "900" },
+      }),
+      makeElementNode(1, 0, "ul", {
+        bounds: { x: 0, y: 0, width: 400, height: 200 },
+        computedStyles: { ...baseStyles, width: "400", height: "200" },
+      }),
+      makeElementNode(2, 1, "li", {
+        bounds: { x: 40, y: 0, width: 360, height: 40 },
+        textContent: "", // layout.text is empty for this <li>
+        computedStyles: {
+          ...baseStyles,
+          display: "list-item",
+          width: "360",
+          height: "40",
+          "list-style-type": "disc",
+          "padding-left": "16",
+          "padding-top": "8",
+          "padding-bottom": "8",
+        },
+      }),
+      // No ::marker — only text node child
+      makeTextNode(3, 2, "Fonts: plugin only"),
+    ];
+
+    const tree = buildTree(nodes);
+    const ul = tree.children[0];
+    const li = ul.children[0];
+    const allText = findTextChildren(li);
+
+    const textChild = allText.find(t => t.textContent === "Fonts: plugin only");
+    expect(textChild).toBeDefined();
+  });
+
+  // -----------------------------------------------------------------------
   // 12. <a> with text node child (type=frame, gets text child)
   // -----------------------------------------------------------------------
   it("should create text child for <a> element (type=frame)", () => {

@@ -533,10 +533,12 @@ export async function createNodeInFigma(
         style: "Regular",
       });
 
+      // Set fontName BEFORE characters — createText() defaults to "Inter Regular",
+      // but we loaded context.fontFamily. Must switch font first to avoid unloaded font error.
+      textNode.fontName = { family: context.fontFamily, style: "Regular" };
       textNode.characters = node.textContent;
       textNode.name = node.textContent.substring(0, 20);
       textNode.fontSize = node.fontSize || 16;
-      textNode.fontName = { family: context.fontFamily, style: "Regular" };
 
       // Apply text color
       const textColorToUse =

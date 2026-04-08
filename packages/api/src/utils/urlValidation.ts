@@ -2,14 +2,10 @@
 // Frontend equivalent: Plugin_Frontend/src/utils/urlValidation.ts
 
 export const PRIVATE_IP_PATTERNS: readonly RegExp[] = [
-  /^localhost$/i,
-  /^127\.\d+\.\d+\.\d+$/,
   /^10\.\d+\.\d+\.\d+$/,
   /^192\.168\.\d+\.\d+$/,
   /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
   /^0\.0\.0\.0$/,
-  /^\[::1\]$/,
-  /^\[::ffff:127\./,
 ];
 
 export interface UrlValidationResult {
@@ -75,9 +71,10 @@ export function validateUrl(input: string | null | undefined): UrlValidationResu
     }
   }
 
-  // Require at least one dot in hostname (TLD check), skip for IP addresses
+  // Require at least one dot in hostname (TLD check), skip for IP addresses and localhost
   const isIpAddress = /^\d+\.\d+\.\d+\.\d+$/.test(parsed.hostname);
-  if (!isIpAddress && !parsed.hostname.includes(".")) {
+  const isLocalhost = /^localhost$/i.test(parsed.hostname);
+  if (!isIpAddress && !isLocalhost && !parsed.hostname.includes(".")) {
     return {
       valid: false,
       url: urlString,
@@ -97,8 +94,13 @@ export function validateUrl(input: string | null | undefined): UrlValidationResu
 export function isPrivateHost(hostname: string): boolean {
   const lower = hostname.toLowerCase();
 
+  // Allow localhost and 127.x.x.x (user's own dev servers)
+  if (lower === "localhost" || /^127\.\d+\.\d+\.\d+$/.test(lower)) {
+    return false;
+  }
+
   // Block well-known internal hostnames
-  if (lower === "localhost" || lower.endsWith(".local") || lower.endsWith(".internal")) {
+  if (lower.endsWith(".local") || lower.endsWith(".internal")) {
     return true;
   }
 

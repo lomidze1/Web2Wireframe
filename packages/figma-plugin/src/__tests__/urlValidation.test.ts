@@ -115,24 +115,31 @@ describe("validateUrl", () => {
     });
   });
 
+  // ---- Allowed localhost (dev servers) ----
+  describe("allowed localhost addresses", () => {
+    it("allows localhost", () => {
+      const result = validateUrl("http://localhost:3000");
+      expect(result.valid).toBe(true);
+    });
+
+    it("allows LOCALHOST case-insensitive", () => {
+      const result = validateUrl("http://LOCALHOST:8080");
+      expect(result.valid).toBe(true);
+    });
+
+    it("allows 127.0.0.1", () => {
+      const result = validateUrl("http://127.0.0.1:3000");
+      expect(result.valid).toBe(true);
+    });
+
+    it("allows localhost without port", () => {
+      const result = validateUrl("http://localhost");
+      expect(result.valid).toBe(true);
+    });
+  });
+
   // ---- Blocked private IPs ----
   describe("blocked private/internal addresses", () => {
-    it("rejects localhost", () => {
-      const result = validateUrl("https://localhost");
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("private");
-    });
-
-    it("rejects localhost case-insensitive", () => {
-      const result = validateUrl("https://LOCALHOST");
-      expect(result.valid).toBe(false);
-    });
-
-    it("rejects 127.0.0.1", () => {
-      const result = validateUrl("https://127.0.0.1");
-      expect(result.valid).toBe(false);
-    });
-
     it("rejects 192.168.x.x", () => {
       const result = validateUrl("https://192.168.1.1");
       expect(result.valid).toBe(false);

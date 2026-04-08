@@ -5,6 +5,8 @@ services:
       dockerfile: packages/api/Dockerfile
     ports:
       - "3002:3002"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - API_PORT=3002
       - MONGODB_URI=mongodb://mongo:27017/web2wireframe

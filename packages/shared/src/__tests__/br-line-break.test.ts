@@ -317,4 +317,21 @@ describe("isLeafElement — <br> handling", () => {
 
     expect(isLeafElement(parent.index, nodes, childrenMap)).toBe(true);
   });
+
+  it("returns false when pseudo-element children exist (::marker, ::before, ::after)", () => {
+    // <li>::marker + "text"</li> — NOT a leaf because ::marker is a pseudo child
+    const parent = makeNode({ nodeName: "li" });
+    const marker = makeNode({
+      nodeName: "::marker",
+      nodeType: -1,
+      parentIndex: parent.index,
+      textContent: "\u2022",
+    });
+    const text = makeTextNode("Item text", parent.index);
+
+    const nodes = [parent, marker, text];
+    const childrenMap = buildChildrenMap(nodes);
+
+    expect(isLeafElement(parent.index, nodes, childrenMap)).toBe(false);
+  });
 });

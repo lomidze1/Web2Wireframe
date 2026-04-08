@@ -164,16 +164,6 @@ export default function HTML() {
     settings.collapseSettings();
 
     try {
-      const colorModeMap: Record<string, string> = {
-        plugin: "plugin-colors",
-        website: "website-colors",
-      };
-
-      const fontModeMap: Record<string, string> = {
-        plugin: "plugin-fonts",
-        website: "website-fonts",
-      };
-
       const response = await fetch(`${API_URL}/api/import-html`, {
         method: "POST",
         headers: {
@@ -183,8 +173,8 @@ export default function HTML() {
           htmlCode: trimmedHTML,
           cssCode: cssCode.trim() || undefined,
           viewports: settings.localViewports.map(Number),
-          colorMode: colorModeMap[settings.localColorMode] || "plugin-colors",
-          typographyMode: fontModeMap[settings.localFontMode] || "plugin-fonts",
+          colorMode: settings.localColorMode,
+          typographyMode: settings.localFontMode,
           textMode: settings.localTextMode,
           pluginColors: config.pluginColors,
         }),

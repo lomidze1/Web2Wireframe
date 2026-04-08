@@ -601,14 +601,14 @@ describe("HTML Tab", () => {
       expect(msg.data.variableMode).toBe("direct");
     });
 
-    it("maps colorMode 'plugin' to 'plugin-colors' in API request", async () => {
+    it("sends colorMode and typographyMode directly to API", async () => {
       const { container } = render(<HTML />);
       await triggerGenerate(container, "<h1>Hello</h1>");
 
       const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       const body = JSON.parse(callArgs[1].body);
-      expect(body.colorMode).toBe("plugin-colors");
-      expect(body.typographyMode).toBe("plugin-fonts");
+      expect(body.colorMode).toBe("plugin");
+      expect(body.typographyMode).toBe("plugin");
     });
 
     it("handles missing wireframeData gracefully", async () => {

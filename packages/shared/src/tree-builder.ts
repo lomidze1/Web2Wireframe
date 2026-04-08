@@ -477,7 +477,13 @@ export function isLeafElement(
 
   for (const childIdx of childIndices) {
     const child = nodes[childIdx];
-    if (child && child.nodeType === 1 && child.nodeName !== "br") {
+    if (!child) continue;
+    // Element nodes (nodeType 1) except <br> make parent non-leaf
+    if (child.nodeType === 1 && child.nodeName !== "br") {
+      return false;
+    }
+    // Pseudo-elements (nodeType -1: ::before, ::after, ::marker) also make parent non-leaf
+    if (child.nodeType === -1) {
       return false;
     }
   }
@@ -1387,7 +1393,8 @@ export function buildElementTree(
         const parentIsLeaf = isLeafElement(parentNode.index, nodes, childrenMap);
         // Parent becomes type=text when: (TEXT_TAG || leaf with text) && no frame wrapper needed
         // In those cases, parent.textContent already has the text — skip child
-        if (parentIsTextTag || (parentIsLeaf && parentTag !== "a")) {
+        // Exception: <li> may become FRAME (padding/border) so text child must survive
+        if (parentIsTextTag || (parentIsLeaf && parentTag !== "a" && parentTag !== "li")) {
           return null;
         }
       }
