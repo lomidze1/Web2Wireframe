@@ -359,7 +359,7 @@ function convertTextNodeFromValue(
 
   return {
     id,
-    name: tv.value.slice(0, 30),
+    name: getTextNodeName(tv.value, parentNode),
     type: 'text' as const,
     tag: '#text',
     x: parentNode ? tv.x - parentNode.x : tv.x,
@@ -1076,10 +1076,29 @@ function parseFontWeight(weight: string): number {
   return map[weight] || 400;
 }
 
+/** Name for standalone TEXT nodes — use parent's icon class if available */
+function getTextNodeName(value: string, parentNode: H2DFrameNode | null): string {
+  if (parentNode) {
+    const iconClass = parentNode.classList.find(c =>
+      c.startsWith('fa-') && !['fa-solid', 'fa-regular', 'fa-light', 'fa-thin', 'fa-brands', 'fa-duotone', 'fa-sharp'].includes(c)
+    );
+    if (iconClass) return iconClass;
+  }
+  return value.slice(0, 30);
+}
+
 function getNodeName(node: H2DFrameNode): string {
   const tag = node.tag;
   if (node.attr.id) return `${tag}#${node.attr.id}`;
-  if (node.classList.length > 0) return `${tag}.${node.classList[0]}`;
+  if (node.classList.length > 0) {
+    // For icon fonts (FA, etc.), prefer the specific icon class (fa-layer-group)
+    // over the generic weight class (fa-solid, fa-regular, fa-brands)
+    const iconClass = node.classList.find(c =>
+      c.startsWith('fa-') && !['fa-solid', 'fa-regular', 'fa-light', 'fa-thin', 'fa-brands', 'fa-duotone', 'fa-sharp'].includes(c)
+    );
+    if (iconClass) return iconClass;
+    return `${tag}.${node.classList[0]}`;
+  }
   return tag;
 }
 
