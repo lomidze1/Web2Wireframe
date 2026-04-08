@@ -57,15 +57,6 @@ interface ConvertOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Injected pseudo-element spans should render at 0,0 inside their parent */
-function isPseudoSpan(node: H2DFrameNode): boolean {
-  return node.classList.includes('__w2w-pseudo-before') || node.classList.includes('__w2w-pseudo-after');
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -168,7 +159,30 @@ function convertFrame(
     } else if (child.type === 'SVG') {
       children.push(convertSVGNode(child, node));
     } else if (child.type === 'FRAME') {
-      children.push(convertFrame(child, node, options));
+      // Pseudo-element wrappers (__w2w-pseudo-before/after): flatten their children
+      // directly into parent, skipping the wrapper frame (like h2d does).
+      const isPseudo = child.classList.includes('__w2w-pseudo-before') || child.classList.includes('__w2w-pseudo-after');
+      if (isPseudo) {
+        for (const pseudoChild of child.children) {
+          if (pseudoChild.type === 'TEXT') {
+            textChildValues.push({
+              value: pseudoChild.value,
+              font: pseudoChild.font,
+              platformFamily: pseudoChild.platformFont?.familyName,
+              x: pseudoChild.x,
+              y: pseudoChild.y,
+              width: pseudoChild.width,
+              height: pseudoChild.height,
+            });
+          } else if (pseudoChild.type === 'SVG') {
+            children.push(convertSVGNode(pseudoChild, node));
+          } else if (pseudoChild.type === 'FRAME') {
+            children.push(convertFrame(pseudoChild, node, options));
+          }
+        }
+      } else {
+        children.push(convertFrame(child, node, options));
+      }
     }
   }
 
@@ -247,8 +261,8 @@ function convertFrame(
     type,
     tag: node.tag,
     className: node.classList.join(' ') || undefined,
-    x: isPseudoSpan(node) ? 0 : (parent ? node.x - parent.x : node.x),
-    y: isPseudoSpan(node) ? 0 : (parent ? node.y - parent.y : node.y),
+    x: parent ? node.x - parent.x : node.x,
+    y: parent ? node.y - parent.y : node.y,
     width: node.width,
     height: node.height,
 

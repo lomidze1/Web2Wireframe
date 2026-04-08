@@ -259,11 +259,11 @@ describe("css-converter: TEXT node geometry in mixed containers", () => {
 });
 
 // ---------------------------------------------------------------------------
-// __w2w-pseudo-before/after children → x=0, y=0
+// __w2w-pseudo-before/after: flatten (skip wrapper frame)
 // ---------------------------------------------------------------------------
 
-describe("css-converter: pseudo-element children positioned at 0,0", () => {
-  it("__w2w-pseudo-before child gets x=0, y=0 (not parent-relative)", () => {
+describe("css-converter: pseudo-element wrapper flattening", () => {
+  it("__w2w-pseudo-before TEXT child is flattened into parent (no wrapper frame)", () => {
     const pseudoSpan = makeFrame({
       x: 215.41, y: 1201.02, width: 22.41, height: 22.4,
       tag: 'span',
@@ -287,32 +287,37 @@ describe("css-converter: pseudo-element children positioned at 0,0", () => {
 
     const result = convertH2DToWireframe(root as any);
     const iconNode = result.children[0];
-    expect(iconNode.x).toBe(193);  // parent-relative from root
 
-    const pseudoNode = iconNode.children[0];
-    expect(pseudoNode.x).toBe(0);  // NOT 22.41 (which would be outside frame)
-    expect(pseudoNode.y).toBe(0);
+    // Icon should NOT have a wrapper frame child — text is coalesced directly
+    // The pseudo's TEXT child "\uf5ae" becomes the icon's textContent
+    expect(iconNode.textContent).toBeTruthy();
+    // No __w2w-pseudo-before frame wrapper in children
+    const hasWrapperFrame = iconNode.children.some(c => c.className?.includes('__w2w-pseudo'));
+    expect(hasWrapperFrame).toBe(false);
   });
 
-  it("__w2w-pseudo-after child also gets x=0, y=0", () => {
+  it("__w2w-pseudo-after FRAME child is flattened into parent", () => {
+    const innerFrame = makeFrame({ x: 500, y: 300, width: 10, height: 10, tag: 'div' });
     const pseudoSpan = makeFrame({
       x: 500, y: 300, width: 10, height: 10,
       tag: 'span',
       classList: ['__w2w-pseudo-after'],
+      children: [innerFrame],
     });
     const parent = makeFrame({
-      x: 400, y: 200, width: 50, height: 50,
+      x: 400, y: 200, width: 200, height: 200,
       children: [pseudoSpan],
     });
 
     const result = convertH2DToWireframe(parent as any);
-    const pseudoNode = result.children[0];
-    expect(pseudoNode.x).toBe(0);
-    expect(pseudoNode.y).toBe(0);
+    // Inner frame should be direct child of parent (not wrapped in pseudo frame)
+    expect(result.children.length).toBe(1);
+    expect(result.children[0].tag).toBe('div');
+    expect(result.children[0].x).toBe(100);  // 500 - 400, relative to parent
   });
 
-  it("regular child still uses parent-relative coords", () => {
-    const child = makeFrame({ x: 250, y: 350, width: 100, height: 50 });
+  it("regular FRAME child is NOT flattened", () => {
+    const child = makeFrame({ x: 250, y: 350, width: 100, height: 50, tag: 'div' });
     const parent = makeFrame({
       x: 200, y: 300, width: 400, height: 400,
       children: [child],
@@ -320,6 +325,6 @@ describe("css-converter: pseudo-element children positioned at 0,0", () => {
 
     const result = convertH2DToWireframe(parent as any);
     expect(result.children[0].x).toBe(50);  // 250 - 200
-    expect(result.children[0].y).toBe(50);  // 350 - 300
+    expect(result.children[0].tag).toBe('div');
   });
 });
