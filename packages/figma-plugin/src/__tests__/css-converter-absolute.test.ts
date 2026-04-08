@@ -291,6 +291,9 @@ describe("css-converter: pseudo-element wrapper flattening", () => {
     // Icon should NOT have a wrapper frame child — text is coalesced directly
     // The pseudo's TEXT child "\uf5ae" becomes the icon's textContent
     expect(iconNode.textContent).toBeTruthy();
+    // Icon becomes type='text' (coalesced) with FA icon class name
+    expect(iconNode.type).toBe('text');
+    expect(iconNode.name).toBe('fa-pen-ruler');
     // No __w2w-pseudo-before frame wrapper in children
     const hasWrapperFrame = iconNode.children.some(c => c.className?.includes('__w2w-pseudo'));
     expect(hasWrapperFrame).toBe(false);
