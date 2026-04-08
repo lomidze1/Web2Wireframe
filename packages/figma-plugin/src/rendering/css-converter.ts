@@ -53,6 +53,16 @@ type H2DNode = H2DFrameNode | H2DTextNode | H2DSVGNode;
 
 interface ConvertOptions {
   cssVariables?: Map<string, string>;
+  layoutMode?: 'absolute' | 'autoLayout';
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Injected pseudo-element spans should render at 0,0 inside their parent */
+function isPseudoSpan(node: H2DFrameNode): boolean {
+  return node.classList.includes('__w2w-pseudo-before') || node.classList.includes('__w2w-pseudo-after');
 }
 
 // ---------------------------------------------------------------------------
@@ -97,13 +107,17 @@ function convertFrame(
 
 
   // Layout
-  const layoutMode = getLayoutMode(s);
+  const cssLayoutMode = getLayoutMode(s);
+  const isAbsoluteMode = options.layoutMode === 'absolute';
+  const layoutMode = isAbsoluteMode ? 'NONE' as const : cssLayoutMode;
   const padding = parsePadding(str(s.paddingTop), str(s.paddingRight), str(s.paddingBottom), str(s.paddingLeft), str(s.padding));
   const gapStr = str(s.gap);
-  const itemSpacing = parseFloat(gapStr) || 0;
+  const itemSpacing = isAbsoluteMode ? 0 : (parseFloat(gapStr) || 0);
 
   // Sizing
-  const sizing = getSizing(s, parent?.styles, layoutMode);
+  const sizing = isAbsoluteMode
+    ? { horizontal: 'FIXED' as const, vertical: 'FIXED' as const, grow: 0 as const, align: 'INHERIT' as const }
+    : getSizing(s, parent?.styles, cssLayoutMode);
 
   // Fills
   const fills = parseFills(s, node.width, node.height);
@@ -136,7 +150,7 @@ function convertFrame(
 
   // Convert children — separate TEXT nodes from FRAME/SVG nodes
   const children: WireframeNode[] = [];
-  const textChildValues: { value: string; font: string; platformFamily?: string }[] = [];
+  const textChildValues: { value: string; font: string; platformFamily?: string; x: number; y: number; width: number; height: number }[] = [];
   let textContent = '';
 
   for (const child of node.children) {
@@ -146,9 +160,13 @@ function convertFrame(
         value: child.value,
         font: child.font,
         platformFamily: child.platformFont?.familyName,
+        x: child.x,
+        y: child.y,
+        width: child.width,
+        height: child.height,
       });
     } else if (child.type === 'SVG') {
-      children.push(convertSVGNode(child));
+      children.push(convertSVGNode(child, node));
     } else if (child.type === 'FRAME') {
       children.push(convertFrame(child, node, options));
     }
@@ -199,7 +217,7 @@ function convertFrame(
   } else if (hasTextChildren) {
     // Mixed children (TEXT + FRAME/SVG) or container tag — keep TEXT as individual children
     for (const tv of textChildValues) {
-      const textNode = convertTextNodeFromValue(tv, s, options);
+      const textNode = convertTextNodeFromValue(tv, node, s, options);
       children.push(textNode);
     }
     // Set frame's textContent for fallback rendering (li text, etc.)
@@ -229,8 +247,8 @@ function convertFrame(
     type,
     tag: node.tag,
     className: node.classList.join(' ') || undefined,
-    x: node.x,
-    y: node.y,
+    x: isPseudoSpan(node) ? 0 : (parent ? node.x - parent.x : node.x),
+    y: isPseudoSpan(node) ? 0 : (parent ? node.y - parent.y : node.y),
     width: node.width,
     height: node.height,
 
@@ -239,20 +257,20 @@ function convertFrame(
     layoutMode,
     itemSpacing,
     padding,
-    justifyContent: str(s.justifyContent),
-    alignItems: str(s.alignItems),
-    flexWrap: str(s.flexWrap),
+    justifyContent: !isAbsoluteMode ? str(s.justifyContent) : undefined,
+    alignItems: !isAbsoluteMode ? str(s.alignItems) : undefined,
+    flexWrap: !isAbsoluteMode ? str(s.flexWrap) : undefined,
     layoutGrow: sizing.grow,
     layoutAlign: sizing.align,
     layoutSizingHorizontal: sizing.horizontal,
     layoutSizingVertical: sizing.vertical,
 
     // Grid
-    gridTemplateColumns: str(s.gridTemplateColumns),
-    gridTemplateRows: str(s.gridTemplateRows),
-    gridAutoFlow: str(s.gridAutoFlow),
-    gridColumnGap: parseFloat(gapStr) || 0,
-    gridRowGap: parseFloat(str(s.rowGap) || gapStr) || 0,
+    gridTemplateColumns: !isAbsoluteMode ? str(s.gridTemplateColumns) : undefined,
+    gridTemplateRows: !isAbsoluteMode ? str(s.gridTemplateRows) : undefined,
+    gridAutoFlow: !isAbsoluteMode ? str(s.gridAutoFlow) : undefined,
+    gridColumnGap: !isAbsoluteMode ? (parseFloat(gapStr) || 0) : undefined,
+    gridRowGap: !isAbsoluteMode ? (parseFloat(str(s.rowGap) || gapStr) || 0) : undefined,
 
     // Visual
     fills: fills.length > 0 ? fills : undefined,
@@ -313,7 +331,8 @@ function convertFrame(
  * Used when TEXT children can't be coalesced (mixed with FRAME/SVG children).
  */
 function convertTextNodeFromValue(
-  tv: { value: string; font: string; platformFamily?: string },
+  tv: { value: string; font: string; platformFamily?: string; x: number; y: number; width: number; height: number },
+  parentNode: H2DFrameNode | null,
   parentStyles: Record<string, string | number | undefined>,
   _options: ConvertOptions,
 ): WireframeNode {
@@ -329,10 +348,10 @@ function convertTextNodeFromValue(
     name: tv.value.slice(0, 30),
     type: 'text' as const,
     tag: '#text',
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
+    x: parentNode ? tv.x - parentNode.x : tv.x,
+    y: parentNode ? tv.y - parentNode.y : tv.y,
+    width: tv.width,
+    height: tv.height,
 
     layoutMode: 'NONE' as const,
     itemSpacing: 0,
@@ -363,7 +382,7 @@ function convertTextNodeFromValue(
 // SVG node conversion
 // ---------------------------------------------------------------------------
 
-function convertSVGNode(node: H2DSVGNode): WireframeNode {
+function convertSVGNode(node: H2DSVGNode, parent: H2DFrameNode | null): WireframeNode {
   const id = `h2d-${_nodeId++}`;
 
   return {
@@ -371,8 +390,8 @@ function convertSVGNode(node: H2DSVGNode): WireframeNode {
     name: 'SVG',
     type: 'placeholder',
     tag: 'svg',
-    x: node.x,
-    y: node.y,
+    x: parent ? node.x - parent.x : node.x,
+    y: parent ? node.y - parent.y : node.y,
     width: node.width,
     height: node.height,
 

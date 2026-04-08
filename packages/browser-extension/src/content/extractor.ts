@@ -528,6 +528,19 @@ function injectPseudoSpan(
     span.style.display = 'inline';
   }
 
+  // Make parent a positioning context so span overlays where ::before/::after renders
+  const parentPosition = getComputedStyle(el).position;
+  if (parentPosition === 'static') {
+    el.style.position = 'relative';
+  }
+
+  // Position span as overlay on parent (matches where pseudo-element renders)
+  span.style.position = 'absolute';
+  span.style.inset = '0';
+  span.style.margin = '0';
+  span.style.width = '';
+  span.style.height = '';
+
   // Insert into DOM
   if (pseudo === '::before') {
     el.insertBefore(span, el.firstChild);
