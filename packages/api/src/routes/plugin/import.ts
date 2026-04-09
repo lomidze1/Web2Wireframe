@@ -6,7 +6,7 @@
 
 import { Router, Request, Response } from "express";
 import Wireframe from "../../models/Wireframe.js";
-import { createWireframeData, buildFullPage, createWireframeDataFromHTML } from "../../lib/htmlExtractor.js";
+import { createWireframeData, buildFullPage, createWireframeDataFromHTML, createWireframeDataW2W, createWireframeDataFromHTMLW2W } from "../../lib/htmlExtractor.js";
 import {
   DEFAULT_PLUGIN_COLORS,
   createLocalStylesStructure,
@@ -97,14 +97,14 @@ router.post("/import-url", async (req: Request, res: Response) => {
     // Merge custom plugin colors with defaults
     const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
 
-    // Generate wireframe data with nested tree structure
-    console.log(`[W2W-DEBUG] /import-url: starting createWireframeData for ${normalizedSourceUrl}`);
-    const { frames, cssVariables, fonts, stylesheets } = await createWireframeData(normalizedSourceUrl!, viewports);
+    // Generate wireframe data using W2W content script pipeline
+    // This uses the same extraction code as Browser Extension for pixel-identical output
+    console.log(`[W2W] /import-url: starting W2W extraction for ${normalizedSourceUrl}`);
+    const { frames, cssVariables, fonts } = await createWireframeDataW2W(normalizedSourceUrl!, viewports);
     for (let i = 0; i < frames.length; i++) {
       const f = frames[i];
       const assetCount = f.assets ? Object.keys(f.assets).length : 0;
-      const assetSize = f.assets ? Object.values(f.assets).reduce((sum, v) => sum + (v?.length || 0), 0) : 0;
-      console.log(`[W2W-DEBUG] /import-url: frame[${i}] viewport=${f.viewportWidth}x${f.viewportHeight} | assets: ${assetCount} | totalSize: ${(assetSize / 1024).toFixed(0)}KB`);
+      console.log(`[W2W] /import-url: frame[${i}] viewport=${f.viewportWidth}x${f.viewportHeight} | assets: ${assetCount}`);
     }
 
     if (!frames || frames.length === 0) {
@@ -157,7 +157,6 @@ router.post("/import-url", async (req: Request, res: Response) => {
       pluginColors: finalPluginColors,
       cssVariables: cssVariables || [],
       fonts: fonts || [],
-      stylesheets: stylesheets || [],
     });
   } catch (error) {
     console.error("[Import] Error:", error);
@@ -251,11 +250,8 @@ router.post("/import-html", async (req: Request, res: Response) => {
     // Merge custom plugin colors with defaults
     const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
 
-    // Build full HTML document from fragments
-    const fullHTML = buildFullPage(htmlCode, cssCode);
-
-    // Generate wireframe data
-    const { frames, cssVariables, fonts, stylesheets } = await createWireframeDataFromHTML(fullHTML, viewports);
+    // Generate wireframe data using W2W content script pipeline
+    const { frames, cssVariables, fonts } = await createWireframeDataFromHTMLW2W(htmlCode, cssCode, viewports);
 
     if (!frames || frames.length === 0) {
       return res.status(500).json({
@@ -280,7 +276,6 @@ router.post("/import-html", async (req: Request, res: Response) => {
       pluginColors: finalPluginColors,
       cssVariables: cssVariables || [],
       fonts: fonts || [],
-      stylesheets: stylesheets || [],
     });
   } catch (error) {
     console.error("[HTML Import] Error:", error);

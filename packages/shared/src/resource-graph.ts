@@ -337,6 +337,55 @@ export function collectImageUrls(tree: AssetTreeNode): Set<string> {
   return urls;
 }
 
+// ---------------------------------------------------------------------------
+// W2W tree asset collection
+// ---------------------------------------------------------------------------
+
+/** Minimal W2W node shape for walking — avoids importing full W2WFrameNode */
+interface W2WAssetNode {
+  type: string;
+  $url?: string;
+  styles?: Record<string, string | number>;
+  children?: W2WAssetNode[];
+}
+
+/**
+ * Walk a W2WFrameNode tree and collect all unique image URLs.
+ *
+ * W2W trees store image references differently from ExtractedElement:
+ * - `$url` on FRAME nodes (resolved img.src / video.poster / background-image primary)
+ * - `styles.backgroundImage` may contain additional `url()` references
+ */
+export function collectImageUrlsFromW2W(tree: W2WAssetNode): Set<string> {
+  const urls = new Set<string>();
+
+  function walk(node: W2WAssetNode): void {
+    if (node.type !== "FRAME") return;
+
+    // Direct image URL (img src, video poster, or primary bg image)
+    if (node.$url) urls.add(node.$url);
+
+    // Background image URLs from styles
+    const bgImg = node.styles?.backgroundImage;
+    if (bgImg && typeof bgImg === "string" && bgImg !== "none") {
+      const matches = bgImg.matchAll(/url\(\s*['"]?(.*?)['"]?\s*\)/g);
+      for (const m of matches) {
+        if (m[1]) urls.add(m[1]);
+      }
+    }
+
+    // Recurse into children
+    if (node.children) {
+      for (const child of node.children) {
+        walk(child);
+      }
+    }
+  }
+
+  walk(tree);
+  return urls;
+}
+
 /**
  * Extract real image assets for a tree of elements.
  *

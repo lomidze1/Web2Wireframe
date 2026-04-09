@@ -17,10 +17,20 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./content-script-bundle": {
+      "import": {
+        "types": "./dist/content-script-bundle.d.ts",
+        "default": "./dist/content-script-bundle.js"
+      },
+      "require": {
+        "types": "./dist/content-script-bundle.d.cts",
+        "default": "./dist/content-script-bundle.cjs"
+      }
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "build": "tsup src/index.ts src/content-script-bundle.ts --format cjs,esm --dts --clean && node ../../scripts/bundle-content-script.mjs",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "vitest run",
     "type-check": "tsc --noEmit"

@@ -4,13 +4,13 @@ import request from "supertest";
 // Use random port to avoid EADDRINUSE conflicts
 process.env.API_PORT = "0";
 
-// Mock createWireframeDataFromHTML before importing app
-const mockCreateWireframeDataFromHTML = vi.fn();
+// Mock createWireframeDataFromHTMLW2W before importing app
+const mockCreateWireframeDataFromHTMLW2W = vi.fn();
 vi.mock("../src/lib/htmlExtractor.js", async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
-    createWireframeDataFromHTML: mockCreateWireframeDataFromHTML,
+    createWireframeDataFromHTMLW2W: mockCreateWireframeDataFromHTMLW2W,
   };
 });
 
@@ -85,7 +85,7 @@ describe("POST /api/import-html — success flow", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateWireframeDataFromHTML.mockResolvedValue({
+    mockCreateWireframeDataFromHTMLW2W.mockResolvedValue({
       frames: MOCK_FRAMES,
       cssVariables: MOCK_CSS_VARS,
     });
@@ -113,10 +113,11 @@ describe("POST /api/import-html — success flow", () => {
       .send({ htmlCode: "<p>Defaults</p>" });
 
     expect(res.status).toBe(200);
-    // Check mockCreateWireframeDataFromHTML was called with defaults
-    expect(mockCreateWireframeDataFromHTML).toHaveBeenCalledWith(
-      expect.any(String),      // fullHTML
-      [1440],                   // default viewports
+    // Check mockCreateWireframeDataFromHTMLW2W was called with defaults
+    expect(mockCreateWireframeDataFromHTMLW2W).toHaveBeenCalledWith(
+      "<p>Defaults</p>",        // htmlCode
+      "",                        // cssCode default
+      [1440],                    // default viewports
     );
   });
 
@@ -148,10 +149,12 @@ describe("POST /api/import-html — success flow", () => {
         cssCode: "div { color: red; }",
       });
 
-    // buildFullPage wraps fragment with CSS in <style>
-    const calledHTML = mockCreateWireframeDataFromHTML.mock.calls[0][0];
-    expect(calledHTML).toContain("<style>div { color: red; }</style>");
-    expect(calledHTML).toContain("<body><div>Styled</div></body>");
+    // createWireframeDataFromHTMLW2W receives htmlCode and cssCode separately
+    expect(mockCreateWireframeDataFromHTMLW2W).toHaveBeenCalledWith(
+      "<div>Styled</div>",
+      "div { color: red; }",
+      [1440],
+    );
   });
 
   it("forwards custom viewports to extraction", async () => {
@@ -160,7 +163,7 @@ describe("POST /api/import-html — success flow", () => {
       { viewportWidth: 768, viewportHeight: 900, tree: { tag: "BODY", children: [] } },
       { viewportWidth: 375, viewportHeight: 900, tree: { tag: "BODY", children: [] } },
     ];
-    mockCreateWireframeDataFromHTML.mockResolvedValue({
+    mockCreateWireframeDataFromHTMLW2W.mockResolvedValue({
       frames: multiFrames,
       cssVariables: [],
     });
@@ -174,8 +177,9 @@ describe("POST /api/import-html — success flow", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.frameCount).toBe(3);
-    expect(mockCreateWireframeDataFromHTML).toHaveBeenCalledWith(
-      expect.any(String),
+    expect(mockCreateWireframeDataFromHTMLW2W).toHaveBeenCalledWith(
+      "<h1>Multi</h1>",
+      "",
       [1440, 768, 375],
     );
   });
@@ -207,7 +211,7 @@ describe("POST /api/import-html — success flow", () => {
   });
 
   it("returns 500 when extraction produces empty frames", async () => {
-    mockCreateWireframeDataFromHTML.mockResolvedValue({
+    mockCreateWireframeDataFromHTMLW2W.mockResolvedValue({
       frames: [],
       cssVariables: [],
     });
@@ -222,7 +226,7 @@ describe("POST /api/import-html — success flow", () => {
   });
 
   it("returns 500 with error message when extraction throws", async () => {
-    mockCreateWireframeDataFromHTML.mockRejectedValue(
+    mockCreateWireframeDataFromHTMLW2W.mockRejectedValue(
       new Error("Browser crashed")
     );
 

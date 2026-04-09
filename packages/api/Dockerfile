@@ -13,8 +13,11 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN pnpm install --frozen-lockfile
 
 # Copy source and build
+COPY scripts scripts
 COPY packages/shared packages/shared
 COPY packages/api packages/api
+COPY packages/browser-extension/src/content packages/browser-extension/src/content
+COPY packages/browser-extension/tsconfig.json packages/browser-extension/tsconfig.json
 RUN pnpm --filter @w2w/shared build
 RUN pnpm --filter @w2w/api build
 

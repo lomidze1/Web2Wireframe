@@ -358,6 +358,248 @@ export async function createWireframeData(
 }
 
 // ---------------------------------------------------------------------------
+// W2W Content Script extraction (unified pipeline)
+// ---------------------------------------------------------------------------
+
+import { extractWithContentScript, type W2WExtractionResult } from "./cdp/w2w-extraction.js";
+import type { W2WFrameNode, W2WAssetEntry, W2WCSSVariable, W2WFontEntry } from "@w2w/shared";
+
+/** Single frame in W2W format (one per viewport) */
+interface W2WWireframeFrame {
+  viewportWidth: number;
+  viewportHeight: number;
+  tree: W2WFrameNode;
+  assets: Record<string, W2WAssetEntry>;
+}
+
+/** Result of W2W wireframe data across multiple viewports */
+interface W2WWireframeData {
+  frames: W2WWireframeFrame[];
+  cssVariables: W2WCSSVariable[];
+  fonts: W2WFontEntry[];
+}
+
+/**
+ * Render website using content script extraction (W2W pipeline).
+ * Same content script as Browser Extension → pixel-identical output.
+ */
+export async function renderWebsiteW2W(
+  url: string,
+  viewportWidth: number = 1440,
+  options: RenderOptions = {},
+): Promise<W2WExtractionResult> {
+  let browser: Browser | undefined;
+  const effectiveUrl = remapLocalhostForDocker(url);
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      executablePath: findChromePath(),
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    });
+
+    const page = await browser.newPage();
+
+    // Inject cookies if provided
+    if (options.cookies && Array.isArray(options.cookies) && options.cookies.length > 0) {
+      const puppeteerCookies: Protocol.Network.CookieParam[] = options.cookies.map((c) => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path || "/",
+        secure: c.secure || false,
+        httpOnly: c.httpOnly || false,
+        ...(c.expirationDate ? { expires: c.expirationDate } : {}),
+      }));
+      await page.setCookie(...puppeteerCookies);
+    }
+
+    // Inject webStorage if provided
+    if (options.webStorage) {
+      const hasLocal = options.webStorage.localStorage != null &&
+        Object.keys(options.webStorage.localStorage).length > 0;
+      const hasSession = options.webStorage.sessionStorage != null &&
+        Object.keys(options.webStorage.sessionStorage).length > 0;
+
+      if (hasLocal || hasSession) {
+        await page.evaluateOnNewDocument((ws: WebStorage) => {
+          if (ws.localStorage) {
+            for (const [k, v] of Object.entries(ws.localStorage)) {
+              try { localStorage.setItem(k, v); } catch { /* ignore */ }
+            }
+          }
+          if (ws.sessionStorage) {
+            for (const [k, v] of Object.entries(ws.sessionStorage)) {
+              try { sessionStorage.setItem(k, v); } catch { /* ignore */ }
+            }
+          }
+        }, options.webStorage);
+      }
+    }
+
+    // Navigate to URL
+    await page.goto(effectiveUrl, { waitUntil: "networkidle0", timeout: 60000 });
+
+    // Extract using content script (handles viewport, scroll, extraction, assets, fonts)
+    const result = await extractWithContentScript(page, { viewportWidth });
+
+    await browser.close();
+    return result;
+  } catch (error) {
+    if (browser) await browser.close();
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("Puppeteer W2W error:", error);
+    throw new Error(`Failed to render website (W2W): ${message}`);
+  }
+}
+
+/**
+ * Create W2W wireframe data for multiple viewports.
+ * Uses content script extraction — unified pipeline.
+ */
+export async function createWireframeDataW2W(
+  url: string,
+  viewports: number[],
+  options: RenderOptions = {},
+): Promise<W2WWireframeData> {
+  const frames: W2WWireframeFrame[] = [];
+  let collectedCSSVariables: W2WCSSVariable[] = [];
+  let collectedFonts: W2WFontEntry[] = [];
+
+  for (const viewport of viewports) {
+    try {
+      const result = await renderWebsiteW2W(url, viewport, options);
+
+      frames.push({
+        viewportWidth: result.width,
+        viewportHeight: result.doc.innerHeight,
+        tree: result.frame,
+        assets: result.assets || {},
+      });
+
+      // Collect CSS variables and fonts from first viewport
+      if (result.cssVariables.length > 0 && collectedCSSVariables.length === 0) {
+        collectedCSSVariables = result.cssVariables;
+      }
+      if (result.fonts.length > 0 && collectedFonts.length === 0) {
+        collectedFonts = result.fonts;
+      }
+    } catch (error) {
+      console.error(`Error processing viewport ${viewport} (W2W):`, error);
+    }
+  }
+
+  return {
+    frames,
+    cssVariables: collectedCSSVariables,
+    fonts: collectedFonts,
+  };
+}
+
+/**
+ * Render raw HTML content using content script extraction (W2W pipeline).
+ * Uses page.setContent() with SSRF protection.
+ */
+export async function renderHTMLContentW2W(
+  htmlString: string,
+  viewportWidth: number = 1440,
+): Promise<W2WExtractionResult> {
+  let browser: Browser | undefined;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      executablePath: findChromePath(),
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    });
+
+    const page = await browser.newPage();
+
+    // SSRF protection: same as renderHTMLContent
+    const ALLOWED_RESOURCE_TYPES: ReadonlySet<string> = new Set([
+      "stylesheet", "font", "image", "media",
+    ]);
+    await page.setRequestInterception(true);
+    page.on("request", (req: HTTPRequest) => {
+      const reqUrl = req.url();
+      if (reqUrl.startsWith("data:") || reqUrl === "about:blank") {
+        void req.continue();
+        return;
+      }
+      if (req.isNavigationRequest() && req.frame() === page.mainFrame()) {
+        void req.abort();
+        return;
+      }
+      let parsed: URL;
+      try { parsed = new URL(reqUrl); } catch { void req.abort(); return; }
+      if (isPrivateHost(parsed.hostname)) { void req.abort(); return; }
+      if (parsed.protocol !== "https:" && !/^(localhost|127\.)/i.test(parsed.hostname)) {
+        void req.abort();
+        return;
+      }
+      if (!ALLOWED_RESOURCE_TYPES.has(req.resourceType())) {
+        void req.abort();
+        return;
+      }
+      void req.continue();
+    });
+
+    // Set HTML content
+    await page.setContent(htmlString, { waitUntil: "networkidle0", timeout: 30000 });
+
+    // Extract using content script
+    const result = await extractWithContentScript(page, { viewportWidth });
+
+    await browser.close();
+    return result;
+  } catch (error) {
+    if (browser) await browser.close();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to render HTML (W2W): ${message}`);
+  }
+}
+
+/**
+ * Create W2W wireframe data from raw HTML+CSS for multiple viewports.
+ */
+export async function createWireframeDataFromHTMLW2W(
+  htmlCode: string,
+  cssCode: string | undefined,
+  viewports: number[],
+): Promise<W2WWireframeData> {
+  const fullHTML = buildFullPage(htmlCode, cssCode);
+  const frames: W2WWireframeFrame[] = [];
+  let collectedCSSVariables: W2WCSSVariable[] = [];
+  let collectedFonts: W2WFontEntry[] = [];
+
+  for (const viewport of viewports) {
+    try {
+      const result = await renderHTMLContentW2W(fullHTML, viewport);
+
+      frames.push({
+        viewportWidth: result.width,
+        viewportHeight: result.doc.innerHeight,
+        tree: result.frame,
+        assets: result.assets || {},
+      });
+
+      if (result.cssVariables.length > 0 && collectedCSSVariables.length === 0) {
+        collectedCSSVariables = result.cssVariables;
+      }
+      if (result.fonts.length > 0 && collectedFonts.length === 0) {
+        collectedFonts = result.fonts;
+      }
+    } catch (error) {
+      console.error(`Error processing viewport ${viewport} (W2W HTML):`, error);
+    }
+  }
+
+  return {
+    frames,
+    cssVariables: collectedCSSVariables,
+    fonts: collectedFonts,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // HTML content rendering (raw HTML input with SSRF protection)
 // ---------------------------------------------------------------------------
 

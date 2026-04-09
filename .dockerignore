@@ -9,7 +9,10 @@ dist
 !pnpm-workspace.yaml
 packages/figma-plugin
 packages/browser-extension
+!packages/browser-extension/src/content
+!packages/browser-extension/tsconfig.json
 .claude
 studyH2D
 html.to.design
 scripts
+!scripts/bundle-content-script.mjs

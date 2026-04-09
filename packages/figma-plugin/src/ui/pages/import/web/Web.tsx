@@ -6,6 +6,7 @@ import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
+import type { WireframeFrame, WireframeNode } from "../../../../types";
 import { validateUrl } from "../../../../utils/urlValidation";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
@@ -216,26 +217,46 @@ export default function Web() {
         setExtractedFonts(data.fonts);
       }
 
-      // Transform text content based on selected text mode (semantic, lorem, etc.)
       const rawFrames = data.wireframeData?.frames || [];
-      const transformedFrames = transformFramesData(
-        rawFrames as Parameters<typeof transformFramesData>[0],
-        {
-          colorMode: settings.localColorMode,
-          fontMode: settings.localFontMode,
-          textMode: settings.localTextMode,
-        }
-      );
-
-      // Convert ExtractedElement → WireframeNode (same path as JSON/CDP import)
       const pluginColors = data.pluginColors || config.pluginColors;
-      const frames = prepareFramesForRendering(
-        transformedFrames as unknown as { viewport: { width: number; height: number }; tree: ExtractedElement }[],
-        {
-          text: pluginColors.text,
-          surface: pluginColors.surface,
-        }
-      );
+
+      // Detect W2W format (content script extraction) vs legacy ExtractedElement format
+      // W2W frames have tree.type === "FRAME" with raw CSS styles
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isW2WFormat = rawFrames.length > 0 && (rawFrames[0] as any)?.tree?.type === "FRAME";
+
+      let frames: WireframeFrame[];
+      if (isW2WFormat) {
+        // W2W format: pass tree as capturedData, main.ts will convert via convertW2WToWireframe()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        frames = rawFrames.map((f: any) => ({
+          viewportWidth: f.viewportWidth,
+          viewportHeight: f.viewportHeight,
+          tree: null as unknown as WireframeNode, // Will be populated from capturedData
+          assets: {},
+          capturedData: {
+            frame: f.tree,
+            assets: f.assets || {},
+          },
+        }));
+      } else {
+        // Legacy ExtractedElement format: transform + convert
+        const transformedFrames = transformFramesData(
+          rawFrames as Parameters<typeof transformFramesData>[0],
+          {
+            colorMode: settings.localColorMode,
+            fontMode: settings.localFontMode,
+            textMode: settings.localTextMode,
+          }
+        );
+        frames = prepareFramesForRendering(
+          transformedFrames as unknown as { viewport: { width: number; height: number }; tree: ExtractedElement }[],
+          {
+            text: pluginColors.text,
+            surface: pluginColors.surface,
+          }
+        );
+      }
 
       // Prepare render data
       const renderData: RenderData = {

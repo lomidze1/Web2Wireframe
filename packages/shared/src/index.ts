@@ -261,6 +261,7 @@ export {
   classifyResource,
   buildResourceMapFromGraph,
   collectImageUrls,
+  collectImageUrlsFromW2W,
   extractAssetsForTree,
   type ResourceType,
   type ResourceEntry,
@@ -300,6 +301,13 @@ export {
   parseGridLineIndex,
   type FigmaGridTrackSize,
 } from "./grid-parser";
+
+// ============================================================================
+// CONTENT SCRIPT BUNDLE
+// NOTE: getContentScriptBundle uses Node.js fs/path, so it's NOT exported from
+// the main entry to avoid breaking browser-targeted builds (Figma plugin).
+// API should import directly: import { getContentScriptBundle } from "@w2w/shared/content-script-bundle"
+// ============================================================================
 
 // ============================================================================
 // MAIN EXTRACTION FUNCTION

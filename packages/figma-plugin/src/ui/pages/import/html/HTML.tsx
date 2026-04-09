@@ -6,6 +6,7 @@ import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
+import type { WireframeFrame, WireframeNode } from "../../../../types";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import { buildFontDownloads } from "../../../../utils/fontDownload";
@@ -194,26 +195,45 @@ export default function HTML() {
         setExtractedFonts(data.fonts);
       }
 
-      // Transform text content
       const rawFrames = data.wireframeData?.frames || [];
-      const transformedFrames = transformFramesData(
-        rawFrames as Parameters<typeof transformFramesData>[0],
-        {
-          colorMode: settings.localColorMode,
-          fontMode: settings.localFontMode,
-          textMode: settings.localTextMode,
-        }
-      );
-
-      // Convert ExtractedElement -> WireframeNode
       const pluginColors = data.pluginColors || config.pluginColors;
-      const frames = prepareFramesForRendering(
-        transformedFrames as unknown as { viewport: { width: number; height: number }; tree: ExtractedElement }[],
-        {
-          text: pluginColors.text,
-          surface: pluginColors.surface,
-        }
-      );
+
+      // Detect W2W format (content script extraction) vs legacy ExtractedElement format
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isW2WFormat = rawFrames.length > 0 && (rawFrames[0] as any)?.tree?.type === "FRAME";
+
+      let frames: WireframeFrame[];
+      if (isW2WFormat) {
+        // W2W format: pass tree as capturedData, main.ts converts via convertW2WToWireframe()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        frames = rawFrames.map((f: any) => ({
+          viewportWidth: f.viewportWidth,
+          viewportHeight: f.viewportHeight,
+          tree: null as unknown as WireframeNode,
+          assets: {},
+          capturedData: {
+            frame: f.tree,
+            assets: f.assets || {},
+          },
+        }));
+      } else {
+        // Legacy ExtractedElement format
+        const transformedFrames = transformFramesData(
+          rawFrames as Parameters<typeof transformFramesData>[0],
+          {
+            colorMode: settings.localColorMode,
+            fontMode: settings.localFontMode,
+            textMode: settings.localTextMode,
+          }
+        );
+        frames = prepareFramesForRendering(
+          transformedFrames as unknown as { viewport: { width: number; height: number }; tree: ExtractedElement }[],
+          {
+            text: pluginColors.text,
+            surface: pluginColors.surface,
+          }
+        );
+      }
 
       const renderData: RenderData = {
         frames,
