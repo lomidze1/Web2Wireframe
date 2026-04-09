@@ -70,7 +70,7 @@ export function convertFillsToPaints(
           const solidPaint: SolidPaint = {
             type: "SOLID",
             color: finalColor,
-            opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity * fill.color.a,
+            opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity,
           };
           paints.push(solidPaint);
         }

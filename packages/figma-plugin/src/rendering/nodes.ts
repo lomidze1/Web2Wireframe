@@ -282,6 +282,7 @@ export async function createNodeInFigma(
 
   // Create frame for containers
   const frame = figma.createFrame();
+  frame.fills = []; // Clear Figma default white fill — only explicit fills should be applied
   frame.name = node.name || "Container";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 

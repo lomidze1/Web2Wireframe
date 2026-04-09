@@ -71,6 +71,34 @@ const TEXT_COALESCE_TAGS = new Set([
   'abbr', 'cite', 'code', 'pre', 'time', 'legend',
 ]);
 
+/**
+ * Inline elements whose text can be folded into a parent text node.
+ * These tags don't break text flow — their content is inline.
+ */
+const INLINE_TEXT_TAGS = new Set([
+  'span', 'a', 'strong', 'em', 'b', 'i', 'u', 'mark', 'small', 'sub', 'sup',
+  'abbr', 'cite', 'code', 'time',
+]);
+
+/** Collected text child info — includes inline styles from parent FRAME elements */
+interface TextChildValue {
+  value: string;
+  font: string;
+  platformFamily?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Override color from inline element (e.g., <a> with accent color) */
+  color?: string;
+  /** text-decoration from inline element (e.g., <a> with underline) */
+  textDecoration?: 'underline' | 'line-through' | 'none';
+  /** Tag of the inline element (e.g., 'a', 'span') */
+  tag?: string;
+  /** Override font-weight from inline element (e.g., <strong> with bold) */
+  fontWeight?: number;
+}
+
 let _nodeId = 0;
 
 /**
@@ -141,7 +169,7 @@ function convertFrame(
 
   // Convert children — separate TEXT nodes from FRAME/SVG nodes
   const children: WireframeNode[] = [];
-  const textChildValues: { value: string; font: string; platformFamily?: string; x: number; y: number; width: number; height: number }[] = [];
+  const textChildValues: TextChildValue[] = [];
   let textContent = '';
 
   for (const child of node.children) {
@@ -163,23 +191,55 @@ function convertFrame(
       // directly into parent, skipping the wrapper frame.
       const isPseudo = child.classList.includes('__w2w-pseudo-before') || child.classList.includes('__w2w-pseudo-after');
       if (isPseudo) {
+        // Extract pseudo-element styles for its text children
+        const pseudoStyles = child.styles;
+        const pseudoColor = str(pseudoStyles.webkitTextFillColor) || str(pseudoStyles.color) || undefined;
+        const pseudoPosition = str(pseudoStyles.position);
+        const isAbsolutePseudo = pseudoPosition === 'absolute' || pseudoPosition === 'fixed';
+
         for (const pseudoChild of child.children) {
           if (pseudoChild.type === 'TEXT') {
-            textChildValues.push({
-              value: pseudoChild.value,
-              font: pseudoChild.font,
-              platformFamily: pseudoChild.platformFont?.familyName,
-              x: pseudoChild.x,
-              y: pseudoChild.y,
-              width: pseudoChild.width,
-              height: pseudoChild.height,
-            });
+            if (isAbsolutePseudo) {
+              // Absolutely positioned pseudo-element (e.g., li::before with position:absolute)
+              // → create as a separate child node, not text coalescing
+              // Use CSS left/top values instead of computed coordinates —
+              // absolute elements position from parent's padding box edge, ignoring padding
+              const cssLeft = parseFloat(str(pseudoStyles.left) || '') || 0;
+              const cssTop = parseFloat(str(pseudoStyles.top) || '') || 0;
+              const pseudoTextNode = convertTextNodeFromValue(
+                { value: pseudoChild.value, font: pseudoChild.font, platformFamily: pseudoChild.platformFont?.familyName,
+                  x: node.x + cssLeft, y: node.y + cssTop, width: pseudoChild.width, height: pseudoChild.height,
+                  color: pseudoColor },
+                node, pseudoStyles, options,
+              );
+              pseudoTextNode.position = pseudoPosition as 'absolute' | 'fixed';
+              children.push(pseudoTextNode);
+            } else {
+              textChildValues.push({
+                value: pseudoChild.value,
+                font: pseudoChild.font,
+                platformFamily: pseudoChild.platformFont?.familyName,
+                x: pseudoChild.x,
+                y: pseudoChild.y,
+                width: pseudoChild.width,
+                height: pseudoChild.height,
+                color: pseudoColor,
+              });
+            }
           } else if (pseudoChild.type === 'SVG') {
             children.push(convertSVGNode(pseudoChild, node));
           } else if (pseudoChild.type === 'FRAME') {
             children.push(convertFrame(pseudoChild, node, options));
           }
         }
+      } else if (
+        TEXT_COALESCE_TAGS.has(node.tag) &&
+        INLINE_TEXT_TAGS.has(child.tag) &&
+        isTextOnlyFrame(child)
+      ) {
+        // Inline element (span, a, strong, em, etc.) with only TEXT children
+        // inside a text-coalesce parent (h2, p, etc.) → flatten into parent's text
+        collectTextFromFrame(child, textChildValues);
       } else {
         children.push(convertFrame(child, node, options));
       }
@@ -213,16 +273,30 @@ function convertFrame(
     textContent = textChildValues.map(t => t.value).join(' ');
     browserLineCount = textChildValues.length;
 
-    // Create styledSegments — each line gets parent's typography
-    if (textChildValues.length > 1) {
+    // Check parent element's own text-decoration (e.g., standalone <a> with underline)
+    const rawOwnDecoration = str(s.textDecorationLine) || str(s.textDecoration) || '';
+    let ownTextDecoration: TextChildValue['textDecoration'];
+    if (rawOwnDecoration.includes('underline')) ownTextDecoration = 'underline';
+    else if (rawOwnDecoration.includes('line-through')) ownTextDecoration = 'line-through';
+
+    // Create styledSegments — each segment preserves its own inline styles
+    const hasStyleVariation = textChildValues.length > 1 ||
+      textChildValues.some(t => t.color || t.textDecoration || t.tag || t.fontWeight) ||
+      !!ownTextDecoration;
+    if (hasStyleVariation) {
       styledSegments = textChildValues.map(t => {
-        const { family, weight } = parseFontString(t.font);
+        const { family } = parseFontString(t.font);
+        // Strip weight suffix from platform font name (e.g., "Space Grotesk Light" → "Space Grotesk")
+        const cleanPlatformFamily = t.platformFamily ? parseFontString(t.platformFamily).family : undefined;
         return {
           text: t.value,
-          color: textColor,
-          fontWeight: weight || fontWeight,
+          color: t.color || textColor,
+          fontWeight: t.fontWeight || fontWeight, // Child override (e.g., <strong>) or parent's CSS fontWeight
           fontSize,
-          fontFamily: t.platformFamily || family || fontFamily,
+          fontFamily: cleanPlatformFamily || family || fontFamily,
+          textDecoration: t.textDecoration || ownTextDecoration,
+          isLink: t.tag === 'a' || node.tag === 'a',
+          tag: t.tag || node.tag,
         };
       });
     }
@@ -345,7 +419,7 @@ function convertFrame(
  * Used when TEXT children can't be coalesced (mixed with FRAME/SVG children).
  */
 function convertTextNodeFromValue(
-  tv: { value: string; font: string; platformFamily?: string; x: number; y: number; width: number; height: number },
+  tv: TextChildValue,
   parentNode: W2WFrameNode | null,
   parentStyles: Record<string, string | number | undefined>,
   _options: ConvertOptions,
@@ -353,7 +427,8 @@ function convertTextNodeFromValue(
   const id = `w2w-${_nodeId++}`;
   const { family, weight } = parseFontString(tv.font);
 
-  const textColor = str(parentStyles.webkitTextFillColor)
+  const textColor = tv.color
+    || str(parentStyles.webkitTextFillColor)
     || str(parentStyles.color)
     || 'rgb(0, 0, 0)';
 
@@ -381,8 +456,8 @@ function convertTextNodeFromValue(
 
     textContent: tv.value,
     fontSize: parseFloat(str(parentStyles.fontSize)) || 16,
-    fontWeight: weight,
-    fontFamily: tv.platformFamily || family,
+    fontWeight: tv.fontWeight || parseFontWeight(str(parentStyles.fontWeight)) || weight,
+    fontFamily: (tv.platformFamily ? parseFontString(tv.platformFamily).family : undefined) || family,
     textAlign: str(parentStyles.textAlign) || 'left',
     lineHeight: str(parentStyles.lineHeight) || 'normal',
     letterSpacing: parseFloat(str(parentStyles.letterSpacing)) || 0,
@@ -600,7 +675,7 @@ function parseFills(
         type: 'SOLID',
         visible: true,
         opacity: color.a,
-        color,
+        color: { ...color, a: 1 }, // Separate alpha into opacity (matches style-parsers.ts pattern)
       });
     }
   }
@@ -1110,4 +1185,56 @@ function flattenStylesToRecord(
     if (v !== undefined) result[k] = String(v);
   }
   return result;
+}
+
+/**
+ * Check if a FRAME node contains only TEXT children (no FRAME/SVG).
+ * Used to identify inline elements whose text can be folded into a parent.
+ */
+function isTextOnlyFrame(node: W2WFrameNode): boolean {
+  if (node.children.length === 0) return false;
+  return node.children.every(child =>
+    child.type === 'TEXT' || (child.type === 'FRAME' && INLINE_TEXT_TAGS.has(child.tag) && isTextOnlyFrame(child))
+  );
+}
+
+/**
+ * Recursively collect TEXT values from an inline FRAME node.
+ * Flattens nested inline elements (e.g., <strong><em>$20</em>/mo</strong>).
+ * Preserves the inline element's styles (color, textDecoration) on each text child.
+ */
+function collectTextFromFrame(
+  node: W2WFrameNode,
+  target: TextChildValue[],
+): void {
+  // Extract inline styles from this FRAME element
+  const s = node.styles;
+  const colorOverride = str(s.webkitTextFillColor) || str(s.color) || undefined;
+  const rawDecoration = str(s.textDecorationLine) || str(s.textDecoration) || '';
+  let textDecoration: TextChildValue['textDecoration'];
+  if (rawDecoration.includes('underline')) textDecoration = 'underline';
+  else if (rawDecoration.includes('line-through')) textDecoration = 'line-through';
+  // Font-weight override (e.g., <strong> with font-weight: bold/bolder/700)
+  const rawFontWeight = str(s.fontWeight);
+  const fontWeightOverride = rawFontWeight ? parseFontWeight(rawFontWeight) : undefined;
+
+  for (const child of node.children) {
+    if (child.type === 'TEXT') {
+      target.push({
+        value: child.value,
+        font: child.font,
+        platformFamily: child.platformFont?.familyName,
+        x: child.x,
+        y: child.y,
+        width: child.width,
+        height: child.height,
+        color: colorOverride,
+        textDecoration,
+        tag: node.tag,
+        fontWeight: fontWeightOverride,
+      });
+    } else if (child.type === 'FRAME' && INLINE_TEXT_TAGS.has(child.tag)) {
+      collectTextFromFrame(child, target);
+    }
+  }
 }

@@ -95,6 +95,7 @@ export async function createRealImage(
   context: RenderContext
 ): Promise<FrameNode> {
   const frame = figma.createFrame();
+  frame.fills = []; // Clear Figma default white fill
   frame.name = node.name || "Image";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
   frame.clipsContent = true;

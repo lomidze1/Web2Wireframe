@@ -233,15 +233,15 @@ describe("convertFillsToPaints", () => {
           type: "SOLID",
           visible: true,
           opacity: 0.8,
-          color: { r: 1, g: 0, b: 0, a: 0.5 },
+          color: { r: 1, g: 0, b: 0, a: 1 }, // alpha always separated into opacity
         },
       ];
       const ctx = makeContext({ colorMode: "website" });
       const result = convertFillsToPaints(fills, ctx, "div");
       expect(result).toHaveLength(1);
       expect((result[0] as any).color).toEqual({ r: 1, g: 0, b: 0 });
-      // opacity = fill.opacity * fill.color.a = 0.8 * 0.5 = 0.4
-      expect((result[0] as any).opacity).toBe(0.4);
+      // opacity = fill.opacity (color.a is always 1, alpha separated)
+      expect((result[0] as any).opacity).toBe(0.8);
     });
 
     it("preserves linear gradient in website mode", () => {
