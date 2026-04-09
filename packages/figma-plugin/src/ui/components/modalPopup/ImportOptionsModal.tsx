@@ -257,7 +257,7 @@ export default function ImportOptionsModal({
                   }))
                 }
               >
-                <option value="autoLayout">Auto Layout (Editable)</option>
+                <option value="autoLayout">Auto Layout</option>
                 <option value="absolute">Absolute (Pixel-perfect)</option>
               </select>
             </div>

@@ -17,7 +17,7 @@ interface SettingsProps {
 }
 
 type Panel = "terminology" | "config" | "tutorials";
-type TerminologyTab = "viewports" | "colors" | "fonts" | "text" | "assets" | "css-vars" | "layout";
+type TerminologyTab = "viewports" | "colors" | "fonts" | "text" | "assets" | "css-vars" | "layout" | "interactions";
 
 // Collapsible section states
 interface CollapsibleState {
@@ -30,6 +30,7 @@ interface CollapsibleState {
   assets: boolean;
   cssVariables: boolean;
   layoutMode: boolean;
+  interactions: boolean;
 }
 
 // localStorage key for collapsed states
@@ -46,6 +47,7 @@ const DEFAULT_COLLAPSED: CollapsibleState = {
   assets: true,
   cssVariables: true,
   layoutMode: true,
+  interactions: true,
 };
 
 // Safe localStorage helpers
@@ -160,63 +162,6 @@ export default function Settings({
         </div>
 
         <div class={styles.modalContent}>
-          {/* Import Options Toggle - Outside scroll area for Config panel */}
-          {activePanel === "config" && (
-            <div
-              class={`${styles.importOptionsToggleRow} ${config.showImportOptions ? styles.toggleEnabled : ""}`}
-            >
-              <span class={styles.importOptionsToggleIcon}>
-                {/* Eye Open SVG */}
-                <svg
-                  class={`${styles.eyeIcon} ${config.showImportOptions ? styles.eyeIconVisible : styles.eyeIconHidden}`}
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                {/* Eye Closed SVG */}
-                <svg
-                  class={`${styles.eyeIcon} ${config.showImportOptions ? styles.eyeIconHidden : styles.eyeIconVisible}`}
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-              </span>
-              <span class={styles.importOptionsToggleText}>
-                Import options popup is{" "}
-                {config.showImportOptions ? "enabled" : "disabled"} for W2W
-                files.
-              </span>
-              <label class={styles.importOptionsToggleSwitch}>
-                <input
-                  type="checkbox"
-                  checked={config.showImportOptions}
-                  onChange={(e) =>
-                    updateConfig({
-                      showImportOptions: (e.target as HTMLInputElement).checked,
-                    })
-                  }
-                />
-                <span class={styles.importOptionsToggleSlider}></span>
-              </label>
-            </div>
-          )}
-
           <div class={styles.scrollArea}>
             {/* TERMINOLOGY PANEL */}
             {activePanel === "terminology" && (
@@ -263,6 +208,12 @@ export default function Settings({
                     onClick={() => setActiveTermTab("layout")}
                   >
                     Layout Mode
+                  </button>
+                  <button
+                    class={`${styles.termSidebarBtn} ${activeTermTab === "interactions" ? styles.termSidebarBtnActive : ""}`}
+                    onClick={() => setActiveTermTab("interactions")}
+                  >
+                    Interactions
                   </button>
                 </div>
                 <div class={styles.termSidebarContent}>
@@ -522,6 +473,32 @@ export default function Settings({
                         alignment. Where the website structure doesn't map
                         cleanly to auto layout, the plugin falls back to
                         absolute positioning for those specific elements.
+                      </div>
+                    </details>
+                  </div>
+                )}
+
+                {/* Interactions Tab */}
+                {activeTermTab === "interactions" && (
+                  <div class={styles.accordionList}>
+                    <details class={styles.accordion} open>
+                      <summary>None</summary>
+                      <div class={styles.accordionContent}>
+                        Elements are imported as plain frames without any
+                        interactive states or component variants. This is the
+                        default mode — produces a clean, static wireframe.
+                      </div>
+                    </details>
+                    <details class={styles.accordion}>
+                      <summary>Interactive States</summary>
+                      <div class={styles.accordionContent}>
+                        Interactive elements (buttons, links, inputs) are
+                        converted into Figma Component Sets with state
+                        variants. The plugin captures hover, focus, active,
+                        and focus-visible CSS states and creates corresponding
+                        variants with prototype interactions wired
+                        automatically. Hover triggers ON_HOVER, active
+                        triggers ON_PRESS, and focus triggers ON_CLICK.
                       </div>
                     </details>
                   </div>
@@ -1342,7 +1319,7 @@ export default function Settings({
                             }
                           />
                           <div class={styles.radioLabel}>
-                            <strong>Auto Layout (Editable)</strong>
+                            <strong>Auto Layout</strong>
                             <span>
                               Use Figma's Auto Layout for flexible, responsive
                               designs that are easy to edit.
@@ -1370,6 +1347,82 @@ export default function Settings({
                             <span>
                               Position elements with exact pixel coordinates
                               matching the original website layout.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </Fragment>
+                  )}
+                </div>
+
+                {/* Interactions - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.interactions ? styles.configSectionActive : ""}`}
+                >
+                  <div
+                    class={styles.configTitleCollapsible}
+                    onClick={() => toggleCollapse("interactions")}
+                  >
+                    <span>Interactions</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.interactions ? "" : styles.collapseArrowOpen}`}
+                    >
+                      ▾
+                    </span>
+                  </div>
+                  {!collapsed.interactions && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Choose whether to capture interactive states as Figma
+                        component variants.
+                      </div>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.interactionMode === "none"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-interaction-mode"
+                            value="none"
+                            checked={config.interactionMode === "none"}
+                            onChange={() =>
+                              updateConfig({ interactionMode: "none" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>None</strong>
+                            <span>
+                              Import elements as plain frames without
+                              interactive states or component variants.
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.interactionMode === "variants"
+                              ? styles.radioItemActive
+                              : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-interaction-mode"
+                            value="variants"
+                            checked={config.interactionMode === "variants"}
+                            onChange={() =>
+                              updateConfig({ interactionMode: "variants" })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Interactive States</strong>
+                            <span>
+                              Capture hover, focus, active, and focus-visible
+                              states as Figma component set variants with
+                              prototype interactions.
                             </span>
                           </div>
                         </label>

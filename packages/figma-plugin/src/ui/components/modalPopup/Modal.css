@@ -319,13 +319,14 @@
 }
 
 .navBtn {
+  flex: 1;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   cursor: pointer;
-  text-align: left;
+  text-align: center;
   font-weight: 600;
   transition: all 0.2s ease;
   font-size: 14px;

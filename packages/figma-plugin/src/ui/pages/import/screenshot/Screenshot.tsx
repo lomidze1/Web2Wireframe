@@ -33,6 +33,27 @@ export default function Screenshot() {
     }
   }, [settings.localLayoutMode]);
 
+  // Force placeholders — real assets not available in screenshot mode (no DOM)
+  useEffect(() => {
+    if (settings.localAssetMode === "realAssets") {
+      settings.setAssetMode("placeholders");
+    }
+  }, [settings.localAssetMode]);
+
+  // Force no interactions — hover variants not available in screenshot mode
+  useEffect(() => {
+    if (settings.localInteractionMode === "variants") {
+      settings.setInteractionMode("none");
+    }
+  }, [settings.localInteractionMode]);
+
+  // Force lorem/website text — semantic placeholders not useful in screenshot mode
+  useEffect(() => {
+    if (settings.localTextMode === "semantic") {
+      settings.setTextMode("lorem");
+    }
+  }, [settings.localTextMode]);
+
   // Listen for wireframe creation results from Figma sandbox
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -211,10 +232,19 @@ export default function Screenshot() {
         hasOverrides={settings.hasOverrides}
         openSettings={settings.openSettings}
         colorWebsiteLabel="Screenshot Colors"
+        textWebsiteLabel="Screenshot Text"
+        disableSemanticOption={true}
+        semanticDisabledTooltip="Not available in Screenshot mode"
         disableFontWebsiteOption={true}
         fontDisabledTooltip="Not available in Screenshot mode"
         disableAutoLayoutOption={true}
         layoutDisabledTooltip="Not available in Screenshot mode"
+        disableRealAssetsOption={true}
+        assetsDisabledTooltip="Not available in Screenshot mode"
+        localInteractionMode={settings.localInteractionMode}
+        setInteractionMode={settings.setInteractionMode}
+        disableInteractionsVariants={true}
+        interactionsDisabledTooltip="Not available in Screenshot mode"
       />
 
       {/* Error Display */}

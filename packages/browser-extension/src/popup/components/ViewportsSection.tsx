@@ -67,6 +67,17 @@ export function ViewportsSection({ viewports, onChange, disabled }: ViewportsSec
       return;
     }
 
+    // Validate: no duplicate viewport values
+    const isDuplicate = editValues.some((v, i) => i !== index && v === newValue);
+    if (isDuplicate) {
+      // Reset to original
+      const newValues = [...editValues];
+      newValues[index] = oldValue;
+      setEditValues(newValues);
+      setEditingIndex(null);
+      return;
+    }
+
     // Update viewports if the old value was selected
     if (isSelected(oldValue) && newValue !== oldValue) {
       const newViewports = viewports.map((v) => (v === oldValue ? newValue : v)).sort((a, b) => b - a);

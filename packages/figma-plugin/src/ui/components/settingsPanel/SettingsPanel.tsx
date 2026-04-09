@@ -75,15 +75,33 @@ export interface SettingsPanelProps {
   // Optional: custom label for the "Website Text" option (e.g. "Code Text")
   textWebsiteLabel?: string;
 
+  // Optional: disable the "Semantic Placeholders" option in the text dropdown
+  disableSemanticOption?: boolean;
+
+  // Optional: tooltip text for disabled semantic option
+  semanticDisabledTooltip?: string;
+
   // Optional: disable the "Auto Layout" option in the layout dropdown
   disableAutoLayoutOption?: boolean;
 
   // Optional: tooltip text for disabled layout option
   layoutDisabledTooltip?: string;
 
+  // Optional: disable the "Real Assets" option in the assets dropdown
+  disableRealAssetsOption?: boolean;
+
+  // Optional: tooltip text for disabled assets option
+  assetsDisabledTooltip?: string;
+
   // Interaction mode
   localInteractionMode?: "none" | "variants";
   setInteractionMode?: (mode: "none" | "variants") => void;
+
+  // Optional: disable the "Interactive States" option in the interactions dropdown
+  disableInteractionsVariants?: boolean;
+
+  // Optional: tooltip text for disabled interactions option
+  interactionsDisabledTooltip?: string;
 
   // Optional: hide viewports section (e.g. for AreaSelection where viewports are in the file)
   hideViewports?: boolean;
@@ -125,10 +143,16 @@ export default function SettingsPanel({
   fontDisabledTooltip,
   fontWebsiteLabel,
   textWebsiteLabel,
+  disableSemanticOption,
+  semanticDisabledTooltip,
   disableAutoLayoutOption,
   layoutDisabledTooltip,
+  disableRealAssetsOption,
+  assetsDisabledTooltip,
   localInteractionMode,
   setInteractionMode,
+  disableInteractionsVariants,
+  interactionsDisabledTooltip,
   hideViewports,
 }: SettingsPanelProps) {
   return (
@@ -199,7 +223,7 @@ export default function SettingsPanel({
                 )
               }
             >
-              <option value="plugin">Plugin Colors (Editable)</option>
+              <option value="plugin">Plugin Colors</option>
               <option value="website">{colorWebsiteLabel || "Website Colors"}</option>
             </select>
           </div>
@@ -219,7 +243,7 @@ export default function SettingsPanel({
                 )
               }
             >
-              <option value="plugin">Plugin Fonts (Editable)</option>
+              <option value="plugin">Plugin Fonts</option>
               <option
                 value="website"
                 disabled={disableFontWebsiteOption}
@@ -249,7 +273,13 @@ export default function SettingsPanel({
                 )
               }
             >
-              <option value="semantic">Semantic Placeholders</option>
+              <option
+                value="semantic"
+                disabled={disableSemanticOption}
+                title={disableSemanticOption ? semanticDisabledTooltip : undefined}
+              >
+                Semantic Placeholders
+              </option>
               <option value="lorem">Lorem Ipsum</option>
               <option value="website">{textWebsiteLabel || "Website Text"}</option>
             </select>
@@ -274,7 +304,13 @@ export default function SettingsPanel({
                 }
               >
                 <option value="placeholders">Plugin Placeholders</option>
-                <option value="realAssets">Real Assets</option>
+                <option
+                  value="realAssets"
+                  disabled={disableRealAssetsOption}
+                  title={disableRealAssetsOption ? assetsDisabledTooltip : undefined}
+                >
+                  Real Assets
+                </option>
               </select>
             </div>
           )}
@@ -324,7 +360,7 @@ export default function SettingsPanel({
                   disabled={disableAutoLayoutOption}
                   title={disableAutoLayoutOption ? layoutDisabledTooltip : undefined}
                 >
-                  Auto Layout (Editable)
+                  Auto Layout
                 </option>
                 <option value="absolute">Absolute (Pixel-perfect)</option>
               </select>
@@ -348,7 +384,13 @@ export default function SettingsPanel({
                 }
               >
                 <option value="none">None</option>
-                <option value="variants">Hover Variants</option>
+                <option
+                  value="variants"
+                  disabled={disableInteractionsVariants}
+                  title={disableInteractionsVariants ? interactionsDisabledTooltip : undefined}
+                >
+                  Interactive States
+                </option>
               </select>
             </div>
           )}

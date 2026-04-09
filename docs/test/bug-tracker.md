@@ -1,23 +1,62 @@
 # Bug Tracker — Manual Testing
 
-## W-01: Web Tab | Website Colors + Website Fonts + Website Text + Real Assets + Direct + Auto Layout + None
+> Generated: 2026-04-09
+> Branch: `new-way`
 
-**Test URL:** `https://web2wireframe.design`
+---
+
+## სტატუსი
+
+| #       | ტესტი                                                              | სტატუსი  |
+| ------- | ------------------------------------------------------------------ | -------- |
+| W-01    | Web Tab: Website Colors + Website Fonts + Website Text + Real + AL | ❌ FAIL  |
+| W-02    | Web Tab: Plugin Colors + Plugin Fonts + Semantic + Placeholders    | ⬜       |
+| W-03    | Web Tab: Full features (Styles + Hover Variants)                   | ⬜       |
+| W-04    | Web Tab: Full wireframe (Lines + Lorem + Absolute)                 | ⬜       |
+
+### Legend
+
+| Icon | მნიშვნელობა       |
+| ---- | ----------------- |
+| ✅   | Pass / სწორია     |
+| ❌   | Fail / ბაგია      |
+| ⚠️   | გადასახედი / TODO |
+| ⬜   | არ შემოწმებულა    |
+
+---
+
+## W-01: Web Tab — Default Real-World
+
+**URL:** `https://web2wireframe.design`
 **Viewport:** 1440px
+**Settings:** Website Colors + Website Fonts + Website Text + Real Assets + Direct + Auto Layout + None
 **Status:** FAIL (4 bugs)
 
+### ბაგები
+
+| #       | ბაგი                                          | სტატუსი   |
+| ------- | --------------------------------------------- | --------- |
+| BUG-001 | SVG logos არ რენდერდება                        | ❌ OPEN   |
+| BUG-002 | `::before` bullet პოზიცია არასწორია (AL)      | ❌ OPEN   |
+| BUG-003 | `text-decoration: underline` არ რენდერდება    | ❌ OPEN   |
+| BUG-004 | დუბლიკატი ტექსტი (text + parent ორივე ქმნის) | ❌ OPEN   |
+
+---
+
 ### BUG-001: SVG logos not rendered
-- **Status:** OPEN
-- **Element:** `<img src="/logo.svg">` (header + footer)
-- **Expected:** Logo image visible
-- **Actual:** Image placeholder icon (not rendered)
-- **Root cause:** TBD — likely SVG/relative-path asset extraction issue
+
+- **ელემენტი:** `<img src="/logo.svg">` (header + footer)
+- **მოსალოდნელი:** Logo image visible
+- **აქტუალური:** Image placeholder icon (not rendered)
+- **მიზეზი:** TBD — SVG/relative-path asset extraction issue
+
+---
 
 ### BUG-002: `::before` bullet position incorrect (Auto Layout)
-- **Status:** OPEN
-- **Element:** `._list_wflxa_58 li::before` with `position: absolute; left: 0`
-- **Expected:** Bullet aligned at left edge of list item (X=0, absolute positioned within parent)
-- **Actual:** Bullet not positioned correctly, size 6x26
+
+- **ელემენტი:** `._list_wflxa_58 li::before` with `position: absolute; left: 0`
+- **მოსალოდნელი:** Bullet aligned at left edge of list item
+- **აქტუალური:** Bullet not positioned correctly, size 6x26
 - **CSS:**
   ```css
   ._list_wflxa_58 li:before {
@@ -27,14 +66,15 @@
       color: var(--accent);
   }
   ```
-- **Note:** Only affects Auto Layout mode. Figma auto-layout supports `positioning: "ABSOLUTE"` on children.
-- **Figma docs:** https://developers.figma.com/docs/widgets/api/component-Frame/#positioning
+- **შენიშვნა:** Only affects Auto Layout mode. Figma supports `positioning: "ABSOLUTE"` on children.
+
+---
 
 ### BUG-003: `text-decoration: underline` not rendered
-- **Status:** OPEN
-- **Element:** `<a class="_email_rue7f_124" href="mailto:...">`
-- **Expected:** Underlined text
-- **Actual:** No underline
+
+- **ელემენტი:** `<a class="_email_rue7f_124" href="mailto:...">`
+- **მოსალოდნელი:** Underlined text
+- **აქტუალური:** No underline
 - **CSS:**
   ```css
   ._email_rue7f_124 {
@@ -43,22 +83,13 @@
       color: var(--accent-strong);
   }
   ```
-- **Note:** Was working before, regression
-
-### BUG-004: Duplicate text rendering (text + parent both create text nodes)
-- **Status:** OPEN
-- **Element:** `<a><div><img><strong>Web2Wireframe</strong></div></a>`
-- **Expected:** "Web2Wireframe" appears once
-- **Actual:** "Web2Wireframe" appears twice — once as text node "Container", once as "Web2Wireframe"
-- **Root cause:** TBD — likely tree-builder creating text for both `<strong>` and parent `<div>`
+- **შენიშვნა:** Was working before, regression
 
 ---
 
-## Summary
+### BUG-004: Duplicate text rendering
 
-| Test | Status | Bugs |
-|------|--------|------|
-| W-01 | FAIL | BUG-001, BUG-002, BUG-003, BUG-004 |
-| W-02 | - | - |
-| W-03 | - | - |
-| W-04 | - | - |
+- **ელემენტი:** `<a><div><img><strong>Web2Wireframe</strong></div></a>`
+- **მოსალოდნელი:** "Web2Wireframe" appears once
+- **აქტუალური:** "Web2Wireframe" appears twice — once as "Container", once as text
+- **მიზეზი:** TBD — tree-builder creating text for both `<strong>` and parent `<div>`

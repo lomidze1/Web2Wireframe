@@ -33,7 +33,7 @@ export default function LayoutChoiceModal({
             >
               <div class={styles.variablesOptionIcon}>📐</div>
               <div class={styles.variablesOptionContent}>
-                <strong>Auto Layout (Editable)</strong>
+                <strong>Auto Layout</strong>
                 <span>
                   Responsive flexbox-like structure. Elements flow and resize
                   naturally. Best for design editing.

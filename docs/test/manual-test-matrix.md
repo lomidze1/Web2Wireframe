@@ -7,105 +7,147 @@
 
 ## 1. Settings Available Per Tab
 
-| Setting | Web | Screenshot | HTML | Area Selection | Browser Extension |
-|---------|-----|------------|------|----------------|-------------------|
-| **Viewports** | 5 checkboxes | 5 checkboxes | 5 checkboxes | HIDDEN | N/A (default config) |
-| **Colors** | Plugin / Website | Plugin / Screenshot | Plugin / Website | Plugin / Website | default config |
-| **Fonts** | Plugin / Website / Lines | Plugin / ~~Website~~ (disabled) / Lines | Plugin / Website / Lines | Plugin / Website / Lines | default config |
-| **Text** | Semantic / Lorem / Website | Semantic / Lorem / Website | Semantic / Lorem / Code Text | Semantic / Lorem / Website | default config |
-| **Assets** | Placeholders / Real | Placeholders / Real | Placeholders / Real | Placeholders / Real | default config |
-| **CSS Variables** | Direct / Styles | Direct / Styles | Direct / Styles | Direct / Styles | default config |
-| **Layout Mode** | Auto Layout / Absolute | ~~Auto Layout~~ (disabled) / Absolute | Auto Layout / Absolute | Auto Layout / Absolute | default config |
-| **Interactions** | None / Hover Variants | N/A | None / Hover Variants | None / Hover Variants | N/A |
+### Tab Review Status
+
+| Tab              | სტატუსი | შენიშვნა                                          |
+| ---------------- | ------- | ------------------------------------------------- |
+| Web              | ✅      | ყველა ფუნქცია სწორად არის                         |
+| Screenshot       | ✅      | გამოსწორდა — იხილე ცვლილებები ქვემოთ              |
+| HTML Import      | ✅      | ყველა ფუნქცია სწორად არის                         |
+| Area Selection   | ✅      | ყველა ფუნქცია სწორად არის                         |
+| Browser Extension| ✅      | მხოლოდ viewport, დანარჩენს პლაგინი აკონტროლებს    |
+
+### Settings Matrix
+
+| Setting          | Web                        | Screenshot                              | HTML                       | Area Selection             | Browser Extension   |
+| ---------------- | -------------------------- | --------------------------------------- | -------------------------- | -------------------------- | ------------------- |
+| **Viewports**    | 5 checkboxes               | 5 checkboxes                            | 5 checkboxes               | HIDDEN                     | N/A (default)       |
+| **Colors**       | Plugin / Website           | Plugin / Screenshot                     | Plugin / Website           | Plugin / Website           | default config      |
+| **Fonts**        | Plugin / Website / Lines   | Plugin / ~~Website~~ / Lines            | Plugin / Website / Lines   | Plugin / Website / Lines   | default config      |
+| **Text**         | Semantic / Lorem / Website | ~~Semantic~~ / Lorem / Screenshot       | Semantic / Lorem / Code    | Semantic / Lorem / Website | default config      |
+| **Assets**       | Placeholders / Real        | Placeholders / ~~Real~~                 | Placeholders / Real        | Placeholders / Real        | default config      |
+| **CSS Vars**     | Direct / Styles            | Direct / Styles                         | Direct / Styles            | Direct / Styles            | default config      |
+| **Layout**       | Auto Layout / Absolute     | ~~Auto Layout~~ / Absolute              | Auto Layout / Absolute     | Auto Layout / Absolute     | default config      |
+| **Interactions** | None / Hover Variants      | None / ~~Hover Variants~~               | None / Hover Variants      | None / Hover Variants      | N/A                 |
+
+### Screenshot Tab — ცვლილებები (გამოსწორებული)
+
+| #    | საკითხი                | შედეგი                                                             | სტატუსი |
+| ---- | ---------------------- | ------------------------------------------------------------------ | ------- |
+| SS-1 | "Website Text" label   | შეიცვალა → **"Screenshot Text"**                                   | ✅      |
+| SS-2 | Semantic Placeholder   | **disabled** — forced Lorem, Semantic ჩანს მაგრამ ვერ აირჩევ       | ✅      |
+| SS-3 | Real Assets            | **disabled** — forced Placeholder, Real ჩანს მაგრამ ვერ აირჩევ     | ✅      |
+| SS-4 | Auto Layout            | **disabled** — forced Absolute (DOM tree არ არსებობს)              | ✅      |
+| SS-5 | Interactions           | **დაემატა** — None არჩეული, Hover Variants disabled                | ✅      |
 
 ---
 
 ## 2. Viewports (Multi-select, min 1)
 
-| # | Viewport | Value |
-|---|----------|-------|
-| V1 | 1920px | `"1920"` |
-| V2 | 1440px | `"1440"` |
-| V3 | 1024px | `"1024"` |
-| V4 | 768px | `"768"` |
-| V5 | 375px | `"375"` |
+| #  | Viewport | Value    |
+| -- | -------- | -------- |
+| V1 | 1920px   | `"1920"` |
+| V2 | 1440px   | `"1440"` |
+| V3 | 1024px   | `"1024"` |
+| V4 | 768px    | `"768"`  |
+| V5 | 375px    | `"375"`  |
 
-**Viewport Combinations to Test:**
+### Viewport Combinations (selection only, import ტესტი Section 5-ში)
 
-| ID | Viewports | Description |
-|----|-----------|-------------|
-| VP-1 | 1920 only | Single desktop |
-| VP-2 | 1440 only | Single mid-desktop |
-| VP-3 | 1024 only | Single tablet landscape |
-| VP-4 | 768 only | Single tablet portrait |
-| VP-5 | 375 only | Single mobile |
-| VP-6 | 1920 + 375 | Desktop + mobile (extreme) |
-| VP-7 | 1440 + 768 + 375 | Desktop + tablet + mobile |
-| VP-8 | All 5 | Full set |
-| VP-9 | 1024 + 768 | Two tablet sizes |
-| VP-10 | None selected | Edge case: should prevent import or auto-select |
+| #     | Viewports            | აღწერა                           | სტატუსი |
+| ----- | -------------------- | -------------------------------- | ------- |
+| VP-1  | 1920 only            | Single desktop                   | ✅      |
+| VP-2  | 1440 only            | Single mid-desktop               | ✅      |
+| VP-3  | 1024 only            | Single tablet landscape          | ✅      |
+| VP-4  | 768 only             | Single tablet portrait           | ✅      |
+| VP-5  | 375 only             | Single mobile                    | ✅      |
+| VP-6  | 1920 + 375           | Desktop + mobile (extreme)       | ✅      |
+| VP-7  | 1440 + 768 + 375     | Desktop + tablet + mobile        | ✅      |
+| VP-8  | All 5                | Full set                         | ✅      |
+| VP-9  | 1024 + 768           | Two tablet sizes                 | ✅      |
+| VP-10 | None selected         | Edge case: min 1 ყოველთვის რჩება | ✅      |
+
+### Viewport Bug Fixes
+
+| #    | საკითხი                                    | შედეგი                                                | სტატუსი |
+| ---- | ------------------------------------------ | ----------------------------------------------------- | ------- |
+| VP-B1 | Browser Extension: duplicate viewport values | **დაიბლოკა** — იგივე რიცხვის ჩაწერა reset-ს აკეთებს | ✅      |
 
 ---
 
 ## 3. Settings Dropdown Values
 
 ### 3.1 Colors
-| ID | Value | Label |
-|----|-------|-------|
-| C1 | `plugin` | Plugin Colors (Editable) |
-| C2 | `website` | Website Colors / Screenshot Colors |
+
+| #  | Value      | Label                                          | სტატუსი |
+| -- | ---------- | ---------------------------------------------- | ------- |
+| C1 | `plugin`   | Plugin Colors                                  | ✅      |
+| C2 | `website`  | Website Colors / Screenshot Colors / Code Colors | ✅      |
 
 ### 3.2 Fonts
-| ID | Value | Label |
-|----|-------|-------|
-| F1 | `plugin` | Plugin Fonts (Editable) |
-| F2 | `website` | Website Fonts |
-| F3 | `lines` | Wireframe Lines |
+
+| #  | Value     | Label                          | სტატუსი |
+| -- | --------- | ------------------------------ | ------- |
+| F1 | `plugin`  | Plugin Fonts                   | ✅      |
+| F2 | `website` | Website Fonts / Code Fonts     | ✅      |
+| F3 | `lines`   | Wireframe Lines                | ✅      |
 
 ### 3.3 Text
-| ID | Value | Label |
-|----|-------|-------|
-| T1 | `semantic` | Semantic Placeholders |
-| T2 | `lorem` | Lorem Ipsum |
-| T3 | `website` | Website Text / Code Text |
+
+| #  | Value      | Label                                          | სტატუსი |
+| -- | ---------- | ---------------------------------------------- | ------- |
+| T1 | `semantic` | Semantic Placeholders                          | ✅      |
+| T2 | `lorem`    | Lorem Ipsum                                    | ✅      |
+| T3 | `website`  | Website Text / Screenshot Text / Code Text     | ✅      |
 
 ### 3.4 Assets
-| ID | Value | Label |
-|----|-------|-------|
-| A1 | `placeholders` | Plugin Placeholders |
-| A2 | `realAssets` | Real Assets |
+
+| #  | Value          | Label                | სტატუსი |
+| -- | -------------- | -------------------- | ------- |
+| A1 | `placeholders` | Plugin Placeholders  | ✅      |
+| A2 | `realAssets`   | Real Assets          | ✅      |
 
 ### 3.5 CSS Variables
-| ID | Value | Label |
-|----|-------|-------|
-| CV1 | `direct` | Direct Value |
-| CV2 | `styles` | Create Figma Styles |
+
+| #   | Value    | Label               | სტატუსი |
+| --- | -------- | ------------------- | ------- |
+| CV1 | `direct` | Direct Value        | ✅      |
+| CV2 | `styles` | Create Figma Styles | ✅      |
 
 ### 3.6 Layout Mode
-| ID | Value | Label |
-|----|-------|-------|
-| L1 | `autoLayout` | Auto Layout (Editable) |
-| L2 | `absolute` | Absolute (Pixel-perfect) |
+
+| #  | Value        | Label                    | სტატუსი |
+| -- | ------------ | ------------------------ | ------- |
+| L1 | `autoLayout` | Auto Layout              | ✅      |
+| L2 | `absolute`   | Absolute (Pixel-perfect) | ✅      |
 
 ### 3.7 Interactions
-| ID | Value | Label |
-|----|-------|-------|
-| I1 | `none` | None |
-| I2 | `variants` | Hover Variants |
+
+| #  | Value      | Label              | სტატუსი |
+| -- | ---------- | ------------------ | ------- |
+| I1 | `none`     | None               | ✅      |
+| I2 | `variants` | Interactive States | ✅      |
+
+### Label Changes Summary
+
+| ძველი                      | ახალი              | სტატუსი |
+| -------------------------- | ------------------ | ------- |
+| Plugin Colors (Editable)   | Plugin Colors      | ✅      |
+| Plugin Fonts (Editable)    | Plugin Fonts       | ✅      |
+| Auto Layout (Editable)     | Auto Layout        | ✅      |
+| Hover Variants             | Interactive States | ✅      |
 
 ---
 
-## 4. Full Combination Matrix Per Tab
+## 4. Total Combinations Per Tab
 
-### Total possible combinations per tab:
-
-| Tab | Colors | Fonts | Text | Assets | CSS Vars | Layout | Interactions | Viewports | Total |
-|-----|--------|-------|------|--------|----------|--------|--------------|-----------|-------|
-| **Web** | 2 | 3 | 3 | 2 | 2 | 2 | 2 | 31 (combos) | 2x3x3x2x2x2x2 = **288** (per viewport set) |
-| **Screenshot** | 2 | 2* | 3 | 2 | 2 | 1* | - | 31 | 2x2x3x2x2x1 = **48** |
-| **HTML** | 2 | 3 | 3 | 2 | 2 | 2 | 2 | 31 | **288** |
-| **Area Selection** | 2 | 3 | 3 | 2 | 2 | 2 | 2 | - | **288** |
-| **Browser Extension** | - | - | - | - | - | - | - | - | **1** (default config) |
+| Tab                | Colors | Fonts | Text | Assets | CSS Vars | Layout | Interactions | Total       |
+| ------------------ | ------ | ----- | ---- | ------ | -------- | ------ | ------------ | ----------- |
+| **Web**            | 2      | 3     | 3    | 2      | 2        | 2      | 2            | **288**     |
+| **Screenshot**     | 2      | 2*    | 3    | 2      | 2        | 1*     | -            | **48**      |
+| **HTML**           | 2      | 3     | 3    | 2      | 2        | 2      | 2            | **288**     |
+| **Area Selection** | 2      | 3     | 3    | 2      | 2        | 2      | 2            | **288**     |
+| **Browser Ext.**   | -      | -     | -    | -      | -        | -      | -            | **1**       |
 
 *Screenshot: Website Fonts disabled, Auto Layout disabled (forced Absolute)*
 
@@ -113,69 +155,67 @@
 
 ## 5. Priority Test Cases (Smoke Tests)
 
-> These are the highest-priority combinations to test first.
+### 5.1 Web Tab
 
-### 5.1 Web Tab — Smoke Tests
+| #    | VP        | Colors  | Fonts   | Text     | Assets       | CSS Vars | Layout | Inter.  | შენიშვნა               | სტატუსი |
+| ---- | --------- | ------- | ------- | -------- | ------------ | -------- | ------ | ------- | ----------------------- | ------- |
+| W-01 | 1440      | Website | Website | Website  | Real         | Direct   | AL     | None    | Default real-world      |         |
+| W-02 | 1440      | Plugin  | Plugin  | Semantic | Placeholders | Direct   | AL     | None    | Default wireframe       |         |
+| W-03 | 1440      | Website | Website | Website  | Real         | Styles   | AL     | Hover   | Full features           |         |
+| W-04 | 1440      | Plugin  | Lines   | Lorem    | Placeholders | Direct   | Abs    | None    | Full wireframe          |         |
+| W-05 | 375       | Website | Website | Website  | Real         | Direct   | AL     | None    | Mobile                  |         |
+| W-06 | 1920+375  | Website | Website | Website  | Real         | Direct   | AL     | None    | Multi-viewport          |         |
+| W-07 | All 5     | Plugin  | Plugin  | Semantic | Placeholders | Styles   | AL     | Hover   | All VP + all features   |         |
+| W-08 | 1440      | Website | Lines   | Website  | Real         | Styles   | Abs    | Hover   | Mixed: real + wireframe |         |
+| W-09 | 768       | Plugin  | Website | Lorem    | Real         | Direct   | Abs    | None    | Tablet + mixed          |         |
+| W-10 | 1024      | Website | Plugin  | Semantic | Placeholders | Styles   | AL     | Hover   | Mixed reversed          |         |
 
-| TC | Viewport | Colors | Fonts | Text | Assets | CSS Vars | Layout | Interactions | Notes |
-|----|----------|--------|-------|------|--------|----------|--------|--------------|-------|
-| W-01 | 1440 | Website | Website | Website | Real | Direct | Auto Layout | None | **Default real-world** |
-| W-02 | 1440 | Plugin | Plugin | Semantic | Placeholders | Direct | Auto Layout | None | **Default wireframe** |
-| W-03 | 1440 | Website | Website | Website | Real | Styles | Auto Layout | Hover Variants | **Full features** |
-| W-04 | 1440 | Plugin | Lines | Lorem | Placeholders | Direct | Absolute | None | **Full wireframe** |
-| W-05 | 375 | Website | Website | Website | Real | Direct | Auto Layout | None | **Mobile** |
-| W-06 | 1920+375 | Website | Website | Website | Real | Direct | Auto Layout | None | **Multi-viewport** |
-| W-07 | All 5 | Plugin | Plugin | Semantic | Placeholders | Styles | Auto Layout | Hover Variants | **All viewports + all features** |
-| W-08 | 1440 | Website | Lines | Website | Real | Styles | Absolute | Hover Variants | **Mixed: real colors + wireframe fonts** |
-| W-09 | 768 | Plugin | Website | Lorem | Real | Direct | Absolute | None | **Tablet + mixed** |
-| W-10 | 1024 | Website | Plugin | Semantic | Placeholders | Styles | Auto Layout | Hover Variants | **Mixed reversed** |
+### 5.2 Screenshot Tab
 
-### 5.2 Screenshot Tab — Smoke Tests
+| #    | VP       | Colors     | Fonts  | Text     | Assets       | CSS Vars | Layout | შენიშვნა                | სტატუსი |
+| ---- | -------- | ---------- | ------ | -------- | ------------ | -------- | ------ | ----------------------- | ------- |
+| S-01 | 1440     | Screenshot | Plugin | Semantic | Placeholders | Direct   | Abs    | Default                 |         |
+| S-02 | 1440     | Plugin     | Plugin | Lorem    | Placeholders | Direct   | Abs    | Plugin wireframe        |         |
+| S-03 | 1440     | Screenshot | Lines  | Website  | Real         | Styles   | Abs    | Real + wireframe lines  |         |
+| S-04 | 375      | Screenshot | Plugin | Semantic | Real         | Direct   | Abs    | Mobile screenshot       |         |
+| S-05 | 1920+768 | Plugin     | Lines  | Lorem    | Placeholders | Styles   | Abs    | Multi-viewport          |         |
 
-| TC | Viewport | Colors | Fonts | Text | Assets | CSS Vars | Layout | Notes |
-|----|----------|--------|-------|------|--------|----------|--------|-------|
-| S-01 | 1440 | Screenshot | Plugin | Semantic | Placeholders | Direct | Absolute (forced) | **Default** |
-| S-02 | 1440 | Plugin | Plugin | Lorem | Placeholders | Direct | Absolute | **Plugin wireframe** |
-| S-03 | 1440 | Screenshot | Lines | Website | Real | Styles | Absolute | **Real assets + wireframe lines** |
-| S-04 | 375 | Screenshot | Plugin | Semantic | Real | Direct | Absolute | **Mobile screenshot** |
-| S-05 | 1920+768 | Plugin | Lines | Lorem | Placeholders | Styles | Absolute | **Multi-viewport** |
+### 5.3 HTML Tab
 
-### 5.3 HTML Tab — Smoke Tests
+| #    | VP   | Colors  | Fonts   | Text | Assets       | CSS Vars | Layout | Inter. | შენიშვნა     | სტატუსი |
+| ---- | ---- | ------- | ------- | ---- | ------------ | -------- | ------ | ------ | ------------- | ------- |
+| H-01 | 1440 | Website | Website | Code | Real         | Direct   | AL     | None   | Default       |         |
+| H-02 | 1440 | Plugin  | Plugin  | Sem  | Placeholders | Direct   | AL     | None   | Wireframe     |         |
+| H-03 | 1440 | Website | Website | Code | Real         | Styles   | AL     | Hover  | Full features |         |
+| H-04 | 1440 | Plugin  | Lines   | Lor  | Placeholders | Direct   | Abs    | None   | Full wire     |         |
+| H-05 | 375  | Website | Website | Code | Real         | Direct   | AL     | Hover  | Mobile        |         |
 
-| TC | Viewport | Colors | Fonts | Text | Assets | CSS Vars | Layout | Interactions | Notes |
-|----|----------|--------|-------|------|--------|----------|--------|--------------|-------|
-| H-01 | 1440 | Website | Website | Code Text | Real | Direct | Auto Layout | None | **Default** |
-| H-02 | 1440 | Plugin | Plugin | Semantic | Placeholders | Direct | Auto Layout | None | **Wireframe** |
-| H-03 | 1440 | Website | Website | Code Text | Real | Styles | Auto Layout | Hover Variants | **Full features** |
-| H-04 | 1440 | Plugin | Lines | Lorem | Placeholders | Direct | Absolute | None | **Full wireframe** |
-| H-05 | 375 | Website | Website | Code Text | Real | Direct | Auto Layout | Hover Variants | **Mobile** |
+### 5.4 Area Selection Tab
 
-### 5.4 Area Selection Tab — Smoke Tests
+| #     | Colors  | Fonts   | Text     | Assets       | CSS Vars | Layout | Inter. | შენიშვნა     | სტატუსი |
+| ----- | ------- | ------- | -------- | ------------ | -------- | ------ | ------ | ------------- | ------- |
+| AS-01 | Website | Website | Website  | Real         | Direct   | AL     | None   | Default       |         |
+| AS-02 | Plugin  | Plugin  | Semantic | Placeholders | Direct   | AL     | None   | Wireframe     |         |
+| AS-03 | Website | Website | Website  | Real         | Styles   | AL     | Hover  | Full features |         |
+| AS-04 | Plugin  | Lines   | Lorem    | Placeholders | Direct   | Abs    | None   | Full wire     |         |
+| AS-05 | Website | Plugin  | Website  | Real         | Styles   | Abs    | Hover  | Mixed         |         |
 
-| TC | Colors | Fonts | Text | Assets | CSS Vars | Layout | Interactions | Notes |
-|----|--------|-------|------|--------|----------|--------|--------------|-------|
-| AS-01 | Website | Website | Website | Real | Direct | Auto Layout | None | **Default** |
-| AS-02 | Plugin | Plugin | Semantic | Placeholders | Direct | Auto Layout | None | **Wireframe** |
-| AS-03 | Website | Website | Website | Real | Styles | Auto Layout | Hover Variants | **Full features** |
-| AS-04 | Plugin | Lines | Lorem | Placeholders | Direct | Absolute | None | **Full wireframe** |
-| AS-05 | Website | Plugin | Website | Real | Styles | Absolute | Hover Variants | **Mixed** |
+### 5.5 Browser Extension Tab
 
-### 5.5 Browser Extension Tab — Smoke Tests
-
-| TC | Notes |
-|----|-------|
-| BE-01 | **Default config** — import from pending CDP data |
-| BE-02 | **No pending data** — error handling |
-| BE-03 | **Large page** — performance test |
+| #     | შენიშვნა                                     | სტატუსი |
+| ----- | -------------------------------------------- | ------- |
+| BE-01 | Default config — import from pending CDP     |         |
+| BE-02 | No pending data — error handling             |         |
+| BE-03 | Large page — performance test                |         |
 
 ---
 
-## 6. Exhaustive Combination Tests (Per Tab)
+## 6. Exhaustive Combination Tests
 
-### 6.1 Web Tab — All 288 Settings Combinations (with VP = 1440)
+### 6.1 Web Tab — 288 Combinations (VP = 1440)
 
-| TC | C | F | T | A | CV | L | I |
-|----|---|---|---|---|-----|---|---|
+| #      | C  | F  | T  | A  | CV  | L  | I  |
+| ------ | -- | -- | -- | -- | --- | -- | -- |
 | W-E001 | C1 | F1 | T1 | A1 | CV1 | L1 | I1 |
 | W-E002 | C1 | F1 | T1 | A1 | CV1 | L1 | I2 |
 | W-E003 | C1 | F1 | T1 | A1 | CV1 | L2 | I1 |
@@ -465,12 +505,12 @@
 | W-E287 | C2 | F3 | T3 | A2 | CV2 | L2 | I1 |
 | W-E288 | C2 | F3 | T3 | A2 | CV2 | L2 | I2 |
 
-### 6.2 Screenshot Tab — All 48 Combinations (VP = 1440)
+### 6.2 Screenshot Tab — 48 Combinations (VP = 1440)
 
-*Note: Fonts = Plugin (F1) or Lines (F3) only; Layout = Absolute (L2) only; No Interactions*
+*Fonts = Plugin (F1) or Lines (F3) only; Layout = Absolute (L2) only; No Interactions*
 
-| TC | C | F | T | A | CV |
-|----|---|---|---|---|----|
+| #     | C  | F  | T  | A  | CV  |
+| ----- | -- | -- | -- | -- | --- |
 | S-E01 | C1 | F1 | T1 | A1 | CV1 |
 | S-E02 | C1 | F1 | T1 | A1 | CV2 |
 | S-E03 | C1 | F1 | T1 | A2 | CV1 |
@@ -520,131 +560,130 @@
 | S-E47 | C2 | F3 | T3 | A2 | CV1 |
 | S-E48 | C2 | F3 | T3 | A2 | CV2 |
 
-### 6.3 HTML Tab — All 288 Combinations
+### 6.3 HTML Tab — 288 Combinations
 
-Same as Web Tab (Section 6.1) — identical settings available. Use H-E001...H-E288 prefix.
+Same as Web Tab (Section 6.1) — identical settings. Use `H-E001`...`H-E288` prefix.
 
-### 6.4 Area Selection Tab — All 288 Combinations
+### 6.4 Area Selection Tab — 288 Combinations
 
-Same as Web Tab (Section 6.1) but without Viewports. Use AS-E001...AS-E288 prefix.
+Same as Web Tab (Section 6.1) but without Viewports. Use `AS-E001`...`AS-E288` prefix.
 
 ---
 
 ## 7. Edge Cases & Special Tests
 
-### 7.1 UI Behavior Tests
+### 7.1 UI Behavior
 
-| TC | Test | Expected |
-|----|------|----------|
-| UI-01 | Screenshot: try selecting "Website Fonts" (disabled) | Should NOT be selectable |
-| UI-02 | Screenshot: try selecting "Auto Layout" (disabled) | Should NOT be selectable, forced Absolute |
-| UI-03 | Area Selection: check Viewports section | Should be HIDDEN |
-| UI-04 | Screenshot: check Interactions section | Should NOT be present |
-| UI-05 | Browser Extension: check for SettingsPanel | No settings panel, uses default config |
-| UI-06 | Collapse "More Options" section | All dropdowns should hide |
-| UI-07 | Expand "More Options" section | All applicable dropdowns should show |
-| UI-08 | Click "Reset" button | All settings return to defaults |
-| UI-09 | Click "Save" (Save as Default) | Settings persist across sessions |
-| UI-10 | Click "Config" button | Opens Configuration settings panel |
-| UI-11 | Switch between tabs | Each tab should remember its own settings |
-| UI-12 | Change setting on Web tab, switch to HTML tab | HTML tab should have its own independent settings |
+| #     | ტესტი                                               | მოსალოდნელი                                     | სტატუსი |
+| ----- | ---------------------------------------------------- | ----------------------------------------------- | ------- |
+| UI-01 | Screenshot: try selecting "Website Fonts" (disabled) | Should NOT be selectable                        |         |
+| UI-02 | Screenshot: try selecting "Auto Layout" (disabled)   | Should NOT be selectable, forced Absolute       |         |
+| UI-03 | Area Selection: check Viewports section              | Should be HIDDEN                                |         |
+| UI-04 | Screenshot: check Interactions section               | Should NOT be present                           |         |
+| UI-05 | Browser Extension: check for SettingsPanel           | No settings panel, uses default config          |         |
+| UI-06 | Collapse "More Options" section                      | All dropdowns should hide                       |         |
+| UI-07 | Expand "More Options" section                        | All applicable dropdowns should show            |         |
+| UI-08 | Click "Reset" button                                 | All settings return to defaults                 |         |
+| UI-09 | Click "Save" (Save as Default)                       | Settings persist across sessions                |         |
+| UI-10 | Click "Config" button                                | Opens Configuration settings panel              |         |
+| UI-11 | Switch between tabs                                  | Each tab should remember its own settings       |         |
+| UI-12 | Change setting on Web tab, switch to HTML            | HTML tab should have independent settings       |         |
 
-### 7.2 Settings Persistence Tests
+### 7.2 Settings Persistence
 
-| TC | Test | Expected |
-|----|------|----------|
-| SP-01 | Set custom options, close & reopen plugin | Defaults should persist (if saved) |
-| SP-02 | Set custom options without saving, reopen | Should revert to saved defaults |
-| SP-03 | Save defaults on Web tab, check other tabs | Other tabs should pick up global defaults |
-| SP-04 | Override per-tab, check sessionOverrides | Session overrides should apply per-tab |
+| #     | ტესტი                                            | მოსალოდნელი                                    | სტატუსი |
+| ----- | ------------------------------------------------- | ---------------------------------------------- | ------- |
+| SP-01 | Set custom options, close & reopen plugin         | Defaults should persist (if saved)             |         |
+| SP-02 | Set custom options without saving, reopen         | Should revert to saved defaults                |         |
+| SP-03 | Save defaults on Web tab, check other tabs        | Other tabs should pick up global defaults      |         |
+| SP-04 | Override per-tab, check sessionOverrides          | Session overrides should apply per-tab         |         |
 
-### 7.3 Import Flow Tests
+### 7.3 Import Flow
 
-| TC | Test | Expected |
-|----|------|----------|
-| IF-01 | Web tab: valid URL import | Successful import with selected settings |
-| IF-02 | Web tab: invalid URL | Error message shown |
-| IF-03 | Web tab: empty URL | Import button disabled or error |
-| IF-04 | Screenshot tab: upload valid image | Successful import |
-| IF-05 | Screenshot tab: upload non-image file | Error/rejection |
-| IF-06 | HTML tab: paste valid HTML | Successful import |
-| IF-07 | HTML tab: paste empty content | Error/rejection |
-| IF-08 | Area Selection: no selection made | Error/rejection |
-| IF-09 | Browser Extension: no pending data | Shows waiting/polling state |
-| IF-10 | Browser Extension: pending data available | Auto-imports |
+| #     | ტესტი                                   | მოსალოდნელი                           | სტატუსი |
+| ----- | ---------------------------------------- | ------------------------------------- | ------- |
+| IF-01 | Web tab: valid URL import                | Successful import with settings       |         |
+| IF-02 | Web tab: invalid URL                     | Error message shown                   |         |
+| IF-03 | Web tab: empty URL                       | Import button disabled or error       |         |
+| IF-04 | Screenshot tab: upload valid image       | Successful import                     |         |
+| IF-05 | Screenshot tab: upload non-image file    | Error/rejection                       |         |
+| IF-06 | HTML tab: paste valid HTML               | Successful import                     |         |
+| IF-07 | HTML tab: paste empty content            | Error/rejection                       |         |
+| IF-08 | Area Selection: no selection made        | Error/rejection                       |         |
+| IF-09 | Browser Extension: no pending data       | Shows waiting/polling state           |         |
+| IF-10 | Browser Extension: pending data available | Auto-imports                         |         |
 
-### 7.4 Rendering Verification Tests
+### 7.4 Rendering Verification
 
-| TC | Settings | What to verify |
-|----|----------|----------------|
-| RV-01 | Colors=Plugin | All elements use plugin color palette (grays) |
-| RV-02 | Colors=Website | Elements match source website colors |
-| RV-03 | Fonts=Plugin | All text uses configured plugin font (e.g. Inter) |
-| RV-04 | Fonts=Website | Text uses original website fonts |
-| RV-05 | Fonts=Lines | Text replaced with horizontal lines |
-| RV-06 | Text=Semantic | Text shows role-based placeholders (e.g. "Heading", "Body text") |
-| RV-07 | Text=Lorem | Text replaced with Lorem Ipsum |
-| RV-08 | Text=Website | Original website text preserved |
-| RV-09 | Assets=Placeholders | Images replaced with X-cross placeholder frames |
-| RV-10 | Assets=Real | Original images rendered |
-| RV-11 | CSS Variables=Direct | CSS var values resolved inline |
-| RV-12 | CSS Variables=Styles | Figma PaintStyles/TextStyles created |
-| RV-13 | Layout=Auto Layout | Frames use Figma auto-layout |
-| RV-14 | Layout=Absolute | Elements positioned with absolute coordinates |
-| RV-15 | Interactions=None | No component sets or variants created |
-| RV-16 | Interactions=Hover Variants | Hover states as component set variants |
+| #     | Settings              | რა შევამოწმოთ                                         | სტატუსი |
+| ----- | --------------------- | ----------------------------------------------------- | ------- |
+| RV-01 | Colors=Plugin         | All elements use plugin color palette (grays)         |         |
+| RV-02 | Colors=Website        | Elements match source website colors                  |         |
+| RV-03 | Fonts=Plugin          | All text uses configured plugin font (e.g. Inter)     |         |
+| RV-04 | Fonts=Website         | Text uses original website fonts                      |         |
+| RV-05 | Fonts=Lines           | Text replaced with horizontal lines                   |         |
+| RV-06 | Text=Semantic         | Text shows role-based placeholders                    |         |
+| RV-07 | Text=Lorem            | Text replaced with Lorem Ipsum                        |         |
+| RV-08 | Text=Website          | Original website text preserved                       |         |
+| RV-09 | Assets=Placeholders   | Images replaced with X-cross placeholder frames       |         |
+| RV-10 | Assets=Real           | Original images rendered                              |         |
+| RV-11 | CSS Variables=Direct  | CSS var values resolved inline                        |         |
+| RV-12 | CSS Variables=Styles  | Figma PaintStyles/TextStyles created                  |         |
+| RV-13 | Layout=Auto Layout    | Frames use Figma auto-layout                          |         |
+| RV-14 | Layout=Absolute       | Elements positioned with absolute coordinates         |         |
+| RV-15 | Interactions=None     | No component sets or variants created                 |         |
+| RV-16 | Interactions=Hover    | Hover states as component set variants                |         |
 
-### 7.5 Cross-Setting Interaction Tests
+### 7.5 Cross-Setting Interactions
 
-| TC | Combination | What to verify |
-|----|-------------|----------------|
-| XI-01 | Fonts=Lines + Text=Website | Lines should show but original text length/count preserved |
-| XI-02 | Fonts=Lines + Text=Lorem | Lines with Lorem text metrics |
-| XI-03 | Colors=Plugin + Assets=Real | Gray wireframe frames but real images |
-| XI-04 | Colors=Website + Assets=Placeholders | Colored frames but placeholder images |
-| XI-05 | Layout=Absolute + Interactions=Hover | Variants with absolute positioning |
-| XI-06 | Layout=Auto + Interactions=Hover | Variants with auto-layout |
-| XI-07 | CSS Vars=Styles + Colors=Plugin | Figma styles created but with plugin colors? Or skipped? |
-| XI-08 | Fonts=Website + font not available | Font fallback modal should appear |
-| XI-09 | All Placeholders mode | Colors=Plugin, Fonts=Lines, Text=Lorem, Assets=Placeholders |
-| XI-10 | All Real mode | Colors=Website, Fonts=Website, Text=Website, Assets=Real |
+| #     | კომბინაცია                         | რა შევამოწმოთ                                       | სტატუსი |
+| ----- | ---------------------------------- | --------------------------------------------------- | ------- |
+| XI-01 | Fonts=Lines + Text=Website         | Lines show, original text length preserved           |         |
+| XI-02 | Fonts=Lines + Text=Lorem           | Lines with Lorem text metrics                        |         |
+| XI-03 | Colors=Plugin + Assets=Real        | Gray wireframe frames but real images                |         |
+| XI-04 | Colors=Website + Assets=Placeholder | Colored frames but placeholder images               |         |
+| XI-05 | Layout=Abs + Interactions=Hover    | Variants with absolute positioning                   |         |
+| XI-06 | Layout=AL + Interactions=Hover     | Variants with auto-layout                            |         |
+| XI-07 | CSS Vars=Styles + Colors=Plugin    | Figma styles created but with plugin colors?         |         |
+| XI-08 | Fonts=Website + font unavailable   | Font fallback modal should appear                    |         |
+| XI-09 | All Placeholders mode              | Plugin + Lines + Lorem + Placeholders                |         |
+| XI-10 | All Real mode                      | Website + Website + Website + Real                   |         |
 
 ---
 
 ## 8. Test URLs for Web Tab
 
-| # | URL | Why |
-|---|-----|-----|
-| 1 | `https://apple.com` | Complex layout, large images, CSS animations |
-| 2 | `https://stripe.com` | Gradients, CSS variables, modern layout |
-| 3 | `https://github.com` | Complex nav, tables, lots of text |
-| 4 | `https://tailwindcss.com` | Utility classes, responsive design |
-| 5 | `https://figma.com` | Our own competitor reference |
-| 6 | `https://news.ycombinator.com` | Simple layout, minimal CSS |
-| 7 | `https://wikipedia.org` | Text-heavy, complex hierarchy |
-| 8 | `https://tesla.com` | Full-bleed images, video backgrounds |
-| 9 | `https://amazon.com` | Complex grid, many elements |
-| 10 | `https://example.com` | Minimal page — baseline test |
+| #  | URL                              | რატომ                                       |
+| -- | -------------------------------- | ------------------------------------------- |
+| 1  | `https://apple.com`              | Complex layout, large images, CSS animations |
+| 2  | `https://stripe.com`             | Gradients, CSS variables, modern layout     |
+| 3  | `https://github.com`             | Complex nav, tables, lots of text           |
+| 4  | `https://tailwindcss.com`        | Utility classes, responsive design          |
+| 5  | `https://figma.com`              | Competitor reference                        |
+| 6  | `https://news.ycombinator.com`   | Simple layout, minimal CSS                  |
+| 7  | `https://wikipedia.org`          | Text-heavy, complex hierarchy               |
+| 8  | `https://tesla.com`              | Full-bleed images, video backgrounds        |
+| 9  | `https://amazon.com`             | Complex grid, many elements                 |
+| 10 | `https://example.com`            | Minimal page — baseline test                |
 
 ---
 
 ## 9. Summary Statistics
 
-| Category | Count |
-|----------|-------|
-| **Import tabs** | 5 |
-| **Import pages** | 2 (Import, AI Generations) |
-| **Settings dropdowns** | 7 (Colors, Fonts, Text, Assets, CSS Vars, Layout, Interactions) |
-| **Viewport options** | 5 (multi-select) |
-| **Viewport combinations** | 31 (2^5 - 1) |
-| **Web tab setting combos** | 288 |
-| **Screenshot tab setting combos** | 48 |
-| **HTML tab setting combos** | 288 |
-| **Area Selection setting combos** | 288 |
-| **Browser Extension combos** | 1 |
-| **Total setting combos (all tabs)** | **913** |
-| **Smoke tests** | 28 |
-| **Edge case tests** | 42 |
-| **Rendering verification tests** | 16 |
-| **Cross-setting interaction tests** | 10 |
-| **GRAND TOTAL test cases** | **1,009** |
+| Category                           | Count   |
+| ---------------------------------- | ------- |
+| Import tabs                        | 5       |
+| Import pages                       | 2       |
+| Settings dropdowns                 | 7       |
+| Viewport options                   | 5       |
+| Viewport combinations              | 31      |
+| Web tab setting combos             | 288     |
+| Screenshot tab setting combos      | 48      |
+| HTML tab setting combos            | 288     |
+| Area Selection setting combos      | 288     |
+| Browser Extension combos           | 1       |
+| **Total setting combos (all tabs)**| **913** |
+| Smoke tests                        | 28      |
+| Edge case tests                    | 42      |
+| Rendering verification tests       | 16      |
+| Cross-setting interaction tests    | 10      |
