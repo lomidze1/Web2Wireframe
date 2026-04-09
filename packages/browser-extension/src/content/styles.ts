@@ -1,7 +1,7 @@
 /**
  * CSS property extraction constants and pre-capture style injection.
  *
- * Based on h2d's approach: 70+ CSS properties captured via getComputedStyle(),
+ * 70+ CSS properties captured via getComputedStyle(),
  * with pre-capture styles injected to freeze animations and hide UI artifacts.
  */
 
@@ -71,7 +71,7 @@ export const CSS_PROPERTIES: readonly string[] = [
  */
 export const NUMERIC_PROPERTIES = new Set([
   'opacity', 'flexGrow', 'flexShrink', 'order',
-  // zIndex: intentionally NOT numeric — h2d stores as string
+  // zIndex: intentionally NOT numeric — stored as string
 ]);
 
 /**
@@ -93,7 +93,7 @@ export const AUTO_DETECT_PROPERTIES = new Set([
  * Used to filter out properties that match their user-agent default.
  *
  * NOTE: Some properties are intentionally OMITTED to force "always-on" emission
- * (matching h2d behavior): opacity, order, flexGrow, flexShrink, textDecoration,
+ * (always-on): opacity, order, flexGrow, flexShrink, textDecoration,
  * left, top, right, bottom, borderTopStyle, borderRightStyle, borderBottomStyle,
  * borderLeftStyle, borderStyle, display, backgroundColor.
  * These are emitted on every node regardless of value.
@@ -159,7 +159,7 @@ export const DEFAULT_VALUES: Record<string, string | number> = {
   paddingLeft: '0px',
   rowGap: 'normal',
   columnGap: 'normal',
-  // minWidth/minHeight: NOT filtered — h2d emits "0px" on all nodes
+  // minWidth/minHeight: NOT filtered — emits "0px" on all nodes
   maxWidth: 'none',
   maxHeight: 'none',
   aspectRatio: 'auto',
@@ -187,7 +187,7 @@ const PRECAPTURE_STYLE_ID = 'w2w-precapture-styles';
 
 /**
  * CSS injected before capture to freeze animations and hide UI artifacts.
- * Matches h2d's pre-capture injection approach.
+ * Pre-capture injection approach.
  */
 const PRECAPTURE_CSS = `
 *, *::before, *::after {

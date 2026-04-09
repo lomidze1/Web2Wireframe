@@ -119,7 +119,7 @@ const FONTS_READY_EXPRESSION =
 
 /**
  * Create viewport emulation config for CDP Emulation.setDeviceMetricsOverride.
- * Sets mobile=true for viewports <= 768px (h2d-compatible).
+ * Sets mobile=true for viewports <= 768px.
  *
  * @param browserDpr - Browser's devicePixelRatio. When provided, deviceScaleFactor
  *   is set to `1 / browserDpr` to counter-scale the browser zoom and capture at 1x.

@@ -2128,6 +2128,8 @@ export function buildElementTree(
                   const pseudoLetterSpacing = parseFloat(childNode.computedStyles["letter-spacing"] || "0") || 0;
                   const pseudoFontFamilyResolved = extractFontFamilyList(rawFamily)[0] || fontFamily;
 
+                  const pseudoCssPosition = childNode.computedStyles["position"];
+
                   const pseudoSelector = getSelector(node.index) + childNode.nodeName;
                   const pseudoTextChild = createSyntheticTextChild(
                     pseudoWidth,
@@ -2147,6 +2149,10 @@ export function buildElementTree(
                     pseudoSelector
                   );
                   pseudoTextChild.tag = childNode.nodeName; // "::before", "::after", "::marker"
+                  // Preserve CSS position so Figma can set layoutPositioning = "ABSOLUTE"
+                  if (pseudoCssPosition === "absolute" || pseudoCssPosition === "fixed") {
+                    pseudoTextChild.position = pseudoCssPosition;
+                  }
                   element.children.push(pseudoTextChild);
                 }
               }

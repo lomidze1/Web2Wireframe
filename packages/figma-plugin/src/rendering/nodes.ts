@@ -597,6 +597,15 @@ export async function createNodeInFigma(
         textNode.textAlignHorizontal = alignMap[node.textAlign] || "LEFT";
       }
 
+      // Apply text decoration from computedStyles
+      const rawTextDeco = node.computedStyles?.["text-decoration"] ||
+                          node.computedStyles?.["text-decoration-line"] || "";
+      if (rawTextDeco.includes("underline")) {
+        textNode.textDecoration = "UNDERLINE";
+      } else if (rawTextDeco.includes("line-through")) {
+        textNode.textDecoration = "STRIKETHROUGH";
+      }
+
       // Position the text
       const textX = node.padding?.left || 0;
       const textY = 0;

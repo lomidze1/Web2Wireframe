@@ -1,11 +1,11 @@
 /**
- * CSS Converter: H2D raw CSS → WireframeNode
+ * CSS Converter: W2W raw CSS → WireframeNode
  *
- * Converts h2d-style node tree (raw CSS values from getComputedStyle)
+ * Converts w2w-style node tree (raw CSS values from getComputedStyle)
  * into WireframeNode tree that the existing rendering pipeline consumes.
  *
- * This is the h2d equivalent of tree-builder.ts, but runs in the Figma plugin
- * instead of during extraction.
+ * This is the w2w content-script equivalent of tree-builder.ts, but runs in
+ * the Figma plugin instead of during extraction.
  */
 
 import type {
@@ -18,8 +18,8 @@ import type {
   TextSegment,
 } from '../types';
 
-// Types from h2d extraction (inline to avoid @w2w/shared dependency in plugin build)
-interface H2DFrameNode {
+// Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
+interface W2WFrameNode {
   type: 'FRAME';
   x: number; y: number; width: number; height: number;
   quad: number[];
@@ -27,13 +27,13 @@ interface H2DFrameNode {
   classList: string[];
   attr: Record<string, string | number | boolean | undefined>;
   styles: Record<string, string | number | undefined>;
-  children: H2DNode[];
+  children: W2WNode[];
   $url?: string;
   isScrollingElt?: boolean;
-  hover?: H2DFrameNode;
+  hover?: W2WFrameNode;
 }
 
-interface H2DTextNode {
+interface W2WTextNode {
   type: 'TEXT';
   x: number; y: number; width: number; height: number;
   quad: number[];
@@ -42,14 +42,14 @@ interface H2DTextNode {
   platformFont?: { familyName: string; postScriptName?: string };
 }
 
-interface H2DSVGNode {
+interface W2WSVGNode {
   type: 'SVG';
   x: number; y: number; width: number; height: number;
   quad: number[];
   svg: string;
 }
 
-type H2DNode = H2DFrameNode | H2DTextNode | H2DSVGNode;
+type W2WNode = W2WFrameNode | W2WTextNode | W2WSVGNode;
 
 interface ConvertOptions {
   cssVariables?: Map<string, string>;
@@ -74,14 +74,14 @@ const TEXT_COALESCE_TAGS = new Set([
 let _nodeId = 0;
 
 /**
- * Convert an H2D frame tree to a WireframeNode tree.
+ * Convert a W2W content-script frame tree to a WireframeNode tree.
  */
-export function convertH2DToWireframe(
-  h2dFrame: H2DFrameNode,
+export function convertW2WToWireframe(
+  w2wFrame: W2WFrameNode,
   options: ConvertOptions = {},
 ): WireframeNode {
   _nodeId = 0;
-  return convertFrame(h2dFrame, null, options);
+  return convertFrame(w2wFrame, null, options);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,12 +89,12 @@ export function convertH2DToWireframe(
 // ---------------------------------------------------------------------------
 
 function convertFrame(
-  node: H2DFrameNode,
-  parent: H2DFrameNode | null,
+  node: W2WFrameNode,
+  parent: W2WFrameNode | null,
   options: ConvertOptions,
 ): WireframeNode {
   const s = node.styles;
-  const id = `h2d-${_nodeId++}`;
+  const id = `w2w-${_nodeId++}`;
 
 
   // Layout
@@ -160,7 +160,7 @@ function convertFrame(
       children.push(convertSVGNode(child, node));
     } else if (child.type === 'FRAME') {
       // Pseudo-element wrappers (__w2w-pseudo-before/after): flatten their children
-      // directly into parent, skipping the wrapper frame (like h2d does).
+      // directly into parent, skipping the wrapper frame.
       const isPseudo = child.classList.includes('__w2w-pseudo-before') || child.classList.includes('__w2w-pseudo-after');
       if (isPseudo) {
         for (const pseudoChild of child.children) {
@@ -194,7 +194,7 @@ function convertFrame(
     type = 'placeholder';
   }
 
-  // Text coalescing: join h2d per-line TEXT children into a single text node.
+  // Text coalescing: join w2w per-line TEXT children into a single text node.
   // Only coalesce when:
   // - Element has TEXT children (textChildValues not empty)
   // - Element is a text-wrapping tag (p, h1-h6, span, a, button, etc.)
@@ -209,7 +209,7 @@ function convertFrame(
 
   if (hasTextChildren && !hasNonTextChildren && !isLayoutContainer && TEXT_COALESCE_TAGS.has(node.tag)) {
     // Coalesce all TEXT children into a single text node
-    // Join with space because h2d splits text per visual line
+    // Join with space because content script splits text per visual line
     textContent = textChildValues.map(t => t.value).join(' ');
     browserLineCount = textChildValues.length;
 
@@ -346,11 +346,11 @@ function convertFrame(
  */
 function convertTextNodeFromValue(
   tv: { value: string; font: string; platformFamily?: string; x: number; y: number; width: number; height: number },
-  parentNode: H2DFrameNode | null,
+  parentNode: W2WFrameNode | null,
   parentStyles: Record<string, string | number | undefined>,
   _options: ConvertOptions,
 ): WireframeNode {
-  const id = `h2d-${_nodeId++}`;
+  const id = `w2w-${_nodeId++}`;
   const { family, weight } = parseFontString(tv.font);
 
   const textColor = str(parentStyles.webkitTextFillColor)
@@ -396,8 +396,8 @@ function convertTextNodeFromValue(
 // SVG node conversion
 // ---------------------------------------------------------------------------
 
-function convertSVGNode(node: H2DSVGNode, parent: H2DFrameNode | null): WireframeNode {
-  const id = `h2d-${_nodeId++}`;
+function convertSVGNode(node: W2WSVGNode, parent: W2WFrameNode | null): WireframeNode {
+  const id = `w2w-${_nodeId++}`;
 
   return {
     id,
@@ -1077,7 +1077,7 @@ function parseFontWeight(weight: string): number {
 }
 
 /** Name for standalone TEXT nodes — use parent's icon class if available */
-function getTextNodeName(value: string, parentNode: H2DFrameNode | null): string {
+function getTextNodeName(value: string, parentNode: W2WFrameNode | null): string {
   if (parentNode) {
     const iconClass = parentNode.classList.find(c =>
       c.startsWith('fa-') && !['fa-solid', 'fa-regular', 'fa-light', 'fa-thin', 'fa-brands', 'fa-duotone', 'fa-sharp'].includes(c)
@@ -1087,7 +1087,7 @@ function getTextNodeName(value: string, parentNode: H2DFrameNode | null): string
   return value.slice(0, 30);
 }
 
-function getNodeName(node: H2DFrameNode): string {
+function getNodeName(node: W2WFrameNode): string {
   const tag = node.tag;
   if (node.attr.id) return `${tag}#${node.attr.id}`;
   if (node.classList.length > 0) {

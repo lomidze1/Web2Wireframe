@@ -35,7 +35,7 @@ import {
   createTextStyles,
   createWireframeFrame,
 } from "./rendering";
-import { convertH2DToWireframe } from "./rendering/css-converter";
+import { convertW2WToWireframe } from "./rendering/css-converter";
 import {
   collectAllFonts,
   checkFontsAvailability,
@@ -406,7 +406,7 @@ export default function () {
             try {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const capturedFrame = frameData.capturedData.frame as any;
-              const convertedTree = convertH2DToWireframe(capturedFrame, {
+              const convertedTree = convertW2WToWireframe(capturedFrame, {
                 layoutMode: (layoutMode || 'autoLayout') as 'absolute' | 'autoLayout',
               });
               frameData.tree = convertedTree;

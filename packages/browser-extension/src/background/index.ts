@@ -62,11 +62,11 @@ import {
   buildTreeFromSnapshot,
   findIconFontNodes,
   findIconClassElements,
-  // h2d types
-  type H2DCaptureResult,
-  type H2DFrameNode,
-  type H2DNode,
-  type H2DAssetEntry,
+  // W2W content script types
+  type W2WCaptureResult,
+  type W2WFrameNode,
+  type W2WNode,
+  type W2WAssetEntry,
 } from "@w2w/shared";
 
 // Browser extension-specific types (local)
@@ -107,17 +107,17 @@ chrome.runtime.onMessage.addListener(
       return true; // Keep channel open for async response
     }
 
-    // h2d-style capture (content script extraction)
-    if (message.type === "CAPTURE_PAGE_H2D") {
-      console.log("[W2W-H2D] CAPTURE_PAGE_H2D received, tabId:", message.tabId);
-      handleCapturePageH2D(message.tabId, message.options)
+    // W2W content script capture
+    if (message.type === "CAPTURE_PAGE_W2W") {
+      console.log("[W2W] CAPTURE_PAGE_W2W received, tabId:", message.tabId);
+      handleCapturePageW2W(message.tabId, message.options)
         .then(async (result) => {
-          console.log("[W2W-H2D] h2d capture complete, nodes:", h2dCountNodes(result.frame));
-          // Auto-download h2d result as JSON
+          console.log("[W2W] W2W capture complete, nodes:", w2wCountNodes(result.frame));
+          // Auto-download W2W result as JSON
           try {
             const jsonString = JSON.stringify(result, null, 2);
             const domain = getDomainFromUrl(result.url || "");
-            const filename = `${domain}_${result.width}_h2d.json`;
+            const filename = `${domain}_${result.width}_w2w.json`;
             const blob = new Blob([jsonString], { type: "application/json" });
             const reader = new FileReader();
             const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -127,12 +127,12 @@ chrome.runtime.onMessage.addListener(
             });
             await chrome.downloads.download({ url: dataUrl, filename, saveAs: false });
           } catch (e) {
-            console.error("[W2W-H2D] Auto-download failed:", e);
+            console.error("[W2W] Auto-download failed:", e);
           }
           sendResponse({ success: true, data: result });
         })
         .catch((error) => {
-          console.error("[W2W-H2D] Capture failed:", error);
+          console.error("[W2W] Capture failed:", error);
           sendResponse({ success: false, error: error.message });
         });
       return true;
@@ -705,7 +705,7 @@ async function handleCapturePage(
     updateProgress(85, "Extracting fonts...");
     const fonts = await extractFonts(client, tab.url);
 
-    // Extract font binary files from browser cache (h2d-style)
+    // Extract font binary files from browser cache (Page.getResourceContent)
     updateProgress(87, "Extracting font files...");
     const fontResourceMap = await buildResourceMap(client);
     for (const font of fonts) {
@@ -789,25 +789,25 @@ async function handleCapturePage(
 }
 
 // =============================================================================
-// h2d-STYLE CAPTURE (content script extraction)
+// W2W CONTENT SCRIPT CAPTURE
 // =============================================================================
 
 /**
- * h2d-style page capture using content script DOM traversal.
+ * W2W page capture using content script DOM traversal.
  *
  * Flow:
  * 1. Viewport setup (emulation, scroll, scrollbar compensation)
- * 2. Content script extracts DOM → H2DFrameNode tree (raw CSS)
+ * 2. Content script extracts DOM → W2WFrameNode tree (raw CSS)
  * 3. CDP: platform fonts (CSS.getPlatformFontsForNode)
  * 4. CDP: assets from browser cache (Page.getResourceContent)
  * 5. CDP: CSS variables
  * 6. CDP: font @font-face extraction
- * 7. Assemble H2DCaptureResult
+ * 7. Assemble W2WCaptureResult
  */
-async function handleCapturePageH2D(
+async function handleCapturePageW2W(
   tabId: number,
   options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS,
-): Promise<H2DCaptureResult> {
+): Promise<W2WCaptureResult> {
   if (isCapturing) {
     throw new Error("Capture already in progress");
   }
@@ -819,7 +819,7 @@ async function handleCapturePageH2D(
   try {
     const tab = await chrome.tabs.get(tabId);
     if (!tab.url) throw new Error("Cannot capture this page");
-    console.log("[W2W-H2D] Starting h2d-style capture for:", tab.url);
+    console.log("[W2W] Starting content script capture for:", tab.url);
 
     updateProgress(5, "Connecting to page...");
     client = await createCDPClient(tabId);
@@ -891,7 +891,7 @@ async function handleCapturePageH2D(
 
     // --- Content Script DOM Extraction ---
     updateProgress(30, "Extracting DOM via content script...");
-    console.log("[W2W-H2D] Sending EXTRACT_DOM to content script...");
+    console.log("[W2W] Sending EXTRACT_DOM to content script...");
 
     const extractResult = await chrome.tabs.sendMessage(tabId, { type: "EXTRACT_DOM" });
 
@@ -900,11 +900,11 @@ async function handleCapturePageH2D(
     }
 
     const { doc, frame, textHostCount } = extractResult.data as {
-      doc: H2DCaptureResult["doc"];
-      frame: H2DFrameNode;
+      doc: W2WCaptureResult["doc"];
+      frame: W2WFrameNode;
       textHostCount: number;
     };
-    console.log(`[W2W-H2D] DOM extracted: ${h2dCountNodes(frame)} nodes, ${textHostCount} text hosts`);
+    console.log(`[W2W] DOM extracted: ${w2wCountNodes(frame)} nodes, ${textHostCount} text hosts`);
 
     // --- Platform Fonts via CDP ---
     updateProgress(50, "Collecting platform fonts...");
@@ -924,7 +924,7 @@ async function handleCapturePageH2D(
     const fontsByIdx = new Map<number, { familyName: string; postScriptName: string }>();
     if (idxResult.nodeIds.length > 0) {
       console.log(
-        `[W2W-H2D] Collecting platform fonts for ${idxResult.nodeIds.length} text-hosting elements...`,
+        `[W2W] Collecting platform fonts for ${idxResult.nodeIds.length} text-hosting elements...`,
       );
 
       for (const nodeId of idxResult.nodeIds) {
@@ -965,8 +965,8 @@ async function handleCapturePageH2D(
       }
 
       // Enrich TEXT nodes with platform font info
-      h2dEnrichAllTextNodes(frame, fontsByIdx);
-      console.log(`[W2W-H2D] Platform fonts collected: ${fontsByIdx.size} elements`);
+      w2wEnrichAllTextNodes(frame, fontsByIdx);
+      console.log(`[W2W] Platform fonts collected: ${fontsByIdx.size} elements`);
     }
 
     // Cleanup data-w2w-idx markers from the page (no longer needed)
@@ -978,9 +978,9 @@ async function handleCapturePageH2D(
 
     // --- Hover State Capture ---
     updateProgress(65, "Capturing hover states...");
-    const interactiveNodes = h2dFindInteractiveNodes(frame);
+    const interactiveNodes = w2wFindInteractiveNodes(frame);
     if (interactiveNodes.length > 0) {
-      console.log(`[W2W-H2D] Capturing hover states for ${interactiveNodes.length} interactive elements...`);
+      console.log(`[W2W] Capturing hover states for ${interactiveNodes.length} interactive elements...`);
       let hoverCount = 0;
 
       for (const { node, selector } of interactiveNodes) {
@@ -1015,25 +1015,25 @@ async function handleCapturePageH2D(
           });
 
           if (hoverResult?.success && hoverResult.data) {
-            node.hover = hoverResult.data as H2DFrameNode;
+            node.hover = hoverResult.data as W2WFrameNode;
             hoverCount++;
           }
         } catch {
           // Skip elements that fail hover capture
         }
       }
-      console.log(`[W2W-H2D] Hover states captured: ${hoverCount}`);
+      console.log(`[W2W] Hover states captured: ${hoverCount}`);
     }
 
     // --- Asset Extraction from Browser Cache ---
     updateProgress(70, "Extracting assets from cache...");
-    const assets: Record<string, H2DAssetEntry> = {};
+    const assets: Record<string, W2WAssetEntry> = {};
 
     const settings = await getSettings();
     if (settings.captureAssets) {
       const resourceMap = await buildResourceMap(client);
-      const imageUrls = h2dCollectImageUrls(frame);
-      console.log(`[W2W-H2D] Extracting ${imageUrls.length} assets from browser cache...`);
+      const imageUrls = w2wCollectImageUrls(frame);
+      console.log(`[W2W] Extracting ${imageUrls.length} assets from browser cache...`);
 
       for (const url of imageUrls) {
         const resource = resourceMap.get(url);
@@ -1041,7 +1041,7 @@ async function handleCapturePageH2D(
           try {
             const base64 = await getResourceBase64(client, resource.frameId, url);
             if (base64) {
-              // Keep original format (AVIF/WebP) — same as h2d approach.
+              // Keep original format (AVIF/WebP) — plugin handles compatibility.
               // Figma plugin handles format compatibility at render time.
               assets[url] = {
                 base64Encoded: true,
@@ -1054,14 +1054,14 @@ async function handleCapturePageH2D(
           }
         }
       }
-      console.log(`[W2W-H2D] Assets extracted: ${Object.keys(assets).length}`);
+      console.log(`[W2W] Assets extracted: ${Object.keys(assets).length}`);
     }
 
     // --- Font Extraction ---
     updateProgress(80, "Extracting fonts...");
     const extractedFonts = await extractFonts(client, tab.url);
 
-    const h2dFonts: H2DCaptureResult["fonts"] = extractedFonts.map((f) => {
+    const w2wFonts: W2WCaptureResult["fonts"] = extractedFonts.map((f) => {
       // Clean src: strip url() wrapper for clean URL storage
       const cleanSrc = f.src.replace(/url\(['"]?([^'")\s]+)['"]?\)/g, '$1').trim();
 
@@ -1081,7 +1081,7 @@ async function handleCapturePageH2D(
     });
 
     // Fetch ALL font binaries from browser cache
-    // H2D extracts all font resources (woff2, woff, ttf, otf) regardless of @font-face matching
+    // Extract all font resources (woff2, woff, ttf, otf) regardless of @font-face matching
     const fontResourceMap = await buildResourceMap(client);
     const fontMimeTypes = new Set([
       "font/woff2", "font/woff", "font/ttf", "font/otf",
@@ -1114,8 +1114,8 @@ async function handleCapturePageH2D(
     }
 
     // Also try extracting fonts referenced in @font-face src
-    // h2dFonts.src is already cleaned (no url() wrapper), may contain multiple URLs space-separated
-    for (const font of h2dFonts) {
+    // w2wFonts.src is already cleaned (no url() wrapper), may contain multiple URLs space-separated
+    for (const font of w2wFonts) {
       if (!font.src) continue;
       // Extract URLs: could be clean URLs (after stripping url()) or still have url() wrappers
       const urlRegex = /(?:url\(['"]?)?((https?:\/\/[^\s'")\],]+))['"]?\)?/g;
@@ -1167,7 +1167,7 @@ async function handleCapturePageH2D(
     }
     // Fallback: fetch missing font binaries via content script (page context, no CORS issues)
     const missingFontUrls: string[] = [];
-    for (const font of h2dFonts) {
+    for (const font of w2wFonts) {
       if (!font.src) continue;
       const urlRegex2 = /(?:url\(['"]?)?((https?:\/\/[^\s'")\],]+))['"]?\)?/g;
       let m2;
@@ -1178,7 +1178,7 @@ async function handleCapturePageH2D(
     }
 
     if (missingFontUrls.length > 0) {
-      console.log(`[W2W-H2D] ${missingFontUrls.length} fonts missing from cache, fetching via content script...`);
+      console.log(`[W2W] ${missingFontUrls.length} fonts missing from cache, fetching via content script...`);
       try {
         const response = await chrome.tabs.sendMessage(tabId, {
           type: "FETCH_FONT_DATA",
@@ -1199,14 +1199,14 @@ async function handleCapturePageH2D(
               };
             }
           }
-          console.log(`[W2W-H2D] Content script fetched ${Object.keys(response.data).length} fonts`);
+          console.log(`[W2W] Content script fetched ${Object.keys(response.data).length} fonts`);
         }
       } catch (err) {
-        console.warn('[W2W-H2D] Content script font fetch failed:', err);
+        console.warn('[W2W] Content script font fetch failed:', err);
       }
     }
 
-    console.log(`[W2W-H2D] Font assets extracted, total assets: ${Object.keys(assets).length}`);
+    console.log(`[W2W] Font assets extracted, total assets: ${Object.keys(assets).length}`);
 
     // --- CSS Variables ---
     updateProgress(90, "Extracting CSS variables...");
@@ -1221,12 +1221,12 @@ async function handleCapturePageH2D(
     updateProgress(97, "Finalizing...");
 
     // --- Assemble Result ---
-    const result: H2DCaptureResult = {
+    const result: W2WCaptureResult = {
       name: tab.url,
       doc,
       frame,
       assets,
-      fonts: h2dFonts,
+      fonts: w2wFonts,
       url: tab.url,
       theme: "default",
       width: targetViewport,
@@ -1235,7 +1235,7 @@ async function handleCapturePageH2D(
 
     updateProgress(100, "Complete!");
     console.log(
-      `[W2W-H2D] Capture complete: ${h2dCountNodes(frame)} nodes, ${Object.keys(assets).length} assets, ${h2dFonts.length} fonts`,
+      `[W2W] Capture complete: ${w2wCountNodes(frame)} nodes, ${Object.keys(assets).length} assets, ${w2wFonts.length} fonts`,
     );
     return result;
   } finally {
@@ -1252,10 +1252,10 @@ async function handleCapturePageH2D(
 }
 
 // ---------------------------------------------------------------------------
-// h2d helper functions
+// W2W content script helper functions
 // ---------------------------------------------------------------------------
 
-/** Count total nodes in an H2D tree. */
+/** Count total nodes in a W2W tree. */
 /** Get main frame ID from resource map (first entry's frameId). */
 function getMainFrameId(resourceMap: Map<string, { frameId: string }>): string | null {
   for (const [, resource] of resourceMap) {
@@ -1264,22 +1264,22 @@ function getMainFrameId(resourceMap: Map<string, { frameId: string }>): string |
   return null;
 }
 
-function h2dCountNodes(node: H2DNode): number {
+function w2wCountNodes(node: W2WNode): number {
   let count = 1;
   if (node.type === "FRAME" && node.children) {
     for (const child of node.children) {
-      count += h2dCountNodes(child);
+      count += w2wCountNodes(child);
     }
   }
   return count;
 }
 
-/** Collect all image URLs ($url) from the h2d tree. */
-function h2dCollectImageUrls(node: H2DNode, urls: string[] = []): string[] {
+/** Collect all image URLs ($url) from the W2W tree. */
+function w2wCollectImageUrls(node: W2WNode, urls: string[] = []): string[] {
   if (node.type === "FRAME") {
     if (node.$url) urls.push(node.$url);
     for (const child of node.children) {
-      h2dCollectImageUrls(child, urls);
+      w2wCollectImageUrls(child, urls);
     }
   }
   return urls;
@@ -1290,13 +1290,13 @@ function h2dCollectImageUrls(node: H2DNode, urls: string[] = []): string[] {
  * The content script sets data-w2w-idx in the same DFS order (incremented
  * for each frame that has TEXT children).
  */
-function h2dEnrichAllTextNodes(
-  frame: H2DFrameNode,
+function w2wEnrichAllTextNodes(
+  frame: W2WFrameNode,
   fontsByIdx: Map<number, { familyName: string; postScriptName: string }>,
 ): void {
   let idx = 0;
 
-  function walk(node: H2DNode): void {
+  function walk(node: W2WNode): void {
     if (node.type === "FRAME") {
       const hasTextChildren = node.children.some((c) => c.type === "TEXT");
       if (hasTextChildren) {
@@ -1309,7 +1309,7 @@ function h2dEnrichAllTextNodes(
                 postScriptName: font.postScriptName,
               };
               // Override content-script's weight-specific font name with platform font
-              // (h2d uses platformFont.familyName for all TEXT nodes)
+              // (platformFont.familyName overrides content-script font for TEXT nodes)
               child.font = font.familyName;
             }
           }
@@ -1326,15 +1326,15 @@ function h2dEnrichAllTextNodes(
 }
 
 /**
- * Find interactive elements (a, button) in the h2d tree that could have hover states.
+ * Find interactive elements (a, button) in the W2W tree that could have hover states.
  * Returns nodes with CSS selectors for re-querying in the DOM.
  */
-function h2dFindInteractiveNodes(
-  frame: H2DFrameNode,
-): Array<{ node: H2DFrameNode; selector: string | null }> {
-  const results: Array<{ node: H2DFrameNode; selector: string | null }> = [];
+function w2wFindInteractiveNodes(
+  frame: W2WFrameNode,
+): Array<{ node: W2WFrameNode; selector: string | null }> {
+  const results: Array<{ node: W2WFrameNode; selector: string | null }> = [];
 
-  function walk(node: H2DNode): void {
+  function walk(node: W2WNode): void {
     if (node.type === 'FRAME') {
       const isInteractive = node.tag === 'a' || node.tag === 'button'
         || (node.attr && node.attr.role === 'button');

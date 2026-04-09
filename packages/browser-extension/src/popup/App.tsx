@@ -67,7 +67,7 @@ export function App() {
     try {
       const options: CaptureOptions = { viewports };
       const response = await chrome.runtime.sendMessage({
-        type: "CAPTURE_PAGE_H2D",
+        type: "CAPTURE_PAGE_W2W",
         tabId: currentTab.id,
         options,
       } as ExtensionMessage);

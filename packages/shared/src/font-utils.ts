@@ -1,7 +1,7 @@
 /**
  * Font utility functions for variable font parsing and obfuscated font detection.
  *
- * Key insights from h2d analysis:
+ * Key insights from html.to.design analysis:
  * - Variable fonts encode axis values as hex suffixes in postScriptName
  *   e.g., "SourceSans3VF-ExtraLight_wght1E00000" → wght = 0x1E00000
  * - Obfuscated fonts have non-printable familyName chars or hex-pattern postScriptName

@@ -830,12 +830,12 @@ export async function extractBackgroundFromCSS(
 }
 
 // ============================================================================
-// PSEUDO-ELEMENT PLATFORM FONT DETECTION (Layer #4 - h2d approach)
+// PSEUDO-ELEMENT PLATFORM FONT DETECTION (Layer #4 - w2w approach)
 // ============================================================================
 
 /**
  * Inject pseudo-element content as real DOM element and get its platform font.
- * h2d approach: resolveNode → callFunctionOn (inject) → getPlatformFontsForNode → cleanup
+ * w2w approach: resolveNode → callFunctionOn (inject) → getPlatformFontsForNode → cleanup
  *
  * @param client - CDP client
  * @param backendNodeId - icon element's backendNodeId
@@ -950,7 +950,7 @@ export interface RuntimePseudoContent {
  *
  * This is the fallback for when DOMSnapshot.captureSnapshot doesn't include
  * the ::before/::after pseudo-element with layout data. Uses the same approach
- * as html.to.design: Runtime.callFunctionOn -> getComputedStyle(el, '::before').
+ * as w2w/html.to.design: Runtime.callFunctionOn -> getComputedStyle(el, '::before').
  *
  * @param client - CDP client
  * @param backendNodeId - Backend node ID of the PARENT element (e.g., <i class="fa-solid">)

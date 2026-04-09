@@ -1,7 +1,7 @@
 /**
  * Font download utilities for ZIP bundling.
  *
- * - buildFontFileName: generates h2d-style file names ({family}-{style}-{weight}-100.{ext})
+ * - buildFontFileName: generates file names ({family}-{style}-{weight}-100.{ext})
  * - buildFontDownloadEntries: converts FontDownloadInfo[] to downloadable entries
  * - createFontsZipBlob: fetches font files and bundles into a ZIP blob
  */
@@ -29,7 +29,7 @@ export interface FontDownloadEntry {
 // ============================================================================
 
 /**
- * Generate a font file name matching h2d convention:
+ * Generate a font file name:
  * {family}-{style}-{weight}-100.{ext}
  */
 export function buildFontFileName(
@@ -116,7 +116,7 @@ export function buildFontDownloadEntries(
 
 /**
  * Bundle font files into a ZIP blob.
- * Prefers pre-extracted base64 binaries (h2d-style, no network needed).
+ * Prefers pre-extracted base64 binaries (from browser cache, no network needed).
  * Falls back to fetch() if no base64 available.
  */
 export async function createFontsZipBlob(
@@ -127,7 +127,7 @@ export async function createFontsZipBlob(
   for (const entry of entries) {
     try {
       if (entry.fontBase64) {
-        // h2d-style: use pre-extracted binary from browser cache (no network!)
+        // Use pre-extracted binary from browser cache (no network!)
         const binaryString = atob(entry.fontBase64);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {

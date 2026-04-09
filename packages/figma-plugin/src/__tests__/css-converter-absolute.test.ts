@@ -2,9 +2,9 @@
  * Tests for css-converter.ts: coordinate conversion + absolute mode overrides
  */
 import { describe, it, expect } from "vitest";
-import { convertH2DToWireframe } from "../rendering/css-converter";
+import { convertW2WToWireframe } from "../rendering/css-converter";
 
-// Helper: minimal H2D frame node
+// Helper: minimal W2W frame node
 function makeFrame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: 'FRAME',
@@ -36,7 +36,7 @@ function makeSVG(overrides: Record<string, unknown> = {}): Record<string, unknow
 describe("css-converter: coordinate conversion", () => {
   it("root node keeps original coordinates (no parent)", () => {
     const root = makeFrame({ x: 0, y: 100, width: 1440, height: 900 });
-    const result = convertH2DToWireframe(root as any);
+    const result = convertW2WToWireframe(root as any);
     expect(result.x).toBe(0);
     expect(result.y).toBe(100);
   });
@@ -48,7 +48,7 @@ describe("css-converter: coordinate conversion", () => {
       children: [child],
     });
 
-    const result = convertH2DToWireframe(root as any);
+    const result = convertW2WToWireframe(root as any);
     expect(result.children[0].x).toBe(50);     // 50 - 0 = 50
     expect(result.children[0].y).toBe(200);    // 300 - 100 = 200
   });
@@ -64,7 +64,7 @@ describe("css-converter: coordinate conversion", () => {
       children: [mid],
     });
 
-    const result = convertH2DToWireframe(root as any);
+    const result = convertW2WToWireframe(root as any);
     const midNode = result.children[0];
     expect(midNode.x).toBe(100);   // 100 - 0
     expect(midNode.y).toBe(200);   // 200 - 0
@@ -81,7 +81,7 @@ describe("css-converter: coordinate conversion", () => {
       children: [svg],
     });
 
-    const result = convertH2DToWireframe(parent as any);
+    const result = convertW2WToWireframe(parent as any);
     const svgNode = result.children[0];
     expect(svgNode.x).toBe(50);   // 150 - 100
     expect(svgNode.y).toBe(150);  // 350 - 200
@@ -98,7 +98,7 @@ describe("css-converter: absolute mode overrides", () => {
       styles: { display: 'flex', flexDirection: 'row' },
     });
 
-    const result = convertH2DToWireframe(root as any, { layoutMode: 'absolute' });
+    const result = convertW2WToWireframe(root as any, { layoutMode: 'absolute' });
     expect(result.layoutMode).toBe('NONE');
   });
 
@@ -107,7 +107,7 @@ describe("css-converter: absolute mode overrides", () => {
       styles: { display: 'flex', flexGrow: '1' },
     });
 
-    const result = convertH2DToWireframe(root as any, { layoutMode: 'absolute' });
+    const result = convertW2WToWireframe(root as any, { layoutMode: 'absolute' });
     expect(result.layoutSizingHorizontal).toBe('FIXED');
     expect(result.layoutSizingVertical).toBe('FIXED');
   });
@@ -123,7 +123,7 @@ describe("css-converter: absolute mode overrides", () => {
       },
     });
 
-    const result = convertH2DToWireframe(root as any, { layoutMode: 'absolute' });
+    const result = convertW2WToWireframe(root as any, { layoutMode: 'absolute' });
     expect(result.gridTemplateColumns).toBeUndefined();
     expect(result.gridTemplateRows).toBeUndefined();
     expect(result.gridAutoFlow).toBeUndefined();
@@ -134,7 +134,7 @@ describe("css-converter: absolute mode overrides", () => {
       styles: { display: 'flex', gap: '20px' },
     });
 
-    const result = convertH2DToWireframe(root as any, { layoutMode: 'absolute' });
+    const result = convertW2WToWireframe(root as any, { layoutMode: 'absolute' });
     expect(result.itemSpacing).toBe(0);
   });
 
@@ -148,7 +148,7 @@ describe("css-converter: absolute mode overrides", () => {
       },
     });
 
-    const result = convertH2DToWireframe(root as any, { layoutMode: 'absolute' });
+    const result = convertW2WToWireframe(root as any, { layoutMode: 'absolute' });
     expect(result.justifyContent).toBeUndefined();
     expect(result.alignItems).toBeUndefined();
     expect(result.flexWrap).toBeUndefined();
@@ -165,7 +165,7 @@ describe("css-converter: autoLayout mode unchanged", () => {
       styles: { display: 'flex', flexDirection: 'row' },
     });
 
-    const result = convertH2DToWireframe(root as any, { layoutMode: 'autoLayout' });
+    const result = convertW2WToWireframe(root as any, { layoutMode: 'autoLayout' });
     expect(result.layoutMode).toBe('HORIZONTAL');
   });
 
@@ -174,7 +174,7 @@ describe("css-converter: autoLayout mode unchanged", () => {
       styles: { display: 'flex', gap: '16px' },
     });
 
-    const result = convertH2DToWireframe(root as any, { layoutMode: 'autoLayout' });
+    const result = convertW2WToWireframe(root as any, { layoutMode: 'autoLayout' });
     expect(result.itemSpacing).toBe(16);
   });
 
@@ -186,7 +186,7 @@ describe("css-converter: autoLayout mode unchanged", () => {
       },
     });
 
-    const result = convertH2DToWireframe(root as any, { layoutMode: 'autoLayout' });
+    const result = convertW2WToWireframe(root as any, { layoutMode: 'autoLayout' });
     expect(result.gridTemplateColumns).toBe('repeat(3, 1fr)');
   });
 });
@@ -217,7 +217,7 @@ describe("css-converter: TEXT node geometry in mixed containers", () => {
       children: [icon, text],
     });
 
-    const result = convertH2DToWireframe(li as any);
+    const result = convertW2WToWireframe(li as any);
     // Find the text child (type === 'text')
     const textChild = result.children.find(c => c.type === 'text' && c.textContent === '6 Sections');
     expect(textChild).toBeDefined();
@@ -234,7 +234,7 @@ describe("css-converter: TEXT node geometry in mixed containers", () => {
       children: [icon, text],
     });
 
-    const result = convertH2DToWireframe(li as any);
+    const result = convertW2WToWireframe(li as any);
     const textChild = result.children.find(c => c.type === 'text' && c.textContent === 'Test');
     expect(textChild).toBeDefined();
     expect(textChild!.width).toBe(82);
@@ -250,7 +250,7 @@ describe("css-converter: TEXT node geometry in mixed containers", () => {
       children: [text1, text2],
     });
 
-    const result = convertH2DToWireframe(p as any);
+    const result = convertW2WToWireframe(p as any);
     expect(result.type).toBe('text');
     expect(result.textContent).toBe('Hello World');
     // Coalesced = no separate text children
@@ -285,7 +285,7 @@ describe("css-converter: pseudo-element wrapper flattening", () => {
       children: [icon],
     });
 
-    const result = convertH2DToWireframe(root as any);
+    const result = convertW2WToWireframe(root as any);
     const iconNode = result.children[0];
 
     // Icon should NOT have a wrapper frame child — text is coalesced directly
@@ -312,7 +312,7 @@ describe("css-converter: pseudo-element wrapper flattening", () => {
       children: [pseudoSpan],
     });
 
-    const result = convertH2DToWireframe(parent as any);
+    const result = convertW2WToWireframe(parent as any);
     // Inner frame should be direct child of parent (not wrapped in pseudo frame)
     expect(result.children.length).toBe(1);
     expect(result.children[0].tag).toBe('div');
@@ -326,7 +326,7 @@ describe("css-converter: pseudo-element wrapper flattening", () => {
       children: [child],
     });
 
-    const result = convertH2DToWireframe(parent as any);
+    const result = convertW2WToWireframe(parent as any);
     expect(result.children[0].x).toBe(50);  // 250 - 200
     expect(result.children[0].tag).toBe('div');
   });

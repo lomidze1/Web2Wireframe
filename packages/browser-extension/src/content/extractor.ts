@@ -1,25 +1,25 @@
 /**
  * Content Script DOM Extractor
  *
- * h2d-style in-page DOM traversal using getComputedStyle() + getBoundingClientRect().
- * Produces H2DNode tree with raw CSS values (no Figma conversion).
+ * In-page DOM traversal using getComputedStyle() + getBoundingClientRect().
+ * Produces W2WNode tree with raw CSS values (no Figma conversion).
  *
  * Flow:
  * 1. Inject pre-capture styles (freeze animations, hide scrollbars)
  * 2. Traverse DOM recursively from <html>
  * 3. Extract styles, geometry, text, SVG, pseudo-elements
  * 4. Clean up injected styles
- * 5. Return { doc, frame } matching h2d output format
+ * 5. Return { doc, frame } with W2W node tree
  */
 
 import type {
-  H2DFrameNode,
-  H2DTextNode,
-  H2DSVGNode,
-  H2DNode,
-  H2DDocMeta,
-  H2DStyles,
-  H2DAttributes,
+  W2WFrameNode,
+  W2WTextNode,
+  W2WSVGNode,
+  W2WNode,
+  W2WDocMeta,
+  W2WStyles,
+  W2WAttributes,
   Quad,
 } from '@w2w/shared';
 
@@ -47,14 +47,14 @@ let nodeIndexCounter = 0;
 // ---------------------------------------------------------------------------
 
 export interface ExtractPageResult {
-  doc: H2DDocMeta;
-  frame: H2DFrameNode;
+  doc: W2WDocMeta;
+  frame: W2WFrameNode;
   /** Number of text-hosting elements tagged with data-w2w-idx */
   textHostCount: number;
 }
 
 /**
- * Extract the entire page DOM into h2d-compatible node tree.
+ * Extract the entire page DOM into W2W node tree.
  * Called from content script message handler.
  */
 export function extractPage(): ExtractPageResult {
@@ -99,11 +99,11 @@ export function extractPage(): ExtractPageResult {
 // Document metadata
 // ---------------------------------------------------------------------------
 
-function extractDocMeta(): H2DDocMeta {
+function extractDocMeta(): W2WDocMeta {
   const bodyStyle = document.body ? getComputedStyle(document.body) : null;
   let bgColor = bodyStyle?.backgroundColor || 'rgb(255, 255, 255)';
 
-  // Resolve transparent to white (matching h2d behavior)
+  // Resolve transparent to white
   if (bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
     bgColor = 'rgb(255, 255, 255)';
   }
@@ -124,13 +124,13 @@ function extractDocMeta(): H2DDocMeta {
 
 /**
  * Recursively traverse an element and its children.
- * Returns H2DFrameNode or null if element should be skipped.
+ * Returns W2WFrameNode or null if element should be skipped.
  */
 function traverseElement(
   el: HTMLElement,
   depth: number,
   viewportWidth: number
-): H2DFrameNode | null {
+): W2WFrameNode | null {
   // Depth limit
   if (depth > MAX_DEPTH) return null;
 
@@ -162,7 +162,7 @@ function traverseElement(
   // Skip offscreen elements
   if (isOffscreen(rect, viewportWidth, window.innerHeight * 10)) return null;
 
-  // Extract geometry (round to 2 decimals — matching h2d precision)
+  // Extract geometry (round to 2 decimals)
   const x = round(rect.left);
   const y = round(rect.top + window.scrollY);
   const width = round(rect.width);
@@ -194,7 +194,7 @@ function traverseElement(
   }
 
   // Build children
-  const children: H2DNode[] = [];
+  const children: W2WNode[] = [];
 
   // Handle display: contents — flatten (children promoted to this level)
   if (computed.display === 'contents') {
@@ -208,7 +208,7 @@ function traverseElement(
     // Actually, we need to return children to parent. We'll handle this by
     // making traverse return children array for display:contents.
     // For simplicity, return a transparent frame with children.
-    // h2d also handles display:contents this way.
+    // Return a transparent frame with children for display:contents.
   }
 
   // Iterate childNodes (text nodes + elements)
@@ -233,7 +233,7 @@ function traverseElement(
     }
   }
 
-  // Extract pseudo-elements via DOM injection (h2d approach)
+  // Extract pseudo-elements via DOM injection
   // Inject temporary wrapper spans to get accurate bounding rects
   const beforeSpan = injectPseudoSpan(el, '::before');
   if (beforeSpan) {
@@ -256,7 +256,7 @@ function traverseElement(
   }
 
   // Build frame node
-  const frame: H2DFrameNode = {
+  const frame: W2WFrameNode = {
     type: 'FRAME',
     x, y, width, height, quad,
     tag,
@@ -278,15 +278,15 @@ function traverseElement(
 // ---------------------------------------------------------------------------
 
 /**
- * Extract a DOM text node into one or more H2DTextNodes.
- * Splits by visual lines using getClientRects() (h2d approach).
+ * Extract a DOM text node into one or more W2WTextNodes.
+ * Splits by visual lines using getClientRects().
  * Returns empty array if text is empty/whitespace-only.
  */
 function extractTextNodes(
   textNode: Text,
   _parentEl: HTMLElement,
   parentStyle: CSSStyleDeclaration
-): H2DTextNode[] {
+): W2WTextNode[] {
   const text = textNode.textContent;
   if (!text || !text.trim()) return [];
 
@@ -319,7 +319,7 @@ function extractTextNodes(
   }
 
   // Multiple lines — split text by line using character-level range measurement
-  const results: H2DTextNode[] = [];
+  const results: W2WTextNode[] = [];
   const textLength = text.length;
   let lineStart = 0;
   let prevTop = -Infinity;
@@ -398,7 +398,7 @@ function extractTextNodes(
 /**
  * Create SVG node with full outerHTML markup.
  */
-function createSVGNode(svgEl: SVGElement): H2DSVGNode | null {
+function createSVGNode(svgEl: SVGElement): W2WSVGNode | null {
   const rect = svgEl.getBoundingClientRect();
   if (rect.width < 1 && rect.height < 1) return null;
 
@@ -426,7 +426,7 @@ function createSVGNode(svgEl: SVGElement): H2DSVGNode | null {
 function createSVGAsFrame(
   svgEl: SVGElement,
   _depth: number
-): H2DFrameNode | null {
+): W2WFrameNode | null {
   const rect = svgEl.getBoundingClientRect();
   if (rect.width < 1 && rect.height < 1) return null;
 
@@ -435,7 +435,7 @@ function createSVGAsFrame(
   const computed = getComputedStyle(svgEl);
 
   const svgChild = createSVGNode(svgEl);
-  const children: H2DNode[] = svgChild ? [svgChild] : [];
+  const children: W2WNode[] = svgChild ? [svgChild] : [];
 
   return {
     type: 'FRAME',
@@ -452,7 +452,7 @@ function createSVGAsFrame(
 }
 
 // ---------------------------------------------------------------------------
-// Pseudo-element extraction (h2d DOM injection approach)
+// Pseudo-element extraction (DOM injection approach)
 // ---------------------------------------------------------------------------
 
 /**
@@ -539,13 +539,13 @@ function injectPseudoSpan(
 }
 
 /**
- * Extract an injected pseudo-element span as an H2DNode.
+ * Extract an injected pseudo-element span as an W2WNode.
  */
 function extractInjectedPseudo(
   span: HTMLSpanElement,
   parentEl: HTMLElement,
   pseudo: '::before' | '::after',
-): H2DFrameNode | H2DTextNode | null {
+): W2WFrameNode | W2WTextNode | null {
   const rect = span.getBoundingClientRect();
 
   // For pseudo-elements with icon font content that may render as 0x0,
@@ -575,16 +575,16 @@ function extractInjectedPseudo(
   const contentVal = pseudoStyle.content;
 
   if (text && text.length > 0) {
-    // Text pseudo → FRAME wrapper + TEXT child (matching h2d structure)
+    // Text pseudo → FRAME wrapper + TEXT child
     const fontFamily = cleanFontFamily(computed.fontFamily);
     const font = buildFontString(fontFamily, computed.fontWeight);
 
-    // Add content to styles (h2d stores original content value)
+    // Add content to styles (stores original content value)
     if (contentVal && contentVal !== 'none' && contentVal !== 'normal') {
       (styles as Record<string, string | number>).content = contentVal;
     }
 
-    const textChild: H2DTextNode = {
+    const textChild: W2WTextNode = {
       type: 'TEXT',
       x, y, width, height, quad,
       value: text,
@@ -626,8 +626,8 @@ function extractInjectedPseudo(
  * Extract CSS styles from an element, using getComputedStyle + computedStyleMap.
  * Only non-default values are included.
  */
-function extractStyles(el: HTMLElement | SVGElement, computed: CSSStyleDeclaration): H2DStyles {
-  const styles: H2DStyles = {};
+function extractStyles(el: HTMLElement | SVGElement, computed: CSSStyleDeclaration): W2WStyles {
+  const styles: W2WStyles = {};
 
   // Get element dimensions for transformOrigin default detection
   const elRect = el.getBoundingClientRect();
@@ -714,8 +714,8 @@ function extractStyles(el: HTMLElement | SVGElement, computed: CSSStyleDeclarati
 // Attribute extraction
 // ---------------------------------------------------------------------------
 
-function extractAttributes(el: HTMLElement): H2DAttributes {
-  const attr: H2DAttributes = {};
+function extractAttributes(el: HTMLElement): W2WAttributes {
+  const attr: W2WAttributes = {};
   const tag = el.tagName.toLowerCase();
 
   if (el.id) attr.id = el.id;
@@ -806,7 +806,7 @@ function resolveUrl(url: string): string {
   }
 }
 
-function createEmptyFrame(el: HTMLElement): H2DFrameNode {
+function createEmptyFrame(el: HTMLElement): W2WFrameNode {
   const rect = el.getBoundingClientRect();
   return {
     type: 'FRAME',
@@ -826,7 +826,7 @@ function createEmptyFrame(el: HTMLElement): H2DFrameNode {
  * Extract a subtree rooted at an element matching the given CSS selector.
  * Used for hover state re-capture.
  */
-export function extractSubtree(selector: string): H2DFrameNode | null {
+export function extractSubtree(selector: string): W2WFrameNode | null {
   const el = document.querySelector(selector) as HTMLElement | null;
   if (!el) return null;
   return traverseElement(el, 0, window.innerWidth);

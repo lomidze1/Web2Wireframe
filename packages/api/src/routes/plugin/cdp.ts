@@ -119,16 +119,16 @@ router.post("/import-cdp", async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/import-h2d — h2d-style capture import (content script extraction)
+ * POST /api/import-w2w — W2W content script capture import
  *
- * Receives H2DCaptureResult from Browser Extension (content script path).
+ * Receives W2WCaptureResult from Browser Extension (content script path).
  * Pass-through storage — Figma plugin handles CSS→Figma conversion.
  *
  * Request body:
- * - capturedData: H2DCaptureResult (raw CSS node tree)
+ * - capturedData: W2WCaptureResult (raw CSS node tree)
  * - timestamp: number
  */
-router.post("/import-h2d", async (req: Request, res: Response) => {
+router.post("/import-w2w", async (req: Request, res: Response) => {
   try {
     const { capturedData, timestamp } = req.body;
 
@@ -139,9 +139,9 @@ router.post("/import-h2d", async (req: Request, res: Response) => {
       });
     }
 
-    const importId = `h2d-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const importId = `w2w-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-    // Convert h2d format to WireframeFrame structure for the plugin
+    // Convert W2W content script format to WireframeFrame structure for the plugin
     const frames = [{
       viewportWidth: capturedData.width || 1440,
       viewportHeight: capturedData.doc?.innerHeight || 900,
@@ -171,7 +171,7 @@ router.post("/import-h2d", async (req: Request, res: Response) => {
       stylesheets: [],
       cdpMetadata: {
         captureTimestamp: timestamp || Date.now(),
-        extractionMethod: "h2d-content-script",
+        extractionMethod: "w2w-content-script",
         hasMatchedStyles: false,
         hasGradients: false,
         hasCookies: false,
@@ -188,14 +188,14 @@ router.post("/import-h2d", async (req: Request, res: Response) => {
     res.json({
       success: true,
       importId,
-      message: "H2D data received. Open Figma plugin to import.",
+      message: "W2W data received. Open Figma plugin to import.",
     });
   } catch (error) {
-    console.error("[H2D Import] Error:", error);
+    console.error("[W2W Import] Error:", error);
     res.status(500).json({
       success: false,
       error: (error as Error).message,
-      errorCode: "H2D_IMPORT_ERROR",
+      errorCode: "W2W_IMPORT_ERROR",
     });
   }
 });

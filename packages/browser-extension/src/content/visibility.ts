@@ -1,7 +1,6 @@
 /**
  * Visibility filtering for DOM extraction.
  *
- * Matches h2d's `po()` visibility function:
  * 1. display: none → skip
  * 2. No offsetParent + zero size → skip (except body/html/fixed/sticky)
  * 3. overflow: hidden + size < 1px → skip
@@ -26,7 +25,7 @@ export function isHidden(el: HTMLElement): boolean {
   if (computed.display === 'none') return true;
 
   // 2. visibility: hidden (still takes space, but content invisible)
-  //    We keep these to preserve layout spacing, same as h2d
+  //    We keep these to preserve layout spacing
 
   // 3. No offsetParent + zero size (but not body/html/fixed/sticky/inline with text)
   const tag = el.tagName.toLowerCase();

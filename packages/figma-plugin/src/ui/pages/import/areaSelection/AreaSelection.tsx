@@ -156,11 +156,11 @@ interface UnifiedCaptureResult {
 
 /**
  * Convert any capture format to unified multi-frame format
- * Handles: multi-frame, legacy single-viewport, and h2d format
+ * Handles: multi-frame, legacy single-viewport, and w2w content-script format
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toUnifiedFormat(data: any): UnifiedCaptureResult | null {
-  // Check for h2d format: has 'frame' (singular) + 'doc' + 'assets' object
+  // Check for w2w content-script format: has 'frame' (singular) + 'doc' + 'assets' object
   if ('frame' in data && 'doc' in data && typeof data.frame === 'object' && data.frame !== null) {
     return {
       url: data.url || data.name || '',
@@ -171,7 +171,7 @@ function toUnifiedFormat(data: any): UnifiedCaptureResult | null {
           width: data.width || data.doc?.innerWidth || 1440,
           height: data.doc?.innerHeight || 900,
         },
-        tree: null, // Will be populated from capturedData via convertH2DToWireframe()
+        tree: null, // Will be populated from capturedData via convertW2WToWireframe()
         assets: {},
         capturedData: {
           frame: data.frame,
@@ -409,7 +409,7 @@ export default function AreaSelection() {
 
     if (hasCapturedData) {
       // New capture format — skip old convertToWireframeNode, pass directly to main.ts
-      // main.ts sandbox will call convertH2DToWireframe() (has access to css-converter)
+      // main.ts sandbox will call convertW2WToWireframe() (has access to css-converter)
       framesData = inputFrames.map((frame) => ({
         viewportWidth: frame.viewport?.width ?? 1440,
         viewportHeight: frame.viewport?.height ?? 900,

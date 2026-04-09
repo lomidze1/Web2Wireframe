@@ -1,5 +1,5 @@
 /**
- * Font Binary Extraction (h2d-style)
+ * Font Binary Extraction (content script approach)
  *
  * Extracts font binary files from browser cache via CDP Page.getResourceContent.
  * Zero additional HTTP requests — reads directly from browser cache.

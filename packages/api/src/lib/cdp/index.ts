@@ -228,7 +228,7 @@ export async function extractDOMTreeWithCDP(
     }
     const dedupedFonts = deduplicateFonts(fonts);
 
-    // 11.5. Extract font binary files from browser cache (h2d-style)
+    // 11.5. Extract font binary files from browser cache (Page.getResourceContent)
     const { extractFontBinaries } = await import("@w2w/shared");
     const fontsWithBinaries = await extractFontBinaries(client, dedupedFonts, resourceGraph);
 

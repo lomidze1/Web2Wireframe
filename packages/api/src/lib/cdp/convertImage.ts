@@ -32,7 +32,7 @@ export async function convertToFigmaFormat(
 }
 
 /**
- * Convert all assets in an h2d capture result.
+ * Convert all assets in a W2W capture result.
  * Converts AVIF/WebP → JPEG in-place. Called during GET /api/pending-import.
  */
 export async function convertAssetsForFigma(

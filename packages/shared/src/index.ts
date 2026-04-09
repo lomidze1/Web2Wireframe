@@ -58,30 +58,30 @@ export type {
 
 export { DEFAULT_CAPTURE_OPTIONS } from "./types";
 
-// h2d-compatible types (content script extraction)
+// W2W content script extraction types
 export type {
-  H2DFrameNode,
-  H2DTextNode,
-  H2DSVGNode,
-  H2DNode,
-  H2DBaseNode,
-  H2DAttributes,
-  H2DStyles,
-  H2DPlatformFont,
-  H2DFontEntry,
-  H2DFontVariationAxis,
-  H2DAssetEntry,
-  H2DDocMeta,
-  H2DCaptureResult,
-  H2DCSSVariable,
+  W2WFrameNode,
+  W2WTextNode,
+  W2WSVGNode,
+  W2WNode,
+  W2WBaseNode,
+  W2WAttributes,
+  W2WStyles,
+  W2WPlatformFont,
+  W2WFontEntry,
+  W2WFontVariationAxis,
+  W2WAssetEntry,
+  W2WDocMeta,
+  W2WCaptureResult,
+  W2WCSSVariable,
   Quad,
-} from "./h2d-types";
+} from "./w2w-types";
 
 export {
-  H2D_CSS_PROPERTIES,
-  H2D_NUMERIC_PROPERTIES,
-  H2D_SKIP_TAGS,
-} from "./h2d-types";
+  W2W_CSS_PROPERTIES,
+  W2W_NUMERIC_PROPERTIES,
+  W2W_SKIP_TAGS,
+} from "./w2w-types";
 
 // ============================================================================
 // SNAPSHOT - DOM capture
@@ -281,7 +281,7 @@ export {
 } from "./font-css-parser";
 
 // ============================================================================
-// FONT BINARY EXTRACTION - h2d-style font binary extraction from browser cache
+// FONT BINARY EXTRACTION - font binary extraction from browser cache
 // ============================================================================
 
 export {

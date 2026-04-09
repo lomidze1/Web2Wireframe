@@ -2,7 +2,7 @@
  * Content Script
  * Runs in the context of web pages
  * Handles UI overlay for selection mode, page info queries,
- * and h2d-style DOM extraction.
+ * and W2W DOM extraction.
  */
 
 import { extractPage, cleanupMarkers, extractSubtree } from './extractor';
@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  // h2d-style DOM extraction via content script
+  // W2W DOM extraction via content script
   if (message.type === "EXTRACT_DOM") {
     try {
       const result = extractPage();

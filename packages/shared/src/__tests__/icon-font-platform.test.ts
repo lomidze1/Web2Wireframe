@@ -2,7 +2,7 @@
  * Icon Font Platform Font Detection Tests
  *
  * Tests for Layer #4: accurate icon font detection via CDP getPlatformFontsForNode.
- * The h2d approach injects a real DOM element with pseudo-element's font properties,
+ * The w2w approach injects a real DOM element with pseudo-element's font properties,
  * then queries CSS.getPlatformFontsForNode to get the actual rendered font.
  */
 
@@ -390,7 +390,7 @@ describe("extractPseudoIconContent with iconPlatformFontMap", () => {
 // ============================================================================
 
 describe("getPlatformFontForPseudoElement", () => {
-  // These tests verify the CDP call sequence for the h2d approach.
+  // These tests verify the CDP call sequence for the w2w approach.
   // The actual implementation is in css.ts.
 
   it("CDP call sequence: resolveNode → callFunctionOn → querySelector → getPlatformFontsForNode → cleanup", async () => {

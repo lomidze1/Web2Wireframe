@@ -1,9 +1,8 @@
 /**
- * h2d-compatible types for content script DOM extraction.
+ * W2W types for content script DOM extraction.
  *
- * These types match html.to.design's output format:
+ * Content script captures raw CSS values (not pre-converted to Figma).
  * - 3 node types: FRAME, TEXT, SVG
- * - Raw CSS values (not pre-converted to Figma)
  * - Minimal TEXT nodes (value + font only, typography on parent FRAME)
  * - SVG nodes with full outerHTML markup
  */
@@ -19,7 +18,7 @@ export type Quad = [number, number, number, number, number, number, number, numb
 // Node types
 // ---------------------------------------------------------------------------
 
-export interface H2DBaseNode {
+export interface W2WBaseNode {
   x: number;
   y: number;
   width: number;
@@ -31,13 +30,13 @@ export interface H2DBaseNode {
  * FRAME — any HTML element (div, section, img, button, a, etc.)
  * Styles are raw CSS string values from getComputedStyle().
  */
-export interface H2DFrameNode extends H2DBaseNode {
+export interface W2WFrameNode extends W2WBaseNode {
   type: 'FRAME';
   tag: string;
   classList: string[];
-  attr: H2DAttributes;
-  styles: H2DStyles;
-  children: H2DNode[];
+  attr: W2WAttributes;
+  styles: W2WStyles;
+  children: W2WNode[];
 
   /** True if this is document.scrollingElement */
   isScrollingElt?: boolean;
@@ -46,39 +45,39 @@ export interface H2DFrameNode extends H2DBaseNode {
   $url?: string;
 
   /** Hover state subtree (re-captured with forced :hover) */
-  hover?: H2DFrameNode;
+  hover?: W2WFrameNode;
 }
 
 /**
  * TEXT — leaf text node (DOM nodeType === 3).
  * Minimal: value + font only. Typography styles live on parent FRAME.
  */
-export interface H2DTextNode extends H2DBaseNode {
+export interface W2WTextNode extends W2WBaseNode {
   type: 'TEXT';
   /** Text content */
   value: string;
   /** Combined font string: "Family Weight" (e.g. "Space Grotesk Light") */
   font: string;
   /** Platform font info from CSS.getPlatformFontsForNode */
-  platformFont?: H2DPlatformFont;
+  platformFont?: W2WPlatformFont;
 }
 
 /**
  * SVG — inline SVG element with full markup.
  */
-export interface H2DSVGNode extends H2DBaseNode {
+export interface W2WSVGNode extends W2WBaseNode {
   type: 'SVG';
   /** Full SVG outerHTML markup */
   svg: string;
 }
 
-export type H2DNode = H2DFrameNode | H2DTextNode | H2DSVGNode;
+export type W2WNode = W2WFrameNode | W2WTextNode | W2WSVGNode;
 
 // ---------------------------------------------------------------------------
 // Attributes
 // ---------------------------------------------------------------------------
 
-export interface H2DAttributes {
+export interface W2WAttributes {
   id?: string;
   href?: string;
   alt?: string;
@@ -100,7 +99,7 @@ export interface H2DAttributes {
  *
  * Property names are camelCase (matching CSSStyleDeclaration).
  */
-export interface H2DStyles {
+export interface W2WStyles {
   // Layout
   display?: string;
   flexDirection?: string;
@@ -226,7 +225,7 @@ export interface H2DStyles {
 // Platform font
 // ---------------------------------------------------------------------------
 
-export interface H2DPlatformFont {
+export interface W2WPlatformFont {
   familyName: string;
   postScriptName?: string;
   isCustomFont?: boolean;
@@ -237,13 +236,13 @@ export interface H2DPlatformFont {
 // Font entry (extracted @font-face)
 // ---------------------------------------------------------------------------
 
-export interface H2DFontEntry {
+export interface W2WFontEntry {
   fontDisplay?: string;
   fontFamily: string;
   fontStretch?: string;
   fontStyle?: string;
   fontVariant?: string;
-  fontVariationAxes?: H2DFontVariationAxis[];
+  fontVariationAxes?: W2WFontVariationAxis[];
   fontWeight?: string;
   platformFontFamily?: string;
   src?: string;
@@ -251,7 +250,7 @@ export interface H2DFontEntry {
   source?: { tabId?: number };
 }
 
-export interface H2DFontVariationAxis {
+export interface W2WFontVariationAxis {
   defaultValue: number;
   maxValue: number;
   minValue: number;
@@ -263,7 +262,7 @@ export interface H2DFontVariationAxis {
 // Asset entry
 // ---------------------------------------------------------------------------
 
-export interface H2DAssetEntry {
+export interface W2WAssetEntry {
   base64Encoded: boolean;
   content: string;
   mimeType?: string;
@@ -273,7 +272,7 @@ export interface H2DAssetEntry {
 // Document metadata
 // ---------------------------------------------------------------------------
 
-export interface H2DDocMeta {
+export interface W2WDocMeta {
   title: string;
   innerHeight: number;
   innerWidth: number;
@@ -286,17 +285,17 @@ export interface H2DDocMeta {
 // Top-level capture result
 // ---------------------------------------------------------------------------
 
-export interface H2DCaptureResult {
+export interface W2WCaptureResult {
   /** Page URL */
   name: string;
   /** Document metadata */
-  doc: H2DDocMeta;
+  doc: W2WDocMeta;
   /** Root FRAME node (html element) */
-  frame: H2DFrameNode;
+  frame: W2WFrameNode;
   /** Assets dictionary: URL → { base64Encoded, content, mimeType } */
-  assets: Record<string, H2DAssetEntry>;
+  assets: Record<string, W2WAssetEntry>;
   /** Extracted @font-face entries */
-  fonts: H2DFontEntry[];
+  fonts: W2WFontEntry[];
   /** Page URL (duplicate of name for compatibility) */
   url: string;
   /** Theme: "default" | "dark" | "light" */
@@ -304,12 +303,12 @@ export interface H2DCaptureResult {
   /** Viewport width */
   width: number;
 
-  // W2W enhancements (not in original h2d format)
-  /** Extracted CSS variables (h2d doesn't have this) */
-  cssVariables?: H2DCSSVariable[];
+  // W2W enhancements
+  /** Extracted CSS variables */
+  cssVariables?: W2WCSSVariable[];
 }
 
-export interface H2DCSSVariable {
+export interface W2WCSSVariable {
   name: string;
   value: string;
   rawValue?: string;
@@ -322,10 +321,10 @@ export interface H2DCSSVariable {
 
 /**
  * 70 CSS properties to extract via getComputedStyle().
- * Derived from h2d reference files analysis.
+ * CSS properties captured by content script extraction.
  * Only non-default values are stored.
  */
-export const H2D_CSS_PROPERTIES = [
+export const W2W_CSS_PROPERTIES = [
   // Layout
   'display', 'flexDirection', 'flexWrap', 'flexGrow', 'flexShrink',
   'flexBasis', 'alignItems', 'alignSelf', 'justifyContent', 'gap', 'order',
@@ -377,12 +376,12 @@ export const H2D_CSS_PROPERTIES = [
 ] as const;
 
 /** Numeric CSS properties that should be stored as numbers, not strings */
-export const H2D_NUMERIC_PROPERTIES = new Set([
+export const W2W_NUMERIC_PROPERTIES = new Set([
   'opacity', 'flexGrow', 'flexShrink', 'order', 'zIndex',
 ]);
 
 /** Tags to skip entirely during DOM traversal */
-export const H2D_SKIP_TAGS = new Set([
+export const W2W_SKIP_TAGS = new Set([
   'script', 'style', 'meta', 'noscript', 'link', 'head', 'title',
   'br', 'base', 'template', 'dialog', 'colgroup', 'col', 'datalist',
 ]);

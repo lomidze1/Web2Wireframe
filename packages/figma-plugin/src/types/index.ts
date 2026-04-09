@@ -205,7 +205,7 @@ export interface WireframeFrame {
   assets?: Record<string, string>; // URL → base64 data URI map for real asset extraction
 
   // Captured website data (content script extraction)
-  // When present, `tree` should be generated from this via convertH2DToWireframe()
+  // When present, `tree` should be generated from this via convertW2WToWireframe()
   capturedData?: {
     frame: Record<string, unknown>; // Raw CSS node tree
     assets?: Record<string, { base64Encoded: boolean; content: string; mimeType?: string }>;
