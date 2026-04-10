@@ -98,6 +98,7 @@ export interface WireframeNode {
 
   // CSS Positioning (for absolute elements like ::before/::after)
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
+  zIndex?: number; // CSS z-index — used for child ordering in Figma
 
   // Layout
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";

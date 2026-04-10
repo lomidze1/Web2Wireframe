@@ -341,6 +341,7 @@ function convertFrame(
     height: node.height,
 
     position: str(s.position) as WireframeNode['position'] || undefined,
+    zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
 
     layoutMode,
     itemSpacing,
@@ -357,7 +358,7 @@ function convertFrame(
     gridTemplateColumns: !isAbsoluteMode ? str(s.gridTemplateColumns) : undefined,
     gridTemplateRows: !isAbsoluteMode ? str(s.gridTemplateRows) : undefined,
     gridAutoFlow: !isAbsoluteMode ? str(s.gridAutoFlow) : undefined,
-    gridColumnGap: !isAbsoluteMode ? (parseFloat(gapStr) || 0) : undefined,
+    gridColumnGap: !isAbsoluteMode ? (parseFloat(str(s.columnGap) || gapStr) || 0) : undefined,
     gridRowGap: !isAbsoluteMode ? (parseFloat(str(s.rowGap) || gapStr) || 0) : undefined,
 
     // Visual
@@ -919,8 +920,8 @@ function parseOverflow(
   const ox = str(s.overflowX) || str(s.overflow);
   const oy = str(s.overflowY) || str(s.overflow);
 
-  // Most restrictive wins
-  if (ox === 'hidden' || oy === 'hidden') return 'hidden';
+  // Most restrictive wins (CSS "clip" behaves like "hidden" for clipping)
+  if (ox === 'hidden' || oy === 'hidden' || ox === 'clip' || oy === 'clip') return 'hidden';
   if (ox === 'scroll' || oy === 'scroll') return 'scroll';
   if (ox === 'auto' || oy === 'auto') return 'auto';
   return undefined;

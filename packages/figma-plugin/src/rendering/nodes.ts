@@ -462,9 +462,12 @@ export async function createNodeInFigma(
     };
 
     // Sort grid children by position for correct auto-placement
-    const childrenToRender = gridApplied
+    const gridSorted = gridApplied
       ? sortGridChildren(node.children, node.gridAutoFlow)
       : node.children;
+
+    // Sort for correct stacking (bg images to front; z-index only in absolute mode)
+    const childrenToRender = sortChildrenForStacking(gridSorted, node.layoutMode);
 
     for (const child of childrenToRender) {
       try {
@@ -483,10 +486,15 @@ export async function createNodeInFigma(
               if (typeof rowSpan === 'number' && rowSpan > 1) {
                 (childNode as unknown as Record<string, unknown>).gridRowSpan = rowSpan;
               }
-              // Apply grid cell alignment from parent's CSS align-items
+              // Apply grid cell alignment from parent's CSS
               const vertAlign = cssAlignToGridChild(node.alignItems);
               if (vertAlign !== "STRETCH") {
                 (childNode as unknown as Record<string, unknown>).gridChildVerticalAlign = vertAlign;
+              }
+              // Horizontal cell alignment from CSS justify-items
+              const horizAlign = cssJustifyToGridChild(node.justifyContent);
+              if (horizAlign !== "STRETCH") {
+                (childNode as unknown as Record<string, unknown>).gridChildHorizontalAlign = horizAlign;
               }
             } catch {
               // Grid span/alignment properties may use Symbol proxies — silently skip
@@ -961,12 +969,9 @@ export async function createWireframeFrame(
     }
   }
 
-  // Clip contents based on root element's overflow
-  const rootOverflow = frameData.tree?.overflow;
-  wireframeFrame.clipsContent =
-    rootOverflow === "hidden" ||
-    rootOverflow === "scroll" ||
-    rootOverflow === "auto";
+  // Root wireframe frame always clips — it's a visual container in Figma,
+  // CSS overflow semantics are irrelevant at the root level.
+  wireframeFrame.clipsContent = true;
 
   // Apply Auto Layout to root frame when in autoLayout mode
   const useAutoLayout = context.layoutMode === "autoLayout";
@@ -1120,6 +1125,107 @@ function applyGridLayout(frame: FrameNode, node: WireframeNode): void {
     frame.paddingBottom = node.padding.bottom || 0;
     frame.paddingLeft = node.padding.left || 0;
   }
+
+  // Simulate justify-content via horizontal padding offset
+  applyGridContentAlignment(frame, node, columnSizes, rowSizes, colGap, rowGap);
+}
+
+/**
+ * Simulate CSS justify-content and align-content on Figma Grid frames
+ * by calculating and applying padding offsets.
+ *
+ * Figma Grid has no native justify-content/align-content support.
+ * When all tracks are FIXED size, we calculate excess space and
+ * distribute it as padding (for center/end) or adjusted gaps
+ * (for space-between/around/evenly).
+ */
+function applyGridContentAlignment(
+  frame: FrameNode,
+  node: WireframeNode,
+  columnSizes: FigmaGridTrackSize[],
+  rowSizes: FigmaGridTrackSize[],
+  colGap: number,
+  rowGap: number
+): void {
+  const gridFrame = frame as unknown as Record<string, unknown>;
+
+  // ── Horizontal (justify-content) ──
+  const jc = node.justifyContent;
+  if (jc && jc !== 'start' && jc !== 'flex-start' && jc !== 'normal' && jc !== 'stretch' && jc !== 'left') {
+    const allFixed = columnSizes.length > 0 && columnSizes.every(t => t.type === 'FIXED');
+    if (allFixed) {
+      const totalTracks = columnSizes.reduce((sum, t) => sum + t.value, 0);
+      const totalGaps = Math.max(0, columnSizes.length - 1) * colGap;
+      const contentWidth = totalTracks + totalGaps;
+      const padL = frame.paddingLeft || 0;
+      const padR = frame.paddingRight || 0;
+      const available = node.width - padL - padR;
+      const excess = Math.max(0, available - contentWidth);
+
+      if (excess > 1) {
+        distributeExcess(jc, excess, columnSizes.length, colGap, (addL, addR, newGap) => {
+          frame.paddingLeft = padL + addL;
+          frame.paddingRight = padR + addR;
+          if (newGap !== undefined) {
+            try { gridFrame.gridColumnGap = newGap; } catch { /* Grid API */ }
+          }
+        });
+      }
+    }
+  }
+
+  // ── Vertical (align-content) — future-proof, same logic for rows ──
+  // Currently align-content is not separately extracted, but if it becomes
+  // available on node, the same pattern applies with rowSizes + paddingTop/Bottom.
+}
+
+/**
+ * Distribute excess space according to CSS alignment value.
+ * Used to simulate justify-content/align-content on Figma Grid.
+ *
+ * @param alignment - CSS justify-content/align-content value
+ * @param excess - available excess space in pixels
+ * @param trackCount - number of grid tracks
+ * @param currentGap - current gap between tracks
+ * @param apply - callback to apply padding/gap adjustments
+ */
+export function distributeExcess(
+  alignment: string,
+  excess: number,
+  trackCount: number,
+  currentGap: number,
+  apply: (addLeft: number, addRight: number, newGap?: number) => void
+): void {
+  switch (alignment) {
+    case 'center':
+      apply(excess / 2, excess / 2);
+      break;
+    case 'end':
+    case 'flex-end':
+    case 'right':
+      apply(excess, 0);
+      break;
+    case 'space-between':
+      if (trackCount > 1) {
+        apply(0, 0, currentGap + excess / (trackCount - 1));
+      }
+      break;
+    case 'space-around':
+      if (trackCount > 0) {
+        const perTrack = excess / trackCount;
+        apply(perTrack / 2, perTrack / 2, currentGap + perTrack);
+      }
+      break;
+    case 'space-evenly':
+      if (trackCount > 0) {
+        const perSlot = excess / (trackCount + 1);
+        apply(perSlot, perSlot, currentGap + perSlot);
+      }
+      break;
+    default:
+      // start, normal, stretch, left, flex-start — no change
+      break;
+  }
 }
 
 /**
@@ -1143,6 +1249,69 @@ function sortGridChildren(
     // Row flow (default): sort by row first, then column
     return aRow - bRow || aCol - bCol;
   });
+}
+
+/**
+ * Check if a WireframeNode subtree contains only images/placeholders
+ * and no meaningful text. Used to detect background image containers.
+ */
+function isImageOnlySubtreeW(node: WireframeNode): boolean {
+  if (node.isPlaceholder || node.type === "placeholder") return true;
+  if (node.type === "text") return false;
+  if (node.textContent?.trim()) return false;
+  if (!node.children || node.children.length === 0) {
+    return node.fills?.some(f => f.type === "IMAGE_PLACEHOLDER") ?? false;
+  }
+  return node.children.every(c => isImageOnlySubtreeW(c));
+}
+
+/**
+ * Sort children for correct visual stacking in Figma:
+ * 1. Move abs-positioned image-only containers to front (behind = background)
+ * 2. Sort by z-index ONLY in absolute mode (layoutMode=NONE) — in auto-layout,
+ *    z-index sorting would break DOM flow order (e.g., buttons above text)
+ *
+ * @param parentLayoutMode - parent's layoutMode ("NONE" for absolute, "VERTICAL"/"HORIZONTAL"/"GRID" for auto-layout)
+ */
+export function sortChildrenForStacking(
+  children: WireframeNode[],
+  parentLayoutMode: WireframeNode["layoutMode"] = "NONE"
+): WireframeNode[] {
+  if (children.length < 2) return children;
+
+  // Step 1: Move abs-positioned image-only containers to front (background layer).
+  // Safe in any layout mode because abs elements are out of normal flow.
+  const bgImages: WireframeNode[] = [];
+  const rest: WireframeNode[] = [];
+  let hasBgImages = false;
+  for (const child of children) {
+    if (child.position === "absolute" && isImageOnlySubtreeW(child)) {
+      bgImages.push(child);
+      hasBgImages = true;
+    } else {
+      rest.push(child);
+    }
+  }
+
+  let result = hasBgImages && rest.length > 0
+    ? [...bgImages, ...rest]
+    : children;
+
+  // Step 2: Z-index sort — ONLY in absolute positioning mode.
+  // In auto-layout (VERTICAL/HORIZONTAL/GRID), z-index affects visual stacking
+  // but NOT layout flow. Reordering would break DOM order (e.g., buttons above text).
+  if (parentLayoutMode !== "NONE") return result;
+
+  const hasZIndex = result.some(c => c.zIndex != null);
+  if (!hasZIndex) return result;
+
+  const stable = result.map((c, i) => ({ c, i }));
+  stable.sort((a, b) => {
+    const za = a.c.zIndex ?? 0;
+    const zb = b.c.zIndex ?? 0;
+    return za !== zb ? za - zb : a.i - b.i;
+  });
+  return stable.map(s => s.c);
 }
 
 /**

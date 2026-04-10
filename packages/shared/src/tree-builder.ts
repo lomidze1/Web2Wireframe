@@ -337,6 +337,22 @@ function getOverflowValue(
 }
 
 /**
+ * Check if an element's subtree contains only images/placeholders
+ * and no meaningful text content. Used to detect background image containers
+ * (e.g., apple.com's tile-image-wrapper with position:absolute).
+ */
+function isImageOnlySubtree(el: ExtractedElement): boolean {
+  if (el.type === "placeholder") return true;
+  if (el.type === "text") return false;
+  if (el.textContent?.trim()) return false;
+  if (!el.children || el.children.length === 0) {
+    // Empty frame — only "image" if it has image fills
+    return el.fills?.some(f => f.type === "IMAGE_PLACEHOLDER") ?? false;
+  }
+  return el.children.every(c => isImageOnlySubtree(c));
+}
+
+/**
  * Check if element needs frame wrapper for text
  * (has padding, background, border, shadow, or border-radius)
  */
@@ -2198,10 +2214,41 @@ export function buildElementTree(
       }
     }
 
-    // NOTE: Z-index sorting removed — DOM order is preserved for wireframe clarity.
-    // CSS z-index affects visual stacking in browsers but reordering Figma layers
-    // breaks the semantic hierarchy (e.g., sticky headers with high z-index
-    // would appear at the bottom of the layer list).
+    // Sort children by z-index ONLY in absolute positioning mode (layoutMode=NONE).
+    // In auto-layout (VERTICAL/HORIZONTAL/GRID), z-index affects visual stacking
+    // but NOT layout flow. Reordering would break DOM order (e.g., buttons above text).
+    if (element.layoutMode === "NONE" && element.children.length >= 2) {
+      const hasZIndex = element.children.some(c => c.zIndex != null);
+      if (hasZIndex) {
+        const stable = element.children.map((c, i) => ({ c, i }));
+        stable.sort((a, b) => {
+          const za = a.c.zIndex ?? 0;
+          const zb = b.c.zIndex ?? 0;
+          return za !== zb ? za - zb : a.i - b.i;
+        });
+        element.children = stable.map(s => s.c);
+      }
+    }
+
+    // Move absolutely-positioned image-only containers to front (background layer).
+    // In Figma, first children render behind later ones. This matches CSS behavior
+    // where abs-positioned images serve as backgrounds behind content with higher z-index.
+    // Pattern: apple.com has tile-image-wrapper[position:absolute] + tile-content[position:relative]
+    // where nested z-index:2 on copy-wrapper puts text above the image in browser.
+    if (element.children.length >= 2) {
+      const bgImages: ExtractedElement[] = [];
+      const rest: ExtractedElement[] = [];
+      for (const child of element.children) {
+        if (child.position === "absolute" && isImageOnlySubtree(child)) {
+          bgImages.push(child);
+        } else {
+          rest.push(child);
+        }
+      }
+      if (bgImages.length > 0 && rest.length > 0) {
+        element.children = [...bgImages, ...rest];
+      }
+    }
 
     // CSS margin collapsing: in vertical (block) layout, adjacent siblings'
     // margin-bottom and margin-top collapse to max(). Without this, margin
