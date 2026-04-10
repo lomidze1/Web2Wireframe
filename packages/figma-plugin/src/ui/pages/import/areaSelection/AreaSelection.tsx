@@ -8,7 +8,7 @@ import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal"
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
-import { transformFramesData } from "../../../shared/transformData";
+import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import SettingsPanel from "../../../components/settingsPanel";
@@ -410,13 +410,19 @@ export default function AreaSelection() {
     if (hasCapturedData) {
       // New capture format — skip old convertToWireframeNode, pass directly to main.ts
       // main.ts sandbox will call convertW2WToWireframe() (has access to css-converter)
-      framesData = inputFrames.map((frame) => ({
-        viewportWidth: frame.viewport?.width ?? 1440,
-        viewportHeight: frame.viewport?.height ?? 900,
-        tree: {} as unknown, // Placeholder — main.ts will replace with converted tree
-        assets: frame.assets || {},
-        capturedData: frame.capturedData,
-      }));
+      framesData = inputFrames.map((frame) => {
+        // Apply text transformation (semantic/lorem) to W2W tree before sending to Figma
+        if (frame.capturedData?.frame && settings.localTextMode !== "website") {
+          transformW2WTreeText(frame.capturedData.frame, settings.localTextMode);
+        }
+        return {
+          viewportWidth: frame.viewport?.width ?? 1440,
+          viewportHeight: frame.viewport?.height ?? 900,
+          tree: {} as unknown, // Placeholder — main.ts will replace with converted tree
+          assets: frame.assets || {},
+          capturedData: frame.capturedData,
+        };
+      });
     } else {
       // Legacy format — use old conversion pipeline
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

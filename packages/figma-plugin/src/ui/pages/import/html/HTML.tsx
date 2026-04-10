@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "preact/hooks";
 import styles from "./HTML.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
-import { transformFramesData } from "../../../shared/transformData";
+import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
 import SettingsPanel from "../../../components/settingsPanel";
@@ -206,16 +206,23 @@ export default function HTML() {
       if (isW2WFormat) {
         // W2W format: pass tree as capturedData, main.ts converts via convertW2WToWireframe()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        frames = rawFrames.map((f: any) => ({
-          viewportWidth: f.viewportWidth,
-          viewportHeight: f.viewportHeight,
-          tree: null as unknown as WireframeNode,
-          assets: {},
-          capturedData: {
-            frame: f.tree,
-            assets: f.assets || {},
-          },
-        }));
+        frames = rawFrames.map((f: any) => {
+          const tree = f.tree;
+          // Apply text transformation (semantic/lorem) to W2W tree before sending to Figma
+          if (settings.localTextMode !== "website") {
+            transformW2WTreeText(tree, settings.localTextMode);
+          }
+          return {
+            viewportWidth: f.viewportWidth,
+            viewportHeight: f.viewportHeight,
+            tree: null as unknown as WireframeNode,
+            assets: {},
+            capturedData: {
+              frame: tree,
+              assets: f.assets || {},
+            },
+          };
+        });
       } else {
         // Legacy ExtractedElement format
         const transformedFrames = transformFramesData(

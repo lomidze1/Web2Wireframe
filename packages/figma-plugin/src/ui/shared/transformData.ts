@@ -245,7 +245,7 @@ const SECTION_PARAGRAPH: Record<string, string> = {
 /**
  * Get semantic placeholder based on tag name, original text, and hierarchy context
  */
-function getSemanticPlaceholder(
+export function getSemanticPlaceholder(
   tag: string,
   originalText: string,
   className?: string,
@@ -504,4 +504,64 @@ export function getBackendModes(options: {
     typographyMode: options.fontMode,
     textMode: options.textMode,
   };
+}
+
+// ---------------------------------------------------------------------------
+// W2W Tree Text Transformation
+// ---------------------------------------------------------------------------
+
+/** Minimal W2W tree node shape for text transformation */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type W2WTreeNode = Record<string, any>;
+
+/** Section-level tags for context-aware semantic placeholders */
+const W2W_SECTION_TAGS = new Set(["header", "footer", "nav", "main", "aside", "section", "article"]);
+
+/**
+ * Recursively transform text in a W2W raw tree (before conversion to WireframeNode).
+ * Mutates `node.value` on TEXT nodes in-place.
+ *
+ * @param node - W2W tree node (FRAME, TEXT, or SVG)
+ * @param textMode - "semantic" | "lorem" | "website"
+ * @param parentTag - parent FRAME's tag (provides semantic context for TEXT children)
+ * @param sectionTag - nearest ancestor section tag (header/footer/nav/etc.)
+ */
+export function transformW2WTreeText(
+  node: W2WTreeNode,
+  textMode: "semantic" | "lorem" | "website",
+  parentTag?: string,
+  sectionTag?: string,
+): void {
+  if (textMode === "website") return;
+
+  if (node.type === "TEXT" && typeof node.value === "string" && node.value) {
+    if (textMode === "semantic") {
+      node.value = getSemanticPlaceholder(
+        parentTag || "#text",
+        node.value,
+        undefined,
+        undefined,
+        { parentTag: parentTag || "", sectionTag, parentIsLogo: false },
+      );
+    } else if (textMode === "lorem") {
+      node.value = generateLoremPreservingSymbols(node.value);
+    }
+    return;
+  }
+
+  if (node.type === "FRAME" && Array.isArray(node.children)) {
+    const tag = typeof node.tag === "string" ? node.tag.toLowerCase() : "";
+    const newSection = W2W_SECTION_TAGS.has(tag) ? tag : sectionTag;
+
+    for (const child of node.children) {
+      if (child && typeof child === "object" && "type" in child) {
+        transformW2WTreeText(
+          child as W2WTreeNode,
+          textMode,
+          tag,
+          newSection,
+        );
+      }
+    }
+  }
 }
