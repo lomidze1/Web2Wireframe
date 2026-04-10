@@ -212,6 +212,13 @@ export async function createNodeInFigma(
     return null;
   }
 
+  // DEBUG: trace logo-image and picture elements
+  const _cls = node.className || '';
+  const _isDebugTarget = _cls.includes('logo-image') || node.tag === 'picture' || (node.tag === 'img' && node.isPlaceholder);
+  if (_isDebugTarget) {
+    console.log(`[W2W-DEBUG] ▶ createNodeInFigma: tag=${node.tag} class="${_cls}" type=${node.type} isPlaceholder=${node.isPlaceholder} w=${node.width} h=${node.height} children=${node.children?.length || 0} imageUrl=${node.imageUrl?.substring(0, 50) || 'none'}`);
+  }
+
   // Handle text nodes (including those with inline children)
   // fontMode "lines" uses FILLR font — handled in text.ts font resolution
   if (node.type === "text") {
@@ -343,10 +350,10 @@ export async function createNodeInFigma(
     }
 
     if (node.padding) {
-      frame.paddingTop = node.padding.top || 0;
-      frame.paddingRight = node.padding.right || 0;
-      frame.paddingBottom = node.padding.bottom || 0;
-      frame.paddingLeft = node.padding.left || 0;
+      frame.paddingTop = Math.max(0, node.padding.top || 0);
+      frame.paddingRight = Math.max(0, node.padding.right || 0);
+      frame.paddingBottom = Math.max(0, node.padding.bottom || 0);
+      frame.paddingLeft = Math.max(0, node.padding.left || 0);
     }
   }
 
@@ -471,7 +478,18 @@ export async function createNodeInFigma(
 
     for (const child of childrenToRender) {
       try {
+        // DEBUG: trace children of logo-image elements
+        const _parentIsDebug = (node.className || '').includes('logo-image') || (node.className || '').includes('copy-wrapper');
+        if (_parentIsDebug) {
+          console.log(`[W2W-DEBUG] 📦 parent="${node.name}" iterating child: tag=${child.tag} class="${child.className || ''}" type=${child.type} w=${child.width} h=${child.height}`);
+        }
+
         const childNode = await createNodeInFigma(child, childContext, depth + 1);
+
+        // DEBUG: trace result
+        if (_parentIsDebug) {
+          console.log(`[W2W-DEBUG] 📦 parent="${node.name}" child result: tag=${child.tag} → ${childNode ? `created (${childNode.name})` : 'NULL'}`);
+        }
 
         if (childNode) {
           if (gridApplied) {
@@ -517,6 +535,11 @@ export async function createNodeInFigma(
           }
         }
       } catch (err) {
+        // DEBUG: extra info for logo-image errors
+        const _parentIsDebug2 = (node.className || '').includes('logo-image') || (node.className || '').includes('copy-wrapper');
+        if (_parentIsDebug2) {
+          console.error(`[W2W-DEBUG] ❌ ERROR in parent="${node.name}" child=${child.tag}.${child.className}:`, err);
+        }
         logger.error("Error creating child node", err, {
           childId: child.id,
           childName: child.name,
@@ -991,10 +1014,10 @@ export async function createWireframeFrame(
 
     // Apply padding from body element
     if (rootTree.padding) {
-      wireframeFrame.paddingTop = rootTree.padding.top || 0;
-      wireframeFrame.paddingRight = rootTree.padding.right || 0;
-      wireframeFrame.paddingBottom = rootTree.padding.bottom || 0;
-      wireframeFrame.paddingLeft = rootTree.padding.left || 0;
+      wireframeFrame.paddingTop = Math.max(0, rootTree.padding.top || 0);
+      wireframeFrame.paddingRight = Math.max(0, rootTree.padding.right || 0);
+      wireframeFrame.paddingBottom = Math.max(0, rootTree.padding.bottom || 0);
+      wireframeFrame.paddingLeft = Math.max(0, rootTree.padding.left || 0);
     }
 
     // Apply item spacing
@@ -1118,12 +1141,12 @@ function applyGridLayout(frame: FrameNode, node: WireframeNode): void {
   frame.layoutSizingHorizontal = "FIXED";
   frame.layoutSizingVertical = "FIXED";
 
-  // Apply padding
+  // Apply padding (clamp to 0 — Figma rejects negative values)
   if (node.padding) {
-    frame.paddingTop = node.padding.top || 0;
-    frame.paddingRight = node.padding.right || 0;
-    frame.paddingBottom = node.padding.bottom || 0;
-    frame.paddingLeft = node.padding.left || 0;
+    frame.paddingTop = Math.max(0, node.padding.top || 0);
+    frame.paddingRight = Math.max(0, node.padding.right || 0);
+    frame.paddingBottom = Math.max(0, node.padding.bottom || 0);
+    frame.paddingLeft = Math.max(0, node.padding.left || 0);
   }
 
   // Simulate justify-content via horizontal padding offset

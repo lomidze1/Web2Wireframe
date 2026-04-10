@@ -248,11 +248,11 @@ export function createMarginWrapper(
   wrapper.layoutSizingHorizontal = "HUG";
   wrapper.layoutSizingVertical = "HUG";
 
-  // Margin → padding conversion
-  wrapper.paddingTop = margin.top;
-  wrapper.paddingRight = margin.right;
-  wrapper.paddingBottom = margin.bottom;
-  wrapper.paddingLeft = margin.left;
+  // Margin → padding conversion (clamp to 0 — Figma rejects negative padding)
+  wrapper.paddingTop = Math.max(0, margin.top);
+  wrapper.paddingRight = Math.max(0, margin.right);
+  wrapper.paddingBottom = Math.max(0, margin.bottom);
+  wrapper.paddingLeft = Math.max(0, margin.left);
 
   wrapper.primaryAxisAlignItems = "MIN";
   wrapper.counterAxisAlignItems = "MIN";

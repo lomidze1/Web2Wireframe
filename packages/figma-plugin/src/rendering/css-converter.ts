@@ -124,6 +124,11 @@ function convertFrame(
   const s = node.styles;
   const id = `w2w-${_nodeId++}`;
 
+  // DEBUG: trace logo-image conversion
+  const _cls = node.classList?.join(' ') || '';
+  if (_cls.includes('logo-image') || (node.tag === 'picture' && parent?.classList?.join(' ')?.includes('logo-image'))) {
+    console.log(`[W2W-DEBUG] 🔄 convertFrame: tag=${node.tag} class="${_cls}" $url=${node.$url?.substring(0, 40) || 'none'} children=${node.children?.length} type-will-be=${node.$url && (node.tag === 'img' || node.tag === 'video' || node.tag === 'canvas') ? 'placeholder' : 'frame'}`);
+  }
 
   // Layout
   const cssLayoutMode = getLayoutMode(s);
