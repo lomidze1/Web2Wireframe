@@ -82,6 +82,7 @@ export interface W2WAttributes {
   href?: string;
   alt?: string;
   ariaLabel?: string;
+  role?: string;
   baseURI?: string;
   srcset?: string;
   naturalWidth?: number;
@@ -188,11 +189,13 @@ export interface W2WStyles {
   // Visual
   opacity?: number;
   boxShadow?: string;
+  textShadow?: string;
   filter?: string;
   backdropFilter?: string;
   clipPath?: string;
   transform?: string;
   transformOrigin?: string;
+  scale?: string;
   overflow?: string;
   overflowX?: string;
   overflowY?: string;

@@ -49,8 +49,9 @@ export const CSS_PROPERTIES: readonly string[] = [
   'webkitTextStrokeWidth', 'listStyleType',
 
   // Visual
-  'opacity', 'boxShadow', 'filter', 'backdropFilter', 'clipPath',
-  'transform', 'transformOrigin', 'overflow', 'overflowX', 'overflowY',
+  'opacity', 'boxShadow', 'textShadow', 'filter', 'backdropFilter', 'clipPath',
+  'transform', 'transformOrigin', 'scale',
+  'overflow', 'overflowX', 'overflowY',
   'objectFit', 'objectPosition', 'mixBlendMode', 'visibility',
 
   // Outline
@@ -94,14 +95,12 @@ export const AUTO_DETECT_PROPERTIES = new Set([
  *
  * NOTE: Some properties are intentionally OMITTED to force "always-on" emission
  * (always-on): opacity, order, flexGrow, flexShrink, textDecoration,
- * left, top, right, bottom, borderTopStyle, borderRightStyle, borderBottomStyle,
- * borderLeftStyle, borderStyle, display, backgroundColor.
+ * left, top, right, bottom, display, backgroundColor.
  * These are emitted on every node regardless of value.
  */
 export const DEFAULT_VALUES: Record<string, string | number> = {
   // NOT filtered (always-on): display, backgroundColor, opacity, order,
-  // flexGrow, flexShrink, textDecoration, left, top, right, bottom,
-  // borderTopStyle, borderRightStyle, borderBottomStyle, borderLeftStyle, borderStyle
+  // flexGrow, flexShrink, textDecoration, left, top, right, bottom
   flexDirection: 'row',
   flexWrap: 'nowrap',
   flexBasis: 'auto',
@@ -124,18 +123,24 @@ export const DEFAULT_VALUES: Record<string, string | number> = {
   backgroundOrigin: 'padding-box',
   backgroundBlendMode: 'normal',
   borderWidth: '0px',
-  // borderStyle, borderTopStyle, etc — always-on (not filtered)
+  borderStyle: 'none',
+  borderTopStyle: 'none',
+  borderRightStyle: 'none',
+  borderBottomStyle: 'none',
+  borderLeftStyle: 'none',
   borderColor: 'rgb(0, 0, 0)',
   borderTopLeftRadius: '0px',
   borderTopRightRadius: '0px',
   borderBottomRightRadius: '0px',
   borderBottomLeftRadius: '0px',
   boxShadow: 'none',
+  textShadow: 'none',
   filter: 'none',
   backdropFilter: 'none',
   clipPath: 'none',
   transform: 'none',
   transformOrigin: '50% 50%',
+  scale: 'none',
   // textDecoration — always-on (not filtered)
   textDecorationLine: 'none',
   textOverflow: 'clip',
@@ -159,7 +164,8 @@ export const DEFAULT_VALUES: Record<string, string | number> = {
   paddingLeft: '0px',
   rowGap: 'normal',
   columnGap: 'normal',
-  // minWidth/minHeight: NOT filtered — emits "0px" on all nodes
+  minWidth: '0px',
+  minHeight: '0px',
   maxWidth: 'none',
   maxHeight: 'none',
   aspectRatio: 'auto',

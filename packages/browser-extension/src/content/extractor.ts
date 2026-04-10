@@ -212,8 +212,15 @@ function traverseElement(
   }
 
   // Iterate childNodes (text nodes + elements)
+  // Include shadow DOM children for Web Component support (like h2d)
   if (computed.display !== 'contents') {
-    for (const child of Array.from(el.childNodes)) {
+    const directChildren = Array.from(el.childNodes);
+    const shadowChildren = el.shadowRoot
+      ? Array.from(el.shadowRoot.childNodes)
+      : [];
+    const allChildren = [...directChildren, ...shadowChildren];
+
+    for (const child of allChildren) {
       if (child.nodeType === Node.TEXT_NODE) {
         const textNodes = extractTextNodes(child as Text, el, computed);
         children.push(...textNodes);
@@ -400,7 +407,31 @@ function extractTextNodes(
  */
 function createSVGNode(svgEl: SVGElement): W2WSVGNode | null {
   const rect = svgEl.getBoundingClientRect();
-  if (rect.width < 1 && rect.height < 1) return null;
+
+  // Use bounding rect if available, otherwise fall back to SVG attributes
+  let w = rect.width;
+  let h = rect.height;
+  if (w < 1 && h < 1) {
+    // SVG might have zero computed rect due to CSS clipping/overflow
+    // Fall back to SVG width/height/viewBox attributes (like h2d does)
+    const attrW = svgEl.getAttribute('width');
+    const attrH = svgEl.getAttribute('height');
+    if (attrW) w = parseFloat(attrW) || 0;
+    if (attrH) h = parseFloat(attrH) || 0;
+    if (w < 1 && h < 1) {
+      // Try viewBox
+      const viewBox = svgEl.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/[\s,]+/);
+        if (parts.length >= 4) {
+          w = parseFloat(parts[2]) || 0;
+          h = parseFloat(parts[3]) || 0;
+        }
+      }
+    }
+    // If still zero after all fallbacks, skip
+    if (w < 1 && h < 1) return null;
+  }
 
   const x = round(rect.left);
   const y = round(rect.top + window.scrollY);
@@ -413,9 +444,9 @@ function createSVGNode(svgEl: SVGElement): W2WSVGNode | null {
   return {
     type: 'SVG',
     x, y,
-    width: round(rect.width),
-    height: round(rect.height),
-    quad: rectToQuad(x, y, round(rect.width), round(rect.height)),
+    width: round(w),
+    height: round(h),
+    quad: rectToQuad(x, y, round(w), round(h)),
     svg: clone.outerHTML,
   };
 }
@@ -428,11 +459,34 @@ function createSVGAsFrame(
   _depth: number
 ): W2WFrameNode | null {
   const rect = svgEl.getBoundingClientRect();
-  if (rect.width < 1 && rect.height < 1) return null;
+  const computed = getComputedStyle(svgEl);
+
+  // Skip only if display:none (truly hidden)
+  if (computed.display === 'none') return null;
+
+  // Use bounding rect, fall back to SVG attributes for size
+  let w = rect.width;
+  let h = rect.height;
+  if (w < 1 && h < 1) {
+    const attrW = svgEl.getAttribute('width');
+    const attrH = svgEl.getAttribute('height');
+    if (attrW) w = parseFloat(attrW) || 0;
+    if (attrH) h = parseFloat(attrH) || 0;
+    if (w < 1 && h < 1) {
+      const viewBox = svgEl.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(/[\s,]+/);
+        if (parts.length >= 4) {
+          w = parseFloat(parts[2]) || 0;
+          h = parseFloat(parts[3]) || 0;
+        }
+      }
+    }
+    if (w < 1 && h < 1) return null;
+  }
 
   const x = rect.left;
   const y = rect.top + window.scrollY;
-  const computed = getComputedStyle(svgEl);
 
   const svgChild = createSVGNode(svgEl);
   const children: W2WNode[] = svgChild ? [svgChild] : [];
@@ -440,9 +494,9 @@ function createSVGAsFrame(
   return {
     type: 'FRAME',
     x, y,
-    width: rect.width,
-    height: rect.height,
-    quad: rectToQuad(x, y, rect.width, rect.height),
+    width: w,
+    height: h,
+    quad: rectToQuad(x, y, w, h),
     tag: 'svg',
     classList: svgEl.classList ? Array.from(svgEl.classList) : [],
     attr: {},
@@ -735,9 +789,11 @@ function extractAttributes(el: HTMLElement): W2WAttributes {
     if (img.srcset) attr.srcset = img.srcset;
   }
 
-  // ARIA
+  // ARIA & role
   const ariaLabel = el.getAttribute('aria-label');
   if (ariaLabel) attr.ariaLabel = ariaLabel;
+  const role = el.getAttribute('role');
+  if (role) attr.role = role;
 
   // baseURI for body
   if (tag === 'body') {

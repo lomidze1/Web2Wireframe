@@ -113,19 +113,47 @@ chrome.runtime.onMessage.addListener(
       handleCapturePageW2W(message.tabId, message.options)
         .then(async (result) => {
           console.log("[W2W] W2W capture complete, nodes:", w2wCountNodes(result.frame));
-          // Auto-download W2W result as JSON
+          // Auto-download W2W result as JSON (+ optional deflate)
           try {
             const jsonString = JSON.stringify(result, null, 2);
             const domain = getDomainFromUrl(result.url || "");
             const filename = `${domain}_${result.width}_w2w.json`;
-            const blob = new Blob([jsonString], { type: "application/json" });
-            const reader = new FileReader();
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
+            console.log(`[W2W] JSON size: ${(jsonString.length / 1024 / 1024).toFixed(1)} MB`);
+
+            // Download readable JSON (for debugging in VS Code)
+            const jsonBlob = new Blob([jsonString], { type: "application/json" });
+            const jsonReader = new FileReader();
+            const jsonDataUrl = await new Promise<string>((resolve, reject) => {
+              jsonReader.onload = () => resolve(jsonReader.result as string);
+              jsonReader.onerror = reject;
+              jsonReader.readAsDataURL(jsonBlob);
             });
-            await chrome.downloads.download({ url: dataUrl, filename, saveAs: false });
+            await chrome.downloads.download({ url: jsonDataUrl, filename, saveAs: false });
+
+            // Also download deflate-compressed version
+            // TODO: When debugging is done, remove the JSON download above and keep only deflate
+            try {
+              const compactJson = JSON.stringify(result);
+              const inputBlob = new Blob([compactJson], { type: "application/json" });
+              const cs = new CompressionStream("deflate-raw");
+              const compressedStream = inputBlob.stream().pipeThrough(cs);
+              const deflateBlob = await new Response(compressedStream).blob();
+              const deflateFilename = `${domain}_${result.width}_w2w.json.deflate`;
+              console.log(
+                `[W2W] Compressed: ${(compactJson.length / 1024 / 1024).toFixed(1)} MB → ` +
+                `${(deflateBlob.size / 1024 / 1024).toFixed(1)} MB ` +
+                `(${(deflateBlob.size / compactJson.length * 100).toFixed(0)}%)`
+              );
+              const deflateReader = new FileReader();
+              const deflateDataUrl = await new Promise<string>((resolve, reject) => {
+                deflateReader.onload = () => resolve(deflateReader.result as string);
+                deflateReader.onerror = reject;
+                deflateReader.readAsDataURL(deflateBlob);
+              });
+              await chrome.downloads.download({ url: deflateDataUrl, filename: deflateFilename, saveAs: false });
+            } catch {
+              console.warn("[W2W] Deflate compression skipped (CompressionStream unavailable)");
+            }
           } catch (e) {
             console.error("[W2W] Auto-download failed:", e);
           }
@@ -1206,7 +1234,95 @@ async function handleCapturePageW2W(
       }
     }
 
-    console.log(`[W2W] Font assets extracted, total assets: ${Object.keys(assets).length}`);
+    console.log(`[W2W] Font assets extracted (before filter), total assets: ${Object.keys(assets).length}`);
+
+    // --- Filter fonts: keep only actually-used fonts (like h2d) ---
+    // fontsByIdx already contains platform fonts from CSS.getPlatformFontsForNode
+    const usedFontFamilies = new Set<string>();
+    for (const [, fontInfo] of fontsByIdx) {
+      usedFontFamilies.add(fontInfo.familyName.toLowerCase());
+    }
+    console.log(`[W2W] Used font families: ${[...usedFontFamilies].join(", ")}`);
+
+    if (usedFontFamilies.size > 0) {
+      // Filter w2wFonts: keep only entries whose fontFamily matches a used font
+      const filteredFonts = w2wFonts.filter((f) =>
+        usedFontFamilies.has(f.fontFamily.toLowerCase()) ||
+        (f.platformFontFamily && usedFontFamilies.has(f.platformFontFamily.toLowerCase()))
+      );
+
+      // For each kept font, prefer woff2 over woff over ttf
+      // Build a set of font URLs to keep
+      const fontUrlsToKeep = new Set<string>();
+      const fontFamilyBestUrl = new Map<string, string>(); // family|weight|style → best URL
+
+      for (const font of filteredFonts) {
+        if (!font.src) continue;
+        const key = `${font.fontFamily.toLowerCase()}|${font.fontWeight}|${font.fontStyle}`;
+        const urlRegex = /(?:url\(['"]?)?((https?:\/\/[^\s'")\],]+))['"]?\)?/g;
+        let m;
+        const urls: string[] = [];
+        while ((m = urlRegex.exec(font.src)) !== null) {
+          urls.push(m[1]);
+        }
+        // Prefer woff2 > woff > ttf > otf
+        const ranked = urls.sort((a, b) => {
+          const rank = (u: string) => {
+            if (u.includes('.woff2')) return 0;
+            if (u.includes('.woff')) return 1;
+            if (u.includes('.ttf')) return 2;
+            if (u.includes('.otf')) return 3;
+            return 4;
+          };
+          return rank(a) - rank(b);
+        });
+        if (ranked.length > 0) {
+          fontFamilyBestUrl.set(key, ranked[0]);
+          fontUrlsToKeep.add(ranked[0]);
+        }
+      }
+
+      // Remove font assets that are not in the keep set
+      const fontMimeSet = new Set([
+        "font/woff2", "font/woff", "font/ttf", "font/otf",
+        "application/font-woff2", "application/font-woff",
+        "application/x-font-woff", "application/x-font-ttf",
+      ]);
+      const fontExtSet = [".woff2", ".woff", ".ttf", ".otf", ".eot"];
+      let removedCount = 0;
+      for (const url of Object.keys(assets)) {
+        const asset = assets[url];
+        const isFontMime = asset.mimeType ? fontMimeSet.has(asset.mimeType) : false;
+        const isFontExt = fontExtSet.some((ext) => url.toLowerCase().includes(ext));
+        if ((isFontMime || isFontExt) && !fontUrlsToKeep.has(url)) {
+          delete assets[url];
+          removedCount++;
+        }
+      }
+
+      // Also remove application/octet-stream assets that look like fonts
+      for (const url of Object.keys(assets)) {
+        const asset = assets[url];
+        if (asset.mimeType === "application/octet-stream") {
+          const isFontExt = fontExtSet.some((ext) => url.toLowerCase().includes(ext));
+          if (isFontExt && !fontUrlsToKeep.has(url)) {
+            delete assets[url];
+            removedCount++;
+          }
+        }
+      }
+
+      console.log(
+        `[W2W] Font filter: kept ${fontUrlsToKeep.size} font files, removed ${removedCount}. ` +
+        `Fonts: ${w2wFonts.length} → ${filteredFonts.length}`
+      );
+
+      // Replace w2wFonts with filtered version
+      w2wFonts.length = 0;
+      w2wFonts.push(...filteredFonts);
+    }
+
+    console.log(`[W2W] Final assets count: ${Object.keys(assets).length}`);
 
     // --- CSS Variables ---
     updateProgress(90, "Extracting CSS variables...");
