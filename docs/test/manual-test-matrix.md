@@ -160,7 +160,7 @@
 | #    | VP        | Colors  | Fonts   | Text     | Assets       | CSS Vars | Layout | Inter.  | შენიშვნა               | სტატუსი |
 | ---- | --------- | ------- | ------- | -------- | ------------ | -------- | ------ | ------- | ----------------------- | ------- |
 | W-01 | 1440      | Website | Website | Website  | Real         | Direct   | AL     | None    | Default real-world      | ✅      |
-| W-02 | 1440      | Plugin  | Plugin  | Semantic | Placeholders | Direct   | AL     | None    | Default wireframe       |         |
+| W-02 | 1440      | Plugin  | Plugin  | Semantic | Placeholders | Direct   | AL     | None    | Default wireframe       | ✅      |
 | W-03 | 1440      | Website | Website | Website  | Real         | Styles   | AL     | Hover   | Full features           |         |
 | W-04 | 1440      | Plugin  | Lines   | Lorem    | Placeholders | Direct   | Abs    | None    | Full wireframe          |         |
 | W-05 | 375       | Website | Website | Website  | Real         | Direct   | AL     | None    | Mobile                  |         |
