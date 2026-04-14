@@ -5,7 +5,12 @@
  * and W2W DOM extraction.
  */
 
-import { extractPage, cleanupMarkers, extractSubtree } from './extractor';
+import {
+  extractPage,
+  cleanupMarkers,
+  extractSubtree,
+  collectHoverSelectors,
+} from './extractor';
 
 // Listen for messages from background script or popup
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -34,6 +39,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const selector = message.selector as string;
       const result = extractSubtree(selector);
       sendResponse({ success: true, data: result });
+    } catch (err) {
+      sendResponse({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return true;
+  }
+
+  // Parse document.styleSheets for :hover selectors — FIX 1 hover discovery
+  if (message.type === "COLLECT_HOVER_SELECTORS") {
+    try {
+      const data = collectHoverSelectors();
+      sendResponse({ success: true, data });
     } catch (err) {
       sendResponse({
         success: false,

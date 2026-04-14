@@ -119,9 +119,13 @@ export function applyCssDiffToNode(
 
       case "box-shadow": {
         const effect = parseBoxShadow(value);
-        if (effect) {
-          frame.effects = [effect];
-        }
+        // Replace only DROP_SHADOW effects, preserving LAYER_BLUR from filter,
+        // BACKGROUND_BLUR from backdrop-filter, and INNER_SHADOW.
+        setEffectsOfType(
+          frame,
+          ["DROP_SHADOW"],
+          effect ? [effect] : [],
+        );
         break;
       }
 
@@ -153,6 +157,93 @@ export function applyCssDiffToNode(
         break;
       }
 
+      // --- Expanded properties ---
+
+      case "visibility": {
+        if (value === "hidden" || value === "collapse") {
+          frame.visible = false;
+        } else if (value === "visible") {
+          frame.visible = true;
+        }
+        break;
+      }
+
+      case "transform": {
+        const rotateMatch = value.match(/rotate\((-?[\d.]+)deg\)/);
+        if (rotateMatch) {
+          // CSS clockwise → Figma counter-clockwise
+          frame.rotation = -parseFloat(rotateMatch[1]);
+        }
+        break;
+      }
+
+      case "outline-width": {
+        const num = parseFloat(value);
+        if (!isNaN(num) && num > 0) {
+          frame.strokeWeight = num;
+          frame.strokeAlign = "OUTSIDE";
+        }
+        break;
+      }
+
+      case "letter-spacing": {
+        if (value !== "normal") {
+          const num = parseFloat(value);
+          if (!isNaN(num)) {
+            const lsTextNodes = frame.findAll(
+              (n) => n.type === "TEXT"
+            ) as TextNode[];
+            for (const textNode of lsTextNodes) {
+              textNode.letterSpacing = { value: num, unit: "PIXELS" };
+            }
+          }
+        }
+        break;
+      }
+
+      // --- FIX 3: effect-producing properties ---
+
+      case "filter": {
+        const effects = parseFilterToEffects(value);
+        // Split effect types: LAYER_BLUR replaces existing blur, DROP_SHADOW
+        // is appended (doesn't displace box-shadow's DROP_SHADOW).
+        const blurs = effects.filter((e) => e.type === "LAYER_BLUR");
+        const dropShadows = effects.filter((e) => e.type === "DROP_SHADOW");
+        setEffectsOfType(frame, ["LAYER_BLUR"], blurs);
+        if (dropShadows.length > 0) {
+          frame.effects = [
+            ...(frame.effects as readonly Effect[]),
+            ...dropShadows,
+          ];
+        }
+        break;
+      }
+
+      case "backdrop-filter": {
+        const effects = parseBackdropFilterToEffects(value);
+        setEffectsOfType(frame, ["BACKGROUND_BLUR"], effects);
+        break;
+      }
+
+      case "text-shadow": {
+        const effects = parseTextShadowToEffects(value);
+        const tsTextNodes = frame.findAll(
+          (n) => n.type === "TEXT",
+        ) as TextNode[];
+        for (const tn of tsTextNodes) {
+          tn.effects = effects;
+        }
+        break;
+      }
+
+      case "clip-path": {
+        const clips = parseClipPathToClipsContent(value);
+        if (clips !== null) {
+          frame.clipsContent = clips;
+        }
+        break;
+      }
+
       default:
         break;
     }
@@ -180,6 +271,48 @@ function applyRemovedProperty(
     case "opacity":
       frame.opacity = 1;
       break;
+    case "visibility":
+      frame.visible = true;
+      break;
+    case "transform":
+      frame.rotation = 0;
+      break;
+    case "outline-width":
+      frame.strokeWeight = 0;
+      break;
+
+    // --- FIX 3: effect-producing property removals ---
+
+    case "filter":
+      // Clear LAYER_BLUR (and any filter-sourced DROP_SHADOW) but keep
+      // BACKGROUND_BLUR from backdrop-filter. We can't distinguish
+      // filter:drop-shadow from box-shadow in hindsight, so we clear all
+      // DROP_SHADOW — acceptable for hover revert.
+      frame.effects = (frame.effects as readonly Effect[]).filter(
+        (e) => e.type !== "LAYER_BLUR" && e.type !== "DROP_SHADOW",
+      );
+      break;
+
+    case "backdrop-filter":
+      frame.effects = (frame.effects as readonly Effect[]).filter(
+        (e) => e.type !== "BACKGROUND_BLUR",
+      );
+      break;
+
+    case "text-shadow": {
+      const removedTextNodes = frame.findAll(
+        (n) => n.type === "TEXT",
+      ) as TextNode[];
+      for (const tn of removedTextNodes) {
+        tn.effects = [];
+      }
+      break;
+    }
+
+    case "clip-path":
+      frame.clipsContent = false;
+      break;
+
     default:
       break;
   }
@@ -215,9 +348,245 @@ function parseBoxShadow(shadow: string): Effect | null {
   };
 }
 
+// ---------------------------------------------------------------------------
+// FIX 3 — Effect-producing CSS parsers (filter, backdrop-filter, text-shadow,
+// clip-path). All inline because the plugin doesn't depend on @w2w/shared
+// at runtime.
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace all effects of the given type(s), preserving others.
+ * Used so multiple CSS properties (filter, box-shadow, backdrop-filter) can
+ * coexist in frame.effects without overwriting each other.
+ */
+function setEffectsOfType(
+  frame: FrameNode | ComponentNode,
+  typesToReplace: readonly Effect["type"][],
+  newEffects: Effect[],
+): void {
+  const preserved = (frame.effects as readonly Effect[]).filter(
+    (e) => !typesToReplace.includes(e.type),
+  );
+  frame.effects = [...preserved, ...newEffects];
+}
+
+/**
+ * Split a CSS function string on top-level whitespace, respecting parentheses.
+ *
+ * Example: "blur(10px) drop-shadow(2px 2px 4px black)"
+ *   → ["blur(10px)", "drop-shadow(2px 2px 4px black)"]
+ */
+function splitTopLevelFunctions(input: string): string[] {
+  const result: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i];
+    if (c === "(") depth++;
+    else if (c === ")") depth--;
+    else if (depth === 0 && /\s/.test(c)) {
+      const chunk = input.slice(start, i).trim();
+      if (chunk) result.push(chunk);
+      start = i + 1;
+    }
+  }
+  const last = input.slice(start).trim();
+  if (last) result.push(last);
+  return result;
+}
+
+/** Split on separator at top-level (outside parentheses). */
+function splitTopLevelCsv(input: string, sep: string): string[] {
+  const result: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i];
+    if (c === "(") depth++;
+    else if (c === ")") depth--;
+    else if (depth === 0 && c === sep) {
+      result.push(input.slice(start, i));
+      start = i + 1;
+    }
+  }
+  result.push(input.slice(start));
+  return result;
+}
+
+/**
+ * Parse CSS `filter` value into Figma effects.
+ * Supported: blur(Xpx) → LAYER_BLUR, drop-shadow(...) → DROP_SHADOW.
+ * Ignored: brightness, contrast, saturate, hue-rotate, invert, grayscale,
+ *          sepia (no Figma equivalent).
+ */
+function parseFilterToEffects(filter: string): Effect[] {
+  if (!filter || filter === "none") return [];
+  const effects: Effect[] = [];
+
+  const functions = splitTopLevelFunctions(filter);
+  for (const fn of functions) {
+    const blurMatch = fn.match(/^blur\(\s*([\d.]+)px\s*\)$/);
+    if (blurMatch) {
+      effects.push({
+        type: "LAYER_BLUR",
+        visible: true,
+        radius: parseFloat(blurMatch[1]),
+      });
+      continue;
+    }
+
+    const dsMatch = fn.match(/^drop-shadow\(\s*(.+)\s*\)$/);
+    if (dsMatch) {
+      const parsed = parseBoxShadow(dsMatch[1]);
+      if (parsed) effects.push(parsed);
+      continue;
+    }
+    // brightness/saturate/hue-rotate/... silently ignored — no Figma equivalent
+  }
+  return effects;
+}
+
+/**
+ * Parse CSS `backdrop-filter` value into BACKGROUND_BLUR effects.
+ * Only `blur()` maps cleanly to Figma.
+ */
+function parseBackdropFilterToEffects(bf: string): Effect[] {
+  if (!bf || bf === "none") return [];
+  const functions = splitTopLevelFunctions(bf);
+  const effects: Effect[] = [];
+  for (const fn of functions) {
+    const blurMatch = fn.match(/^blur\(\s*([\d.]+)px\s*\)$/);
+    if (blurMatch) {
+      effects.push({
+        type: "BACKGROUND_BLUR",
+        visible: true,
+        radius: parseFloat(blurMatch[1]),
+      });
+    }
+  }
+  return effects;
+}
+
+/**
+ * Parse CSS `text-shadow` value into Figma DROP_SHADOW effects.
+ * Handles comma-separated multiple shadows:
+ *   "2px 2px 4px black, 0 0 10px blue"
+ * Format per shadow: "Xpx Ypx [Blur] color" (no spread, unlike box-shadow).
+ */
+function parseTextShadowToEffects(ts: string): Effect[] {
+  if (!ts || ts === "none") return [];
+  const shadows = splitTopLevelCsv(ts, ",");
+  const effects: Effect[] = [];
+  for (const raw of shadows) {
+    const parsed = parseBoxShadow(raw.trim());
+    if (parsed) effects.push(parsed);
+  }
+  return effects;
+}
+
+/**
+ * Parse CSS `clip-path` into a simple clipsContent boolean.
+ * Returns:
+ *   - true  if inset(...) — the element clips its content
+ *   - false if none
+ *   - null  if unsupported (circle, polygon, path, url, ellipse) — no-op
+ */
+function parseClipPathToClipsContent(cp: string): boolean | null {
+  if (!cp || cp === "none") return false;
+  if (/^inset\s*\(/.test(cp)) return true;
+  return null; // unsupported
+}
+
 // ============================================================================
 // Variant Creation
 // ============================================================================
+
+// ---------------------------------------------------------------------------
+// FIX 4 — Descendant hover diff pluginData helpers
+// ---------------------------------------------------------------------------
+
+const HOVER_DIFF_PLUGIN_KEY = "w2w_hover_diff";
+
+/**
+ * Walk a subtree and return true if any node has a non-empty
+ * `w2w_hover_diff` pluginData entry (set by nodes.ts for frames whose
+ * WireframeNode had a hover diff).
+ */
+function detectDescendantHoverDiffs(
+  root: FrameNode | ComponentNode,
+): boolean {
+  try {
+    const found = root.findOne((n) => {
+      // getPluginData exists on most SceneNode types; guard with 'in'.
+      if (!("getPluginData" in n)) return false;
+      const data = (n as FrameNode).getPluginData(HOVER_DIFF_PLUGIN_KEY);
+      return data !== "";
+    });
+    return found !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Walk a cloned variant and apply any pluginData-stored hover diffs to each
+ * descendant. This is how parent-hover → child-visibility cases (e.g. nav
+ * curtain) get their descendants transformed in the hover variant without
+ * the trigger itself having a non-empty diff.
+ *
+ * The descendants' pluginData is preserved by Figma's `clone()` because
+ * clone() deep-copies all properties including pluginData.
+ */
+function applyDescendantPluginDataDiffs(
+  variantRoot: FrameNode | ComponentNode,
+): void {
+  try {
+    const nodesWithDiffs = variantRoot.findAll((n) => {
+      if (!("getPluginData" in n)) return false;
+      return (n as FrameNode).getPluginData(HOVER_DIFF_PLUGIN_KEY) !== "";
+    });
+
+    for (const n of nodesWithDiffs) {
+      // Skip the root itself — its diff is handled separately by the caller
+      // via applyCssDiffToNode(variantComp, diff).
+      if (n === variantRoot) continue;
+      const fn = n as FrameNode;
+      try {
+        const diffStr = fn.getPluginData(HOVER_DIFF_PLUGIN_KEY);
+        const diff = JSON.parse(diffStr) as Record<string, string>;
+        applyCssDiffToNode(fn, diff);
+        // Clear from the variant too so the authored file stays clean.
+        fn.setPluginData(HOVER_DIFF_PLUGIN_KEY, "");
+      } catch {
+        // Ignore malformed pluginData
+      }
+    }
+  } catch {
+    // findAll may not be available on some mock nodes
+  }
+}
+
+/**
+ * Clear all `w2w_hover_diff` pluginData from a subtree so the authored
+ * Figma file doesn't keep stale markers visible in the inspector.
+ */
+function clearHoverDiffPluginData(root: FrameNode | ComponentNode): void {
+  try {
+    const tagged = root.findAll((n) => {
+      if (!("getPluginData" in n)) return false;
+      return (n as FrameNode).getPluginData(HOVER_DIFF_PLUGIN_KEY) !== "";
+    });
+    for (const n of tagged) {
+      try {
+        (n as FrameNode).setPluginData(HOVER_DIFF_PLUGIN_KEY, "");
+      } catch {
+        // Ignore
+      }
+    }
+  } catch {
+    // Ignore
+  }
+}
 
 /**
  * Convert a rendered FrameNode into a ComponentSet with pseudo-state variants.
@@ -230,9 +599,20 @@ export async function createPseudoStateVariants(
   componentSet: ComponentSetNode;
   defaultInstance: InstanceNode;
 }> {
-  const activeStates = Object.entries(pseudoStates).filter(
-    ([, diff]) => diff && Object.keys(diff).length > 0
+  // FIX 4: accept states with empty self diff as long as the frame subtree
+  // has pluginData-tagged descendant diffs. `Object.entries(pseudoStates)`
+  // yields every state key that was provided, even if its value is `{}`.
+  const allProvidedStates = Object.entries(pseudoStates).filter(
+    ([, diff]) => diff !== undefined,
   );
+
+  // Does the frame subtree carry any descendant hover diffs (FIX 4)?
+  const hasDescendantDiffs = detectDescendantHoverDiffs(frame);
+
+  const activeStates = allProvidedStates.filter(([, diff]) => {
+    const selfHasChanges = diff && Object.keys(diff).length > 0;
+    return selfHasChanges || hasDescendantDiffs;
+  });
 
   if (activeStates.length === 0) {
     throw new Error("No active pseudo-states to create variants for");
@@ -259,11 +639,27 @@ export async function createPseudoStateVariants(
     const variantComp = defaultComp.clone();
     variantComp.name = STATE_DISPLAY_NAMES[stateKey] || `State=${stateKey}`;
 
-    // Apply the CSS diff to the variant
-    applyCssDiffToNode(variantComp, diff!);
+    // FIX 4: apply descendant hover diffs via pluginData walk BEFORE the
+    // self diff, so that the self diff takes precedence on the root frame.
+    if (stateKey === "hover" && hasDescendantDiffs) {
+      applyDescendantPluginDataDiffs(variantComp);
+    }
+
+    // Apply the CSS diff to the variant root itself (may be empty if this
+    // is a parent-hover-child case where only descendants changed).
+    if (diff && Object.keys(diff).length > 0) {
+      applyCssDiffToNode(variantComp, diff);
+    }
 
     variants.set(stateKey, variantComp);
     allComponents.push(variantComp);
+  }
+
+  // FIX 4: clear pluginData markers from the default component so the
+  // authored Figma file doesn't keep stale hover-diff tags visible in the
+  // inspector.
+  if (hasDescendantDiffs) {
+    clearHoverDiffPluginData(defaultComp);
   }
 
   // Step 3: Combine into ComponentSet (on page level — will be moved to Components Section later)

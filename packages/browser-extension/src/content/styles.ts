@@ -17,6 +17,7 @@ export const CSS_PROPERTIES: readonly string[] = [
   // Layout
   'display', 'flexDirection', 'flexWrap', 'flexGrow', 'flexShrink',
   'flexBasis', 'alignItems', 'alignSelf', 'justifyContent', 'gap', 'order',
+  'cssFloat',
 
   // Grid
   'gridTemplateColumns', 'gridTemplateRows', 'gridAutoFlow', 'gridArea',
@@ -109,6 +110,7 @@ export const DEFAULT_VALUES: Record<string, string | number> = {
   justifyContent: 'normal',
   gap: 'normal',
   position: 'static',
+  cssFloat: 'none',
   zIndex: 'auto',
   overflow: 'visible',
   overflowX: 'visible',

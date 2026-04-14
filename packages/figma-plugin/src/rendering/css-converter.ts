@@ -31,6 +31,7 @@ interface W2WFrameNode {
   $url?: string;
   isScrollingElt?: boolean;
   hover?: W2WFrameNode;
+  _isHiddenInDefault?: boolean; // Set by conditional visibility filtering (interactionMode=variants)
 }
 
 interface W2WTextNode {
@@ -54,6 +55,7 @@ type W2WNode = W2WFrameNode | W2WTextNode | W2WSVGNode;
 interface ConvertOptions {
   cssVariables?: Map<string, string>;
   layoutMode?: 'absolute' | 'autoLayout';
+  interactionMode?: 'none' | 'variants';
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +115,32 @@ export function convertW2WToWireframe(
 }
 
 // ---------------------------------------------------------------------------
+// display:contents flattening
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively flatten display:contents elements out of a child list.
+ * Elements with display:contents generate no box — their children become
+ * direct children of the parent (same as CSS behavior).
+ * Mirrors tree-builder.ts flattenDisplayContents() for the W2WFrameNode path.
+ */
+function getEffectiveChildren(node: W2WFrameNode): W2WNode[] {
+  const result: W2WNode[] = [];
+  for (const child of node.children || []) {
+    if (
+      child.type === 'FRAME' &&
+      str((child as W2WFrameNode).styles?.display) === 'contents'
+    ) {
+      // Recursive: promote this element's children
+      result.push(...getEffectiveChildren(child as W2WFrameNode));
+    } else {
+      result.push(child);
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Frame conversion
 // ---------------------------------------------------------------------------
 
@@ -124,15 +152,18 @@ function convertFrame(
   const s = node.styles;
   const id = `w2w-${_nodeId++}`;
 
-  // DEBUG: trace logo-image conversion
-  const _cls = node.classList?.join(' ') || '';
-  if (_cls.includes('logo-image') || (node.tag === 'picture' && parent?.classList?.join(' ')?.includes('logo-image'))) {
-    console.log(`[W2W-DEBUG] 🔄 convertFrame: tag=${node.tag} class="${_cls}" $url=${node.$url?.substring(0, 40) || 'none'} children=${node.children?.length} type-will-be=${node.$url && (node.tag === 'img' || node.tag === 'video' || node.tag === 'canvas') ? 'placeholder' : 'frame'}`);
+  // Layout
+  let cssLayoutMode = getLayoutMode(s);
+  const isAbsoluteMode = options.layoutMode === 'absolute';
+
+  // Block parent: check if children's float/inline-block indicates horizontal layout
+  if (cssLayoutMode === 'NONE' && !isAbsoluteMode) {
+    const inferred = inferLayoutFromChildren(getEffectiveChildren(node));
+    if (inferred) {
+      cssLayoutMode = inferred;
+    }
   }
 
-  // Layout
-  const cssLayoutMode = getLayoutMode(s);
-  const isAbsoluteMode = options.layoutMode === 'absolute';
   const layoutMode = isAbsoluteMode ? 'NONE' as const : cssLayoutMode;
   const padding = parsePadding(str(s.paddingTop), str(s.paddingRight), str(s.paddingBottom), str(s.paddingLeft), str(s.padding));
   const gapStr = str(s.gap);
@@ -177,7 +208,41 @@ function convertFrame(
   const textChildValues: TextChildValue[] = [];
   let textContent = '';
 
-  for (const child of node.children) {
+  // Flatten display:contents wrappers before iterating children.
+  // Elements with display:contents generate no box — their children become
+  // direct children of this parent (same as CSS behavior).
+  const effectiveChildren = getEffectiveChildren(node);
+  for (const child of effectiveChildren) {
+    // Skip invisible elements: visibility:hidden or opacity:0.
+    // These take layout space in CSS but should not render in Figma wireframes.
+    // Pattern: Apple.com flyout menus (visibility:hidden), globalnav-curtain (opacity:0).
+    // h2d also prunes these entirely.
+    if (child.type === 'FRAME') {
+      const vis = str(child.styles.visibility);
+      const childOpacity = child.styles.opacity;
+      const isInvisible = vis === 'hidden' || vis === 'collapse';
+      const isFullyTransparent = childOpacity === 0 || childOpacity === '0';
+      if (isInvisible || isFullyTransparent) {
+        if (options.interactionMode === 'variants') {
+          // Preserve hidden elements for component variant rendering (dropdown panels, curtains).
+          // Mark them so nodes.ts can render with visible=false in Figma.
+          (child as W2WFrameNode)._isHiddenInDefault = true;
+        } else {
+          continue; // Filter out in "none" mode (default behavior)
+        }
+      }
+
+      // Skip tiny trigger buttons (e.g. Apple nav dropdown triggers: 1px-height buttons).
+      // These are interactive dropdown triggers with no visual representation in wireframes.
+      if (child.height < 2 && child.width > 0) {
+        const tag = child.tag;
+        const role = child.attr?.role;
+        if (tag === 'button' || role === 'button' || role === 'menuitem') {
+          continue;
+        }
+      }
+    }
+
     if (child.type === 'TEXT') {
       // Collect TEXT node info (don't create WireframeNode yet — will coalesce)
       textChildValues.push({
@@ -192,10 +257,33 @@ function convertFrame(
     } else if (child.type === 'SVG') {
       children.push(convertSVGNode(child, node));
     } else if (child.type === 'FRAME') {
+      // Zero-size wrapper flattening: promote children of 0x0 wrappers into parent.
+      // Pattern: Apple.com's div#globalheader is display:inline, w=0, h=0, wrapping
+      // a position:fixed nav. Without flattening, the 0x0 Figma frame clips the nav.
+      if (child.width < 1 && child.height < 1 && child.children?.length > 0) {
+        for (const grandchild of child.children) {
+          if (grandchild.type === 'TEXT') {
+            textChildValues.push({
+              value: grandchild.value,
+              font: grandchild.font,
+              platformFamily: grandchild.platformFont?.familyName,
+              x: grandchild.x,
+              y: grandchild.y,
+              width: grandchild.width,
+              height: grandchild.height,
+            });
+          } else if (grandchild.type === 'SVG') {
+            children.push(convertSVGNode(grandchild, node));
+          } else if (grandchild.type === 'FRAME') {
+            children.push(convertFrame(grandchild, node, options));
+          }
+        }
+      } else if (child.width < 1 && child.height < 1) {
+        // Zero-size with no children — skip entirely
+        continue;
       // Pseudo-element wrappers (__w2w-pseudo-before/after): flatten their children
       // directly into parent, skipping the wrapper frame.
-      const isPseudo = child.classList.includes('__w2w-pseudo-before') || child.classList.includes('__w2w-pseudo-after');
-      if (isPseudo) {
+      } else if (child.classList.includes('__w2w-pseudo-before') || child.classList.includes('__w2w-pseudo-after')) {
         // Extract pseudo-element styles for its text children
         const pseudoStyles = child.styles;
         const pseudoColor = str(pseudoStyles.webkitTextFillColor) || str(pseudoStyles.color) || undefined;
@@ -402,9 +490,55 @@ function convertFrame(
     letterSpacing,
 
     // Pseudo states
-    pseudoStateStyles: node.hover
-      ? { hover: flattenStylesToRecord(node.hover.styles) }
-      : undefined,
+    pseudoStateStyles: (() => {
+      // Preferred path: a real hover subtree was captured via CDP. Compute
+      // the diff and use it when it contains any Figma-renderable changes.
+      if (node.hover) {
+        const diff = computeHoverDiff(node.styles, node.hover.styles);
+        if (diff) {
+          console.log(`[W2W-HOVER] ✅ Hover diff found for <${node.tag}.${node.classList[0] || ''}>:`, JSON.stringify(diff));
+          return diff;
+        }
+        console.log(`[W2W-HOVER] ⚠️ Hover exists but NO diff for <${node.tag}.${node.classList[0] || ''}> — CSS :hover may be JS-driven`);
+        // Fall through to synthetic fallback below.
+      }
+
+      // FIX 4 gate: if any descendant already has its own hover diff, skip
+      // synthesizing a fallback on the parent — the real change is downstream
+      // (e.g. parent-hover → child-visibility curtain case).
+      const hasDescendantHoverLocal = children.some(
+        (c) =>
+          (c.pseudoStateStyles !== undefined &&
+            c.pseudoStateStyles.hover !== undefined) ||
+          c.hasDescendantHover === true,
+      );
+      if (hasDescendantHoverLocal) {
+        return undefined;
+      }
+
+      // FIX 2 fallback: if the element is clearly interactive but no usable
+      // hover diff was captured, synthesize a generic `opacity: 0.8` hover so
+      // the ComponentSet still gets a visible Hover variant.
+      if (isInteractiveNode(node)) {
+        console.log(`[W2W-HOVER] 🪄 Synthesized fallback hover for <${node.tag}.${node.classList[0] || ''}>`);
+        return { hover: { opacity: '0.8' } };
+      }
+
+      return undefined;
+    })(),
+
+    // Visibility state (for interaction variants)
+    isHiddenInDefault: node._isHiddenInDefault || undefined,
+
+    // FIX 4: true when any descendant carries its own pseudoStateStyles.
+    // Used by nodes.ts to create a ComponentSet trigger even if this node's
+    // own diff is empty (parent-hover → child-visibility case).
+    hasDescendantHover: children.some(
+      (c) =>
+        (c.pseudoStateStyles !== undefined &&
+          c.pseudoStateStyles.hover !== undefined) ||
+        c.hasDescendantHover === true,
+    ) || undefined,
 
     // Media
     isPlaceholder: type === 'placeholder',
@@ -540,6 +674,51 @@ function getLayoutMode(
   return 'NONE';
 }
 
+/**
+ * When parent has display:block (getLayoutMode returns NONE),
+ * check if children's CSS indicates horizontal layout:
+ * - float: left/right/inline-start/inline-end → children are side-by-side
+ * - display: inline-block/inline → children flow horizontally
+ */
+function inferLayoutFromChildren(
+  children: W2WNode[],
+): 'HORIZONTAL' | null {
+  if (children.length === 0) return null;
+
+  let floatCount = 0;
+  let inlineCount = 0;
+  let frameCount = 0;
+
+  for (const child of children) {
+    if (child.type !== 'FRAME') continue;
+    const frame = child as W2WFrameNode;
+    // Skip inline text tags (span, a, strong, etc.) with only text children —
+    // these are coalesced into parent text, not layout children
+    if (INLINE_TEXT_TAGS.has(frame.tag) && isTextOnlyFrame(frame)) {
+      continue;
+    }
+    frameCount++;
+    const cs = frame.styles;
+    const f = str(cs.cssFloat);
+    const d = str(cs.display);
+
+    if (f === 'left' || f === 'right' || f === 'inline-start' || f === 'inline-end') {
+      floatCount++;
+    }
+    if (d === 'inline-block' || d === 'inline') {
+      inlineCount++;
+    }
+  }
+
+  // Any float child → HORIZONTAL (float is explicit horizontal intent)
+  // Majority inline-block/inline → HORIZONTAL (avoid false positive from single inline)
+  if (frameCount > 0 && (floatCount > 0 || inlineCount > frameCount / 2)) {
+    return 'HORIZONTAL';
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Sizing detection (HUG / FILL / FIXED)
 // ---------------------------------------------------------------------------
@@ -572,6 +751,17 @@ function getSizing(
       || childDisplay === '' || !childDisplay;
 
     if (parentIsBlock && isBlockChild) {
+      // Float children: FIXED width (not FILL — float uses its computed width)
+      const childFloat = str(s.cssFloat);
+      if (childFloat === 'left' || childFloat === 'right'
+        || childFloat === 'inline-start' || childFloat === 'inline-end') {
+        return {
+          horizontal: 'FIXED',
+          vertical: 'FIXED',
+          grow: 0,
+          align: 'INHERIT',
+        };
+      }
       // Block children in block parent: FILL width, FIXED height
       // Use browser-measured height (from node.height) — NOT HUG.
       // HUG would let Figma recalculate height from content, which differs
@@ -1183,14 +1373,91 @@ function getNodeName(node: W2WFrameNode): string {
   return tag;
 }
 
-function flattenStylesToRecord(
-  styles: Record<string, string | number | undefined>,
-): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const [k, v] of Object.entries(styles)) {
-    if (v !== undefined) result[k] = String(v);
+// ---------------------------------------------------------------------------
+// Interactive node detection (FIX 2 — synthetic hover fallback)
+// ---------------------------------------------------------------------------
+
+/** Tags that are inherently interactive (mirrors packages/shared/src/w2w-hover.ts). */
+const INTERACTIVE_TAGS_FOR_SYNTHESIS = new Set([
+  'a', 'button', 'input', 'select', 'textarea',
+]);
+
+/** ARIA roles that indicate an interactive element. */
+const INTERACTIVE_ROLES_FOR_SYNTHESIS = new Set([
+  'button', 'link', 'tab', 'menuitem', 'option',
+]);
+
+/**
+ * Detect whether a W2WFrameNode represents an interactive element that should
+ * receive a synthetic hover fallback when no real hover diff was captured.
+ *
+ * Signals (any one triggers):
+ *   - tag ∈ INTERACTIVE_TAGS
+ *   - [role] ∈ INTERACTIVE_ROLES
+ *   - [tabindex] ≠ "-1"
+ *   - cursor: pointer (strong CSS signal of clickability on styled <div>s)
+ */
+function isInteractiveNode(node: W2WFrameNode): boolean {
+  if (INTERACTIVE_TAGS_FOR_SYNTHESIS.has(node.tag)) return true;
+
+  const role = node.attr?.role;
+  if (typeof role === 'string' && INTERACTIVE_ROLES_FOR_SYNTHESIS.has(role)) {
+    return true;
   }
-  return result;
+
+  const tabindex = node.attr?.tabindex;
+  if (tabindex != null && String(tabindex) !== '-1') {
+    return true;
+  }
+
+  if (node.styles?.cursor === 'pointer') {
+    return true;
+  }
+
+  return false;
+}
+
+/** CSS properties that applyCssDiffToNode() in pseudoStates.ts can handle */
+const HOVER_DIFF_PROPERTIES: string[] = [
+  'backgroundColor', 'background',
+  'borderColor', 'borderWidth', 'borderRadius',
+  'color', 'opacity',
+  'boxShadow', 'outlineColor',
+  'textDecoration', 'textDecorationLine',
+  // Expanded properties:
+  'visibility',      // frame.visible
+  'transform',       // extract rotate() → frame.rotation
+  'outlineWidth',    // frame.strokeWeight + OUTSIDE
+  'letterSpacing',   // textNode.letterSpacing
+  // FIX 3 — effect-producing properties
+  'filter',          // blur() → LAYER_BLUR, drop-shadow() → DROP_SHADOW
+  'backdropFilter',  // blur() → BACKGROUND_BLUR
+  'textShadow',      // → TextNode.effects[DROP_SHADOW]
+  'clipPath',        // inset() → frame.clipsContent
+];
+
+/**
+ * Compute CSS diff between normal and hover states.
+ * Returns only properties that actually changed AND are handleable by applyCssDiffToNode.
+ * Keys are converted to kebab-case (matching what applyCssDiffToNode expects).
+ */
+function computeHoverDiff(
+  normalStyles: Record<string, string | number | undefined>,
+  hoverStyles: Record<string, string | number | undefined>,
+): { hover: Record<string, string> } | undefined {
+  const diff: Record<string, string> = {};
+
+  for (const prop of HOVER_DIFF_PROPERTIES) {
+    const normalVal = normalStyles[prop];
+    const hoverVal = hoverStyles[prop];
+    if (hoverVal !== undefined && String(hoverVal) !== String(normalVal ?? '')) {
+      // Convert camelCase to kebab-case for applyCssDiffToNode
+      const kebab = prop.replace(/[A-Z]/g, (m: string) => '-' + m.toLowerCase());
+      diff[kebab] = String(hoverVal);
+    }
+  }
+
+  return Object.keys(diff).length > 0 ? { hover: diff } : undefined;
 }
 
 /**
@@ -1224,7 +1491,8 @@ function collectTextFromFrame(
   const rawFontWeight = str(s.fontWeight);
   const fontWeightOverride = rawFontWeight ? parseFontWeight(rawFontWeight) : undefined;
 
-  for (const child of node.children) {
+  const effectiveChildren = getEffectiveChildren(node);
+  for (const child of effectiveChildren) {
     if (child.type === 'TEXT') {
       target.push({
         value: child.value,

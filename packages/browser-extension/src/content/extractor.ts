@@ -22,6 +22,10 @@ import type {
   W2WAttributes,
   Quad,
 } from '@w2w/shared';
+import {
+  parseHoverSelectorsFromCssText,
+  splitHoverSelector,
+} from '@w2w/shared';
 
 import { SKIP_TAGS, isHidden, isOffscreen } from './visibility';
 import {
@@ -145,19 +149,29 @@ function traverseElement(
   }
 
   // Visibility filtering
-  if (isHidden(el)) return null;
+  if (isHidden(el)) {
+    // Debug: log skipped elements with id or nav/header tags
+    const _id = el.id || '';
+    if (_id === 'globalheader' || _id === 'globalnav' || tag === 'nav' || tag === 'header' || tag === 'aside') {
+      console.warn(`[W2W-DEBUG] isHidden SKIPPED: <${tag}> id="${_id}" cls="${el.className?.toString?.()?.slice(0,60)}" display=${getComputedStyle(el).display} pos=${getComputedStyle(el).position} offsetParent=${el.offsetParent?.tagName} rect=${JSON.stringify(el.getBoundingClientRect().toJSON())}`);
+    }
+    return null;
+  }
 
   // Get bounding rect and computed styles
   const rect = el.getBoundingClientRect();
   const computed = getComputedStyle(el);
 
-  // Skip zero-size elements (except specific tags that might have content)
-  // Allow inline elements with text content through — they may have valid child text nodes
-  if (rect.width < 1 && rect.height < 1 && tag !== 'html' && tag !== 'body') {
-    const hasDirectText = el.textContent?.trim();
-    const isInline = computed.display === 'inline' || computed.display === 'inline-block';
-    if (!hasDirectText || !isInline) return null;
+  // Debug: log nav/header elements that pass visibility
+  const _dbgId = el.id || '';
+  if (_dbgId === 'globalheader' || _dbgId === 'globalnav' || tag === 'nav' || tag === 'header') {
+    console.log(`[W2W-DEBUG] PASSED visibility: <${tag}> id="${_dbgId}" cls="${el.className?.toString?.()?.slice(0,60)}" w=${rect.width} h=${rect.height} display=${computed.display} pos=${computed.position}`);
   }
+
+  // Zero-size check is deferred to AFTER children are processed (post-filter below).
+  // This allows zero-size wrappers (e.g. Apple's globalnav-flyout) to pass through
+  // when they contain visible child elements.
+  const isZeroSize = rect.width < 1 && rect.height < 1 && tag !== 'html' && tag !== 'body';
 
   // Skip offscreen elements
   if (isOffscreen(rect, viewportWidth, window.innerHeight * 10)) return null;
@@ -220,6 +234,17 @@ function traverseElement(
       : [];
     const allChildren = [...directChildren, ...shadowChildren];
 
+    // Debug: log body's direct children to trace globalheader/globalnav
+    if (tag === 'body' || _dbgId === 'globalheader') {
+      console.log(`[W2W-DEBUG] 📦 <${tag}> id="${_dbgId}" iterating ${allChildren.length} childNodes:`);
+      for (const c of allChildren) {
+        const ct = (c as HTMLElement).tagName?.toLowerCase() || `text(${c.nodeType})`;
+        const ci = (c as HTMLElement).id || '';
+        const cc = (c as HTMLElement).className?.toString?.()?.slice(0, 40) || '';
+        console.log(`[W2W-DEBUG]   child: <${ct}> id="${ci}" cls="${cc}" nodeType=${c.nodeType} isHTMLElement=${c instanceof HTMLElement} isSVGElement=${c instanceof SVGElement}`);
+      }
+    }
+
     for (const child of allChildren) {
       if (child.nodeType === Node.TEXT_NODE) {
         const textNodes = extractTextNodes(child as Text, el, computed);
@@ -254,6 +279,15 @@ function traverseElement(
     const afterNode = extractInjectedPseudo(afterSpan, el, '::after');
     if (afterNode) children.push(afterNode);
     afterSpan.remove();
+  }
+
+  // Post-filter: skip zero-size elements ONLY if they produced no valid children.
+  // This preserves zero-size wrappers that contain visible child elements
+  // (e.g. Apple globalnav uses 3 levels of 0x0 wrappers around visible nav items).
+  if (isZeroSize && children.length === 0) {
+    const hasDirectText = el.textContent?.trim();
+    const isInline = computed.display === 'inline' || computed.display === 'inline-block';
+    if (!hasDirectText || !isInline) return null;
   }
 
   // Tag element for CDP font lookup (service worker will use data-w2w-idx)
@@ -895,4 +929,83 @@ export function extractSubtree(selector: string): W2WFrameNode | null {
 export function cleanupMarkers(): void {
   const marked = document.querySelectorAll('[data-w2w-idx]');
   marked.forEach(el => el.removeAttribute('data-w2w-idx'));
+}
+
+/**
+ * Walk `document.styleSheets` and extract every `:hover` selector, returning
+ * `{ trigger, target }` pairs for elements that currently exist on the page.
+ *
+ * Used by background/API to EXPAND the hover capture candidate pool beyond
+ * just interactive tags (button, a, input). Styled elements like
+ * `<div class="card">` with `.card:hover {}` rules become capturable.
+ *
+ * Robustness:
+ *  - Cross-origin stylesheets throw `SecurityError` on `.cssRules` → skipped
+ *  - `@media` and `@supports` rules recursed into
+ *  - Pseudo-element combinations (`::before`, `::after`) filtered out
+ *  - Triggers deduped (one entry per unique trigger selector)
+ *  - Triggers verified via `document.querySelector` before inclusion
+ *  - Capped at MAX to prevent runaway CDP calls
+ */
+export function collectHoverSelectors(): Array<{ trigger: string; target: string }> {
+  const results: Array<{ trigger: string; target: string }> = [];
+  const seen = new Set<string>();
+  const MAX = 300;
+
+  function processRule(rule: CSSRule): void {
+    if (results.length >= MAX) return;
+
+    // Recurse into grouping rules (@media, @supports, @layer, @container)
+    // CSSGroupingRule was introduced in all modern browsers — not all its
+    // subclasses are exposed as globals (e.g., CSSLayerBlockRule), so we
+    // detect by duck-typing `.cssRules`.
+    const maybeRules = (rule as CSSGroupingRule).cssRules;
+    if (maybeRules && typeof maybeRules[Symbol.iterator] === 'function') {
+      try {
+        for (const inner of Array.from(maybeRules)) processRule(inner);
+      } catch {
+        // Some nested rules may throw on access
+      }
+      return;
+    }
+
+    // Only CSSStyleRule has `selectorText`
+    const styleRule = rule as CSSStyleRule;
+    if (typeof styleRule.selectorText !== 'string') return;
+
+    const selectors = parseHoverSelectorsFromCssText(styleRule.selectorText);
+    for (const sel of selectors) {
+      if (results.length >= MAX) return;
+      const split = splitHoverSelector(sel);
+      if (!split) continue;
+      if (seen.has(split.trigger)) continue;
+
+      // Verify trigger exists on the page. Saves wasted CDP calls for dead
+      // rules (unused CSS). Invalid selectors throw → skip.
+      try {
+        if (!document.querySelector(split.trigger)) continue;
+      } catch {
+        continue;
+      }
+
+      seen.add(split.trigger);
+      results.push(split);
+    }
+  }
+
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      const rules = sheet.cssRules; // throws SecurityError on cross-origin
+      if (!rules) continue;
+      for (const rule of Array.from(rules)) {
+        if (results.length >= MAX) break;
+        processRule(rule);
+      }
+    } catch {
+      // Cross-origin stylesheet — skip silently
+    }
+    if (results.length >= MAX) break;
+  }
+
+  return results;
 }

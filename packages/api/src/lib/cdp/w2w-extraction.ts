@@ -28,6 +28,8 @@ import {
   extractCSSVariables,
   parseFontFaceRules,
   getResourceText,
+  w2wFindHoverCandidates,
+  attachHoverToDescendants,
 } from "@w2w/shared";
 
 import type {
@@ -172,8 +174,10 @@ export async function extractWithContentScript(
 
     // --- 6. Platform fonts via CDP ---
     const fontsByIdx = new Map<number, { familyName: string; postScriptName: string }>();
+    // Hoist docRoot so it can be reused by both font collection and hover capture
+    let docRoot: { root: { nodeId: number } } | null = null;
     if (textHostCount > 0) {
-      const docRoot = await client.send<{ root: { nodeId: number } }>(
+      docRoot = await client.send<{ root: { nodeId: number } }>(
         "DOM.getDocument",
         { depth: -1, pierce: true },
       );
@@ -222,7 +226,94 @@ export async function extractWithContentScript(
       console.log(`[W2W] Platform fonts collected: ${fontsByIdx.size} elements`);
     }
 
-    // Cleanup data-w2w-idx markers
+    // --- 6b. Hover State Capture via CDP ---
+    // FIX 1: Expand candidate pool with stylesheet-derived :hover triggers
+    // in addition to hard-coded interactive tags.
+    let hoverSelectorPairs: Array<{ trigger: string; target: string }> = [];
+    try {
+      hoverSelectorPairs = await page.evaluate(() => {
+        const fn = (globalThis as Record<string, unknown>).__w2w_collectHoverSelectors as
+          | (() => Array<{ trigger: string; target: string }>)
+          | undefined;
+        return fn?.() ?? [];
+      });
+      console.log(`[W2W-HOVER] Collected ${hoverSelectorPairs.length} :hover selectors from stylesheets`);
+    } catch (err) {
+      console.warn(`[W2W-HOVER] Failed to collect stylesheet selectors:`, err);
+    }
+
+    const extraSelectors = hoverSelectorPairs.map((h) => h.trigger);
+    const interactiveNodes = w2wFindHoverCandidates(frame, extraSelectors);
+    if (interactiveNodes.length > 0) {
+      console.log(`[W2W-HOVER] Total hover candidates: ${interactiveNodes.length} (${hoverSelectorPairs.length} from CSS)`);
+      console.log(`[W2W] Capturing hover states for ${interactiveNodes.length} interactive elements...`);
+
+      // Ensure we have docRoot for DOM.querySelector
+      if (!docRoot) {
+        docRoot = await client.send<{ root: { nodeId: number } }>(
+          "DOM.getDocument",
+          { depth: -1, pierce: true },
+        );
+      }
+
+      let hoverCount = 0;
+      const hoverStartTime = Date.now();
+      const HOVER_TIMEOUT_MS = 5000; // 5 second budget for all hover captures
+
+      for (const { node, selector } of interactiveNodes) {
+        // Stop if timeout budget exceeded
+        if (Date.now() - hoverStartTime > HOVER_TIMEOUT_MS) {
+          console.log(`[W2W] Hover capture timeout reached (${HOVER_TIMEOUT_MS}ms), stopping at ${hoverCount} elements`);
+          break;
+        }
+
+        if (!selector) continue;
+        try {
+          // Find element in CDP DOM
+          const qResult = await client.send<{ nodeId: number }>(
+            "DOM.querySelector",
+            { nodeId: docRoot.root.nodeId, selector },
+          );
+          if (!qResult.nodeId) continue;
+
+          // Force :hover pseudo-state via CDP
+          await client.send("CSS.forcePseudoState", {
+            nodeId: qResult.nodeId,
+            forcedPseudoClasses: ["hover"],
+          });
+
+          // Small delay for styles to apply (30ms sufficient for CSS recalc)
+          await new Promise((r) => setTimeout(r, 30));
+
+          // Re-extract subtree via content script (same as Browser Extension's EXTRACT_SUBTREE)
+          const hoverResult = await page.evaluate((sel: string) => {
+            const fn = (globalThis as Record<string, unknown>).__w2w_extractSubtree as
+              | ((s: string) => unknown)
+              | undefined;
+            if (typeof fn !== "function") return null;
+            return fn(sel);
+          }, selector);
+
+          // Clear forced state
+          await client.send("CSS.forcePseudoState", {
+            nodeId: qResult.nodeId,
+            forcedPseudoClasses: [],
+          });
+
+          if (hoverResult) {
+            node.hover = hoverResult as W2WFrameNode;
+            // FIX 4: propagate hover to descendants
+            attachHoverToDescendants(node, node.hover);
+            hoverCount++;
+          }
+        } catch {
+          // Skip elements that fail hover capture
+        }
+      }
+      console.log(`[W2W] Hover states captured: ${hoverCount}`);
+    }
+
+    // Cleanup data-w2w-idx markers (after hover capture — markers needed for selectors)
     await page.evaluate(() => {
       const cleanupFn = (globalThis as Record<string, unknown>).__w2w_cleanupMarkers as (() => void) | undefined;
       if (typeof cleanupFn === "function") {

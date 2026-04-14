@@ -24,6 +24,9 @@ export function isHidden(el: HTMLElement): boolean {
   // 1. display: none
   if (computed.display === 'none') return true;
 
+  // display: contents elements have no box but their children are visible
+  if (computed.display === 'contents') return false;
+
   // 2. visibility: hidden (still takes space, but content invisible)
   //    We keep these to preserve layout spacing
 
@@ -105,8 +108,8 @@ export function isOffscreen(rect: DOMRect, viewportWidth: number, _viewportHeigh
   // Completely to the right of viewport
   if (rect.left >= viewportWidth) return true;
   // Completely below viewport (but we capture full scroll height, so don't filter by Y)
-  // Completely to the left
-  if (rect.right <= 0) return true;
+  // Completely to the left (strict: zero-width elements at x=0 are NOT offscreen)
+  if (rect.right < 0) return true;
 
   return false;
 }

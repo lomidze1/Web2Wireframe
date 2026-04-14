@@ -408,6 +408,7 @@ export default function () {
               const capturedFrame = frameData.capturedData.frame as any;
               const convertedTree = convertW2WToWireframe(capturedFrame, {
                 layoutMode: (layoutMode || 'autoLayout') as 'absolute' | 'autoLayout',
+                interactionMode: interactionMode || 'none',
               });
               frameData.tree = convertedTree;
 

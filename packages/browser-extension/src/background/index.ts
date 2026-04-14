@@ -67,6 +67,8 @@ import {
   type W2WFrameNode,
   type W2WNode,
   type W2WAssetEntry,
+  w2wFindHoverCandidates,
+  attachHoverToDescendants,
 } from "@w2w/shared";
 
 // Browser extension-specific types (local)
@@ -130,30 +132,8 @@ chrome.runtime.onMessage.addListener(
             });
             await chrome.downloads.download({ url: jsonDataUrl, filename, saveAs: false });
 
-            // Also download deflate-compressed version
-            // TODO: When debugging is done, remove the JSON download above and keep only deflate
-            try {
-              const compactJson = JSON.stringify(result);
-              const inputBlob = new Blob([compactJson], { type: "application/json" });
-              const cs = new CompressionStream("deflate-raw");
-              const compressedStream = inputBlob.stream().pipeThrough(cs);
-              const deflateBlob = await new Response(compressedStream).blob();
-              const deflateFilename = `${domain}_${result.width}_w2w.json.deflate`;
-              console.log(
-                `[W2W] Compressed: ${(compactJson.length / 1024 / 1024).toFixed(1)} MB → ` +
-                `${(deflateBlob.size / 1024 / 1024).toFixed(1)} MB ` +
-                `(${(deflateBlob.size / compactJson.length * 100).toFixed(0)}%)`
-              );
-              const deflateReader = new FileReader();
-              const deflateDataUrl = await new Promise<string>((resolve, reject) => {
-                deflateReader.onload = () => resolve(deflateReader.result as string);
-                deflateReader.onerror = reject;
-                deflateReader.readAsDataURL(deflateBlob);
-              });
-              await chrome.downloads.download({ url: deflateDataUrl, filename: deflateFilename, saveAs: false });
-            } catch {
-              console.warn("[W2W] Deflate compression skipped (CompressionStream unavailable)");
-            }
+            // Deflate download disabled — JSON-only for now
+            // TODO: Re-enable when debugging is done
           } catch (e) {
             console.error("[W2W] Auto-download failed:", e);
           }
@@ -997,16 +977,29 @@ async function handleCapturePageW2W(
       console.log(`[W2W] Platform fonts collected: ${fontsByIdx.size} elements`);
     }
 
-    // Cleanup data-w2w-idx markers from the page (no longer needed)
+    // --- Hover State Capture ---
+    // NOTE: CLEANUP_MARKERS moved after hover capture (markers needed for selectors)
+    updateProgress(65, "Capturing hover states...");
+
+    // FIX 1: Expand hover candidate pool by parsing document.styleSheets
+    // for :hover selectors. Content script returns { trigger, target } pairs
+    // for every :hover rule whose trigger actually matches an element on page.
+    let hoverSelectorPairs: Array<{ trigger: string; target: string }> = [];
     try {
-      await chrome.tabs.sendMessage(tabId, { type: "CLEANUP_MARKERS" });
-    } catch {
-      // Content script may not be ready
+      const selResult = await chrome.tabs.sendMessage(tabId, {
+        type: "COLLECT_HOVER_SELECTORS",
+      });
+      if (selResult?.success && Array.isArray(selResult.data)) {
+        hoverSelectorPairs = selResult.data;
+        console.log(`[W2W-HOVER] Collected ${hoverSelectorPairs.length} :hover selectors from stylesheets`);
+      }
+    } catch (err) {
+      console.warn("[W2W-HOVER] Failed to collect stylesheet selectors:", err);
     }
 
-    // --- Hover State Capture ---
-    updateProgress(65, "Capturing hover states...");
-    const interactiveNodes = w2wFindInteractiveNodes(frame);
+    const extraSelectors = hoverSelectorPairs.map((h) => h.trigger);
+    const interactiveNodes = w2wFindHoverCandidates(frame, extraSelectors);
+    console.log(`[W2W-HOVER] Found ${interactiveNodes.length} hover candidates (${hoverSelectorPairs.length} from CSS, rest from interactive tags). Sample:`, interactiveNodes.map(n => n.selector).filter(Boolean).slice(0, 10));
     if (interactiveNodes.length > 0) {
       console.log(`[W2W] Capturing hover states for ${interactiveNodes.length} interactive elements...`);
       let hoverCount = 0;
@@ -1027,8 +1020,8 @@ async function handleCapturePageW2W(
             forcedPseudoClasses: ["hover"],
           });
 
-          // Small delay for styles to apply
-          await new Promise((r) => setTimeout(r, 50));
+          // Small delay for styles to apply (30ms sufficient for CSS recalc)
+          await new Promise((r) => setTimeout(r, 30));
 
           // Re-extract subtree via content script
           const hoverResult = await chrome.tabs.sendMessage(tabId, {
@@ -1044,6 +1037,9 @@ async function handleCapturePageW2W(
 
           if (hoverResult?.success && hoverResult.data) {
             node.hover = hoverResult.data as W2WFrameNode;
+            // FIX 4: propagate hover down to descendants so per-child diffs
+            // (e.g. parent-hover → curtain becomes visible) are detectable.
+            attachHoverToDescendants(node, node.hover);
             hoverCount++;
           }
         } catch {
@@ -1051,6 +1047,13 @@ async function handleCapturePageW2W(
         }
       }
       console.log(`[W2W] Hover states captured: ${hoverCount}`);
+    }
+
+    // Cleanup data-w2w-idx markers from the page (moved after hover capture)
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: "CLEANUP_MARKERS" });
+    } catch {
+      // Content script may not be ready
     }
 
     // --- Asset Extraction from Browser Cache ---
@@ -1441,45 +1444,7 @@ function w2wEnrichAllTextNodes(
   walk(frame);
 }
 
-/**
- * Find interactive elements (a, button) in the W2W tree that could have hover states.
- * Returns nodes with CSS selectors for re-querying in the DOM.
- */
-function w2wFindInteractiveNodes(
-  frame: W2WFrameNode,
-): Array<{ node: W2WFrameNode; selector: string | null }> {
-  const results: Array<{ node: W2WFrameNode; selector: string | null }> = [];
-
-  function walk(node: W2WNode): void {
-    if (node.type === 'FRAME') {
-      const isInteractive = node.tag === 'a' || node.tag === 'button'
-        || (node.attr && node.attr.role === 'button');
-
-      if (isInteractive) {
-        // Build a CSS selector for this element
-        let selector: string | null = null;
-        if (node.attr.id) {
-          selector = `#${node.attr.id}`;
-        } else if (node.classList.length > 0) {
-          // Use tag + first class
-          selector = `${node.tag}.${node.classList[0].replace(/[^a-zA-Z0-9_-]/g, '\\$&')}`;
-        } else if (node.attr.href) {
-          selector = `${node.tag}[href="${String(node.attr.href).replace(/"/g, '\\"')}"]`;
-        }
-        results.push({ node, selector });
-      }
-
-      for (const child of node.children) {
-        walk(child);
-      }
-    }
-  }
-
-  walk(frame);
-
-  // Limit to max 30 to avoid excessive CDP calls
-  return results.slice(0, 30);
-}
+// w2wFindInteractiveNodes imported from @w2w/shared (shared between Extension and API)
 
 /**
  * Handle capture of a selected element

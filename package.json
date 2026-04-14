@@ -38,7 +38,9 @@
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:logs": "docker compose logs -f",
+    "rebuild-start": "pnpm build && docker compose build && docker compose up -d",
+    "rebuild-start:local": "pnpm build && turbo dev --continue"
   },
   "devDependencies": {
     "turbo": "^2.8.20"

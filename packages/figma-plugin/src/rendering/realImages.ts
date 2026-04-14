@@ -53,7 +53,8 @@ function dataUriToBytes(dataUri: string): Uint8Array {
 function isSvgDataUri(dataUri: string): boolean {
   return (
     dataUri.startsWith("data:image/svg") ||
-    dataUri.includes("<svg")
+    dataUri.trimStart().startsWith("<svg") ||
+    dataUri.trimStart().startsWith("<?xml")
   );
 }
 
@@ -61,6 +62,11 @@ function isSvgDataUri(dataUri: string): boolean {
  * Decode SVG data URI back to SVG string for figma.createNodeFromSvg()
  */
 function svgDataUriToString(dataUri: string): string {
+  // Raw SVG markup (not a data URI) — return as-is.
+  // Used when css-converter passes svgMarkup directly from computedStyles.
+  if (!dataUri.startsWith('data:')) {
+    return dataUri;
+  }
   const commaIndex = dataUri.indexOf(",");
   if (commaIndex === -1) throw new Error("Invalid SVG data URI");
 

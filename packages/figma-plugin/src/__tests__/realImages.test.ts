@@ -185,6 +185,19 @@ describe("createRealImage", () => {
     expect(result.name).toContain(node.name);
   });
 
+  it("handles raw SVG markup (not data URI) by using createNodeFromSvg", async () => {
+    const node = makeNode({ name: "SVG" });
+    const context = makeContext();
+
+    // Pass raw SVG markup, NOT a data URI — this is what css-converter stores
+    const rawSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="44"><path d="M0 0h14v44H0z"/></svg>';
+    const result = await createRealImage(node, rawSvg, context);
+
+    // Should detect raw SVG and use createNodeFromSvg
+    expect(figma.createNodeFromSvg).toHaveBeenCalledWith(rawSvg);
+    expect(result).toBeDefined();
+  });
+
   it("resizes frame to node dimensions", async () => {
     const node = makeNode({ width: 300, height: 200 });
     const context = makeContext();

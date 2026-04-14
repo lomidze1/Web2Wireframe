@@ -251,6 +251,20 @@ export {
 export type { ForcedPseudoClass } from "./pseudo-states";
 
 // ============================================================================
+// W2W HOVER CAPTURE - Shared interactive node detection
+// ============================================================================
+
+export {
+  w2wFindInteractiveNodes,
+  w2wFindHoverCandidates,
+  escapeCssClass,
+  parseHoverSelectorsFromCssText,
+  splitHoverSelector,
+  findNodeBySelector,
+  attachHoverToDescendants,
+} from "./w2w-hover";
+
+// ============================================================================
 // RESOURCE GRAPH - Unified resource enumeration
 // ============================================================================
 

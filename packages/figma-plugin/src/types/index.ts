@@ -191,6 +191,14 @@ export interface WireframeNode {
   // CSS variable reference for text color (e.g. "--text-primary")
   textColorVariable?: string;
 
+  // Visibility state (for interaction variants — hidden in default state, visible in hover)
+  isHiddenInDefault?: boolean;
+
+  // FIX 4: true when any descendant has its own pseudoStateStyles. Used to
+  // decide whether a node should become a ComponentSet trigger even if its
+  // own hover diff is empty (parent-hover → child-visibility case).
+  hasDescendantHover?: boolean;
+
   // Media
   isPlaceholder: boolean;
   imageUrl?: string; // URL pointing into frame.assets map for real image extraction

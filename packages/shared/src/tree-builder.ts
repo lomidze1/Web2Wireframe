@@ -1151,6 +1151,7 @@ const CSS_DEFAULT_VALUES: Record<string, string[]> = {
   "grid-column-end": ["auto"],
   "grid-row-start": ["auto"],
   "grid-row-end": ["auto"],
+  "float": ["none"],
 };
 
 /**

@@ -309,7 +309,7 @@ describe("orchestratePuppeteerViewport — function contract", () => {
   // #9: Page + Emulation domain-ები ჩართულია
   // ==========================================================================
 
-  it("should enable Page and Emulation CDP domains", async () => {
+  it("should enable Page CDP domain and use Emulation methods", async () => {
     if (!orchestratePuppeteerViewport) return;
 
     const session = createMockCDPSession();
@@ -320,7 +320,8 @@ describe("orchestratePuppeteerViewport — function contract", () => {
 
     const methods = session._getSendMethods();
     expect(methods).toContain("Page.enable");
-    expect(methods).toContain("Emulation.enable");
+    // Emulation.setDeviceMetricsOverride is called directly (no separate enable needed)
+    expect(methods).toContain("Emulation.setDeviceMetricsOverride");
   });
 
   // ==========================================================================

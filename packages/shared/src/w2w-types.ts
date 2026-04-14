@@ -113,6 +113,7 @@ export interface W2WStyles {
   justifyContent?: string;
   gap?: string;
   order?: number;
+  cssFloat?: string;
 
   // Grid
   gridTemplateColumns?: string;
@@ -331,6 +332,7 @@ export const W2W_CSS_PROPERTIES = [
   // Layout
   'display', 'flexDirection', 'flexWrap', 'flexGrow', 'flexShrink',
   'flexBasis', 'alignItems', 'alignSelf', 'justifyContent', 'gap', 'order',
+  'cssFloat',
 
   // Grid
   'gridTemplateColumns', 'gridTemplateRows', 'gridAutoFlow', 'gridArea',

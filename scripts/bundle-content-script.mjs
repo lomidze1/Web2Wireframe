@@ -9,9 +9,10 @@
  * Output: packages/shared/dist/w2w-content-script.iife.js
  *
  * The bundle exposes:
- *   window.__w2w_extractPage()     — main DOM extraction
- *   window.__w2w_cleanupMarkers()  — remove data-w2w-idx attributes
- *   window.__w2w_extractSubtree()  — re-extract a subtree (hover states)
+ *   window.__w2w_extractPage()           — main DOM extraction
+ *   window.__w2w_cleanupMarkers()        — remove data-w2w-idx attributes
+ *   window.__w2w_extractSubtree()        — re-extract a subtree (hover states)
+ *   window.__w2w_collectHoverSelectors() — parse document.styleSheets for :hover rules
  *
  * Usage:
  *   node scripts/bundle-content-script.mjs
@@ -40,10 +41,14 @@ async function main() {
     write: false,
     minify: false, // Keep readable for debugging
     target: "es2020",
-    // Strip @w2w/shared type imports (mark as external since they're type-only)
-    external: ["@w2w/shared"],
+    // @w2w/shared is bundled (tree-shaken) because the extractor now uses
+    // value imports (parseHoverSelectorsFromCssText, splitHoverSelector) in
+    // addition to the old type-only imports.
     // Content script uses DOM types, not Node
     platform: "browser",
+    // Ensure tree-shaking keeps the bundle small — only the imported
+    // functions and their transitive deps should land in the IIFE.
+    treeShaking: true,
   });
 
   if (result.errors.length > 0) {
@@ -59,6 +64,7 @@ async function main() {
 window.__w2w_extractPage = __w2w_bundle.extractPage;
 window.__w2w_cleanupMarkers = __w2w_bundle.cleanupMarkers;
 window.__w2w_extractSubtree = __w2w_bundle.extractSubtree;
+window.__w2w_collectHoverSelectors = __w2w_bundle.collectHoverSelectors;
 `;
 
   // Ensure output directory exists

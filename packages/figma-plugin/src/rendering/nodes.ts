@@ -212,11 +212,14 @@ export async function createNodeInFigma(
     return null;
   }
 
-  // DEBUG: trace logo-image and picture elements
-  const _cls = node.className || '';
-  const _isDebugTarget = _cls.includes('logo-image') || node.tag === 'picture' || (node.tag === 'img' && node.isPlaceholder);
-  if (_isDebugTarget) {
-    console.log(`[W2W-DEBUG] ▶ createNodeInFigma: tag=${node.tag} class="${_cls}" type=${node.type} isPlaceholder=${node.isPlaceholder} w=${node.width} h=${node.height} children=${node.children?.length || 0} imageUrl=${node.imageUrl?.substring(0, 50) || 'none'}`);
+  // DEBUG: trace globalnav element
+  if (node.id === 'globalnav' || node.name?.includes('globalnav')) {
+    console.log(`[W2W-NAV] 🧭 globalnav: tag=${node.tag} class="${node.className || ''}" type=${node.type} layoutMode=${node.layoutMode} w=${node.width} h=${node.height} children=${node.children?.length || 0}`);
+    if (node.children) {
+      node.children.forEach((c, i) => {
+        console.log(`[W2W-NAV]   child[${i}]: tag=${c.tag} class="${c.className || ''}" type=${c.type} layoutMode=${c.layoutMode} w=${c.width} h=${c.height} children=${c.children?.length || 0}`);
+      });
+    }
   }
 
   // Handle text nodes (including those with inline children)
@@ -268,6 +271,13 @@ export async function createNodeInFigma(
         context.assetsMap.get(node.imageUrl)!,
         context
       );
+    }
+
+    // SVG markup → Figma Vector (when realAssets mode)
+    // css-converter stores SVG markup in computedStyles.svgMarkup
+    const svgMarkup = node.computedStyles?.svgMarkup;
+    if (context.assetMode === "realAssets" && svgMarkup) {
+      return await createRealImage(node, svgMarkup, context);
     }
 
     // Debug: log why placeholder was used instead of real image
@@ -453,6 +463,31 @@ export async function createNodeInFigma(
     node.overflow === "scroll" ||
     node.overflow === "auto";
 
+  // FIX 4: tag frames that have their own hover diff via pluginData.
+  // This survives Figma's `clone()` when creating variant components, so
+  // `createPseudoStateVariants` can re-apply these diffs to each cloned
+  // descendant (enabling parent-hover → child-visibility propagation).
+  if (
+    context.interactionMode === "variants" &&
+    node.pseudoStateStyles?.hover &&
+    Object.keys(node.pseudoStateStyles.hover).length > 0
+  ) {
+    try {
+      frame.setPluginData(
+        "w2w_hover_diff",
+        JSON.stringify(node.pseudoStateStyles.hover),
+      );
+    } catch {
+      // setPluginData may not be available in some mock environments
+    }
+  }
+
+  // Hidden in default state (for interaction variant rendering)
+  // Element exists in tree but is not visible — ready for component hover variant
+  if (node.isHiddenInDefault) {
+    frame.visible = false;
+  }
+
   // Recursively create children
   if (node.children && node.children.length > 0) {
     const parentHasAutoLayout = useAutoLayout;
@@ -478,18 +513,7 @@ export async function createNodeInFigma(
 
     for (const child of childrenToRender) {
       try {
-        // DEBUG: trace children of logo-image elements
-        const _parentIsDebug = (node.className || '').includes('logo-image') || (node.className || '').includes('copy-wrapper');
-        if (_parentIsDebug) {
-          console.log(`[W2W-DEBUG] 📦 parent="${node.name}" iterating child: tag=${child.tag} class="${child.className || ''}" type=${child.type} w=${child.width} h=${child.height}`);
-        }
-
         const childNode = await createNodeInFigma(child, childContext, depth + 1);
-
-        // DEBUG: trace result
-        if (_parentIsDebug) {
-          console.log(`[W2W-DEBUG] 📦 parent="${node.name}" child result: tag=${child.tag} → ${childNode ? `created (${childNode.name})` : 'NULL'}`);
-        }
 
         if (childNode) {
           if (gridApplied) {
@@ -535,11 +559,6 @@ export async function createNodeInFigma(
           }
         }
       } catch (err) {
-        // DEBUG: extra info for logo-image errors
-        const _parentIsDebug2 = (node.className || '').includes('logo-image') || (node.className || '').includes('copy-wrapper');
-        if (_parentIsDebug2) {
-          console.error(`[W2W-DEBUG] ❌ ERROR in parent="${node.name}" child=${child.tag}.${child.className}:`, err);
-        }
         logger.error("Error creating child node", err, {
           childId: child.id,
           childName: child.name,
@@ -654,16 +673,27 @@ export async function createNodeInFigma(
     }
   }
 
-  // Pseudo-state variants: convert to ComponentSet if enabled
-  if (
+  // Pseudo-state variants: convert to ComponentSet if enabled.
+  // FIX 4: also trigger when descendants carry their own hover diffs, even
+  // if the current node's own diff is empty (parent-hover → child case).
+  const hasOwnPseudoStates =
+    node.pseudoStateStyles !== undefined &&
+    Object.keys(node.pseudoStateStyles).length > 0;
+  const shouldCreateVariants =
     context.interactionMode === "variants" &&
-    node.pseudoStateStyles &&
-    Object.keys(node.pseudoStateStyles).length > 0
-  ) {
+    (hasOwnPseudoStates || node.hasDescendantHover === true);
+
+  console.log(`[W2W-VARIANTS] Check: interactionMode=${context.interactionMode}, hasPseudo=${hasOwnPseudoStates}, hasDescHover=${!!node.hasDescendantHover}, name=${node.name}`);
+  if (shouldCreateVariants) {
     try {
       const { createPseudoStateVariants } = await import("./pseudoStates");
+      // If self diff is empty, pass a synthetic hover state so the
+      // ComponentSet still creates a Hover variant for descendant diffs.
+      const pseudoStatesToUse = hasOwnPseudoStates
+        ? node.pseudoStateStyles!
+        : { hover: {} }; // empty self diff, descendant diffs applied via pluginData
       const { componentSet, defaultInstance } =
-        await createPseudoStateVariants(frame, node.pseudoStateStyles);
+        await createPseudoStateVariants(frame, pseudoStatesToUse);
       context.componentSets?.push(componentSet);
       return defaultInstance;
     } catch (err) {
