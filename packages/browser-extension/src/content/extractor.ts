@@ -22,10 +22,12 @@ import type {
   W2WAttributes,
   Quad,
 } from '@w2w/shared';
+// NOTE: hover parser is LOCAL (not @w2w/shared) so Vite doesn't code-split
+// the content script — Chrome content scripts can't load ES module chunks.
 import {
   parseHoverSelectorsFromCssText,
   splitHoverSelector,
-} from '@w2w/shared';
+} from './hover-parser';
 
 import { SKIP_TAGS, isHidden, isOffscreen } from './visibility';
 import {

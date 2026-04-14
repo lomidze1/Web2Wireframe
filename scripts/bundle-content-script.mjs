@@ -41,14 +41,11 @@ async function main() {
     write: false,
     minify: false, // Keep readable for debugging
     target: "es2020",
-    // @w2w/shared is bundled (tree-shaken) because the extractor now uses
-    // value imports (parseHoverSelectorsFromCssText, splitHoverSelector) in
-    // addition to the old type-only imports.
+    // Strip @w2w/shared type imports (mark as external since they're
+    // type-only after FIX 1 moved hover-parser into content/hover-parser.ts)
+    external: ["@w2w/shared"],
     // Content script uses DOM types, not Node
     platform: "browser",
-    // Ensure tree-shaking keeps the bundle small — only the imported
-    // functions and their transitive deps should land in the IIFE.
-    treeShaking: true,
   });
 
   if (result.errors.length > 0) {
