@@ -519,15 +519,34 @@ export async function createNodeInFigma(
     frame.visible = false;
   }
 
-  // Mark position:fixed frames so createWireframeFrame can re-parent them
-  // to the root frame and set numberOfFixedChildren (Figma's scroll behavior).
+  // Mark position:fixed AND position:sticky frames so createWireframeFrame can
+  // re-parent them to the root frame and set numberOfFixedChildren (Figma's
+  // scroll behavior). Sticky elements behave like fixed once scrolled past
+  // their threshold — modern sites (web2wireframe.design, stripe.com, etc.)
+  // use `position: sticky` for headers instead of `position: fixed`.
   // Skip hidden overlays (e.g. globalnav-curtain: opacity:0, visibility:hidden)
   // — these are hover-reveal elements that should NOT be promoted to fixed.
-  if (node.position === "fixed" && !node.isHiddenInDefault) {
+  if (
+    (node.position === "fixed" || node.position === "sticky") &&
+    !node.isHiddenInDefault
+  ) {
     const isZeroOpacity = typeof node.opacity === "number" && node.opacity === 0;
     if (!isZeroOpacity) {
       try {
         frame.setPluginData("w2w_position_fixed", "1");
+        // FIX D: save the CSS top/left values so the re-parenting logic can
+        // place the element at its intended viewport offset (y=0 for
+        // `top: 0px`, y=10 for `top: 10px`, etc.), instead of the DOM
+        // flow coordinate which can be arbitrary for nested sticky headers.
+        if (typeof node.cssTop === "number" && !isNaN(node.cssTop)) {
+          frame.setPluginData("w2w_css_top", String(node.cssTop));
+        }
+        if (typeof node.cssLeft === "number" && !isNaN(node.cssLeft)) {
+          frame.setPluginData("w2w_css_left", String(node.cssLeft));
+        }
+        console.log(
+          `[W2W-DEBUG][P1-sticky] Promoted to fixed: tag=${node.tag} position=${node.position} cssTop=${node.cssTop ?? 0} id=${node.id || "?"}`,
+        );
       } catch {
         // setPluginData may not be available in mock environments
       }
@@ -741,11 +760,28 @@ export async function createNodeInFigma(
   const hasOwnPseudoStates =
     node.pseudoStateStyles !== undefined &&
     Object.keys(node.pseudoStateStyles).length > 0;
+
+  // FIX B: `hasDescendantHover` is set on WireframeNodes whose descendants
+  // carry pseudoStateStyles. But by the time WE process this parent, those
+  // descendants have ALREADY become variant components and been replaced
+  // with InstanceNodes in our subtree — so `detectDescendantHoverDiffs`
+  // won't find any `w2w_hover_diff` pluginData here. If the flag is true
+  // but the Figma subtree has no live tags, skip variant creation entirely.
+  // Without this, parent variant creation throws "No active pseudo-states".
+  let hasLiveDescendantDiffs = false;
+  if (
+    context.interactionMode === "variants" &&
+    !hasOwnPseudoStates &&
+    node.hasDescendantHover === true
+  ) {
+    const { detectLiveDescendantHoverDiffs } = await import("./pseudoStates");
+    hasLiveDescendantDiffs = detectLiveDescendantHoverDiffs(frame);
+  }
   const shouldCreateVariants =
     context.interactionMode === "variants" &&
-    (hasOwnPseudoStates || node.hasDescendantHover === true);
+    (hasOwnPseudoStates || hasLiveDescendantDiffs);
 
-  console.log(`[W2W-VARIANTS] Check: interactionMode=${context.interactionMode}, hasPseudo=${hasOwnPseudoStates}, hasDescHover=${!!node.hasDescendantHover}, name=${node.name}`);
+  console.log(`[W2W-VARIANTS] Check: interactionMode=${context.interactionMode}, hasPseudo=${hasOwnPseudoStates}, hasDescHover=${!!node.hasDescendantHover}, hasLiveTags=${hasLiveDescendantDiffs}, name=${node.name}`);
   if (shouldCreateVariants) {
     try {
       const { createPseudoStateVariants } = await import("./pseudoStates");
@@ -1016,6 +1052,81 @@ function applyChildInAutoLayout(
  * These nodes are marked with pluginData "w2w_position_fixed" during
  * createNodeInFigma and need to be re-parented to the root wireframe frame.
  */
+/**
+ * FIX E — insert a transparent same-size spacer at the sticky/fixed node's
+ * original flow position BEFORE we re-parent it to the root. This keeps the
+ * layout flow intact: siblings below don't collapse upward and visually
+ * overlap the now-fixed header. The spacer:
+ *   - has identical name + width + height
+ *   - has no fills / strokes / effects (invisible but occupies layout)
+ *   - is marked with pluginData `w2w_sticky_spacer` = "1"
+ *   - is inserted in vertical/absolute parents only (horizontal/grid parents
+ *     would push unrelated siblings sideways — skip those edge cases).
+ */
+export function insertFixedSpacer(fn: FrameNode): void {
+  try {
+    const originalParent = fn.parent;
+    if (!originalParent || !("insertChild" in originalParent)) return;
+    if (!("children" in originalParent)) return;
+
+    const parentChildren = (originalParent as FrameNode).children;
+    const originalIndex = parentChildren.indexOf(fn);
+    if (originalIndex < 0) return;
+
+    const parentLayoutMode: string =
+      "layoutMode" in originalParent
+        ? String((originalParent as FrameNode).layoutMode)
+        : "NONE";
+
+    // Skip horizontal / grid parents — a same-height spacer would shift
+    // unrelated siblings in an unhelpful direction.
+    if (
+      parentLayoutMode !== "NONE" &&
+      parentLayoutMode !== "VERTICAL"
+    ) {
+      return;
+    }
+
+    const spacer = figma.createFrame();
+    spacer.name = fn.name;
+    spacer.fills = [];
+    spacer.strokes = [];
+    if ("effects" in spacer) {
+      spacer.effects = [];
+    }
+    spacer.resize(Math.max(1, fn.width), Math.max(1, fn.height));
+
+    // Absolute parent → preserve exact x/y; auto-layout parent → let layout
+    // engine place the spacer (size matches original, stretch horizontally
+    // if the original did).
+    if (parentLayoutMode === "NONE") {
+      spacer.x = fn.x;
+      spacer.y = fn.y;
+    } else {
+      try {
+        // Mirror the original's horizontal sizing (common case: FILL for
+        // full-width headers) so the spacer spans the same slot.
+        if ("layoutSizingHorizontal" in fn && "layoutSizingHorizontal" in spacer) {
+          spacer.layoutSizingHorizontal = fn.layoutSizingHorizontal;
+        }
+        if ("layoutSizingVertical" in spacer) {
+          spacer.layoutSizingVertical = "FIXED";
+        }
+      } catch {
+        // Some size modes aren't settable on empty frames; ignore.
+      }
+    }
+
+    spacer.setPluginData("w2w_sticky_spacer", "1");
+    (originalParent as FrameNode).insertChild(originalIndex, spacer);
+    console.log(
+      `[W2W-DEBUG][P1-sticky] Inserted spacer: name=${spacer.name} size=${spacer.width}x${spacer.height} parentMode=${parentLayoutMode}`,
+    );
+  } catch (err) {
+    logger.warn("Failed to insert sticky spacer", { error: err });
+  }
+}
+
 function collectFixedNodes(root: FrameNode): SceneNode[] {
   const result: SceneNode[] = [];
 
@@ -1247,11 +1358,46 @@ export async function createWireframeFrame(
     const fixedNodes = collectFixedNodes(wireframeFrame);
     if (fixedNodes.length > 0) {
       for (const fixedNode of fixedNodes) {
+        // FIX E: BEFORE we move the fixed node out to the root, drop a
+        // same-size transparent "spacer" frame in its original flow slot.
+        // Without this, promoting a sticky header to root collapses the
+        // space it used to occupy in the DOM flow — sibling content slides
+        // up and visually overlaps the now-fixed header. Mirrors h2d's
+        // approach of preserving header height after promotion.
+        insertFixedSpacer(fixedNode as FrameNode);
+
         // appendChild on an already-parented node moves it (re-parents)
         wireframeFrame.appendChild(fixedNode);
         // Set absolute positioning so it overlays at its original x/y
         if ("layoutPositioning" in fixedNode) {
           (fixedNode as FrameNode).layoutPositioning = "ABSOLUTE";
+          // FIX D: override y/x with the CSS top/left values (captured as
+          // pluginData during createNodeInFigma). Nested sticky headers
+          // carry the DOM flow y-coord (e.g. 1384px) rather than their
+          // pinned viewport position (e.g. 0px). Falling back to 0 gives
+          // the expected "stuck to top" visual. The x override preserves
+          // horizontal offsets (e.g. `left: 20px` for side-drawers).
+          try {
+            const topStr = fixedNode.getPluginData("w2w_css_top");
+            const leftStr = fixedNode.getPluginData("w2w_css_left");
+            const frameNode = fixedNode as FrameNode;
+            if (topStr !== "") {
+              const topVal = parseFloat(topStr);
+              frameNode.y = isNaN(topVal) ? 0 : topVal;
+            } else {
+              // No explicit CSS top → default to 0 (the expected sticky behavior)
+              frameNode.y = 0;
+            }
+            if (leftStr !== "") {
+              const leftVal = parseFloat(leftStr);
+              if (!isNaN(leftVal)) frameNode.x = leftVal;
+            }
+            console.log(
+              `[W2W-DEBUG][P1-sticky] Re-parented: name=${frameNode.name} → x=${frameNode.x}, y=${frameNode.y}`,
+            );
+          } catch {
+            // getPluginData / coordinate setters may fail in mocks
+          }
         }
       }
       wireframeFrame.numberOfFixedChildren = fixedNodes.length;

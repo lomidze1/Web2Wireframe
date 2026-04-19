@@ -45,6 +45,12 @@ export function applyCssDiffToNode(
   frame: FrameNode | ComponentNode,
   diff: Record<string, string>
 ): void {
+  const frameName = (frame as FrameNode).name || "?";
+  console.log(
+    `[W2W-DEBUG][P3-hover] applyCssDiffToNode on <${frameName}>:`,
+    JSON.stringify(diff),
+  );
+
   for (const [prop, value] of Object.entries(diff)) {
     if (value === "__removed__") {
       applyRemovedProperty(frame, prop);
@@ -169,10 +175,59 @@ export function applyCssDiffToNode(
       }
 
       case "transform": {
+        // Parse rotation → frame.rotation (CSS clockwise → Figma counter-clockwise)
         const rotateMatch = value.match(/rotate\((-?[\d.]+)deg\)/);
         if (rotateMatch) {
-          // CSS clockwise → Figma counter-clockwise
           frame.rotation = -parseFloat(rotateMatch[1]);
+        }
+
+        // FIX C: Parse translateY — either from matrix(a,b,c,d,tx,ty) or
+        // translateY(Npx) or translate(X, Y). This emulates the common hover
+        // pattern `transform: translateY(-2px)` used for CTA buttons by
+        // shifting the variant frame's y position.
+        let tx = 0;
+        let ty = 0;
+        const matrixMatch = value.match(
+          /matrix\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/,
+        );
+        if (matrixMatch) {
+          tx = parseFloat(matrixMatch[5]);
+          ty = parseFloat(matrixMatch[6]);
+        } else {
+          const tyMatch = value.match(/translateY\((-?[\d.]+)px\)/);
+          if (tyMatch) ty = parseFloat(tyMatch[1]);
+          const txMatch = value.match(/translateX\((-?[\d.]+)px\)/);
+          if (txMatch) tx = parseFloat(txMatch[1]);
+          const translateBoth = value.match(
+            /translate\(\s*(-?[\d.]+)px\s*(?:,\s*(-?[\d.]+)px)?\s*\)/,
+          );
+          if (translateBoth) {
+            tx = parseFloat(translateBoth[1]);
+            if (translateBoth[2]) ty = parseFloat(translateBoth[2]);
+          }
+        }
+        // Only apply if there's a meaningful shift (avoid identity matrix noise)
+        const MIN_SHIFT = 0.25;
+        if (!isNaN(ty) && Math.abs(ty) >= MIN_SHIFT) {
+          frame.y = frame.y + ty;
+        }
+        if (!isNaN(tx) && Math.abs(tx) >= MIN_SHIFT) {
+          frame.x = frame.x + tx;
+        }
+
+        // Hybrid C (visual hint): upward translate on interactive elements
+        // gets a subtle drop-shadow so the hover state is clearly visible.
+        if (!isNaN(ty) && ty <= -1) {
+          const existing = Array.isArray(frame.effects) ? [...frame.effects] : [];
+          existing.push({
+            type: "DROP_SHADOW",
+            color: { r: 0, g: 0, b: 0, a: 0.12 },
+            offset: { x: 0, y: 6 },
+            radius: 16,
+            visible: true,
+            blendMode: "NORMAL",
+          });
+          frame.effects = existing;
         }
         break;
       }
@@ -512,6 +567,18 @@ const HOVER_DIFF_PLUGIN_KEY = "w2w_hover_diff";
  * `w2w_hover_diff` pluginData entry (set by nodes.ts for frames whose
  * WireframeNode had a hover diff).
  */
+/**
+ * FIX B: public wrapper for detectDescendantHoverDiffs so nodes.ts can
+ * check before calling createPseudoStateVariants. Prevents the
+ * "No active pseudo-states" throw for parents whose descendants have
+ * already been turned into variant InstanceNodes.
+ */
+export function detectLiveDescendantHoverDiffs(
+  root: FrameNode,
+): boolean {
+  return detectDescendantHoverDiffs(root);
+}
+
 function detectDescendantHoverDiffs(
   root: FrameNode | ComponentNode,
 ): boolean {

@@ -100,6 +100,11 @@ export interface WireframeNode {
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
   zIndex?: number; // CSS z-index — used for child ordering in Figma
   cssOrder?: number; // CSS order — used for flex child visual reordering
+  // CSS top/left offsets for position:fixed|sticky elements. Parsed to px.
+  // Used by nodes.ts re-parenting to place the element at its intended
+  // viewport offset instead of its DOM flow coordinate.
+  cssTop?: number;
+  cssLeft?: number;
 
   // Layout
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";

@@ -645,6 +645,16 @@ export async function createUnifiedWebsiteColorStyles(
       collectCompoundFillsFromTree(frame.tree, compoundFills);
     }
   }
+  console.log(
+    `[W2W-DEBUG][P5-pass3] Tree scan: allPaints=${allPaints.size}, textColors=${textColors.size}, compoundFills=${compoundFills.size}`,
+  );
+  const textColorSample = Array.from(textColors.entries()).slice(0, 8);
+  if (textColorSample.length > 0) {
+    console.log(
+      `[W2W-DEBUG][P5-pass3] textColor keys sample:`,
+      textColorSample.map(([k, v]) => `${k} → ${v}`),
+    );
+  }
 
   // Add text colors as solid paint entries
   for (const [key, cssColor] of Array.from(textColors)) {
@@ -844,6 +854,7 @@ export async function createUnifiedWebsiteColorStyles(
       const style = createOrUpdateStyle(styleName, paints);
       colorStyleMap.set(key, style);
       newStylesCreated++;
+      console.log(`[W2W-DEBUG][P5-pass3] Style created: key=${key} → name="${styleName}"`);
     } catch (err) {
       logger.warn("Failed to create website paint style", {
         key,
@@ -856,6 +867,9 @@ export async function createUnifiedWebsiteColorStyles(
     newStylesCreated,
     totalColorStyles: colorStyleMap.size,
   });
+  console.log(
+    `[W2W-DEBUG][P5-pass3] DONE: newStylesCreated=${newStylesCreated}, totalColorStyles=${colorStyleMap.size}`,
+  );
 
   // =========================================================================
   // PASS 4: Create compound PaintStyles for multi-fill nodes
@@ -1086,6 +1100,7 @@ export async function createTextStyles(
   }
 
   if (combos.size === 0) {
+    console.log("[W2W-DEBUG][P4-textstyles] No typography combos found → createTextStyles exits early (0 styles)");
     return textStyleMap;
   }
 
@@ -1093,10 +1108,14 @@ export async function createTextStyles(
     uniqueCombos: combos.size,
     fontMode,
   });
+  console.log(
+    `[W2W-DEBUG][P4-textstyles] START: ${combos.size} unique typography combos, fontMode=${fontMode}, hasOriginalFontNames=${!!originalFontNames && Object.keys(originalFontNames).length > 0}`,
+  );
 
   // Get existing text styles once
   const existingTextStyles = figma.getLocalTextStyles();
   let stylesCreated = 0;
+  const skippedMissingFont = new Set<string>();
   const prefix = fontMode === "plugin" ? "W2W" : fontMode === "lines" ? "LNS" : "WEB";
 
   // Detect lineHeight collisions: same base key (font+style+size+ls) with different lineHeights.
@@ -1196,9 +1215,14 @@ export async function createTextStyles(
           font: combo.fontFamily,
           style: styleStr,
         });
+        skippedMissingFont.add(`${combo.fontFamily}-${styleStr}-${combo.fontSize}`);
       }
     }
   }
+
+  console.log(
+    `[W2W-DEBUG][P4-textstyles] DONE: created=${stylesCreated}, skipped=${skippedMissingFont.size}, skippedFonts=${JSON.stringify(Array.from(skippedMissingFont).slice(0, 20))}`,
+  );
 
   return textStyleMap;
 }

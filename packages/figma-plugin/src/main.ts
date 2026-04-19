@@ -180,6 +180,29 @@ export default function () {
         }
       }
 
+      // -----------------------------------------------------------------------
+      // FIX A: Convert captured data → WireframeNode tree for EVERY frame
+      // BEFORE running style-creation passes. Pass 3 (auto-named literal color
+      // styles) and createTextStyles both iterate `frames[i].tree` — which was
+      // previously populated only inside the render loop (line ~430), leaving
+      // tree = undefined during style creation. That caused 0 literal color
+      // styles and 0 text styles for W-03. See P4/P5 root cause analysis.
+      // -----------------------------------------------------------------------
+      for (const frameData of frames) {
+        if (frameData.capturedData?.frame && !frameData.tree) {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const capturedFrame = frameData.capturedData.frame as any;
+            frameData.tree = convertW2WToWireframe(capturedFrame, {
+              layoutMode: (layoutMode || 'autoLayout') as 'absolute' | 'autoLayout',
+              interactionMode: interactionMode || 'none',
+            });
+          } catch (err) {
+            logger.warn("Pre-pass tree conversion failed", { error: err });
+          }
+        }
+      }
+
       // Create color styles based on mode
       if (variableMode === "styles") {
         figma.ui.postMessage({
@@ -400,31 +423,17 @@ export default function () {
             },
           });
 
-          // Convert captured website data (content script extraction) to WireframeNode
+          // Tree is now pre-converted above (FIX A). Only merge assets here.
           const frameData = frames[i];
-          if (frameData.capturedData?.frame) {
-            try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const capturedFrame = frameData.capturedData.frame as any;
-              const convertedTree = convertW2WToWireframe(capturedFrame, {
-                layoutMode: (layoutMode || 'autoLayout') as 'absolute' | 'autoLayout',
-                interactionMode: interactionMode || 'none',
-              });
-              frameData.tree = convertedTree;
-
-              if (frameData.capturedData.assets) {
-                const assetMap: Record<string, string> = {};
-                for (const [url, entry] of Object.entries(frameData.capturedData.assets)) {
-                  if (entry.base64Encoded && entry.content) {
-                    const mime = entry.mimeType || 'image/png';
-                    assetMap[url] = `data:${mime};base64,${entry.content}`;
-                  }
-                }
-                frameData.assets = { ...frameData.assets, ...assetMap };
+          if (frameData.capturedData?.assets) {
+            const assetMap: Record<string, string> = {};
+            for (const [url, entry] of Object.entries(frameData.capturedData.assets)) {
+              if (entry.base64Encoded && entry.content) {
+                const mime = entry.mimeType || 'image/png';
+                assetMap[url] = `data:${mime};base64,${entry.content}`;
               }
-            } catch (err) {
-              logger.warn("Captured data conversion failed, using existing tree", { error: err });
             }
+            frameData.assets = { ...frameData.assets, ...assetMap };
           }
 
           const wireframeFrame = await createWireframeFrame(
