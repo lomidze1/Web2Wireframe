@@ -186,10 +186,14 @@ export function convertFillsToPaints(
         break;
 
       case "IMAGE_PLACEHOLDER": {
-        // Try to render real image if URL is available in assets map
-        if (fill.imageUrl && context.assetsMap?.has(fill.imageUrl)) {
+        const dataUri = fill.imageUrl ? context.assetsMap?.get(fill.imageUrl) : undefined;
+        // SVG data URIs cannot be consumed by figma.createImage (would throw).
+        // Vector conversion for background SVGs is handled upstream in
+        // css-converter (synthetic child placeholder). Skip raster path for SVGs.
+        const isSvgAsset = dataUri?.startsWith("data:image/svg") ?? false;
+
+        if (dataUri && !isSvgAsset) {
           try {
-            const dataUri = context.assetsMap.get(fill.imageUrl)!;
             const commaIndex = dataUri.indexOf(",");
             if (commaIndex > 0) {
               // Strip whitespace/newlines, then pad to multiple of 4 so charCodeAt
@@ -222,7 +226,7 @@ export function convertFillsToPaints(
                 visible: true,
                 opacity: 1,
               } as Paint);
-              console.log(`[W2W] ✅ Background image fill: ${fill.imageUrl.substring(0, 60)}...`);
+              console.log(`[W2W] ✅ Background image fill: ${(fill.imageUrl ?? '').substring(0, 60)}...`);
               break;
             }
           } catch (err) {

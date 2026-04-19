@@ -198,6 +198,39 @@ describe("createRealImage", () => {
     expect(result).toBeDefined();
   });
 
+  it("raster-masquerade SVG: skips createNodeFromSvg, extracts embedded image", async () => {
+    const node = makeNode({ name: "FakeLogo" });
+    const context = makeContext();
+
+    const masquerade = `<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <image xlink:href="${PNG_DATA_URI}"/>
+</svg>`;
+
+    const result = await createRealImage(node, masquerade, context);
+
+    // Should NOT call createNodeFromSvg — it's a fake vector
+    expect(figma.createNodeFromSvg).not.toHaveBeenCalled();
+    // Should extract the PNG and create an image fill
+    expect(figma.createImage).toHaveBeenCalled();
+    expect(result.fills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "IMAGE", imageHash: mockImageHash }),
+      ])
+    );
+  });
+
+  it("real vector SVG still uses createNodeFromSvg (regression)", async () => {
+    const node = makeNode();
+    const context = makeContext();
+
+    const realSvg = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h24"/></svg>';
+    await createRealImage(node, realSvg, context);
+
+    expect(figma.createNodeFromSvg).toHaveBeenCalledWith(realSvg);
+    expect(figma.createImage).not.toHaveBeenCalled();
+  });
+
   it("resizes frame to node dimensions", async () => {
     const node = makeNode({ width: 300, height: 200 });
     const context = makeContext();

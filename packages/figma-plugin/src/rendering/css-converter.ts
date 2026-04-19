@@ -29,6 +29,7 @@ interface W2WFrameNode {
   styles: Record<string, string | number | undefined>;
   children: W2WNode[];
   $url?: string;
+  $svgMarkup?: string; // Inlined SVG markup for <img src="*.svg"> or bg-image url(*.svg)
   isScrollingElt?: boolean;
   hover?: W2WFrameNode;
   _isHiddenInDefault?: boolean; // Set by conditional visibility filtering (interactionMode=variants)
@@ -175,7 +176,7 @@ function convertFrame(
     : getSizing(s, parent?.styles, cssLayoutMode, parent ? { width: parent.width, height: parent.height } : undefined);
 
   // Fills
-  const fills = parseFills(s, node.width, node.height);
+  let fills = parseFills(s, node.width, node.height);
 
   // Strokes
   const strokes = parseStrokes(s);
@@ -514,6 +515,52 @@ function convertFrame(
   const letterSpacing = parseFloat(str(s.letterSpacing)) || 0;
   const textAlign = str(s.textAlign) || 'left';
 
+  // Background-image SVG → synthetic child vector.
+  // When the element is NOT a media placeholder (so not <img>) but has
+  // background-image: url(*.svg) whose markup was inlined by content
+  // script, promote the SVG to a child placeholder carrying svgMarkup.
+  // Also strip the matching IMAGE_PLACEHOLDER fill so fills.ts doesn't
+  // try to rasterize the SVG bytes.
+  if (node.$svgMarkup && type !== 'placeholder') {
+    const svgFillIdx = fills.findIndex(
+      (f) => f.type === 'IMAGE_PLACEHOLDER' && typeof f.imageUrl === 'string' && /\.svg(\?|#|$)/i.test(f.imageUrl),
+    );
+    if (svgFillIdx !== -1) {
+      fills = fills.filter((_, i) => i !== svgFillIdx);
+      const syntheticId = `w2w-${_nodeId++}`;
+      children.push({
+        id: syntheticId,
+        name: 'SVG',
+        type: 'placeholder',
+        tag: 'svg',
+        x: 0,
+        y: 0,
+        width: node.width,
+        height: node.height,
+        layoutMode: 'NONE',
+        itemSpacing: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        backgroundColor: null,
+        backgroundGradient: null,
+        textColor: 'rgb(0, 0, 0)',
+        borderColor: null,
+        borderWidth: 0,
+        borderRadius: 0,
+        opacity: 1,
+        textContent: '',
+        fontSize: 16,
+        fontWeight: 400,
+        fontFamily: 'Arial',
+        textAlign: 'left',
+        lineHeight: 'normal',
+        letterSpacing: 0,
+        isPlaceholder: true,
+        computedStyles: { svgMarkup: node.$svgMarkup },
+        children: [],
+      } as WireframeNode);
+    }
+  }
+
   const wireframeNode: WireframeNode = {
     id,
     name: getNodeName(node),
@@ -696,6 +743,11 @@ function convertFrame(
     // Media
     isPlaceholder: type === 'placeholder',
     imageUrl: node.$url,
+    // Propagate inlined SVG markup for <img src="*.svg"> so nodes.ts can
+    // render it as a native Figma Vector via figma.createNodeFromSvg().
+    computedStyles: node.$svgMarkup && type === 'placeholder'
+      ? { svgMarkup: node.$svgMarkup }
+      : undefined,
 
     children,
   };

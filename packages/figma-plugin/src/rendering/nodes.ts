@@ -1189,12 +1189,15 @@ export async function createWireframeFrame(
   // Extract hostname for naming
   let hostname = "website";
   try {
-    hostname = new URL(sourceUrl).hostname.replace("www.", "");
+    hostname = new URL(sourceUrl).hostname.replace(/^www\./, "");
   } catch {
     // Use default
   }
 
-  wireframeFrame.name = `Wireframe - ${hostname} (${frameData.viewportWidth}px)`;
+  // Naming pattern: "{hostname} - wireframe ({width}px)"
+  // (e.g. "apple.com - wireframe (1440px)"). Puts the site first so multi-site
+  // wireframes sort alphabetically per site in the Figma layers panel.
+  wireframeFrame.name = `${hostname} - wireframe (${frameData.viewportWidth}px)`;
   wireframeFrame.resize(
     frameData.viewportWidth,
     getOuterFrameHeight(frameData.tree?.height, frameData.viewportHeight)

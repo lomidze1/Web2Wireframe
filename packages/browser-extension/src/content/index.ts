@@ -21,16 +21,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // W2W DOM extraction via content script
   if (message.type === "EXTRACT_DOM") {
-    try {
-      const result = extractPage();
-      sendResponse({ success: true, data: result });
-    } catch (err) {
-      sendResponse({
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-    return true;
+    (async () => {
+      try {
+        const result = await extractPage();
+        sendResponse({ success: true, data: result });
+      } catch (err) {
+        sendResponse({
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+    return true; // async response
   }
 
   // Re-extract a subtree for hover state capture
