@@ -41,7 +41,10 @@ export async function createImagePlaceholderIcon(
     // If no existing style, create one for this plugin-assigned icon color
     if (!linkedStyle && normalizedColor) {
       try {
-        const styleName = "WEB/--image-placeholder-icon";
+        // Plugin-generated helper style (not sourced from the website's CSS),
+        // so it lives in the "W2W/" group instead of a per-hostname group —
+        // keeps it consistent across multi-site wireframes.
+        const styleName = "W2W/--image-placeholder-icon";
         const existingStyles = figma.getLocalPaintStyles();
         const existing = existingStyles.find((s) => s.name === styleName);
         if (existing) {
@@ -171,7 +174,8 @@ export async function createPlaceholder(
     // If no existing style, create one for this plugin-assigned placeholder color
     if (!linkedStyle && normalizedColor) {
       try {
-        const styleName = "WEB/--image-placeholder";
+        // Plugin-generated helper style — see note at image-placeholder-icon above.
+        const styleName = "W2W/--image-placeholder";
         const existingStyles = figma.getLocalPaintStyles();
         const existing = existingStyles.find((s) => s.name === styleName);
         if (existing) {
