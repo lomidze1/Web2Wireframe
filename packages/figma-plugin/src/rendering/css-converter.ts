@@ -528,6 +528,19 @@ function convertFrame(
     position: str(s.position) as WireframeNode['position'] || undefined,
     zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
     cssOrder: s.order != null && String(s.order) !== '0' ? Number(s.order) : undefined,
+    // CSS top/left for fixed|sticky elements (used by re-parenting logic)
+    cssTop: (() => {
+      const v = s.top;
+      if (v == null || v === 'auto') return undefined;
+      const n = parseFloat(String(v));
+      return isNaN(n) ? undefined : n;
+    })(),
+    cssLeft: (() => {
+      const v = s.left;
+      if (v == null || v === 'auto') return undefined;
+      const n = parseFloat(String(v));
+      return isNaN(n) ? undefined : n;
+    })(),
 
     layoutMode,
     itemSpacing,

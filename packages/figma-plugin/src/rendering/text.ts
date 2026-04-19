@@ -781,6 +781,7 @@ export async function createTextNode(
 
     if (colorWithOpacity) {
       let linkedStyle: PaintStyle | undefined;
+      let lookupKey: string | undefined;
       if (context && context.variableMode === "styles") {
         // Variable-first: try direct CSS variable lookup
         if (context.variableStyleMap && node.textColorVariable) {
@@ -788,14 +789,19 @@ export async function createTextNode(
         }
         // Fallback: hex-based lookup
         if (!linkedStyle) {
-          const normalizedColor = paintKeyFromCSSColor(singleColorToUse);
-          linkedStyle = context.colorStyleMap.get(normalizedColor);
+          lookupKey = paintKeyFromCSSColor(singleColorToUse);
+          linkedStyle = context.colorStyleMap.get(lookupKey);
         }
       }
 
       if (linkedStyle) {
         textNode.fillStyleId = linkedStyle.id;
       } else {
+        if (context?.variableMode === "styles" && lookupKey) {
+          console.log(
+            `[W2W-DEBUG][P5-text-lookup] MISS: color="${singleColorToUse}" → key="${lookupKey}" → fallback to direct fill (tag=${node.tag}, text="${(node.textContent || "").slice(0, 30)}")`,
+          );
+        }
         textNode.fills = [
           {
             type: "SOLID",
