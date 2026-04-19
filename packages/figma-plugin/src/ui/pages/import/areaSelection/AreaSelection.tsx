@@ -418,7 +418,11 @@ export default function AreaSelection() {
         return {
           viewportWidth: frame.viewport?.width ?? 1440,
           viewportHeight: frame.viewport?.height ?? 900,
-          tree: {} as unknown, // Placeholder — main.ts will replace with converted tree
+          // `null` matches Web.tsx convention — main.ts's FIX A guard treats
+          // any falsy tree as "needs conversion from capturedData". Using an
+          // empty object `{}` here was truthy and silently bypassed FIX A,
+          // leaving the rendered frame empty for .w2w/.json imports.
+          tree: null as unknown,
           assets: frame.assets || {},
           capturedData: frame.capturedData,
         };
