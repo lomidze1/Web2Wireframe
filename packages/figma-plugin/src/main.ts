@@ -36,6 +36,7 @@ import {
   createWireframeFrame,
 } from "./rendering";
 import { convertW2WToWireframe } from "./rendering/css-converter";
+import { extractHostname } from "./rendering/hostname";
 import {
   collectAllFonts,
   checkFontsAvailability,
@@ -183,17 +184,15 @@ export default function () {
       // Derive hostname once for all style-creation passes. Used as the
       // top-level group prefix in Figma's Styles panel so multi-site
       // wireframes stay visually separated (e.g. `apple.com/--accent` vs
-      // `web2wireframe.design/--accent`). Strip the leading `www.` for a
-      // cleaner folder name. Falls back to "WEB" for invalid / missing URLs.
-      let hostnamePrefix = "WEB";
-      try {
-        if (sourceUrl) {
-          const parsed = new URL(sourceUrl);
-          hostnamePrefix = parsed.hostname.replace(/^www\./, "") || "WEB";
-        }
-      } catch {
-        // Keep fallback
-      }
+      // `web2wireframe.design/--accent`).
+      //
+      // IMPORTANT: we intentionally do NOT use `new URL(...)` here — the
+      // Figma plugin sandbox does not reliably expose the URL constructor,
+      // which is why earlier builds of this code fell through to "WEB" /
+      // raw sourceUrl defaults. `extractHostname` is a regex-based parser
+      // that works in any ES5+ runtime.
+      const derivedHostname = extractHostname(sourceUrl);
+      const hostnamePrefix = derivedHostname === "website" ? "WEB" : derivedHostname;
 
       // -----------------------------------------------------------------------
       // FIX A: Convert captured data → WireframeNode tree for EVERY frame
@@ -494,20 +493,11 @@ export default function () {
         // Create Section
         const section = figma.createSection();
 
-        let hostname = "website";
-        try {
-          hostname = new URL(sourceUrl).hostname.replace("www.", "");
-        } catch {
-          // sourceUrl may not be a valid URL (e.g. "html-import" or missing protocol)
-          // Try adding protocol, otherwise use raw sourceUrl if it looks like a domain
-          try {
-            hostname = new URL(`https://${sourceUrl}`).hostname.replace("www.", "");
-          } catch {
-            if (sourceUrl && sourceUrl !== "html-import") {
-              hostname = sourceUrl;
-            }
-          }
-        }
+        // Same extractHostname used for style-prefix — keeps section name
+        // and style folders in sync. Avoids `new URL()` which is unreliable
+        // in the Figma plugin sandbox (previously this fell through to
+        // "hostname = sourceUrl" and wrote the raw URL into the section name).
+        const hostname = extractHostname(sourceUrl);
 
         const viewportWidths = frames.map((f) => f.viewportWidth).join(" + ");
         const now = new Date();

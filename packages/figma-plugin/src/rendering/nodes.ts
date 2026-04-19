@@ -45,6 +45,7 @@ import {
 import { createTextNode, createTextWithBackground } from "./text";
 import { createPlaceholder } from "./placeholders";
 import { createRealImage } from "./realImages";
+import { extractHostname } from "./hostname";
 // wireframeLines import removed — fontMode "lines" uses FILLR font via text.ts
 
 // ============================================================================
@@ -1186,13 +1187,12 @@ export async function createWireframeFrame(
   // Create main frame
   const wireframeFrame = figma.createFrame();
 
-  // Extract hostname for naming
-  let hostname = "website";
-  try {
-    hostname = new URL(sourceUrl).hostname.replace(/^www\./, "");
-  } catch {
-    // Use default
-  }
+  // Extract hostname for naming — `extractHostname` is a regex-based
+  // parser that works in the Figma plugin sandbox (where `new URL(...)`
+  // is unreliable and previously threw silently, leaving hostname as
+  // the "website" fallback even for valid URLs like
+  // `https://www.web2wireframe.design/pricing`).
+  const hostname = extractHostname(sourceUrl);
 
   // Naming pattern: "{hostname} - wireframe ({width}px)"
   // (e.g. "apple.com - wireframe (1440px)"). Puts the site first so multi-site
