@@ -360,7 +360,7 @@ export const W2W_CSS_PROPERTIES = [
   'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing',
   'textAlign', 'textDecoration', 'textDecorationLine', 'textOverflow',
   'whiteSpace', 'color', 'webkitTextFillColor', 'webkitTextStrokeColor',
-  'webkitTextStrokeWidth', 'listStyleType',
+  'webkitTextStrokeWidth', 'listStyleType', 'listStylePosition',
 
   // Visual
   'opacity', 'boxShadow', 'filter', 'backdropFilter', 'clipPath',

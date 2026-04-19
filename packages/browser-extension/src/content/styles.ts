@@ -40,6 +40,8 @@ export const CSS_PROPERTIES: readonly string[] = [
 
   // Border
   'borderWidth', 'borderStyle', 'borderColor',
+  'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+  'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
   'borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle',
   'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius',
 

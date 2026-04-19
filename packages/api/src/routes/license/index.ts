@@ -7,11 +7,15 @@ const router = Router();
 // Auth middleware for license routes
 // ============================================================================
 
-const DEV_TOKEN = process.env.DEV_TOKEN ?? "dev-token";
+const DEV_TOKEN = process.env.DEV_TOKEN;
 const DEV_USER_ID = process.env.DEV_USER_ID ?? "dev-user";
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "admin-token";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 
 function licenseAuth(req: Request, res: Response, next: () => void): void {
+  if (!DEV_TOKEN) {
+    res.status(503).json({ error: "Server auth not configured" });
+    return;
+  }
   const authHeader = req.header("Authorization");
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length)
@@ -27,6 +31,10 @@ function licenseAuth(req: Request, res: Response, next: () => void): void {
 }
 
 function adminAuth(req: Request, res: Response, next: () => void): void {
+  if (!ADMIN_TOKEN) {
+    res.status(503).json({ error: "Server auth not configured" });
+    return;
+  }
   const authHeader = req.header("Authorization");
   const token = authHeader?.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length)

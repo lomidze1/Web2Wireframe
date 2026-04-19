@@ -1,12 +1,18 @@
 /**
- * Tests for FIX 2 — synthetic hover fallback.
+ * Tests for the hover fallback contract (FIX 2 — synthetic hover).
  *
- * When node.hover is undefined (CSS capture failed, timed out, or no
- * :hover rule was authored) but the element is clearly interactive
- * (button, link, [role=button], [tabindex], cursor:pointer), the converter
- * should synthesize a default hover state so that the Figma plugin still
- * creates a ComponentSet with a Hover variant. The synthesized diff is
- * `opacity: 0.8` — universal and tag-agnostic.
+ * When node.hover is undefined or yields an empty diff, the converter
+ * synthesizes a generic { hover: { opacity: '0.8' } } for interactive
+ * elements (<a>, <button>, [role=button], [tabindex], cursor:pointer).
+ * This ensures every interactive element gets a ComponentSet with a
+ * Default/Hover variant, even when CDP can't capture a real CSS :hover diff
+ * (e.g. JS-driven hover effects).
+ *
+ * Non-interactive elements without a real hover diff return undefined →
+ * nodes.ts renders them as plain frames, no ComponentSet.
+ *
+ * The FIX 4 descendant-hover path (parent-hover → child-visibility) is
+ * preserved unchanged — see css-converter-descendant-hover.test.ts.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -26,18 +32,16 @@ function makeFrame(overrides: Record<string, unknown> = {}): Record<string, unkn
   };
 }
 
-describe('css-converter: synthetic hover fallback (FIX 2)', () => {
+describe('css-converter: FIX 2 synthetic hover fallback — interactive elements without real diff', () => {
   it('synthesizes hover for <button> when node.hover is undefined', () => {
     const node = makeFrame({
       tag: 'button',
       styles: { backgroundColor: 'rgb(0, 0, 255)' },
-      // No hover field at all
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = convertW2WToWireframe(node as any);
 
-    expect(result.pseudoStateStyles).toBeDefined();
     expect(result.pseudoStateStyles?.hover).toEqual({ opacity: '0.8' });
   });
 
@@ -156,30 +160,23 @@ describe('css-converter: synthetic hover fallback (FIX 2)', () => {
     expect(result.pseudoStateStyles).toBeUndefined();
   });
 
-  it('does NOT synthesize when a real hover diff is present (real data wins)', () => {
-    const node = makeFrame({
-      tag: 'button',
-      styles: { backgroundColor: 'rgb(0, 0, 0)', opacity: 1 },
-      hover: makeFrame({
-        tag: 'button',
-        styles: { backgroundColor: 'rgb(255, 0, 0)', opacity: 1 },
-      }),
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = convertW2WToWireframe(node as any);
-
-    // Real hover diff has backgroundColor change — must NOT be replaced
-    // by synthetic opacity: 0.8
-    expect(result.pseudoStateStyles?.hover).toEqual({
-      'background-color': 'rgb(255, 0, 0)',
-    });
+  it('synthesizes hover for ARIA roles: tab, menuitem, option', () => {
+    for (const role of ['tab', 'menuitem', 'option']) {
+      const node = makeFrame({
+        tag: 'li',
+        attr: { role },
+        styles: {},
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = convertW2WToWireframe(node as any);
+      expect(result.pseudoStateStyles?.hover).toEqual({ opacity: '0.8' });
+    }
   });
 
-  it('DOES synthesize when node.hover exists but diff is empty (JS-driven hover)', () => {
+  it('synthesizes hover when node.hover exists but diff is empty (JS-driven hover) for interactive element', () => {
     // Edge case: CDP forced :hover but no CSS properties changed. Could be
-    // a JS-driven hover the extraction couldn't capture. Fall back to synthetic
-    // for interactive tags so the user still gets a visible variant.
+    // a JS-driven hover the extraction couldn't capture. For interactive
+    // elements, we still synthesize so they get a ComponentSet.
     const node = makeFrame({
       tag: 'button',
       styles: { backgroundColor: 'rgb(0, 0, 0)' },
@@ -194,17 +191,66 @@ describe('css-converter: synthetic hover fallback (FIX 2)', () => {
 
     expect(result.pseudoStateStyles?.hover).toEqual({ opacity: '0.8' });
   });
+});
 
-  it('synthesizes hover for ARIA roles: tab, menuitem, option', () => {
-    for (const role of ['tab', 'menuitem', 'option']) {
-      const node = makeFrame({
-        tag: 'li',
-        attr: { role },
-        styles: {},
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = convertW2WToWireframe(node as any);
-      expect(result.pseudoStateStyles?.hover).toEqual({ opacity: '0.8' });
-    }
+describe('css-converter: real hover diff still produces pseudoStateStyles', () => {
+  it('uses real hover diff when backgroundColor changes (<button>)', () => {
+    const node = makeFrame({
+      tag: 'button',
+      styles: { backgroundColor: 'rgb(0, 0, 0)', opacity: 1 },
+      hover: makeFrame({
+        tag: 'button',
+        styles: { backgroundColor: 'rgb(255, 0, 0)', opacity: 1 },
+      }),
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = convertW2WToWireframe(node as any);
+
+    expect(result.pseudoStateStyles?.hover).toEqual({
+      'background-color': 'rgb(255, 0, 0)',
+    });
+  });
+
+  it('uses real hover diff when color changes (<a>)', () => {
+    const node = makeFrame({
+      tag: 'a',
+      attr: { href: '/' },
+      styles: { color: 'rgb(0, 0, 0)' },
+      hover: makeFrame({
+        tag: 'a',
+        attr: { href: '/' },
+        styles: { color: 'rgb(0, 122, 255)' },
+      }),
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = convertW2WToWireframe(node as any);
+
+    expect(result.pseudoStateStyles?.hover).toBeDefined();
+    expect(result.pseudoStateStyles?.hover?.color).toBe('rgb(0, 122, 255)');
+  });
+
+  it('apple.com case: <a class="tile-link"> with no real hover diff → synthetic fallback', () => {
+    // Mega-menu flyout is a sibling, not a child. extractSubtree only
+    // captures the <a>'s own subtree, so hover.styles matches node.styles.
+    // Since <a> is interactive, FIX 2 synthesizes { opacity: '0.8' }.
+    const node = makeFrame({
+      tag: 'a',
+      classList: ['tile-link'],
+      attr: { href: '/us/shop/goto/store' },
+      styles: { color: 'rgb(29, 29, 31)' },
+      hover: makeFrame({
+        tag: 'a',
+        classList: ['tile-link'],
+        attr: { href: '/us/shop/goto/store' },
+        styles: { color: 'rgb(29, 29, 31)' }, // identical — flyout lives elsewhere
+      }),
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = convertW2WToWireframe(node as any);
+
+    expect(result.pseudoStateStyles?.hover).toEqual({ opacity: '0.8' });
   });
 });

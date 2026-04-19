@@ -478,6 +478,7 @@ export interface ExtractedElement {
   // CSS Positioning
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
   zIndex?: number;
+  cssOrder?: number; // CSS order property for flex child reordering
 
   // Layout
   layoutMode: "NONE" | "HORIZONTAL" | "VERTICAL" | "GRID";
@@ -551,6 +552,7 @@ export interface ExtractedElement {
 
   // List styling (for <li> elements)
   listStyleType?: string;  // bullet, disc, decimal, etc.
+  listItemValue?: string;  // <li value="N"> HTML attribute
 
   // States
   opacity: number;
@@ -572,6 +574,16 @@ export interface ExtractedElement {
   // Raw computed styles passthrough (filtered non-default values)
   // Provides fallback access to any CSS property on the rendering side
   computedStyles?: Record<string, string>;
+
+  // Computed styles of the ::marker pseudo-element (for <li> items).
+  // Populated by the tree-builder when a ::marker pseudo-node is in the
+  // CDP snapshot (often with zero bounds for list-style-position: outside),
+  // or by the browser-extension content script via getComputedStyle(li,
+  // '::marker'). Consumed by attachMarkerToLi() to source font-size,
+  // font-family, font-weight, color, line-height, letter-spacing for the
+  // synthesized marker text node — the CSS ::marker rule is allowed to
+  // differ from the <li>'s own typography (e.g. Apple.com footer footnotes).
+  markerComputedStyles?: Record<string, string>;
 
   // CSS variable reference for text color (e.g. "--text-primary")
   textColorVariable?: string;

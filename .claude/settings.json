@@ -6,7 +6,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '⚠️  Remember: Run npm run type-check && npm run lint after completing changes'"
+            "command": "echo '💡 Reminder: pnpm type-check && pnpm test after completing changes'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if ! git diff --quiet HEAD -- '*.ts' '*.tsx' 2>/dev/null; then echo '🔍 Running pnpm type-check (TS files changed)...' >&2; pnpm type-check 2>&1 | tail -40 || { echo '❌ Type check failed — fix errors before finishing.' >&2; exit 2; }; fi",
+            "timeout": 180
           }
         ]
       }
@@ -14,17 +25,34 @@
   },
   "permissions": {
     "allow": [
-      "Bash(npm run dev:*)",
-      "Bash(npm run build:*)",
-      "Bash(npm run type-check)",
-      "Bash(npm run lint)",
-      "Bash(npm test)",
-      "Bash(git status)",
-      "Bash(git diff:*)",
-      "Bash(git log:*)",
-      "Bash(git branch:*)",
-      "Bash(gh issue:*)",
-      "Bash(gh pr:*)"
+      "Bash(pnpm --filter * build)",
+      "Bash(pnpm --filter * test)",
+      "Bash(pnpm --filter * test --run)",
+      "Bash(pnpm --filter * test -- *)",
+      "Bash(pnpm --filter * type-check)",
+      "Bash(pnpm --filter * exec vitest *)",
+      "Bash(pnpm -C packages/* test *)",
+      "Bash(pnpm -C packages/* build)",
+      "Bash(pnpm -C packages/* type-check)",
+      "Bash(pnpm type-check*)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm build*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm -r *)",
+      "Bash(pnpm install*)",
+      "Bash(npx vitest)",
+      "Bash(npx vitest run *)",
+      "Bash(docker compose *)",
+      "Bash(docker ps *)",
+      "Bash(docker logs *)",
+      "mcp__ccd_session__mark_chapter",
+      "mcp__ccd_session__spawn_task",
+      "mcp__Claude_Preview__preview_snapshot",
+      "mcp__Claude_Preview__preview_console_logs",
+      "mcp__Claude_Preview__preview_logs",
+      "mcp__Claude_Preview__preview_network",
+      "mcp__Claude_Preview__preview_inspect",
+      "mcp__Claude_Preview__preview_screenshot"
     ],
     "deny": []
   }

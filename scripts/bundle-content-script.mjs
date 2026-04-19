@@ -41,10 +41,9 @@ async function main() {
     write: false,
     minify: false, // Keep readable for debugging
     target: "es2020",
-    // Strip @w2w/shared type imports (mark as external since they're
-    // type-only after FIX 1 moved hover-parser into content/hover-parser.ts)
-    external: ["@w2w/shared"],
-    // Content script uses DOM types, not Node
+    // Inline @w2w/shared — extractor.ts has value imports (e.g. shouldRenderPseudo)
+    // that need to be bundled into the IIFE. Marking as external causes
+    // "Cannot find module '@w2w/shared'" at Puppeteer page.evaluate() time.
     platform: "browser",
   });
 

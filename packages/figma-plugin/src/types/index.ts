@@ -99,6 +99,7 @@ export interface WireframeNode {
   // CSS Positioning (for absolute elements like ::before/::after)
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
   zIndex?: number; // CSS z-index — used for child ordering in Figma
+  cssOrder?: number; // CSS order — used for flex child visual reordering
 
   // Layout
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
@@ -176,6 +177,13 @@ export interface WireframeNode {
   lineHeight: number | string;
   letterSpacing: number;
   browserLineCount?: number;        // Number of lines from browser (from CDP textBoxes.length)
+
+  // CSS max-width (px). When set, applied to Figma node as native TextNode.maxWidth
+  // or FrameNode.maxWidth, enforcing a hard upper bound regardless of
+  // layoutSizingHorizontal. This preserves CSS max-width semantics when the
+  // element sits inside a FILL/HUG auto-layout parent that would otherwise
+  // stretch the child past its constraint (e.g. Apple.com p.tile-subhead).
+  cssMaxWidth?: number;
 
   // Raw computed styles passthrough (filtered non-default values)
   computedStyles?: Record<string, string>;

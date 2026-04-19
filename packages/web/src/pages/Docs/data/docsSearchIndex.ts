@@ -18,7 +18,8 @@ export interface DocsSearchItem {
 
 const headingRegex = /<h([23])[^>]*>([\s\S]*?)<\/h\1>/g;
 const rawPages = import.meta.glob("../pages/*.tsx", {
-  as: "raw",
+  query: "?raw",
+  import: "default",
   eager: true,
 }) as Record<string, string>;
 

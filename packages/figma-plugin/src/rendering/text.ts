@@ -1111,11 +1111,23 @@ export async function createTextWithBackground(
 
   // Apply strokes (border) to the frame
   if (node.strokes && node.strokes.length > 0) {
-    const { paints, weight } = convertStrokesToFigma(node.strokes, context);
+    const { paints, weight, individualWeights, style } = convertStrokesToFigma(
+      node.strokes,
+      context,
+    );
     if (paints.length > 0) {
       frame.strokes = paints;
       frame.strokeWeight = weight;
       frame.strokeAlign = "INSIDE";
+      if (individualWeights) {
+        frame.strokeTopWeight = individualWeights.top;
+        frame.strokeRightWeight = individualWeights.right;
+        frame.strokeBottomWeight = individualWeights.bottom;
+        frame.strokeLeftWeight = individualWeights.left;
+      }
+      if (style === "DASHED") frame.dashPattern = [6, 4];
+      else if (style === "DOTTED") frame.dashPattern = [2, 2];
+      else frame.dashPattern = [];
       linkStrokeStyleIfAvailable(frame, context);
     }
   }
