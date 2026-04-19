@@ -260,10 +260,17 @@ export function isColorValue(value: string): boolean {
 // createColorStylesFromVariables removed — replaced by createUnifiedWebsiteColorStyles
 
 /**
- * Create Figma color styles from plugin colors (for Plugin Colors mode)
+ * Create Figma color styles from plugin colors (for Plugin Colors mode).
+ *
+ * `prefix` controls the group under which styles land in the Figma Styles
+ * panel. Main.ts passes `${hostname}/Plugin` so multi-site imports stay
+ * isolated (e.g. `apple.com/Plugin/--accent` vs `tesla.com/Plugin/--accent`).
+ * The default `"W2W"` keeps backward compatibility for any direct caller
+ * that hasn't been updated.
  */
 export async function createPluginColorStyles(
-  pluginColors: RenderWireframeData["pluginColors"]
+  pluginColors: RenderWireframeData["pluginColors"],
+  prefix: string = "W2W"
 ): Promise<Map<string, PaintStyle>> {
   const styleMap = new Map<string, PaintStyle>();
 
@@ -288,8 +295,11 @@ export async function createPluginColorStyles(
       const parsed = cssColorToFigmaRGB(colorValue);
       if (!parsed) continue;
 
-      // Create style name: "W2W/--text", "W2W/--background", etc.
-      const styleName = `W2W/--${key}`;
+      // Build style name under the caller-supplied prefix. Default is
+      // "W2W" (backward compat). When main.ts passes `${hostname}/Plugin`,
+      // names become e.g. "apple.com/Plugin/--accent" — so Tesla and Apple
+      // imports in Plugin Colors mode no longer overwrite each other.
+      const styleName = `${prefix}/--${key}`;
 
       // Check if style already exists
       const existingStyles = figma.getLocalPaintStyles();
@@ -1118,10 +1128,16 @@ export async function createTextStyles(
   const existingTextStyles = figma.getLocalTextStyles();
   let stylesCreated = 0;
   const skippedMissingFont = new Set<string>();
-  // Plugin fonts → "W2W", Lines → "LNS", Website → hostname-based prefix.
-  // Hostname grouping lets Figma's Styles panel cleanly separate text styles
-  // per source site when multiple wireframes coexist in one document.
-  const prefix = fontMode === "plugin" ? "W2W" : fontMode === "lines" ? "LNS" : hostnamePrefix;
+  // All modes nest under the site's hostname folder so multi-site imports
+  // never collide. Plugin/Lines modes add a sub-folder so the same hostname
+  // can host multiple modes side-by-side without overwrites:
+  //   Website fonts → `{hostname}/--Inter-Bold-24`
+  //   Plugin fonts  → `{hostname}/Plugin/--Inter-Bold-24`
+  //   Lines fonts   → `{hostname}/Lines/--Inter-Bold-24`
+  const prefix =
+    fontMode === "plugin" ? `${hostnamePrefix}/Plugin` :
+    fontMode === "lines" ? `${hostnamePrefix}/Lines` :
+    hostnamePrefix;
 
   // Detect lineHeight collisions: same base key (font+style+size+ls) with different lineHeights.
   // Only include lh in the display name when needed to disambiguate.

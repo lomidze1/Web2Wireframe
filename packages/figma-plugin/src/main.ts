@@ -191,8 +191,15 @@ export default function () {
       // which is why earlier builds of this code fell through to "WEB" /
       // raw sourceUrl defaults. `extractHostname` is a regex-based parser
       // that works in any ES5+ runtime.
+      // derivedHostname is the single source of truth for style folder
+      // names. Both modes use it:
+      //   - Website Colors: `{hostname}/--varName`
+      //   - Plugin Colors:  `{hostname}/Plugin/--role`
+      //   - Website Fonts:  `{hostname}/--Inter-Bold-24`
+      //   - Plugin Fonts:   `{hostname}/Plugin/--Inter-Bold-24`
+      //   - Lines Fonts:    `{hostname}/Lines/--Inter-Bold-24`
+      // Falls back to "website" for missing / unparseable sourceUrl.
       const derivedHostname = extractHostname(sourceUrl);
-      const hostnamePrefix = derivedHostname === "website" ? "WEB" : derivedHostname;
 
       // -----------------------------------------------------------------------
       // FIX A: Convert captured data → WireframeNode tree for EVERY frame
@@ -237,7 +244,13 @@ export default function () {
         if (effectiveColorMode === "plugin") {
           figma.notify("Creating plugin color styles...", { timeout: 1500 });
           try {
-            const pluginStyleMap = await createPluginColorStyles(colors);
+            // Nest plugin styles under `{hostname}/Plugin` so multi-site
+            // imports in Plugin Colors mode don't collide (e.g. importing
+            // Tesla then Apple no longer overwrites `--accent`).
+            const pluginStyleMap = await createPluginColorStyles(
+              colors,
+              `${derivedHostname}/Plugin`,
+            );
             logger.info("Created plugin color styles", {
               styleCount: pluginStyleMap.size,
             });
@@ -264,7 +277,7 @@ export default function () {
             const result = await createUnifiedWebsiteColorStyles(
               frames,
               cssVariables || [],
-              hostnamePrefix
+              derivedHostname
             );
             logger.info("Created unified website color styles", {
               colorStyleCount: result.colorStyleMap.size,
@@ -405,7 +418,7 @@ export default function () {
             fontFamily,
             effectiveFontMode,
             originalFontNames,
-            hostnamePrefix
+            derivedHostname
           );
           renderContext.textStyleMap = textStyleMap;
           logger.info("Created text styles", {
