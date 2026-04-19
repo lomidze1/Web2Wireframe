@@ -212,16 +212,6 @@ export async function createNodeInFigma(
     return null;
   }
 
-  // DEBUG: trace globalnav element
-  if (node.id === 'globalnav' || node.name?.includes('globalnav')) {
-    console.log(`[W2W-NAV] 🧭 globalnav: tag=${node.tag} class="${node.className || ''}" type=${node.type} layoutMode=${node.layoutMode} w=${node.width} h=${node.height} children=${node.children?.length || 0}`);
-    if (node.children) {
-      node.children.forEach((c, i) => {
-        console.log(`[W2W-NAV]   child[${i}]: tag=${c.tag} class="${c.className || ''}" type=${c.type} layoutMode=${c.layoutMode} w=${c.width} h=${c.height} children=${c.children?.length || 0}`);
-      });
-    }
-  }
-
   // Handle text nodes (including those with inline children)
   // fontMode "lines" uses FILLR font — handled in text.ts font resolution
   if (node.type === "text") {
@@ -246,6 +236,34 @@ export async function createNodeInFigma(
       hasBorderRadius
     ) {
       return await createTextWithBackground(node, context);
+    }
+
+    // Text with padding but no background: Figma TextNode has no padding
+    // support, so wrap in a plain frame and offset the TextNode by
+    // padding.top/padding.left. Pattern: Apple.com footer footnote <p> with
+    // padding-top: 0.8em — without this wrapper the padding collapses.
+    const hasPadding =
+      !!node.padding &&
+      ((node.padding.top || 0) > 0 ||
+        (node.padding.right || 0) > 0 ||
+        (node.padding.bottom || 0) > 0 ||
+        (node.padding.left || 0) > 0);
+
+    if (hasPadding) {
+      const textNode = await createTextNode(node, context.fontFamily, context);
+      if (!textNode) return null;
+      const wrapper = figma.createFrame();
+      wrapper.name = node.name || node.tag || "Text";
+      wrapper.fills = [];
+      wrapper.strokes = [];
+      wrapper.resize(
+        Math.max(node.width || 1, 1),
+        Math.max(node.height || 1, 1),
+      );
+      wrapper.appendChild(textNode);
+      textNode.x = node.padding!.left || 0;
+      textNode.y = node.padding!.top || 0;
+      return wrapper;
     }
 
     // Simple text node without background
@@ -416,10 +434,23 @@ export async function createNodeInFigma(
 
   // Apply strokes from Figma-ready array
   if (node.strokes && node.strokes.length > 0) {
-    const { paints, weight } = convertStrokesToFigma(node.strokes, context);
+    const { paints, weight, individualWeights, style } = convertStrokesToFigma(
+      node.strokes,
+      context,
+    );
     if (paints.length > 0) {
       frame.strokes = paints;
       frame.strokeWeight = weight;
+      if (individualWeights) {
+        // Per-side borders (e.g. border-bottom only) via IndividualStrokesMixin.
+        frame.strokeTopWeight = individualWeights.top;
+        frame.strokeRightWeight = individualWeights.right;
+        frame.strokeBottomWeight = individualWeights.bottom;
+        frame.strokeLeftWeight = individualWeights.left;
+      }
+      if (style === "DASHED") frame.dashPattern = [6, 4];
+      else if (style === "DOTTED") frame.dashPattern = [2, 2];
+      else frame.dashPattern = [];
       linkStrokeStyleIfAvailable(frame, context, node.strokes);
     }
   }
@@ -488,6 +519,21 @@ export async function createNodeInFigma(
     frame.visible = false;
   }
 
+  // Mark position:fixed frames so createWireframeFrame can re-parent them
+  // to the root frame and set numberOfFixedChildren (Figma's scroll behavior).
+  // Skip hidden overlays (e.g. globalnav-curtain: opacity:0, visibility:hidden)
+  // — these are hover-reveal elements that should NOT be promoted to fixed.
+  if (node.position === "fixed" && !node.isHiddenInDefault) {
+    const isZeroOpacity = typeof node.opacity === "number" && node.opacity === 0;
+    if (!isZeroOpacity) {
+      try {
+        frame.setPluginData("w2w_position_fixed", "1");
+      } catch {
+        // setPluginData may not be available in mock environments
+      }
+    }
+  }
+
   // Recursively create children
   if (node.children && node.children.length > 0) {
     const parentHasAutoLayout = useAutoLayout;
@@ -508,8 +554,11 @@ export async function createNodeInFigma(
       ? sortGridChildren(node.children, node.gridAutoFlow)
       : node.children;
 
+    // Sort flex children by CSS order property (visual reordering)
+    const orderSorted = sortByFlexOrder(gridSorted, node.layoutMode);
+
     // Sort for correct stacking (bg images to front; z-index only in absolute mode)
-    const childrenToRender = sortChildrenForStacking(gridSorted, node.layoutMode);
+    const childrenToRender = sortChildrenForStacking(orderSorted, node.layoutMode);
 
     for (const child of childrenToRender) {
       try {
@@ -519,27 +568,40 @@ export async function createNodeInFigma(
           if (gridApplied) {
             // Grid: append child and set spans (wrapped in try-catch for Figma API Symbol proxies)
             frame.appendChild(childNode);
+            // Narrowed view of the Grid Auto Layout API surface — these properties
+            // are newer Figma additions and not fully represented in @figma/plugin-typings.
+            // Keeping the extension type local avoids leaking `any` / record casts.
+            const gridChild = childNode as SceneNode & {
+              gridColumnSpan?: number;
+              gridRowSpan?: number;
+              gridChildVerticalAlign?: "MIN" | "CENTER" | "MAX" | "STRETCH";
+              gridChildHorizontalAlign?: "MIN" | "CENTER" | "MAX" | "STRETCH";
+            };
             try {
               const colSpan = getGridSpanFromNode(child.gridColumnStart, child.gridColumnEnd);
               const rowSpan = getGridSpanFromNode(child.gridRowStart, child.gridRowEnd);
               if (typeof colSpan === 'number' && colSpan > 1) {
-                (childNode as unknown as Record<string, unknown>).gridColumnSpan = colSpan;
+                gridChild.gridColumnSpan = colSpan;
               }
               if (typeof rowSpan === 'number' && rowSpan > 1) {
-                (childNode as unknown as Record<string, unknown>).gridRowSpan = rowSpan;
+                gridChild.gridRowSpan = rowSpan;
               }
               // Apply grid cell alignment from parent's CSS
               const vertAlign = cssAlignToGridChild(node.alignItems);
               if (vertAlign !== "STRETCH") {
-                (childNode as unknown as Record<string, unknown>).gridChildVerticalAlign = vertAlign;
+                gridChild.gridChildVerticalAlign = vertAlign;
               }
               // Horizontal cell alignment from CSS justify-items
               const horizAlign = cssJustifyToGridChild(node.justifyContent);
               if (horizAlign !== "STRETCH") {
-                (childNode as unknown as Record<string, unknown>).gridChildHorizontalAlign = horizAlign;
+                gridChild.gridChildHorizontalAlign = horizAlign;
               }
-            } catch {
-              // Grid span/alignment properties may use Symbol proxies — silently skip
+            } catch (err) {
+              // Grid span/alignment uses Symbol proxies — log so regressions are visible.
+              logger.warn("Grid cell properties skipped", {
+                nodeName: child.name,
+                error: err instanceof Error ? err.message : String(err),
+              });
             }
           } else if (parentHasAutoLayout) {
             applyChildInAutoLayout(childNode, child, frame, childContext);
@@ -744,6 +806,22 @@ function applyChildInAutoLayout(
   // Append to parent (wrapper is the direct child; inner childNode already inside)
   parentFrame.appendChild(wrapper || childNode);
 
+  // Apply CSS max-width as Figma native maxWidth.
+  // Enforces the CSS constraint regardless of downstream FILL/HUG decisions
+  // (e.g. createMarginWrapper forces TEXT children to FILL, which would
+  // otherwise stretch a max-width:265px paragraph to its parent's 635px).
+  if (typeof child.cssMaxWidth === "number" && child.cssMaxWidth > 0) {
+    const wrapperMaxW = child.cssMaxWidth
+      + (child.margin?.left || 0)
+      + (child.margin?.right || 0);
+    if (wrapper && "maxWidth" in wrapper) {
+      wrapper.maxWidth = wrapperMaxW;
+    }
+    if ("maxWidth" in childNode) {
+      (childNode as FrameNode | TextNode).maxWidth = child.cssMaxWidth;
+    }
+  }
+
   // Sizing target = wrapper (if exists) or childNode.
   // When wrapper exists: sizing goes on wrapper; inner child already FILLs wrapper.
   const isHorizontalLayout = parentFrame.layoutMode === "HORIZONTAL";
@@ -866,8 +944,10 @@ function applyChildInAutoLayout(
         wrapper.layoutSizingVertical = "FIXED";
       } else {
         // Wrapper handles parent sizing; inner text already FILL+HEIGHT from createMarginWrapper
+        // Multi-line text with explicit FIXED sizing (e.g., max-width) keeps FIXED.
+        const isFixedWidthW = child.layoutSizingHorizontal === "FIXED";
         if (isHorizontalLayout) {
-          if (child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+          if (!isFixedWidthW && (child.layoutSizingHorizontal === "FILL" || isMultiLine)) {
             wrapper.layoutSizingHorizontal = "FILL";
           }
           if (child.layoutAlign === "STRETCH" || child.layoutSizingVertical === "FILL") {
@@ -877,7 +957,7 @@ function applyChildInAutoLayout(
           if (child.layoutSizingVertical === "FILL") {
             wrapper.layoutSizingVertical = "FILL";
           }
-          if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+          if (!isFixedWidthW && (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL" || isMultiLine)) {
             wrapper.layoutSizingHorizontal = "FILL";
           }
         }
@@ -889,8 +969,14 @@ function applyChildInAutoLayout(
       textChild.layoutSizingVertical = "FIXED";
     } else {
       // No wrapper — apply directly to text node
+      // Multi-line text with explicit FIXED sizing (e.g., max-width constraint)
+      // should keep FIXED width but use HEIGHT auto-resize for wrapping.
+      const isFixedWidth = child.layoutSizingHorizontal === "FIXED";
       if (isHorizontalLayout) {
-        if (child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+        if (isFixedWidth && isMultiLine) {
+          textChild.layoutSizingHorizontal = "FIXED";
+          textChild.textAutoResize = "HEIGHT";
+        } else if (child.layoutSizingHorizontal === "FILL" || isMultiLine) {
           textChild.layoutSizingHorizontal = "FILL";
           textChild.textAutoResize = "HEIGHT";
         } else {
@@ -906,7 +992,10 @@ function applyChildInAutoLayout(
         } else {
           textChild.layoutSizingVertical = "HUG";
         }
-        if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL" || isMultiLine) {
+        if (isFixedWidth && isMultiLine) {
+          textChild.layoutSizingHorizontal = "FIXED";
+          textChild.textAutoResize = "HEIGHT";
+        } else if (child.layoutAlign === "STRETCH" || child.layoutSizingHorizontal === "FILL" || isMultiLine) {
           textChild.layoutSizingHorizontal = "FILL";
           textChild.textAutoResize = "HEIGHT";
         } else {
@@ -921,6 +1010,44 @@ function applyChildInAutoLayout(
 // ============================================================================
 // Wireframe Frame Creation
 // ============================================================================
+
+/**
+ * Recursively collect position:fixed nodes from any depth in the tree.
+ * These nodes are marked with pluginData "w2w_position_fixed" during
+ * createNodeInFigma and need to be re-parented to the root wireframe frame.
+ */
+function collectFixedNodes(root: FrameNode): SceneNode[] {
+  const result: SceneNode[] = [];
+
+  function walk(node: SceneNode): void {
+    if ("getPluginData" in node) {
+      try {
+        if (node.getPluginData("w2w_position_fixed") === "1") {
+          // Skip hidden fixed elements (e.g. globalnav-curtain with
+          // visibility:hidden / opacity:0). These are hover-reveal overlays
+          // that shouldn't be promoted to root-level fixed children.
+          if (node.visible !== false) {
+            result.push(node);
+          }
+          return; // Don't recurse into fixed nodes either way
+        }
+      } catch {
+        // getPluginData may fail in some environments
+      }
+    }
+    if ("children" in node) {
+      for (const child of (node as FrameNode).children) {
+        walk(child);
+      }
+    }
+  }
+
+  for (const child of root.children) {
+    walk(child);
+  }
+
+  return result;
+}
 
 /**
  * Create a single wireframe frame with nested structure
@@ -1026,6 +1153,10 @@ export async function createWireframeFrame(
   // CSS overflow semantics are irrelevant at the root level.
   wireframeFrame.clipsContent = true;
 
+  // Enable vertical scrolling on root frame so that position:fixed children
+  // can be marked as "Fixed (stay in place)" via numberOfFixedChildren.
+  wireframeFrame.overflowDirection = "VERTICAL";
+
   // Apply Auto Layout to root frame when in autoLayout mode
   const useAutoLayout = context.layoutMode === "autoLayout";
   if (useAutoLayout && frameData.tree) {
@@ -1106,6 +1237,24 @@ export async function createWireframeFrame(
           childName: child.name,
         });
       }
+    }
+
+    // Re-parent position:fixed elements to the root frame.
+    // Fixed elements (like nav#globalnav) can be nested at ANY depth in the
+    // DOM tree, but Figma requires them as the LAST N direct children of the
+    // scrolling frame, with numberOfFixedChildren = N.
+    // We find them via pluginData marker set during createNodeInFigma.
+    const fixedNodes = collectFixedNodes(wireframeFrame);
+    if (fixedNodes.length > 0) {
+      for (const fixedNode of fixedNodes) {
+        // appendChild on an already-parented node moves it (re-parents)
+        wireframeFrame.appendChild(fixedNode);
+        // Set absolute positioning so it overlays at its original x/y
+        if ("layoutPositioning" in fixedNode) {
+          (fixedNode as FrameNode).layoutPositioning = "ABSOLUTE";
+        }
+      }
+      wireframeFrame.numberOfFixedChildren = fixedNodes.length;
     }
   }
 
@@ -1316,6 +1465,31 @@ function isImageOnlySubtreeW(node: WireframeNode): boolean {
     return node.fills?.some(f => f.type === "IMAGE_PLACEHOLDER") ?? false;
   }
   return node.children.every(c => isImageOnlySubtreeW(c));
+}
+
+/**
+ * Sort flex children by CSS `order` property for correct visual ordering.
+ * Only applies to flex containers (HORIZONTAL/VERTICAL).
+ * Stable sort: preserves DOM order for children with equal order values.
+ * Default order value is 0 (elements without cssOrder are treated as 0).
+ */
+export function sortByFlexOrder(
+  children: WireframeNode[],
+  layoutMode: WireframeNode["layoutMode"] = "NONE"
+): WireframeNode[] {
+  // Only applies to flex containers, not grid or absolute
+  if (layoutMode !== "HORIZONTAL" && layoutMode !== "VERTICAL") return children;
+  if (children.length < 2) return children;
+  const hasOrder = children.some(c => c.cssOrder != null);
+  if (!hasOrder) return children;
+
+  const stable = children.map((c, i) => ({ c, i }));
+  stable.sort((a, b) => {
+    const oa = a.c.cssOrder ?? 0;
+    const ob = b.c.cssOrder ?? 0;
+    return oa !== ob ? oa - ob : a.i - b.i;
+  });
+  return stable.map(s => s.c);
 }
 
 /**

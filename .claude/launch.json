@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "website-frontend",
-      "runtimeExecutable": "/bin/sh",
-      "runtimeArgs": ["-c", "export PATH=/usr/local/bin:$PATH && cd Website_Frontend && npx vite --port 5173"],
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@w2w/web", "dev", "--", "--port", "5173"],
       "port": 5173
     }
   ]

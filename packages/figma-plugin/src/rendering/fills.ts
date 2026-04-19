@@ -192,7 +192,10 @@ export function convertFillsToPaints(
             const dataUri = context.assetsMap.get(fill.imageUrl)!;
             const commaIndex = dataUri.indexOf(",");
             if (commaIndex > 0) {
-              const base64Str = dataUri.substring(commaIndex + 1);
+              // Strip whitespace/newlines, then pad to multiple of 4 so charCodeAt
+              // never reads past the string end (which returned NaN → garbage bytes).
+              let base64Str = dataUri.substring(commaIndex + 1).replace(/\s+/g, "");
+              while (base64Str.length % 4 !== 0) base64Str += "=";
               // Decode base64 to bytes (pure JS — no atob in Figma sandbox)
               const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
               const lookup = new Uint8Array(256);
@@ -207,9 +210,9 @@ export function convertFillsToPaints(
                 const b = lookup[base64Str.charCodeAt(k + 1)];
                 const c = lookup[base64Str.charCodeAt(k + 2)];
                 const d = lookup[base64Str.charCodeAt(k + 3)];
-                bytes[p++] = (a << 2) | (b >> 4);
-                bytes[p++] = ((b & 15) << 4) | (c >> 2);
-                bytes[p++] = ((c & 3) << 6) | d;
+                if (p < bufLen) bytes[p++] = (a << 2) | (b >> 4);
+                if (p < bufLen) bytes[p++] = ((b & 15) << 4) | (c >> 2);
+                if (p < bufLen) bytes[p++] = ((c & 3) << 6) | d;
               }
               const image = figma.createImage(bytes);
               paints.push({
@@ -249,48 +252,90 @@ export function convertFillsToPaints(
 // ============================================================================
 
 /**
- * Convert FigmaStroke[] to Figma strokes
- * Note: Figma doesn't support different colors per side, so we use the first stroke
- * In plugin colors mode: ALWAYS use text color (#11151A) for clean black borders
+ * Convert FigmaStroke[] to Figma strokes.
+ *
+ * Figma constraint: a single FrameNode has ONE paint for `frame.strokes` and
+ * ONE `dashPattern`, but supports per-side `strokeTopWeight` /
+ * `strokeRightWeight` / `strokeBottomWeight` / `strokeLeftWeight` via
+ * IndividualStrokesMixin. So we:
+ *   1. Pick a representative color + style from the first non-zero stroke
+ *      (for mixed colors/styles across sides — rare, Figma can't fully honor).
+ *   2. Compute per-side weights from the `.sides` flags of every stroke.
+ *   3. Return `individualWeights` only when sides actually differ, so the
+ *      common uniform case still sets `frame.strokeWeight` as before.
+ *
+ * In plugin colors mode: ALL strokes/borders use text color (#11151A).
  */
 export function convertStrokesToFigma(
   strokes: FigmaStroke[] | undefined,
   context?: RenderContext
-): { paints: Paint[]; weight: number } {
+): {
+  paints: Paint[];
+  weight: number;
+  individualWeights?: { top: number; right: number; bottom: number; left: number };
+  style: "SOLID" | "DASHED" | "DOTTED";
+} {
   if (!strokes || strokes.length === 0) {
-    return { paints: [], weight: 0 };
+    return { paints: [], weight: 0, style: "SOLID" };
   }
 
-  // Use first stroke for weight
+  // Pick representative (first) stroke for color/style.
   const firstStroke = strokes[0];
 
-  // In plugin colors mode: ALL strokes/borders use text color (#11151A)
-  if (context?.colorMode === "plugin" && context.pluginColors) {
-    const textColor = hexToFigmaRGB(context.pluginColors.text);
-    const paints: Paint[] = [
-      {
-        type: "SOLID",
-        color: textColor,
-        opacity: 1.0,
-      },
-    ];
-    return { paints, weight: firstStroke.weight };
+  // Accumulate per-side weights across all strokes.
+  const perSide = { top: 0, right: 0, bottom: 0, left: 0 };
+  let anySides = false;
+  let allSidesFlag = false;
+  for (const s of strokes) {
+    if (!s.sides) {
+      // No sides info → apply weight to all 4 sides (legacy uniform).
+      perSide.top = Math.max(perSide.top, s.weight);
+      perSide.right = Math.max(perSide.right, s.weight);
+      perSide.bottom = Math.max(perSide.bottom, s.weight);
+      perSide.left = Math.max(perSide.left, s.weight);
+      continue;
+    }
+    anySides = true;
+    if (s.sides.top) perSide.top = Math.max(perSide.top, s.weight);
+    if (s.sides.right) perSide.right = Math.max(perSide.right, s.weight);
+    if (s.sides.bottom) perSide.bottom = Math.max(perSide.bottom, s.weight);
+    if (s.sides.left) perSide.left = Math.max(perSide.left, s.weight);
+    if (s.sides.top && s.sides.right && s.sides.bottom && s.sides.left) {
+      allSidesFlag = true;
+    }
   }
 
-  // Website colors mode: use original stroke color
-  const paints: Paint[] = [
-    {
-      type: "SOLID",
-      color: {
-        r: firstStroke.color.r,
-        g: firstStroke.color.g,
-        b: firstStroke.color.b,
-      },
-      opacity: firstStroke.color.a,
-    },
-  ];
+  // Uniform case: one stroke with sides=all-true, OR per-side weights all equal.
+  const uniformWeight =
+    perSide.top === perSide.right &&
+    perSide.right === perSide.bottom &&
+    perSide.bottom === perSide.left;
+  const isUniform =
+    (strokes.length === 1 && (allSidesFlag || !anySides)) || uniformWeight;
 
-  return { paints, weight: firstStroke.weight };
+  const representativeWeight = isUniform
+    ? perSide.top
+    : Math.max(perSide.top, perSide.right, perSide.bottom, perSide.left);
+
+  // In plugin colors mode: ALL strokes/borders use text color (#11151A)
+  let paints: Paint[];
+  if (context?.colorMode === "plugin" && context.pluginColors) {
+    const textColor = hexToFigmaRGB(context.pluginColors.text);
+    paints = [{ type: "SOLID", color: textColor, opacity: 1.0 }];
+  } else {
+    paints = [{
+      type: "SOLID",
+      color: { r: firstStroke.color.r, g: firstStroke.color.g, b: firstStroke.color.b },
+      opacity: firstStroke.color.a,
+    }];
+  }
+
+  return {
+    paints,
+    weight: representativeWeight,
+    individualWeights: isUniform ? undefined : perSide,
+    style: firstStroke.style,
+  };
 }
 
 // ============================================================================

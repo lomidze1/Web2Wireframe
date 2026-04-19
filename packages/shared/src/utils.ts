@@ -406,9 +406,11 @@ export function getLayoutMode(
     return "VERTICAL";
   }
 
-  // List items with default display should use HORIZONTAL for inline content
+  // list-item is block-level flow; children stack vertically.
+  // The ::marker lives outside the content box (or inside as inline prefix),
+  // it does NOT make the li itself a horizontal row.
   if (display === "list-item") {
-    return "HORIZONTAL";
+    return "VERTICAL";
   }
 
   return "NONE";

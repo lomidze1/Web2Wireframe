@@ -381,12 +381,14 @@ describe("convertStrokesToFigma", () => {
   describe("empty/undefined inputs", () => {
     it("returns empty paints and 0 weight for undefined", () => {
       const result = convertStrokesToFigma(undefined);
-      expect(result).toEqual({ paints: [], weight: 0 });
+      expect(result.paints).toEqual([]);
+      expect(result.weight).toBe(0);
     });
 
     it("returns empty paints and 0 weight for empty array", () => {
       const result = convertStrokesToFigma([]);
-      expect(result).toEqual({ paints: [], weight: 0 });
+      expect(result.paints).toEqual([]);
+      expect(result.weight).toBe(0);
     });
   });
 

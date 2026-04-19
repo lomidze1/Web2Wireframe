@@ -120,8 +120,9 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
     expect(result.hasDescendantHover).toBe(true);
   });
 
-  it('still synthesizes FIX 2 for interactive nodes WITHOUT descendant hover', () => {
-    // Plain <button> with a passive child — FIX 2 should still kick in.
+  it('synthesizes FIX 2 fallback for interactive nodes WITHOUT descendant hover and no real diff', () => {
+    // Plain <button> with a passive child and no captured node.hover.
+    // FIX 2 synthesizes opacity:0.8 so it becomes a ComponentSet.
     const passiveChild = makeFrame({
       tag: 'span',
       styles: { color: 'rgb(0,0,0)' },

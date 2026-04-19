@@ -452,7 +452,7 @@ describe("attachHoverToDescendants (FIX 4)", () => {
     const hoverChild = makeFrame({
       tag: "div",
       classList: ["curtain"],
-      styles: { opacity: "1" },
+      styles: { opacity: 1 },
     });
     const normal = makeFrame({
       tag: "li",
@@ -564,12 +564,12 @@ describe("attachHoverToDescendants (FIX 4)", () => {
     const curtainNormal = makeFrame({
       tag: "div",
       attr: { id: "globalnav-curtain" },
-      styles: { opacity: "0", visibility: "hidden" },
+      styles: { opacity: 0, visibility: "hidden" },
     });
     const curtainHover = makeFrame({
       tag: "div",
       attr: { id: "globalnav-curtain" },
-      styles: { opacity: "1", visibility: "visible" },
+      styles: { opacity: 1, visibility: "visible" },
     });
     const navItemNormal = makeFrame({
       tag: "li",
@@ -590,6 +590,6 @@ describe("attachHoverToDescendants (FIX 4)", () => {
     expect(navItemNormal.hover).toBe(navItemHover);
     // Child now has hover pointing to the visible curtain
     expect(curtainNormal.hover).toBe(curtainHover);
-    expect(curtainNormal.hover?.styles.opacity).toBe("1");
+    expect(curtainNormal.hover?.styles.opacity).toBe(1);
   });
 });

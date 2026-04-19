@@ -34,6 +34,7 @@ import {
   MAX_TREE_DEPTH,
 } from "./constants";
 import { isObfuscatedFont, deriveWeightFromPlatformFont } from "./font-utils";
+import { computeListMarkers, formatListMarker, type ListItemSpec } from "./list-markers";
 
 // ============================================================================
 // VISIBILITY HELPERS
@@ -1390,6 +1391,7 @@ export function buildElementTree(
       contentWidth?: number;
       contentHeight?: number;
       isGridChild?: boolean;
+      parentTag?: string;
     }
   ): ExtractedElement | null {
     if (depth > MAX_TREE_DEPTH) return null;
@@ -1596,16 +1598,38 @@ export function buildElementTree(
     // Text color — webkitTextFillColor overrides CSS color
     let textColor = resolveTextColor(computedStyles);
 
-    // Parse strokes
+    // Parse strokes — per-side props (primary) + shorthand fallback.
+    // Captured via snapshot.ts SNAPSHOT_COMPUTED_STYLES which now includes
+    // border-{top,right,bottom,left}-style alongside width/color.
     const strokes = parseBordersToStrokes(
-      computedStyles["border-width"],
-      computedStyles["border-color"],
-      computedStyles["border-style"],
-      computedStyles["border-top"],
-      computedStyles["border-right"],
-      computedStyles["border-bottom"],
-      computedStyles["border-left"],
-      resolvedVariables
+      {
+        top: {
+          width: computedStyles["border-top-width"],
+          color: computedStyles["border-top-color"],
+          style: computedStyles["border-top-style"],
+        },
+        right: {
+          width: computedStyles["border-right-width"],
+          color: computedStyles["border-right-color"],
+          style: computedStyles["border-right-style"],
+        },
+        bottom: {
+          width: computedStyles["border-bottom-width"],
+          color: computedStyles["border-bottom-color"],
+          style: computedStyles["border-bottom-style"],
+        },
+        left: {
+          width: computedStyles["border-left-width"],
+          color: computedStyles["border-left-color"],
+          style: computedStyles["border-left-style"],
+        },
+      },
+      {
+        width: computedStyles["border-width"],
+        color: computedStyles["border-color"],
+        style: computedStyles["border-style"],
+      },
+      resolvedVariables,
     );
 
     // Attach CSS variable reference to strokes
@@ -1757,6 +1781,11 @@ export function buildElementTree(
     const zIndex =
       zIndexStr && zIndexStr !== "auto" ? parseInt(zIndexStr) : undefined;
 
+    // CSS order (flex child visual reordering)
+    const cssOrderStr = computedStyles["order"];
+    const cssOrder =
+      cssOrderStr && cssOrderStr !== "0" ? parseInt(cssOrderStr) : undefined;
+
     // Detect horizontal centering
     let horizontallyCentered = false;
     if (matchedStyles) {
@@ -1907,10 +1936,13 @@ export function buildElementTree(
       }
     }
 
-    // Get list-style-type for <li> elements
+    // Get list-style-type for <li> elements — no fallback to "disc";
+    // if CSS doesn't set it, we leave it undefined so marker synthesis
+    // only fires when the browser explicitly declared a marker style.
     const listStyleType = tag === "li"
-      ? (computedStyles["list-style-type"] || "disc")
+      ? (computedStyles["list-style-type"] || undefined)
       : undefined;
+    const listItemValue = tag === "li" ? node.attributes["value"] : undefined;
 
     const isLeaf = isLeafElement(node.index, nodes, childrenMap);
     const finalText = aggregatedText;
@@ -2006,6 +2038,7 @@ export function buildElementTree(
       height,
       position,
       zIndex,
+      cssOrder,
       layoutMode,
       itemSpacing,
       padding,
@@ -2042,6 +2075,7 @@ export function buildElementTree(
       textContent: frameTextContent,
       styledSegments: styledSegments.length > 0 ? styledSegments : undefined,
       listStyleType,
+      listItemValue,
       opacity,
       blendMode,
       rotation: rotation || undefined,
@@ -2109,6 +2143,22 @@ export function buildElementTree(
       // Flatten display:contents children into parent (they have no box of their own)
       const effectiveChildIndices = flattenDisplayContents(childIndices, nodes, childrenMap);
 
+      // For <li> elements, stash the ::marker pseudo's computed styles on the
+      // element BEFORE children are processed. CSS commonly styles ::marker
+      // differently from its owning <li> (e.g. Apple.com footer footnotes:
+      // ::marker { font-size:12px; color:rgba(0,0,0,0.56) } while the <li>
+      // has inherited defaults). attachMarkerToLi() later prefers these
+      // styles over the <li>'s own typography.
+      if (tag === "li") {
+        for (const childIdx of effectiveChildIndices) {
+          const cn = nodes[childIdx];
+          if (cn && cn.nodeName === "::marker" && cn.computedStyles) {
+            element.markerComputedStyles = cn.computedStyles;
+            break;
+          }
+        }
+      }
+
       for (const childIdx of effectiveChildIndices) {
         const childNode = nodes[childIdx];
         if (childNode) {
@@ -2117,9 +2167,15 @@ export function buildElementTree(
           // Non-icon pseudo-elements with text content (e.g., content: "•") need to be
           // extracted as text children here — otherwise their content is completely lost.
           if (childNode.nodeName && childNode.nodeName.startsWith("::")) {
-            // Check if this pseudo-element has non-icon text content to extract
-            const pseudoText = (childNode.textContent || "").trim();
-            if (pseudoText && pseudoText !== "none" && pseudoText !== "\"\"" && pseudoText !== "''") {
+            // Check if this pseudo-element has non-icon text content to extract.
+            // ::marker text preserves its trailing space verbatim ("1. " is the
+            // browser's real marker output); other pseudos are trimmed because
+            // their whitespace is incidental.
+            const rawPseudoText = childNode.textContent || "";
+            const pseudoText = childNode.nodeName === "::marker"
+              ? rawPseudoText
+              : rawPseudoText.trim();
+            if (pseudoText.trim() && pseudoText !== "none" && pseudoText !== "\"\"" && pseudoText !== "''") {
               // Check if this is an icon font pseudo-element (handled separately)
               const pseudoFontFamily = childNode.computedStyles["font-family"] || "";
               const parentFontFamily = node.computedStyles["font-family"] || "";
@@ -2131,13 +2187,13 @@ export function buildElementTree(
               // Only create a text child for NON-icon-font pseudo-elements
               // Icon font ones are already handled by extractPseudoIconContent
               if (!isIconFont(primaryFont) && !parentClassHint && !(iconFonts && iconFonts.length > 0)) {
-                // Extract position and styles from the pseudo-element
                 const pseudoBounds = childNode.bounds;
-                if (pseudoBounds && pseudoBounds.width > 0 && pseudoBounds.height > 0) {
-                  const pseudoX = pseudoBounds.x / browserDpr - parentX;
-                  const pseudoY = pseudoBounds.y / browserDpr - parentY;
-                  const pseudoWidth = pseudoBounds.width / browserDpr;
-                  const pseudoHeight = pseudoBounds.height / browserDpr;
+                const hasValidBounds = pseudoBounds != null && pseudoBounds.width > 0 && pseudoBounds.height > 0;
+                // ::marker with list-style-position:outside frequently has
+                // zero/null bounds in CDP snapshot — fall back to derived
+                // bounds so the marker text still survives as a child.
+                const isMarkerPseudo = childNode.nodeName === "::marker";
+                if (hasValidBounds || isMarkerPseudo) {
                   const pseudoColor = parseColor(childNode.computedStyles["color"]) || textColor;
                   const pseudoFontSize = parseInt(childNode.computedStyles["font-size"] || String(fontSize)) || fontSize;
                   const pseudoFontWeight = parseInt(childNode.computedStyles["font-weight"] || String(fontWeight)) || fontWeight;
@@ -2145,8 +2201,25 @@ export function buildElementTree(
                   const pseudoLetterSpacing = parseFloat(childNode.computedStyles["letter-spacing"] || "0") || 0;
                   const pseudoFontFamilyResolved = extractFontFamilyList(rawFamily)[0] || fontFamily;
 
-                  const pseudoCssPosition = childNode.computedStyles["position"];
+                  let pseudoX: number;
+                  let pseudoY: number;
+                  let pseudoWidth: number;
+                  let pseudoHeight: number;
+                  if (hasValidBounds) {
+                    pseudoX = pseudoBounds!.x / browserDpr - parentX;
+                    pseudoY = pseudoBounds!.y / browserDpr - parentY;
+                    pseudoWidth = pseudoBounds!.width / browserDpr;
+                    pseudoHeight = pseudoBounds!.height / browserDpr;
+                  } else {
+                    pseudoX = 0;
+                    pseudoY = 0;
+                    pseudoWidth = Math.max(pseudoFontSize * 0.6 * pseudoText.length, 8);
+                    pseudoHeight = typeof pseudoLineHeight === "number"
+                      ? pseudoLineHeight
+                      : pseudoFontSize * 1.2;
+                  }
 
+                  const pseudoCssPosition = childNode.computedStyles["position"];
                   const pseudoSelector = getSelector(node.index) + childNode.nodeName;
                   const pseudoTextChild = createSyntheticTextChild(
                     pseudoWidth,
@@ -2166,7 +2239,6 @@ export function buildElementTree(
                     pseudoSelector
                   );
                   pseudoTextChild.tag = childNode.nodeName; // "::before", "::after", "::marker"
-                  // Preserve CSS position so Figma can set layoutPositioning = "ABSOLUTE"
                   if (pseudoCssPosition === "absolute" || pseudoCssPosition === "fixed") {
                     pseudoTextChild.position = pseudoCssPosition;
                   }
@@ -2191,6 +2263,7 @@ export function buildElementTree(
             contentWidth: parentContentWidth,
             contentHeight: parentContentHeight,
             isGridChild: isGrid || undefined,
+            parentTag: tag,
           });
           if (childElement && childElement.width > 3 && childElement.height > 3) {
             // Clip child width if extends beyond viewport
@@ -2226,6 +2299,22 @@ export function buildElementTree(
           const za = a.c.zIndex ?? 0;
           const zb = b.c.zIndex ?? 0;
           return za !== zb ? za - zb : a.i - b.i;
+        });
+        element.children = stable.map(s => s.c);
+      }
+    }
+
+    // Sort flex children by CSS order property.
+    // In flex containers, `order` controls visual order — lower values first,
+    // DOM order preserved for equal values (stable sort).
+    if ((element.layoutMode === "HORIZONTAL" || element.layoutMode === "VERTICAL") && element.children.length >= 2) {
+      const hasOrder = element.children.some(c => c.cssOrder != null);
+      if (hasOrder) {
+        const stable = element.children.map((c, i) => ({ c, i }));
+        stable.sort((a, b) => {
+          const oa = a.c.cssOrder ?? 0;
+          const ob = b.c.cssOrder ?? 0;
+          return oa !== ob ? oa - ob : a.i - b.i;
         });
         element.children = stable.map(s => s.c);
       }
@@ -2366,7 +2455,174 @@ export function buildElementTree(
     // Previously: isListItemWithText, shouldBeFrameWithTextChild, isLinkWithText
     // blocks created synthetic children here (~190 lines).
 
+    // ---- List marker synthesis -------------------------------------------
+    // <ol> / <ul>: attach marker text children to direct <li> children that:
+    //   1. Have display: list-item (the CSS signal that browsers render markers)
+    //   2. Have list-style-type !== "none"
+    //   3. Don't already have a CDP-provided ::marker child
+    // Marker is positioned absolutely — li's layoutMode is NEVER overridden.
+    if (tag === "ol" || tag === "ul") {
+      const liChildren = element.children.filter((c) => c.tag === "li");
+      const eligibleLis = liChildren.filter((li) => liEligibleForMarker(li));
+      if (eligibleLis.length > 0) {
+        const liListStyleType =
+          eligibleLis[0].listStyleType ||
+          (tag === "ol" ? "decimal" : undefined);
+        if (liListStyleType && liListStyleType !== "none") {
+          const itemSpecs: ListItemSpec[] = eligibleLis.map((li) => ({
+            valueAttr: li.listItemValue,
+          }));
+          const markers = computeListMarkers({
+            tag: tag as "ol" | "ul",
+            listStyleType: liListStyleType,
+            startAttr: node.attributes["start"],
+            reversed: node.attributes["reversed"] !== undefined,
+            items: itemSpecs,
+          });
+          for (let i = 0; i < eligibleLis.length; i++) {
+            attachMarkerToLi(eligibleLis[i], markers[i], textColor, fontFamily, fontSize, fontWeight, lineHeight, letterSpacing);
+          }
+        }
+      }
+    }
+
+    // Orphan <li> (not a direct child of an ol/ul): synthesize a naive
+    // index=0 marker so bare list items still show a bullet.
+    if (
+      tag === "li" &&
+      parentContext?.parentTag !== "ol" &&
+      parentContext?.parentTag !== "ul"
+    ) {
+      if (liEligibleForMarker(element)) {
+        const liStyle = listStyleType;
+        if (liStyle && liStyle !== "none") {
+          const hasCdpMarker = element.children.some((c) => c.tag === "::marker");
+          if (!hasCdpMarker) {
+            const text = formatListMarker({ listStyleType: liStyle, index: 0 });
+            if (text) {
+              attachMarkerToLi(element, text, textColor, fontFamily, fontSize, fontWeight, lineHeight, letterSpacing);
+            }
+          }
+        }
+      }
+    }
+
     return element;
+  }
+
+  /**
+   * Returns true if the <li> element is eligible for marker synthesis:
+   * CSS display must be "list-item" (or absent for backward compat with
+   * old JSON that doesn't include display). Other display values (block,
+   * flex, grid, inline-block, contents) mean the browser never renders a
+   * marker, so neither should we.
+   */
+  function liEligibleForMarker(li: ExtractedElement): boolean {
+    const display = li.computedStyles?.display;
+    if (!display || display === "" || display === "list-item") return true;
+    return false;
+  }
+
+  /**
+   * Attach a marker text child to a <li> element. The marker is positioned
+   * absolutely so the li's own layoutMode (from CSS) is never disturbed.
+   *
+   * list-style-position: outside → marker at negative x (outside content box)
+   * list-style-position: inside  → marker at x=0 (inline with content)
+   */
+  function attachMarkerToLi(
+    li: ExtractedElement,
+    markerText: string,
+    inheritedColor: string | null,
+    inheritedFontFamily: string,
+    inheritedFontSize: number,
+    inheritedFontWeight: number,
+    inheritedLineHeight: number | string,
+    inheritedLetterSpacing: number
+  ): void {
+    if (!markerText) return;
+    const existing = li.children.find((c) => c.tag === "::marker");
+    if (existing) {
+      // CDP already provided a ::marker — keep it, ensure it's first child
+      const idx = li.children.indexOf(existing);
+      if (idx > 0) {
+        li.children.splice(idx, 1);
+        li.children.unshift(existing);
+      }
+      existing.position = "absolute";
+      return;
+    }
+
+    // Source typography from the ::marker pseudo-element's computed styles
+    // when available (populated upstream from the CDP snapshot). Fall back
+    // to the <li>'s own typography, then to parent-inherited values.
+    const mcs = li.markerComputedStyles;
+    const mFontSize = mcs ? parseFloat(mcs["font-size"] ?? "") : NaN;
+    const mFontWeight = mcs ? parseInt(mcs["font-weight"] ?? "", 10) : NaN;
+    const mLineHeight = mcs ? parseFloat(mcs["line-height"] ?? "") : NaN;
+    const mLetterSpacing = mcs ? parseFloat(mcs["letter-spacing"] ?? "") : NaN;
+    const mFontFamilyRaw = mcs?.["font-family"];
+    const mFontFamily = mFontFamilyRaw ? (extractFontFamilyList(mFontFamilyRaw)[0] || "") : "";
+    const mColorHex = mcs?.["color"] ? parseColor(mcs["color"]) : null;
+
+    const liFontSize = Number.isFinite(mFontSize) && mFontSize > 0
+      ? mFontSize
+      : (li.fontSize || inheritedFontSize);
+    const liFontFamily = mFontFamily || li.fontFamily || inheritedFontFamily;
+    const liFontWeight = Number.isFinite(mFontWeight) && mFontWeight > 0
+      ? mFontWeight
+      : (li.fontWeight || inheritedFontWeight);
+    const liLineHeight = Number.isFinite(mLineHeight) && mLineHeight > 0
+      ? mLineHeight
+      : (li.lineHeight || inheritedLineHeight);
+    const liLetterSpacing = Number.isFinite(mLetterSpacing)
+      ? mLetterSpacing
+      : (li.letterSpacing ?? inheritedLetterSpacing);
+    const liColor = mColorHex || li.textColor || inheritedColor;
+
+    // Pull the alpha channel out of the ::marker color (e.g. 0.56 from
+    // rgba(0,0,0,0.56)) — parseColor collapses to hex and loses alpha, so
+    // we carry it through as the text node's opacity.
+    let markerOpacity = 1;
+    const rgbaSource = mcs?.["color"];
+    if (rgbaSource) {
+      const m = rgbaSource.match(/rgba?\s*\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)/i);
+      if (m) {
+        const a = parseFloat(m[1]);
+        if (Number.isFinite(a) && a >= 0 && a <= 1) markerOpacity = a;
+      }
+    }
+
+    const width = Math.max(liFontSize * 0.6 * markerText.length, 8);
+    const height = typeof liLineHeight === "number"
+      ? liLineHeight
+      : liFontSize * 1.2;
+
+    const listStylePosition = li.computedStyles?.["list-style-position"] || "outside";
+    const gap = Math.max(4, Math.round(liFontSize * 0.3));
+    const xOffset = listStylePosition === "inside" ? 0 : -(width + gap);
+
+    const marker = createSyntheticTextChild(
+      width,
+      height,
+      liColor,
+      liFontFamily,
+      liFontSize,
+      liFontWeight,
+      liLineHeight,
+      liLetterSpacing,
+      "left",
+      markerText,
+      xOffset,
+      0,
+      1,
+      undefined,
+      (li.sourceSelector || "") + "::marker"
+    );
+    marker.tag = "::marker";
+    marker.position = "absolute";
+    marker.opacity = markerOpacity;
+    li.children.unshift(marker);
   }
 
   /**

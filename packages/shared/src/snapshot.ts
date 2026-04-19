@@ -71,6 +71,10 @@ export const SNAPSHOT_COMPUTED_STYLES = [
   "border-bottom-color",
   "border-left-color",
   "border-style",
+  "border-top-style",
+  "border-right-style",
+  "border-bottom-style",
+  "border-left-style",
   "border-radius",
   "border-top-left-radius",
   "border-top-right-radius",
@@ -875,9 +879,16 @@ export function findNodesNeedingMatchedStyles(
     // The computed border-width often has subpixel values (e.g., 1.11111px instead of 1px)
     const borderWidth = node.computedStyles["border-width"] || "";
     const borderTop = node.computedStyles["border-top-width"] || "";
-    if (borderWidth || borderTop) {
-      // Check if there's a non-zero border
-      const width = parseFloat(borderWidth) || parseFloat(borderTop);
+    const borderRight = node.computedStyles["border-right-width"] || "";
+    const borderBottom = node.computedStyles["border-bottom-width"] || "";
+    const borderLeft = node.computedStyles["border-left-width"] || "";
+    if (borderWidth || borderTop || borderRight || borderBottom || borderLeft) {
+      const width =
+        parseFloat(borderWidth) ||
+        parseFloat(borderTop) ||
+        parseFloat(borderRight) ||
+        parseFloat(borderBottom) ||
+        parseFloat(borderLeft);
       if (width > 0) return true;
     }
 

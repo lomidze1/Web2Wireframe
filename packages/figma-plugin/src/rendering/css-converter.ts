@@ -158,7 +158,7 @@ function convertFrame(
 
   // Block parent: check if children's float/inline-block indicates horizontal layout
   if (cssLayoutMode === 'NONE' && !isAbsoluteMode) {
-    const inferred = inferLayoutFromChildren(getEffectiveChildren(node));
+    const inferred = inferLayoutFromChildren(getEffectiveChildren(node), node.tag);
     if (inferred) {
       cssLayoutMode = inferred;
     }
@@ -172,7 +172,7 @@ function convertFrame(
   // Sizing
   const sizing = isAbsoluteMode
     ? { horizontal: 'FIXED' as const, vertical: 'FIXED' as const, grow: 0 as const, align: 'INHERIT' as const }
-    : getSizing(s, parent?.styles, cssLayoutMode);
+    : getSizing(s, parent?.styles, cssLayoutMode, parent ? { width: parent.width, height: parent.height } : undefined);
 
   // Fills
   const fills = parseFills(s, node.width, node.height);
@@ -208,10 +208,31 @@ function convertFrame(
   const textChildValues: TextChildValue[] = [];
   let textContent = '';
 
+  // Fix D: DOM order tracking. Each push to either textChildValues or children
+  // records an entry here so the mixed-children branch can rebuild WireframeNode
+  // children in original DOM order (required for inline flow like Apple footer).
+  const orderEntries: OrderEntry[] = [];
+  const pushTextValue = (tv: TextChildValue): void => {
+    orderEntries.push({ kind: 'text', index: textChildValues.length });
+    textChildValues.push(tv);
+  };
+  const pushChildNode = (cn: WireframeNode): void => {
+    orderEntries.push({ kind: 'child', index: children.length });
+    children.push(cn);
+  };
+
   // Flatten display:contents wrappers before iterating children.
   // Elements with display:contents generate no box — their children become
   // direct children of this parent (same as CSS behavior).
   const effectiveChildren = getEffectiveChildren(node);
+
+  // Bubble-up margin: when a text-only inline wrapper is the sole child of
+  // a text-coalesce parent and has only margin (no padding/width), transfer
+  // its margin onto this parent so Figma auto-layout pushes THIS node's
+  // next sibling. Without this, the margin lives inside the wrapper's
+  // own frame (Apple footer column titles regression).
+  let bubbledMargin: MarginSides | null = null;
+
   for (const child of effectiveChildren) {
     // Skip invisible elements: visibility:hidden or opacity:0.
     // These take layout space in CSS but should not render in Figma wireframes.
@@ -245,7 +266,7 @@ function convertFrame(
 
     if (child.type === 'TEXT') {
       // Collect TEXT node info (don't create WireframeNode yet — will coalesce)
-      textChildValues.push({
+      pushTextValue({
         value: child.value,
         font: child.font,
         platformFamily: child.platformFont?.familyName,
@@ -255,7 +276,7 @@ function convertFrame(
         height: child.height,
       });
     } else if (child.type === 'SVG') {
-      children.push(convertSVGNode(child, node));
+      pushChildNode(convertSVGNode(child, node));
     } else if (child.type === 'FRAME') {
       // Zero-size wrapper flattening: promote children of 0x0 wrappers into parent.
       // Pattern: Apple.com's div#globalheader is display:inline, w=0, h=0, wrapping
@@ -263,7 +284,7 @@ function convertFrame(
       if (child.width < 1 && child.height < 1 && child.children?.length > 0) {
         for (const grandchild of child.children) {
           if (grandchild.type === 'TEXT') {
-            textChildValues.push({
+            pushTextValue({
               value: grandchild.value,
               font: grandchild.font,
               platformFamily: grandchild.platformFont?.familyName,
@@ -273,42 +294,67 @@ function convertFrame(
               height: grandchild.height,
             });
           } else if (grandchild.type === 'SVG') {
-            children.push(convertSVGNode(grandchild, node));
+            pushChildNode(convertSVGNode(grandchild, node));
           } else if (grandchild.type === 'FRAME') {
-            children.push(convertFrame(grandchild, node, options));
+            pushChildNode(convertFrame(grandchild, node, options));
           }
         }
       } else if (child.width < 1 && child.height < 1) {
         // Zero-size with no children — skip entirely
         continue;
-      // Pseudo-element wrappers (__w2w-pseudo-before/after): flatten their children
-      // directly into parent, skipping the wrapper frame.
-      } else if (child.classList.includes('__w2w-pseudo-before') || child.classList.includes('__w2w-pseudo-after')) {
+      // Pseudo-element wrappers (__w2w-pseudo-before/after/marker): either
+      // render the wrapper itself as a decorative frame (empty children —
+      // e.g. Apple footer pipe separators) or flatten its children into the
+      // parent (text pseudos, including list markers "1." / "•").
+      } else if (
+        child.classList.includes('__w2w-pseudo-before') ||
+        child.classList.includes('__w2w-pseudo-after') ||
+        child.classList.includes('__w2w-pseudo-marker')
+      ) {
         // Extract pseudo-element styles for its text children
         const pseudoStyles = child.styles;
         const pseudoColor = str(pseudoStyles.webkitTextFillColor) || str(pseudoStyles.color) || undefined;
         const pseudoPosition = str(pseudoStyles.position);
-        const isAbsolutePseudo = pseudoPosition === 'absolute' || pseudoPosition === 'fixed';
+        // list-style-position: outside markers need absolute positioning in Figma
+        // even though the wrapper has position: static (browsers use special
+        // marker layout, not CSS absolute). "outside" is the CSS default.
+        const isMarkerOutside = child.classList.includes('__w2w-pseudo-marker') &&
+          str(node.styles.listStylePosition) !== 'inside';
+        const isAbsolutePseudo = isMarkerOutside || pseudoPosition === 'absolute' || pseudoPosition === 'fixed';
+
+        // Decorative pseudo — no text/svg/frame children, wrapper IS the visual.
+        // Render through convertFrame so it picks up fills/strokes/effects/sizing
+        // via the same path as any regular div; absolute positioning is honored
+        // downstream by nodes.ts.
+        if (child.children.length === 0) {
+          const pseudoFrame = convertFrame(child, node, options);
+          if (isAbsolutePseudo) {
+            pseudoFrame.position = pseudoPosition as 'absolute' | 'fixed';
+          }
+          pushChildNode(pseudoFrame);
+          continue;
+        }
 
         for (const pseudoChild of child.children) {
           if (pseudoChild.type === 'TEXT') {
             if (isAbsolutePseudo) {
               // Absolutely positioned pseudo-element (e.g., li::before with position:absolute)
-              // → create as a separate child node, not text coalescing
-              // Use CSS left/top values instead of computed coordinates —
-              // absolute elements position from parent's padding box edge, ignoring padding
-              const cssLeft = parseFloat(str(pseudoStyles.left) || '') || 0;
-              const cssTop = parseFloat(str(pseudoStyles.top) || '') || 0;
+              // → create as a separate child node, not text coalescing.
+              // For outside markers: use measured geometry (page-absolute coords);
+              // convertTextNodeFromValue subtracts parent to get relative offset.
+              // For CSS absolute: use left/top from styles (position from padding box edge).
+              const xVal = isMarkerOutside ? pseudoChild.x : node.x + (parseFloat(str(pseudoStyles.left) || '') || 0);
+              const yVal = isMarkerOutside ? pseudoChild.y : node.y + (parseFloat(str(pseudoStyles.top) || '') || 0);
               const pseudoTextNode = convertTextNodeFromValue(
                 { value: pseudoChild.value, font: pseudoChild.font, platformFamily: pseudoChild.platformFont?.familyName,
-                  x: node.x + cssLeft, y: node.y + cssTop, width: pseudoChild.width, height: pseudoChild.height,
+                  x: xVal, y: yVal, width: pseudoChild.width, height: pseudoChild.height,
                   color: pseudoColor },
                 node, pseudoStyles, options,
               );
-              pseudoTextNode.position = pseudoPosition as 'absolute' | 'fixed';
-              children.push(pseudoTextNode);
+              pseudoTextNode.position = isMarkerOutside ? 'absolute' : pseudoPosition as 'absolute' | 'fixed';
+              pushChildNode(pseudoTextNode);
             } else {
-              textChildValues.push({
+              pushTextValue({
                 value: pseudoChild.value,
                 font: pseudoChild.font,
                 platformFamily: pseudoChild.platformFont?.familyName,
@@ -320,9 +366,9 @@ function convertFrame(
               });
             }
           } else if (pseudoChild.type === 'SVG') {
-            children.push(convertSVGNode(pseudoChild, node));
+            pushChildNode(convertSVGNode(pseudoChild, node));
           } else if (pseudoChild.type === 'FRAME') {
-            children.push(convertFrame(pseudoChild, node, options));
+            pushChildNode(convertFrame(pseudoChild, node, options));
           }
         }
       } else if (
@@ -330,11 +376,28 @@ function convertFrame(
         INLINE_TEXT_TAGS.has(child.tag) &&
         isTextOnlyFrame(child)
       ) {
-        // Inline element (span, a, strong, em, etc.) with only TEXT children
-        // inside a text-coalesce parent (h2, p, etc.) → flatten into parent's text
-        collectTextFromFrame(child, textChildValues);
+        // Text-only inline wrapper (span, a, strong, em, …). Three outcomes
+        // decided by classifyWrapper:
+        //   'collapse' → flatten into parent's text (original behavior)
+        //   'bubble'   → move margin to parent, then collapse as text
+        //   'frame'    → render as nested frame (keeps padding/width or
+        //                margin against siblings)
+        const isOnly = effectiveChildren.length === 1;
+        const kind = classifyWrapper(child, isOnly);
+        if (kind === 'frame') {
+          pushChildNode(convertFrame(child, node, options));
+        } else {
+          if (kind === 'bubble') {
+            bubbledMargin = extractMarginFromStyles(child.styles);
+          }
+          const before = textChildValues.length;
+          collectTextFromFrame(child, textChildValues);
+          for (let i = before; i < textChildValues.length; i++) {
+            orderEntries.push({ kind: 'text', index: i });
+          }
+        }
       } else {
-        children.push(convertFrame(child, node, options));
+        pushChildNode(convertFrame(child, node, options));
       }
     }
   }
@@ -396,17 +459,46 @@ function convertFrame(
 
     type = 'text';
   } else if (hasTextChildren) {
-    // Mixed children (TEXT + FRAME/SVG) or container tag — keep TEXT as individual children
-    for (const tv of textChildValues) {
-      const textNode = convertTextNodeFromValue(tv, node, s, options);
-      children.push(textNode);
+    // Mixed children (TEXT + FRAME/SVG) or container tag — keep TEXT as individual
+    // children. Fix D: rebuild in DOM order using orderEntries so inline flow
+    // (e.g., Apple footer <div>text <a>link</a> text</div>) stays in source order.
+    //
+    // Merge adjacent per-line TEXT entries: the content script splits multi-line
+    // paragraphs into one TEXT node per visual line. Consecutive TEXT entries with
+    // matching font/x/height are joined into a single WireframeNode (like h2d).
+    const { mergedEntries, mergedValues } = mergeAdjacentTextEntries(orderEntries, textChildValues);
+    const ordered: WireframeNode[] = [];
+    for (const entry of mergedEntries) {
+      if (entry.kind === 'text') {
+        const tv = mergedValues[entry.index];
+        const wn = convertTextNodeFromValue(tv, node, s, options);
+        // Propagate browserLineCount from merged entries
+        const lineCount = (tv as TextChildValue & { _mergedLineCount?: number })._mergedLineCount;
+        if (lineCount && lineCount > 1) {
+          wn.browserLineCount = lineCount;
+        }
+        ordered.push(wn);
+      } else {
+        ordered.push(children[entry.index]);
+      }
     }
+    children.length = 0;
+    for (const c of ordered) children.push(c);
     // Set frame's textContent for fallback rendering (li text, etc.)
-    textContent = textChildValues.map(t => t.value).join(' ');
+    textContent = mergedValues.map(t => t.value).join(' ');
   }
 
-  // Margin
-  const margin = parseMargin(s);
+  // Margin — own margin plus any margin bubbled up from a sole text-only
+  // inline wrapper child (see classifyWrapper → 'bubble').
+  let margin = parseMargin(s);
+  if (bubbledMargin) {
+    margin = {
+      top: margin.top + bubbledMargin.top,
+      right: margin.right + bubbledMargin.right,
+      bottom: margin.bottom + bubbledMargin.bottom,
+      left: margin.left + bubbledMargin.left,
+    };
+  }
   // Detect horizontal centering via multiple methods:
   // 1. CSS value: marginLeft === 'auto' && marginRight === 'auto' (if computedStyleMap preserved it)
   // 2. Geometry: element is centered within parent (marginLeft ≈ marginRight > 0 and element narrower than parent)
@@ -435,6 +527,7 @@ function convertFrame(
 
     position: str(s.position) as WireframeNode['position'] || undefined,
     zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
+    cssOrder: s.order != null && String(s.order) !== '0' ? Number(s.order) : undefined,
 
     layoutMode,
     itemSpacing,
@@ -444,7 +537,43 @@ function convertFrame(
     flexWrap: !isAbsoluteMode ? str(s.flexWrap) : undefined,
     layoutGrow: sizing.grow,
     layoutAlign: sizing.align,
-    layoutSizingHorizontal: sizing.horizontal,
+    // Single-line coalesced text whose natural DOM width exceeds its parent:
+    // override FILL to HUG so the text keeps its natural width instead of
+    // being wrapped to the narrower Figma parent. This matches browser
+    // behavior where content overflows visually (e.g. Apple.com
+    // "Amazing Mac. Surprising price." natural 364.73px inside a 351px tile).
+    // When node.width <= parent.width the block/stretch FILL is correct.
+    layoutSizingHorizontal: (() => {
+      if (type !== 'text' || sizing.horizontal !== 'FILL') return sizing.horizontal;
+      if ((browserLineCount ?? 1) !== 1) return sizing.horizontal;
+      if (!parent) return sizing.horizontal;
+
+      // Single-line coalesced text → prefer HUG when the parent is already
+      // content-sized (parent.width matches child text width) or the child
+      // text naturally overflows the parent. Either way FILL would let
+      // outer layout constraints shrink-wrap the text, which loses the
+      // intrinsic width captured by the browser. HUG preserves it.
+      //
+      // Skip the override when CSS has an explicit sizing intent that
+      // should win: explicit width/max-width (other than "auto"/"none"),
+      // width: 100%, alignSelf: stretch, etc. — getSizing/cssMaxWidth
+      // handle those already.
+      const explicitWidth = str(s.width);
+      const hasExplicitWidth = explicitWidth && explicitWidth !== 'auto';
+      const hasExplicitFillIntent =
+        explicitWidth === '100%' ||
+        str(s.alignSelf) === 'stretch' ||
+        (typeof s.flexGrow === 'number' && s.flexGrow > 0);
+      if (hasExplicitWidth || hasExplicitFillIntent) return sizing.horizontal;
+
+      const maxTextChildWidth = textChildValues.reduce(
+        (acc, t) => Math.max(acc, t.width || 0), 0
+      );
+      // 1px tolerance for sub-pixel rounding — HUG when parent.width
+      // matches or exceeds text natural width (i.e. parent is already
+      // sized to fit the text, no stretch happening).
+      return maxTextChildWidth >= parent.width - 1 ? 'HUG' : sizing.horizontal;
+    })(),
     layoutSizingVertical: sizing.vertical,
 
     // Grid
@@ -460,9 +589,10 @@ function convertFrame(
     effects: effects.length > 0 ? effects : undefined,
 
     // Legacy fields
-    backgroundColor: fills.find(f => f.type === 'SOLID')
-      ? figmaColorToCSS(fills.find(f => f.type === 'SOLID')!.color!)
-      : null,
+    backgroundColor: (() => {
+      const solidFill = fills.find(f => f.type === 'SOLID');
+      return solidFill && solidFill.color ? figmaColorToCSS(solidFill.color) : null;
+    })(),
     backgroundGradient: fills.some(f => f.type.startsWith('GRADIENT_'))
       ? str(s.backgroundImage) || null
       : null,
@@ -477,6 +607,16 @@ function convertFrame(
     overflow,
     margin: margin.top || margin.right || margin.bottom || margin.left ? margin : undefined,
     horizontallyCentered: isHorizontallyCentered || undefined,
+
+    // CSS max-width (px) — applied as Figma native maxWidth on text/frame to
+    // enforce the constraint regardless of layoutSizingHorizontal (FILL/HUG).
+    // Parsed from CSS value like "265px". Skipped for 'none', '%' and non-px units.
+    cssMaxWidth: (() => {
+      const raw = str(s.maxWidth);
+      if (!raw || raw === 'none' || raw.includes('%')) return undefined;
+      const n = parseFloat(raw);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
 
     // Text
     textContent,
@@ -602,9 +742,127 @@ function convertTextNodeFromValue(
     lineHeight: str(parentStyles.lineHeight) || 'normal',
     letterSpacing: parseFloat(str(parentStyles.letterSpacing)) || 0,
 
+    // Inherit parent's CSS max-width so merged/child TEXT inside a <p> with
+    // max-width still wraps at the constraint (MERGE path for paragraphs that
+    // contain inline non-text children like <sup>).
+    cssMaxWidth: (() => {
+      const raw = str(parentStyles.maxWidth);
+      if (!raw || raw === 'none' || raw.includes('%')) return undefined;
+      const n = parseFloat(raw);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
+
     isPlaceholder: false,
     children: [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Adjacent per-line TEXT merging
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge consecutive TEXT entries that represent visual lines of the same
+ * paragraph. The content-script splits multi-line text nodes into per-line
+ * W2WTextNodes (via getClientRects), so a single paragraph may produce 8+
+ * TEXT entries. This function detects runs of adjacent TEXT entries with
+ * matching font, x-position and height, and joins them into one entry.
+ *
+ * Non-text entries (FRAME/SVG children) always break a run.
+ */
+type OrderEntry = { kind: 'text'; index: number } | { kind: 'child'; index: number };
+
+function mergeAdjacentTextEntries(
+  entries: OrderEntry[],
+  textValues: TextChildValue[],
+): { mergedEntries: OrderEntry[]; mergedValues: TextChildValue[] } {
+  if (entries.length <= 1) {
+    return { mergedEntries: entries, mergedValues: textValues };
+  }
+
+  const mergedEntries: OrderEntry[] = [];
+  const mergedValues: TextChildValue[] = [];
+
+  let runStart = -1; // index into entries where current TEXT run started
+
+  const flushRun = (runEnd: number): void => {
+    if (runStart < 0) return;
+    const runEntries = entries.slice(runStart, runEnd);
+    const tvs = runEntries.map(e => textValues[e.index]);
+
+    // Group consecutive mergeable TEXT values
+    const groups: TextChildValue[][] = [];
+    let currentGroup: TextChildValue[] = [tvs[0]];
+
+    for (let i = 1; i < tvs.length; i++) {
+      const prev = tvs[i - 1];
+      const curr = tvs[i];
+      const sameFont = curr.font === prev.font;
+      const sameX = Math.abs(curr.x - prev.x) <= 2;
+      const sameHeight = Math.abs(curr.height - prev.height) <= 1;
+      const yGap = curr.y - prev.y;
+      const maxLineStep = prev.height * 2.5; // allow up to 2.5× lineHeight
+      const sequentialY = yGap > 0 && yGap <= maxLineStep;
+
+      if (sameFont && sameX && sameHeight && sequentialY) {
+        currentGroup.push(curr);
+      } else {
+        groups.push(currentGroup);
+        currentGroup = [curr];
+      }
+    }
+    groups.push(currentGroup);
+
+    // Convert each group into a merged TextChildValue
+    for (const group of groups) {
+      if (group.length === 1) {
+        // Single entry — no merge needed
+        const idx = mergedValues.length;
+        mergedValues.push(group[0]);
+        mergedEntries.push({ kind: 'text', index: idx });
+      } else {
+        // Merge group: join values, expand bounds, track line count
+        const first = group[0];
+        const last = group[group.length - 1];
+        const merged: TextChildValue = {
+          value: group.map(t => t.value).join(' '),
+          font: first.font,
+          platformFamily: first.platformFamily,
+          x: first.x,
+          y: first.y,
+          width: Math.max(...group.map(t => t.width)),
+          height: (last.y + last.height) - first.y,
+          color: first.color,
+          textDecoration: first.textDecoration,
+          tag: first.tag,
+          fontWeight: first.fontWeight,
+          // Store original line count for browserLineCount
+          _mergedLineCount: group.length,
+        } as TextChildValue & { _mergedLineCount: number };
+
+        const idx = mergedValues.length;
+        mergedValues.push(merged);
+        mergedEntries.push({ kind: 'text', index: idx });
+      }
+    }
+
+    runStart = -1;
+  };
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.kind === 'text') {
+      if (runStart < 0) runStart = i;
+    } else {
+      // Non-text entry — flush any pending TEXT run, then push the child
+      flushRun(i);
+      mergedEntries.push({ kind: 'child', index: entry.index });
+    }
+  }
+  // Flush trailing TEXT run
+  flushRun(entries.length);
+
+  return { mergedEntries, mergedValues };
 }
 
 // ---------------------------------------------------------------------------
@@ -682,37 +940,70 @@ function getLayoutMode(
  */
 function inferLayoutFromChildren(
   children: W2WNode[],
+  parentTag: string,
 ): 'HORIZONTAL' | null {
   if (children.length === 0) return null;
 
+  let textNodeCount = 0;
+  let inlineTextFrameCount = 0;
+  let inlineBlockCount = 0;
+  let blockFrameCount = 0;
   let floatCount = 0;
-  let inlineCount = 0;
-  let frameCount = 0;
 
   for (const child of children) {
-    if (child.type !== 'FRAME') continue;
-    const frame = child as W2WFrameNode;
-    // Skip inline text tags (span, a, strong, etc.) with only text children —
-    // these are coalesced into parent text, not layout children
-    if (INLINE_TEXT_TAGS.has(frame.tag) && isTextOnlyFrame(frame)) {
+    if (child.type === 'TEXT') {
+      textNodeCount++;
       continue;
     }
-    frameCount++;
+    if (child.type !== 'FRAME') continue;
+    const frame = child as W2WFrameNode;
     const cs = frame.styles;
     const f = str(cs.cssFloat);
     const d = str(cs.display);
 
+    // Inline-text frames (span, a, strong, etc. with only text inside).
+    // These stay as separate nodes inside a block parent (see Apple footer
+    // case) but count as inline signal for layout inference.
+    if (INLINE_TEXT_TAGS.has(frame.tag) && isTextOnlyFrame(frame)) {
+      inlineTextFrameCount++;
+      continue;
+    }
+
+    if (d === 'inline' || d === 'inline-block') {
+      inlineBlockCount++;
+      continue;
+    }
     if (f === 'left' || f === 'right' || f === 'inline-start' || f === 'inline-end') {
       floatCount++;
+      continue;
     }
-    if (d === 'inline-block' || d === 'inline') {
-      inlineCount++;
-    }
+    blockFrameCount++;
   }
 
-  // Any float child → HORIZONTAL (float is explicit horizontal intent)
-  // Majority inline-block/inline → HORIZONTAL (avoid false positive from single inline)
-  if (frameCount > 0 && (floatCount > 0 || inlineCount > frameCount / 2)) {
+  // Any float → HORIZONTAL (float is explicit horizontal intent, even without
+  // sibling block children)
+  if (floatCount > 0) {
+    return 'HORIZONTAL';
+  }
+
+  // Fix A: all children are inline (text runs, inline-text frames, or
+  // inline/inline-block frames) → parent renders as HORIZONTAL auto-layout
+  // with children kept as separate nodes (matches h2d behavior).
+  //
+  // Gate: skip for TEXT_COALESCE_TAGS parents (p, h1-h6, span, a, etc.) —
+  // those use the inline text coalescing path and must stay as NONE so the
+  // coalescing branch can promote them to type='text' with styledSegments.
+  const inlineSignal = textNodeCount + inlineTextFrameCount + inlineBlockCount;
+  if (
+    !TEXT_COALESCE_TAGS.has(parentTag) &&
+    blockFrameCount === 0 &&
+    inlineSignal > 0
+  ) {
+    return 'HORIZONTAL';
+  }
+
+  // Existing heuristic: majority inline-block mixed with block frames → HORIZONTAL
+  if (blockFrameCount > 0 && inlineBlockCount > blockFrameCount / 2) {
     return 'HORIZONTAL';
   }
 
@@ -727,6 +1018,7 @@ function getSizing(
   s: Record<string, string | number | undefined>,
   parentStyles: Record<string, string | number | undefined> | undefined | null,
   layoutMode: string,
+  parentDims?: { width: number; height: number },
 ): {
   horizontal: 'FIXED' | 'HUG' | 'FILL' | undefined;
   vertical: 'FIXED' | 'HUG' | 'FILL' | undefined;
@@ -762,6 +1054,18 @@ function getSizing(
           align: 'INHERIT',
         };
       }
+      // Block children with max-width: FIXED width (element is narrower than
+      // parent due to the constraint). Without this, text nodes inherit parent
+      // width via FILL and render on one line instead of wrapping at max-width.
+      const maxW = str(s.maxWidth);
+      if (maxW && maxW !== 'none') {
+        return {
+          horizontal: 'FIXED',
+          vertical: 'FIXED',
+          grow: 0,
+          align: 'INHERIT',
+        };
+      }
       // Block children in block parent: FILL width, FIXED height
       // Use browser-measured height (from node.height) — NOT HUG.
       // HUG would let Figma recalculate height from content, which differs
@@ -785,8 +1089,24 @@ function getSizing(
 
   const isParentGrid = parentDisplay === 'grid' || parentDisplay === 'inline-grid';
 
-  // Width
-  if (width === 'fit-content' || width === 'max-content') {
+  // Flex/grid child with explicit maxWidth: FIXED horizontal sizing.
+  // Browser-resolved node.width already reflects the maxWidth constraint;
+  // without this guard, `width: auto` children in a stretching flex column
+  // would get FILL and blow past maxWidth (e.g. Apple.com p.tile-subhead
+  // rendering on one 635px line instead of wrapping at 265px).
+  // Skip when caller has an explicit FILL intent (width:100%, flexGrow>0,
+  // alignSelf:stretch) or when the element is a grid item (grid cell sizing
+  // is distinct from content-box sizing).
+  const maxW = str(s.maxWidth);
+  const hasExplicitFillIntent = width === '100%' || flexGrow > 0 || alignSelf === 'stretch';
+  if (maxW && maxW !== 'none' && !hasExplicitFillIntent && !isParentGrid) {
+    // Width
+    if (width === 'fit-content' || width === 'max-content') {
+      horizontal = 'HUG';
+    } else {
+      horizontal = 'FIXED';
+    }
+  } else if (width === 'fit-content' || width === 'max-content') {
     horizontal = 'HUG';
   } else if (width === 'auto') {
     // CSS "auto" in grid = stretch to cell; in flex = shrink-to-content (HUG)
@@ -822,6 +1142,33 @@ function getSizing(
     vertical = 'FILL';
   } else if (isParentVertical && flexGrow > 0) {
     vertical = 'FILL';
+  }
+
+  // Cross-axis FILL detection for resolved percentage widths (e.g., width: 100% → "1440px").
+  // When a child's pixel dimension matches the parent's content dimension on the cross-axis,
+  // upgrade FIXED to FILL — the element was likely width: 100% or height: 100%.
+  if (parentDims && parentIsFlexOrGrid && !isParentGrid) {
+    if (isParentVertical && horizontal === 'FIXED') {
+      const numW = parseFloat(width);
+      if (!isNaN(numW) && numW > 0) {
+        const padL = parseFloat(str(parentStyles?.paddingLeft)) || 0;
+        const padR = parseFloat(str(parentStyles?.paddingRight)) || 0;
+        const parentContentW = parentDims.width - padL - padR;
+        if (parentContentW > 0 && Math.abs(parentContentW - numW) <= 2) {
+          horizontal = 'FILL';
+        }
+      }
+    } else if (!isParentVertical && vertical === 'FIXED') {
+      const numH = parseFloat(height);
+      if (!isNaN(numH) && numH > 0) {
+        const padT = parseFloat(str(parentStyles?.paddingTop)) || 0;
+        const padB = parseFloat(str(parentStyles?.paddingBottom)) || 0;
+        const parentContentH = parentDims.height - padT - padB;
+        if (parentContentH > 0 && Math.abs(parentContentH - numH) <= 2) {
+          vertical = 'FILL';
+        }
+      }
+    }
   }
 
   return {
@@ -883,56 +1230,115 @@ function parseFills(
 // Stroke parsing (border → FigmaStroke[])
 // ---------------------------------------------------------------------------
 
+type ParsedBorderSide = {
+  key: 'top' | 'right' | 'bottom' | 'left';
+  weight: number;
+  color: FigmaColor;
+  style: 'SOLID' | 'DASHED' | 'DOTTED';
+};
+
+function figmaColorsEqual(a: FigmaColor, b: FigmaColor): boolean {
+  const eps = 1e-4;
+  return (
+    Math.abs(a.r - b.r) < eps &&
+    Math.abs(a.g - b.g) < eps &&
+    Math.abs(a.b - b.b) < eps &&
+    Math.abs((a.a ?? 1) - (b.a ?? 1)) < eps
+  );
+}
+
+function parseOneBorderSide(
+  key: 'top' | 'right' | 'bottom' | 'left',
+  widthRaw: string | number | undefined,
+  colorRaw: string | number | undefined,
+  styleRaw: string | number | undefined,
+  currentColorFallback: string,
+): ParsedBorderSide | null {
+  const weight = parseFloat(str(widthRaw) || '0');
+  if (!isFinite(weight) || weight <= 0) return null;
+  const styleStr = str(styleRaw).toLowerCase();
+  if (!styleStr || styleStr === 'none' || styleStr === 'hidden') return null;
+  const colorStr = str(colorRaw) || currentColorFallback || 'rgb(0,0,0)';
+  const color = parseCSSColor(colorStr);
+  if (!color || color.a === 0) return null;
+  const figmaStyle: 'SOLID' | 'DASHED' | 'DOTTED' =
+    styleStr === 'dashed' ? 'DASHED'
+    : styleStr === 'dotted' ? 'DOTTED'
+    : 'SOLID';
+  return { key, weight, color, style: figmaStyle };
+}
+
 function parseStrokes(
   s: Record<string, string | number | undefined>,
 ): FigmaStroke[] {
-  const borderStyle = str(s.borderStyle);
-  if (!borderStyle || borderStyle === 'none') {
-    // Check individual sides
-    const hasTop = str(s.borderTopStyle) && str(s.borderTopStyle) !== 'none';
-    const hasRight = str(s.borderRightStyle) && str(s.borderRightStyle) !== 'none';
-    const hasBottom = str(s.borderBottomStyle) && str(s.borderBottomStyle) !== 'none';
-    const hasLeft = str(s.borderLeftStyle) && str(s.borderLeftStyle) !== 'none';
+  // currentColor fallback for border-color
+  const currentColor = str(s.color) || 'rgb(0,0,0)';
 
-    if (!hasTop && !hasRight && !hasBottom && !hasLeft) return [];
-
-    const borderColor = str(s.borderColor) || 'rgb(0, 0, 0)';
-    const color = parseCSSColor(borderColor);
-    if (!color) return [];
-
-    const weight = parseFloat(str(s.borderWidth) || '0');
-    if (weight <= 0) return [];
-
-    return [{
-      color,
-      weight,
-      position: 'INSIDE',
-      style: 'SOLID',
-      sides: {
-        top: !!hasTop,
-        right: !!hasRight,
-        bottom: !!hasBottom,
-        left: !!hasLeft,
-      },
-    }];
+  const parsed: ParsedBorderSide[] = [];
+  const sides = [
+    { key: 'top' as const,    w: s.borderTopWidth,    c: s.borderTopColor,    st: s.borderTopStyle    },
+    { key: 'right' as const,  w: s.borderRightWidth,  c: s.borderRightColor,  st: s.borderRightStyle  },
+    { key: 'bottom' as const, w: s.borderBottomWidth, c: s.borderBottomColor, st: s.borderBottomStyle },
+    { key: 'left' as const,   w: s.borderLeftWidth,   c: s.borderLeftColor,   st: s.borderLeftStyle   },
+  ];
+  for (const side of sides) {
+    const ps = parseOneBorderSide(side.key, side.w, side.c, side.st, currentColor);
+    if (ps) parsed.push(ps);
   }
 
-  const borderColor = str(s.borderColor) || 'rgb(0, 0, 0)';
-  const color = parseCSSColor(borderColor);
-  if (!color) return [];
+  if (parsed.length > 0) {
+    // Uniform fast path: all 4 sides identical
+    if (parsed.length === 4) {
+      const [first, ...rest] = parsed;
+      const uniform = rest.every(
+        (p) =>
+          p.weight === first.weight &&
+          p.style === first.style &&
+          figmaColorsEqual(p.color, first.color),
+      );
+      if (uniform) {
+        return [{
+          color: first.color,
+          weight: first.weight,
+          position: 'INSIDE',
+          style: first.style,
+          sides: { top: true, right: true, bottom: true, left: true },
+        }];
+      }
+    }
+    // Non-uniform: one stroke per active side
+    return parsed.map((p) => ({
+      color: p.color,
+      weight: p.weight,
+      position: 'INSIDE' as const,
+      style: p.style,
+      sides: {
+        top: p.key === 'top',
+        right: p.key === 'right',
+        bottom: p.key === 'bottom',
+        left: p.key === 'left',
+      },
+    }));
+  }
 
+  // Fallback: shorthand border-{width,color,style}
   const weight = parseFloat(str(s.borderWidth) || '0');
-  if (weight <= 0) return [];
-
-  const style = borderStyle === 'dashed' ? 'DASHED'
+  if (!isFinite(weight) || weight <= 0) return [];
+  const borderStyle = str(s.borderStyle).toLowerCase();
+  if (!borderStyle || borderStyle === 'none' || borderStyle === 'hidden') return [];
+  const borderColor = str(s.borderColor) || currentColor;
+  const color = parseCSSColor(borderColor);
+  if (!color || color.a === 0) return [];
+  const style: 'SOLID' | 'DASHED' | 'DOTTED' =
+    borderStyle === 'dashed' ? 'DASHED'
     : borderStyle === 'dotted' ? 'DOTTED'
     : 'SOLID';
-
   return [{
     color,
     weight,
     position: 'INSIDE',
-    style: style as FigmaStroke['style'],
+    style,
+    sides: { top: true, right: true, bottom: true, left: true },
   }];
 }
 
@@ -1264,29 +1670,33 @@ function parseColorStops(content: string): FigmaGradientStop[] {
   // Split by comma outside parentheses
   const parts = splitShadows(stopsStr);
 
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i].trim();
+  // First pass: parse color + explicit position (if any) for each non-empty part.
+  // We defer auto-position assignment until after null-colored parts are dropped,
+  // so positions reflect the *valid* stops only.
+  type RawStop = { color: FigmaColor; explicit: number | null };
+  const raw: RawStop[] = [];
+  for (const rawPart of parts) {
+    const part = rawPart.trim();
     if (!part) continue;
 
-    // Extract color and position
     const posMatch = part.match(/([\d.]+%?)\s*$/);
-    let position = i / Math.max(parts.length - 1, 1);
+    let explicit: number | null = null;
     let colorStr = part;
-
     if (posMatch) {
       const posStr = posMatch[1];
-      if (posStr.endsWith('%')) {
-        position = parseFloat(posStr) / 100;
-      } else {
-        position = parseFloat(posStr);
-      }
+      explicit = posStr.endsWith('%') ? parseFloat(posStr) / 100 : parseFloat(posStr);
       colorStr = part.slice(0, part.length - posMatch[0].length).trim();
     }
-
     const color = parseCSSColor(colorStr);
-    if (color) {
-      stops.push({ color, position });
-    }
+    if (color) raw.push({ color, explicit });
+  }
+
+  // Second pass: fill auto-positions across valid stops only.
+  const denom = Math.max(raw.length - 1, 1);
+  for (let i = 0; i < raw.length; i++) {
+    const { color, explicit } = raw[i];
+    const position = explicit !== null ? explicit : i / denom;
+    stops.push({ color, position });
   }
 
   return stops;
@@ -1307,7 +1717,8 @@ function cleanFontFamily(fontFamily: string): string {
   return first.replace(/^["']|["']$/g, '');
 }
 
-function parseFontString(font: string): { family: string; weight: number } {
+function parseFontString(font: string | undefined | null): { family: string; weight: number } {
+  if (!font || typeof font !== 'string') return { family: '', weight: 400 };
   // "Space Grotesk Light" → family="Space Grotesk", weight=300
   // "Arial Bold" → family="Arial", weight=700
   const weightMap: Record<string, number> = {
@@ -1469,6 +1880,83 @@ function isTextOnlyFrame(node: W2WFrameNode): boolean {
   return node.children.every(child =>
     child.type === 'TEXT' || (child.type === 'FRAME' && INLINE_TEXT_TAGS.has(child.tag) && isTextOnlyFrame(child))
   );
+}
+
+type MarginSides = { top: number; right: number; bottom: number; left: number };
+
+/**
+ * Parse 4-sided margin from raw wrapper styles. Non-numeric and negative
+ * values collapse to 0 (we only care about positive gaps for bubble-up).
+ */
+function extractMarginFromStyles(s: Record<string, string | number | undefined>): MarginSides {
+  return {
+    top: parseFloat(str(s.marginTop)) || 0,
+    right: parseFloat(str(s.marginRight)) || 0,
+    bottom: parseFloat(str(s.marginBottom)) || 0,
+    left: parseFloat(str(s.marginLeft)) || 0,
+  };
+}
+
+/**
+ * Decide what to do with a text-only inline wrapper (span, a, strong, …)
+ * that sits inside a text-coalesce parent (h3, p, button, …). Three outcomes:
+ *
+ *   - **frame**: render the wrapper as a nested frame (keeps its padding /
+ *     width / margin-against-siblings). Used when the wrapper has CSS that
+ *     cannot be bubbled up — padding (inward content box), width
+ *     constraints (wrapper's own size), or margin with sibling content that
+ *     the margin should not affect.
+ *
+ *   - **bubble**: bubble the wrapper's margin onto its parent and collapse
+ *     the wrapper's text into the parent's text flow. Used when the
+ *     wrapper is the only substantive child and its only box CSS is
+ *     margin. CSS semantics: margin of a sole block child of a block
+ *     parent collapses through the parent (and an inline wrapper's margin
+ *     on the only text content similarly ends up as the parent's effective
+ *     bottom margin). See Apple.com footer column titles
+ *     `<h3><span display:block margin-bottom:.8em>Apple Wallet</span></h3>`
+ *     — the 9.6px gap must push `<h3>`'s *next sibling* (the link list)
+ *     down, not live inside `<h3>`'s box.
+ *
+ *   - **collapse**: plain coalesce into parent's text (original behavior
+ *     for inline wrappers with no box CSS).
+ */
+function classifyWrapper(
+  child: W2WFrameNode,
+  isOnlyChild: boolean,
+): 'frame' | 'bubble' | 'collapse' {
+  const s = child.styles;
+
+  // Padding — content-box inward, cannot be bubbled.
+  if (
+    (parseFloat(str(s.paddingTop)) || 0) > 0 ||
+    (parseFloat(str(s.paddingRight)) || 0) > 0 ||
+    (parseFloat(str(s.paddingBottom)) || 0) > 0 ||
+    (parseFloat(str(s.paddingLeft)) || 0) > 0
+  ) {
+    return 'frame';
+  }
+
+  // Explicit width / min-width / max-width — constrains the wrapper's own
+  // box, can't be preserved on a collapsed parent.
+  for (const key of ['width', 'maxWidth', 'minWidth'] as const) {
+    const v = str(s[key]);
+    if (!v || v === 'auto' || v === 'none' || v === '0' || v === '0px') continue;
+    const n = parseFloat(v);
+    if (Number.isFinite(n) && n > 0) return 'frame';
+  }
+
+  // Margin — bubble iff the wrapper is the sole substantive child; otherwise
+  // keep as a framed child so the margin survives between siblings.
+  const m = extractMarginFromStyles(s);
+  const hasMargin = m.top > 0 || m.right > 0 || m.bottom > 0 || m.left > 0;
+  if (hasMargin) return isOnlyChild ? 'bubble' : 'frame';
+
+  // display:block / inline-block / flex / grid — load-bearing only when the
+  // wrapper carries other layout content. For a text-only wrapper that's the
+  // only child, plain collapse is visually identical (parent is already the
+  // block container). Fall through to 'collapse'.
+  return 'collapse';
 }
 
 /**

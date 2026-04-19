@@ -345,7 +345,7 @@ export function collectImageUrls(tree: AssetTreeNode): Set<string> {
 interface W2WAssetNode {
   type: string;
   $url?: string;
-  styles?: Record<string, string | number>;
+  styles?: Record<string, string | number | undefined>;
   children?: W2WAssetNode[];
 }
 

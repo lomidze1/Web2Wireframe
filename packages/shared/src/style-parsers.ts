@@ -942,69 +942,232 @@ export function parseFilterToEffects(
 // ============================================================================
 
 /**
- * Parse CSS borders to Figma strokes array
+ * Per-side border input (primary signature).
+ */
+export interface PerSideBorderInput {
+  top?: { width?: string | null; color?: string | null; style?: string | null };
+  right?: { width?: string | null; color?: string | null; style?: string | null };
+  bottom?: { width?: string | null; color?: string | null; style?: string | null };
+  left?: { width?: string | null; color?: string | null; style?: string | null };
+}
+
+/**
+ * Shorthand fallback input (legacy / tests).
+ */
+export interface ShorthandBorderInput {
+  width?: string | null;
+  color?: string | null;
+  style?: string | null;
+}
+
+type ParsedSide = {
+  key: "top" | "right" | "bottom" | "left";
+  weight: number;
+  color: FigmaColor;
+  style: "SOLID" | "DASHED" | "DOTTED";
+};
+
+function parseOneSide(
+  key: "top" | "right" | "bottom" | "left",
+  width: string | null | undefined,
+  color: string | null | undefined,
+  style: string | null | undefined,
+  resolvedVariables: Map<string, string>,
+  currentColorFallback: string | null = null,
+): ParsedSide | null {
+  const weight = parseFloat(String(width ?? "0"));
+  if (!isFinite(weight) || weight <= 0) return null;
+  const styleStr = (style || "").trim().toLowerCase();
+  if (!styleStr || styleStr === "none" || styleStr === "hidden") return null;
+  const rawColor = (color && color !== "") ? color : currentColorFallback;
+  if (!rawColor) return null;
+  const resolvedColor = resolveCSSVariables(String(rawColor), resolvedVariables);
+  const parsedColor = parseColorToFigma(resolvedColor);
+  if (!parsedColor || parsedColor.a === 0) return null;
+  const figmaStyle: "SOLID" | "DASHED" | "DOTTED" =
+    styleStr === "dashed" ? "DASHED"
+    : styleStr === "dotted" ? "DOTTED"
+    : "SOLID";
+  return { key, weight, color: parsedColor, style: figmaStyle };
+}
+
+function colorsEqual(a: FigmaColor, b: FigmaColor): boolean {
+  const eps = 1e-4;
+  return (
+    Math.abs(a.r - b.r) < eps &&
+    Math.abs(a.g - b.g) < eps &&
+    Math.abs(a.b - b.b) < eps &&
+    Math.abs((a.a ?? 1) - (b.a ?? 1)) < eps
+  );
+}
+
+/**
+ * Parse CSS borders to Figma strokes array.
+ *
+ * Primary signature (new): `parseBordersToStrokes(perSide, fallback?, vars?)`.
+ * Legacy positional signature still works via runtime shim for existing tests:
+ *   `parseBordersToStrokes(borderWidth, borderColor, borderStyle,
+ *                          borderTop, borderRight, borderBottom, borderLeft, vars)`.
+ *
+ * Semantics:
+ * - If 4 sides are all identical (weight/color/style) → 1 all-sides stroke.
+ * - Otherwise → up to 4 strokes, each with exactly one `sides` flag true.
+ * - Sides with `style: none|hidden`, width<=0, or transparent color are omitted.
  */
 export function parseBordersToStrokes(
-  borderWidth: string | null,
-  borderColor: string | null,
-  borderStyle: string | null,
-  // Individual sides (optional)
-  borderTop?: string | null,
-  borderRight?: string | null,
-  borderBottom?: string | null,
-  borderLeft?: string | null,
-  resolvedVariables: Map<string, string> = new Map()
+  perSideOrLegacyWidth?:
+    | PerSideBorderInput
+    | string
+    | null,
+  fallbackOrLegacyColor?:
+    | ShorthandBorderInput
+    | string
+    | null,
+  resolvedVariablesOrLegacyStyle:
+    | Map<string, string>
+    | string
+    | null = new Map(),
+  legacyBorderTop?: string | null,
+  legacyBorderRight?: string | null,
+  legacyBorderBottom?: string | null,
+  legacyBorderLeft?: string | null,
+  legacyResolvedVariables: Map<string, string> = new Map(),
 ): FigmaStroke[] {
-  const strokes: FigmaStroke[] = [];
+  // --- Legacy positional shim detection ---
+  const looksLegacy =
+    typeof perSideOrLegacyWidth === "string" ||
+    perSideOrLegacyWidth === null ||
+    typeof fallbackOrLegacyColor === "string" ||
+    typeof resolvedVariablesOrLegacyStyle === "string";
 
-  // Check for individual side borders first
-  const hasSideBorders = borderTop || borderRight || borderBottom || borderLeft;
+  let perSide: PerSideBorderInput | undefined;
+  let fallback: ShorthandBorderInput | undefined;
+  let resolvedVariables: Map<string, string>;
 
-  if (hasSideBorders) {
-    // Parse each side separately
-    const sides = [
-      { css: borderTop, side: "top" as const },
-      { css: borderRight, side: "right" as const },
-      { css: borderBottom, side: "bottom" as const },
-      { css: borderLeft, side: "left" as const },
-    ];
+  if (looksLegacy) {
+    const legacyWidth = perSideOrLegacyWidth as string | null;
+    const legacyColor = fallbackOrLegacyColor as string | null;
+    const legacyStyle = resolvedVariablesOrLegacyStyle as string | null;
+    resolvedVariables = legacyResolvedVariables;
 
-    for (const { css, side } of sides) {
-      if (css && css !== "none" && css !== "0px") {
-        const stroke = parseBorderShorthand(css, resolvedVariables);
-        if (stroke) {
-          stroke.sides = {
-            top: side === "top",
-            right: side === "right",
-            bottom: side === "bottom",
-            left: side === "left",
-          };
-          strokes.push(stroke);
-        }
-      }
+    // If ANY per-side legacy shorthand is supplied, route through those.
+    const hasSideShorthand =
+      legacyBorderTop || legacyBorderRight || legacyBorderBottom || legacyBorderLeft;
+    if (hasSideShorthand) {
+      return parseBordersFromLegacySideShorthand(
+        legacyBorderTop, legacyBorderRight, legacyBorderBottom, legacyBorderLeft,
+        resolvedVariables,
+      );
     }
-
-    return strokes;
+    fallback = { width: legacyWidth, color: legacyColor, style: legacyStyle };
+  } else {
+    perSide = perSideOrLegacyWidth as PerSideBorderInput | undefined;
+    fallback = fallbackOrLegacyColor as ShorthandBorderInput | undefined;
+    resolvedVariables = (resolvedVariablesOrLegacyStyle as Map<string, string>) || new Map();
   }
 
-  // Use shorthand border properties
-  const width = parseFloat(borderWidth || "0");
-  if (width <= 0) return strokes;
+  // --- Primary per-side path ---
+  if (perSide) {
+    const parsed: ParsedSide[] = [];
+    (["top", "right", "bottom", "left"] as const).forEach((key) => {
+      const side = perSide![key];
+      if (!side) return;
+      const ps = parseOneSide(
+        key, side.width, side.color, side.style, resolvedVariables,
+      );
+      if (ps) parsed.push(ps);
+    });
 
-  const resolvedColor = resolveCSSVariables(borderColor || "", resolvedVariables);
+    if (parsed.length > 0) {
+      // Uniform fast path: all 4 sides identical → single stroke
+      if (parsed.length === 4) {
+        const [first, ...rest] = parsed;
+        const uniform = rest.every(
+          (p) =>
+            p.weight === first.weight &&
+            p.style === first.style &&
+            colorsEqual(p.color, first.color),
+        );
+        if (uniform) {
+          return [{
+            color: first.color,
+            weight: first.weight,
+            position: "INSIDE",
+            style: first.style,
+            sides: { top: true, right: true, bottom: true, left: true },
+          }];
+        }
+      }
+      // Non-uniform: one stroke per active side
+      return parsed.map((p) => ({
+        color: p.color,
+        weight: p.weight,
+        position: "INSIDE" as const,
+        style: p.style,
+        sides: {
+          top: p.key === "top",
+          right: p.key === "right",
+          bottom: p.key === "bottom",
+          left: p.key === "left",
+        },
+      }));
+    }
+  }
+
+  // --- Shorthand fallback ---
+  if (!fallback) return [];
+  const width = parseFloat(String(fallback.width ?? "0"));
+  if (!isFinite(width) || width <= 0) return [];
+
+  const resolvedColor = resolveCSSVariables(
+    String(fallback.color ?? ""),
+    resolvedVariables,
+  );
   const color = parseColorToFigma(resolvedColor);
-  if (!color) return strokes;
+  if (!color || color.a === 0) return [];
 
-  const style = mapBorderStyle(borderStyle);
-
-  strokes.push({
+  const style = mapBorderStyle(fallback.style ?? null);
+  return [{
     color,
     weight: width,
     position: "INSIDE",
     style,
     sides: { top: true, right: true, bottom: true, left: true },
-  });
+  }];
+}
 
+/**
+ * Legacy per-side shorthand parser (e.g. "1px solid red" per side).
+ * Only reached via the legacy positional signature.
+ */
+function parseBordersFromLegacySideShorthand(
+  borderTop: string | null | undefined,
+  borderRight: string | null | undefined,
+  borderBottom: string | null | undefined,
+  borderLeft: string | null | undefined,
+  resolvedVariables: Map<string, string>,
+): FigmaStroke[] {
+  const strokes: FigmaStroke[] = [];
+  const sides = [
+    { css: borderTop, side: "top" as const },
+    { css: borderRight, side: "right" as const },
+    { css: borderBottom, side: "bottom" as const },
+    { css: borderLeft, side: "left" as const },
+  ];
+  for (const { css, side } of sides) {
+    if (css && css !== "none" && css !== "0px") {
+      const stroke = parseBorderShorthand(css, resolvedVariables);
+      if (stroke) {
+        stroke.sides = {
+          top: side === "top",
+          right: side === "right",
+          bottom: side === "bottom",
+          left: side === "left",
+        };
+        strokes.push(stroke);
+      }
+    }
+  }
   return strokes;
 }
 

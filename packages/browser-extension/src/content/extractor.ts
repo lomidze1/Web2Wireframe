@@ -22,6 +22,12 @@ import type {
   W2WAttributes,
   Quad,
 } from '@w2w/shared';
+import {
+  shouldRenderPseudo,
+  computeListMarkers,
+  formatListMarker,
+  buildMarkerWrapperNode,
+} from '@w2w/shared';
 // NOTE: hover parser is LOCAL (not @w2w/shared) so Vite doesn't code-split
 // the content script — Chrome content scripts can't load ES module chunks.
 import {
@@ -151,24 +157,11 @@ function traverseElement(
   }
 
   // Visibility filtering
-  if (isHidden(el)) {
-    // Debug: log skipped elements with id or nav/header tags
-    const _id = el.id || '';
-    if (_id === 'globalheader' || _id === 'globalnav' || tag === 'nav' || tag === 'header' || tag === 'aside') {
-      console.warn(`[W2W-DEBUG] isHidden SKIPPED: <${tag}> id="${_id}" cls="${el.className?.toString?.()?.slice(0,60)}" display=${getComputedStyle(el).display} pos=${getComputedStyle(el).position} offsetParent=${el.offsetParent?.tagName} rect=${JSON.stringify(el.getBoundingClientRect().toJSON())}`);
-    }
-    return null;
-  }
+  if (isHidden(el)) return null;
 
   // Get bounding rect and computed styles
   const rect = el.getBoundingClientRect();
   const computed = getComputedStyle(el);
-
-  // Debug: log nav/header elements that pass visibility
-  const _dbgId = el.id || '';
-  if (_dbgId === 'globalheader' || _dbgId === 'globalnav' || tag === 'nav' || tag === 'header') {
-    console.log(`[W2W-DEBUG] PASSED visibility: <${tag}> id="${_dbgId}" cls="${el.className?.toString?.()?.slice(0,60)}" w=${rect.width} h=${rect.height} display=${computed.display} pos=${computed.position}`);
-  }
 
   // Zero-size check is deferred to AFTER children are processed (post-filter below).
   // This allows zero-size wrappers (e.g. Apple's globalnav-flyout) to pass through
@@ -236,17 +229,6 @@ function traverseElement(
       : [];
     const allChildren = [...directChildren, ...shadowChildren];
 
-    // Debug: log body's direct children to trace globalheader/globalnav
-    if (tag === 'body' || _dbgId === 'globalheader') {
-      console.log(`[W2W-DEBUG] 📦 <${tag}> id="${_dbgId}" iterating ${allChildren.length} childNodes:`);
-      for (const c of allChildren) {
-        const ct = (c as HTMLElement).tagName?.toLowerCase() || `text(${c.nodeType})`;
-        const ci = (c as HTMLElement).id || '';
-        const cc = (c as HTMLElement).className?.toString?.()?.slice(0, 40) || '';
-        console.log(`[W2W-DEBUG]   child: <${ct}> id="${ci}" cls="${cc}" nodeType=${c.nodeType} isHTMLElement=${c instanceof HTMLElement} isSVGElement=${c instanceof SVGElement}`);
-      }
-    }
-
     for (const child of allChildren) {
       if (child.nodeType === Node.TEXT_NODE) {
         const textNodes = extractTextNodes(child as Text, el, computed);
@@ -281,6 +263,23 @@ function traverseElement(
     const afterNode = extractInjectedPseudo(afterSpan, el, '::after');
     if (afterNode) children.push(afterNode);
     afterSpan.remove();
+  }
+
+  // List marker synthesis for <ol>/<ul>: compute "1.", "2.", "•", … from
+  // list-style-type + start/reversed/<li value=> and prepend each <li>'s
+  // children with a __w2w-pseudo-marker wrapper (pixel-accurate geometry via
+  // DOM injection). Handles the vast majority of real-world lists at the
+  // container level. Orphan <li> (no ol/ul parent) is handled at the <li>
+  // level below.
+  if (tag === 'ol' || tag === 'ul') {
+    attachMarkersToListChildren(el, tag, children);
+  } else if (
+    tag === 'li' &&
+    el.parentElement &&
+    el.parentElement.tagName.toLowerCase() !== 'ol' &&
+    el.parentElement.tagName.toLowerCase() !== 'ul'
+  ) {
+    attachMarkerToOrphanLi(el, computed, children);
   }
 
   // Post-filter: skip zero-size elements ONLY if they produced no valid children.
@@ -555,55 +554,50 @@ function injectPseudoSpan(
   pseudo: '::before' | '::after',
 ): HTMLSpanElement | null {
   const style = getComputedStyle(el, pseudo);
-  const content = style.content;
 
-  // Skip if no content — normalize various empty representations
-  if (!content || content === 'none' || content === 'normal') {
-    return null;
-  }
+  // Single source of truth: visual presence OR text presence decides rendering.
+  // Empty content ("") + background/border/dimensions is a valid decorative pseudo
+  // (e.g. Apple footer pipe separators) and must not be skipped.
+  const decision = shouldRenderPseudo({
+    content: style.content,
+    display: style.display,
+    visibility: style.visibility,
+    backgroundColor: style.backgroundColor,
+    backgroundImage: style.backgroundImage,
+    borderWidth: style.borderWidth,
+    borderStyle: style.borderStyle,
+    outlineWidth: style.outlineWidth,
+    outlineStyle: style.outlineStyle,
+    boxShadow: style.boxShadow,
+    width: style.width,
+    height: style.height,
+  });
 
-  // Strip outer quotes and check if truly empty
-  const stripped = content.replace(/^["']|["']$/g, '');
-  if (stripped === '' || stripped === 'none' || stripped === 'normal') {
-    return null;
-  }
-
-  // Skip if hidden
-  if (style.display === 'none' || style.visibility === 'hidden') return null;
-
-  // Check if pseudo has any visual presence (content, background, border, or dimensions)
-  const hasBackground = style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent';
-  const hasBorder = style.borderWidth !== '0px' && style.borderStyle !== 'none';
-  const hasWidth = style.width !== '0px' && style.width !== 'auto';
-  const hasHeight = style.height !== '0px' && style.height !== 'auto';
+  if (!decision.render) return null;
 
   // Create wrapper span
   const span = document.createElement('span');
   span.className = pseudo === '::before' ? '__w2w-pseudo-before' : '__w2w-pseudo-after';
 
-  // Extract text content (strip quotes, handle CSS content escapes)
-  const textValue = stripped
-    .replace(/\\([0-9a-fA-F]{1,6})\s?/g, (_m, hex) => String.fromCodePoint(parseInt(hex, 16)));
-
-  const hasText = textValue && textValue.length > 0;
-  if (hasText) {
-    span.textContent = textValue;
+  if (decision.hasText) {
+    span.textContent = decision.textValue;
   }
 
-  // If no text and no visual presence, skip
-  if (!hasText && !hasBackground && !hasBorder && !hasWidth && !hasHeight) {
-    return null;
-  }
-
-  // Copy key computed styles from pseudo-element to span
+  // Copy key computed styles from pseudo-element to span so the injected node
+  // paints with the same visual properties the browser gave to the pseudo.
   const stylesToCopy = [
     'display', 'position', 'width', 'height', 'minWidth', 'minHeight',
+    'top', 'right', 'bottom', 'left',
     'margin', 'padding',
     'fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'lineHeight', 'color',
     'backgroundColor', 'backgroundImage', 'backgroundSize', 'backgroundPosition',
+    'backgroundRepeat', 'backgroundOrigin', 'backgroundClip',
     'borderWidth', 'borderStyle', 'borderColor', 'borderRadius',
+    'outlineWidth', 'outlineStyle', 'outlineColor', 'outlineOffset',
+    'boxShadow',
     'opacity', 'verticalAlign',
     'boxSizing', 'overflow',
+    'transform', 'transformOrigin',
   ];
 
   for (const prop of stylesToCopy) {
@@ -706,6 +700,199 @@ function extractInjectedPseudo(
     styles,
     children: [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// List marker synthesis
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute markers for an <ol>/<ul> container and prepend a
+ * __w2w-pseudo-marker wrapper to each direct <li> child found in
+ * `containerChildren`. Measurement of marker geometry uses temporary DOM
+ * injection (same pattern as injectPseudoSpan).
+ */
+function attachMarkersToListChildren(
+  listEl: HTMLElement,
+  listTag: 'ol' | 'ul',
+  containerChildren: W2WNode[],
+): void {
+  // Walk containerChildren and pair each <li> with its DOM element by
+  // traversing in DOM order. We only pair direct-child <li> elements of the
+  // list container — nested lists are handled by their own recursion.
+  const domLiElements: HTMLElement[] = [];
+  for (const domChild of Array.from(listEl.children)) {
+    if (domChild instanceof HTMLElement && domChild.tagName.toLowerCase() === 'li') {
+      // Only synthesize markers for li elements with display: list-item.
+      // block/flex/grid/inline-block li elements don't get browser markers.
+      const liDisplay = getComputedStyle(domChild).display;
+      if (liDisplay === 'list-item') {
+        domLiElements.push(domChild);
+      }
+    }
+  }
+  if (domLiElements.length === 0) return;
+
+  const firstLiStyle = getComputedStyle(domLiElements[0]);
+  const listStyleType = firstLiStyle.listStyleType || (listTag === 'ol' ? 'decimal' : undefined);
+  if (!listStyleType || listStyleType === 'none') return;
+
+  const itemSpecs = domLiElements.map((li) => ({
+    valueAttr: li.getAttribute('value') ?? undefined,
+  }));
+  const startAttr = listEl.getAttribute('start') ?? undefined;
+  const reversed = listEl.hasAttribute('reversed');
+
+  const markers = computeListMarkers({
+    tag: listTag,
+    listStyleType,
+    startAttr,
+    reversed,
+    items: itemSpecs,
+  });
+
+  // Find W2W <li> frames that correspond to the DOM lis (by DOM-order match).
+  // containerChildren may include pseudo-before at position 0; skip non-li.
+  const w2wLiFrames: W2WFrameNode[] = [];
+  for (const c of containerChildren) {
+    if (c.type === 'FRAME' && c.tag === 'li') w2wLiFrames.push(c);
+  }
+
+  const pairCount = Math.min(domLiElements.length, w2wLiFrames.length, markers.length);
+  for (let i = 0; i < pairCount; i++) {
+    injectMarkerIntoLi(domLiElements[i], w2wLiFrames[i], markers[i]);
+  }
+}
+
+/**
+ * Orphan <li> — a list item with no <ol>/<ul> parent. Synthesize a single
+ * marker at index=0 using the li's own list-style-type.
+ */
+function attachMarkerToOrphanLi(
+  liEl: HTMLElement,
+  liComputed: CSSStyleDeclaration,
+  containerChildren: W2WNode[],
+): void {
+  if (liComputed.display !== 'list-item') return;
+  const listStyleType = liComputed.listStyleType;
+  if (!listStyleType || listStyleType === 'none') return;
+  const markerText = formatListMarker({ listStyleType, index: 0 });
+  if (!markerText) return;
+  // Orphan li's container is the li itself — the W2W frame isn't built yet,
+  // we have its children array directly. Synthesize marker and unshift it.
+  const wrapper = measureAndBuildMarker(liEl, markerText);
+  if (wrapper) containerChildren.unshift(wrapper);
+}
+
+/**
+ * Inject a temporary <span> into the given <li>, measure its geometry, build
+ * a __w2w-pseudo-marker wrapper node, and prepend it to the W2W li's
+ * children.
+ */
+function injectMarkerIntoLi(
+  liEl: HTMLElement,
+  liFrame: W2WFrameNode,
+  markerText: string,
+): void {
+  const wrapper = measureAndBuildMarker(liEl, markerText);
+  if (wrapper) liFrame.children.unshift(wrapper);
+}
+
+/**
+ * Temporarily inject a span inside the <li> to measure the marker's
+ * pixel-accurate box, then return a __w2w-pseudo-marker wrapper W2W frame.
+ * The span is absolutely positioned so it does not disturb sibling layout.
+ */
+function measureAndBuildMarker(
+  liEl: HTMLElement,
+  markerText: string,
+): W2WFrameNode | null {
+  // Read marker typography from the real ::marker pseudo; fall back to li.
+  // The ::marker pseudo is a legitimate CSS selector — sites (e.g. Apple.com
+  // footer footnotes) frequently style it differently from the <li> itself.
+  const liComputed = getComputedStyle(liEl);
+  let markerFontFamily = liComputed.fontFamily;
+  let markerFontWeight = liComputed.fontWeight;
+  let markerFontSize = liComputed.fontSize;
+  let markerLineHeight = liComputed.lineHeight;
+  let markerLetterSpacing = liComputed.letterSpacing;
+  let markerFontStyle = liComputed.fontStyle;
+  let markerColor: string | undefined;
+  try {
+    const pseudo = getComputedStyle(liEl, '::marker');
+    if (pseudo.fontFamily) markerFontFamily = pseudo.fontFamily;
+    if (pseudo.fontWeight) markerFontWeight = pseudo.fontWeight;
+    if (pseudo.fontSize) markerFontSize = pseudo.fontSize;
+    if (pseudo.lineHeight) markerLineHeight = pseudo.lineHeight;
+    if (pseudo.letterSpacing) markerLetterSpacing = pseudo.letterSpacing;
+    if (pseudo.fontStyle) markerFontStyle = pseudo.fontStyle;
+    if (pseudo.color && pseudo.color !== 'rgba(0, 0, 0, 0)') {
+      markerColor = pseudo.color;
+    }
+  } catch {
+    /* ignore — not all browsers expose ::marker */
+  }
+
+  // Inject measurement span
+  const span = document.createElement('span');
+  span.className = '__w2w-pseudo-marker';
+  span.textContent = markerText;
+  span.style.position = 'absolute';
+  span.style.right = '100%';
+  span.style.top = '0';
+  span.style.marginRight = '0.3em';
+  span.style.whiteSpace = 'nowrap';
+  span.style.pointerEvents = 'none';
+  span.style.fontFamily = markerFontFamily;
+  span.style.fontWeight = markerFontWeight;
+  span.style.fontSize = markerFontSize;
+  // line-height + letter-spacing affect the measured rect height/width.
+  if (markerLineHeight) span.style.lineHeight = markerLineHeight;
+  if (markerLetterSpacing) span.style.letterSpacing = markerLetterSpacing;
+  if (markerFontStyle && markerFontStyle !== 'normal') span.style.fontStyle = markerFontStyle;
+  if (markerColor) span.style.color = markerColor;
+
+  // Ensure li is a positioning context so right:100% resolves against its box
+  const prevPosition = liEl.style.position;
+  const liPositionResolved = getComputedStyle(liEl).position;
+  if (liPositionResolved === 'static') liEl.style.position = 'relative';
+  liEl.insertBefore(span, liEl.firstChild);
+
+  const rect = span.getBoundingClientRect();
+  const fontString = buildFontString(cleanFontFamily(markerFontFamily), markerFontWeight);
+
+  // Clean up injection before anything else can throw
+  span.remove();
+  if (liPositionResolved === 'static') liEl.style.position = prevPosition;
+
+  // Fallback geometry when the browser returned a zero-size rect
+  const fontSizePx = parseFloat(markerFontSize) || 12;
+  const measuredW = rect.width;
+  const measuredH = rect.height;
+  const liRect = liEl.getBoundingClientRect();
+  const width = measuredW > 0 ? round(measuredW) : Math.max(Math.round(markerText.length * fontSizePx * 0.6), 8);
+  const height = measuredH > 0 ? round(measuredH) : Math.round(fontSizePx * 1.2);
+  const x = measuredW > 0 ? round(rect.left) : round(liRect.left - width - 4);
+  const y = measuredW > 0 ? round(rect.top + window.scrollY) : round(liRect.top + window.scrollY);
+
+  return buildMarkerWrapperNode({
+    markerText,
+    x,
+    y,
+    width,
+    height,
+    font: fontString,
+    color: markerColor,
+    // These MUST be set on the wrapper's styles — css-converter reads
+    // fontSize from parentStyles.fontSize, not from the font string.
+    fontSize: markerFontSize || undefined,
+    fontFamily: markerFontFamily || undefined,
+    fontWeight: markerFontWeight || undefined,
+    lineHeight: markerLineHeight || undefined,
+    letterSpacing: markerLetterSpacing || undefined,
+    fontStyle: markerFontStyle || undefined,
+    pseudo: '::marker',
+  });
 }
 
 // ---------------------------------------------------------------------------

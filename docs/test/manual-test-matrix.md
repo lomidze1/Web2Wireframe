@@ -1,7 +1,8 @@
 # Web2Wireframe — Manual Test Matrix
 
 > Generated: 2026-04-09
-> Branch: `new-way`
+> Updated: 2026-04-15
+> Branch: `dev` (new-way merged; `old-way` kept as backup)
 
 ---
 

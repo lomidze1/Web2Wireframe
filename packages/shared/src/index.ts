@@ -251,6 +251,30 @@ export {
 export type { ForcedPseudoClass } from "./pseudo-states";
 
 // ============================================================================
+// PSEUDO-ELEMENT VISIBILITY - Decide if a ::before/::after should render
+// ============================================================================
+
+export { shouldRenderPseudo } from "./pseudo-visibility";
+export type {
+  PseudoVisibilityInput,
+  PseudoVisibilityResult,
+} from "./pseudo-visibility";
+
+// ============================================================================
+// LIST MARKERS - Counter-style marker strings + content-script wrapper builder
+// ============================================================================
+
+export { computeListMarkers, formatListMarker } from "./list-markers";
+export type {
+  ListMarkerInput,
+  ListItemSpec,
+  ListContainerSpec,
+} from "./list-markers";
+
+export { buildMarkerWrapperNode } from "./content-marker";
+export type { BuildMarkerWrapperInput } from "./content-marker";
+
+// ============================================================================
 // W2W HOVER CAPTURE - Shared interactive node detection
 // ============================================================================
 

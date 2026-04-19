@@ -67,16 +67,39 @@ setInterval(() => {
 
 const pluginRouter = express.Router();
 const corsOrigin = process.env.CORS_ORIGIN;
+const allowedOriginHosts = (corsOrigin ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter((o) => o.length > 0 && o !== "*");
+
 pluginRouter.use(
   cors({
     origin: (origin, callback) => {
-      // Allow: null (Figma plugin), figma.com, localhost, or wildcard
-      if (
-        !origin ||
-        !corsOrigin ||
-        corsOrigin === "*" ||
-        corsOrigin.split(",").some((o) => origin.includes(o.trim()))
-      ) {
+      // Null origin (Figma plugin iframe, data: URLs, sandboxed iframes).
+      // Browsers send missing Origin header as undefined, or literal "null" string.
+      if (!origin || origin === "null") {
+        callback(null, true);
+        return;
+      }
+      // Wildcard CORS — allow all origins (dev convenience).
+      // In production, CORS_ORIGIN should list explicit hosts.
+      if (!corsOrigin || corsOrigin === "*") {
+        callback(null, true);
+        return;
+      }
+      let hostname: string;
+      try {
+        hostname = new URL(origin).hostname.toLowerCase();
+      } catch {
+        callback(new Error("Not allowed by CORS"));
+        return;
+      }
+      const ok = allowedOriginHosts.some((allowed) => {
+        const a = allowed.toLowerCase();
+        // Exact match, or subdomain match (e.g. "figma.com" matches "www.figma.com")
+        return hostname === a || hostname.endsWith("." + a);
+      });
+      if (ok) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
