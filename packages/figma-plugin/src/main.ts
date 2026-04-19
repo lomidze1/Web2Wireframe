@@ -180,6 +180,21 @@ export default function () {
         }
       }
 
+      // Derive hostname once for all style-creation passes. Used as the
+      // top-level group prefix in Figma's Styles panel so multi-site
+      // wireframes stay visually separated (e.g. `apple.com/--accent` vs
+      // `web2wireframe.design/--accent`). Strip the leading `www.` for a
+      // cleaner folder name. Falls back to "WEB" for invalid / missing URLs.
+      let hostnamePrefix = "WEB";
+      try {
+        if (sourceUrl) {
+          const parsed = new URL(sourceUrl);
+          hostnamePrefix = parsed.hostname.replace(/^www\./, "") || "WEB";
+        }
+      } catch {
+        // Keep fallback
+      }
+
       // -----------------------------------------------------------------------
       // FIX A: Convert captured data → WireframeNode tree for EVERY frame
       // BEFORE running style-creation passes. Pass 3 (auto-named literal color
@@ -187,9 +202,16 @@ export default function () {
       // previously populated only inside the render loop (line ~430), leaving
       // tree = undefined during style creation. That caused 0 literal color
       // styles and 0 text styles for W-03. See P4/P5 root cause analysis.
+      //
+      // Guard note: callers send `tree: null` (Web.tsx) or `tree: {}` (Area
+      // Selection .w2w/.json import) as a placeholder meaning "main.ts will
+      // populate this from capturedData". We MUST overwrite both shapes, so
+      // the guard only checks capturedData presence — a previously-built real
+      // tree wouldn't carry capturedData.frame (legacy prepareFramesForRendering
+      // path doesn't set it).
       // -----------------------------------------------------------------------
       for (const frameData of frames) {
-        if (frameData.capturedData?.frame && !frameData.tree) {
+        if (frameData.capturedData?.frame) {
           try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const capturedFrame = frameData.capturedData.frame as any;
@@ -242,7 +264,8 @@ export default function () {
           try {
             const result = await createUnifiedWebsiteColorStyles(
               frames,
-              cssVariables || []
+              cssVariables || [],
+              hostnamePrefix
             );
             logger.info("Created unified website color styles", {
               colorStyleCount: result.colorStyleMap.size,
@@ -382,7 +405,8 @@ export default function () {
             frames,
             fontFamily,
             effectiveFontMode,
-            originalFontNames
+            originalFontNames,
+            hostnamePrefix
           );
           renderContext.textStyleMap = textStyleMap;
           logger.info("Created text styles", {

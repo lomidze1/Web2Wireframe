@@ -27,6 +27,8 @@ import {
   computeListMarkers,
   formatListMarker,
   buildMarkerWrapperNode,
+  isSvgUrl,
+  fetchSvgMarkupForUrls,
 } from '@w2w/shared';
 // NOTE: hover parser is LOCAL (not @w2w/shared) so Vite doesn't code-split
 // the content script — Chrome content scripts can't load ES module chunks.
@@ -68,8 +70,12 @@ export interface ExtractPageResult {
 /**
  * Extract the entire page DOM into W2W node tree.
  * Called from content script message handler.
+ *
+ * Async because after synchronous DOM traversal we run a post-pass that
+ * fetches SVG markup for `<img src="*.svg">` and `background-image: url(*.svg)`
+ * so the figma-plugin can render them as native vectors.
  */
-export function extractPage(): ExtractPageResult {
+export async function extractPage(): Promise<ExtractPageResult> {
   nodeIndexCounter = 0;
 
   // 1. Inject pre-capture styles
@@ -99,12 +105,63 @@ export function extractPage(): ExtractPageResult {
     // 4. Clean up injected styles (but NOT data-w2w-idx — service worker needs them for font lookup)
     removePreCaptureStyles();
 
+    // 5. Post-pass: fetch inline SVG markup for <img src="*.svg"> and
+    //    background-image: url(*.svg) so the plugin renders them as vectors.
+    await inlineSvgMarkup(frame);
+
     return { doc, frame, textHostCount: nodeIndexCounter };
   } catch (err) {
     removePreCaptureStyles();
     cleanupMarkers();
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// SVG markup inlining (post-pass)
+// ---------------------------------------------------------------------------
+
+/** Walk tree, collect SVG URLs, fetch markup, stamp $svgMarkup onto nodes. */
+async function inlineSvgMarkup(root: W2WFrameNode): Promise<void> {
+  const nodesByUrl = new Map<string, W2WFrameNode[]>();
+
+  const walk = (n: W2WFrameNode): void => {
+    const svgUrl = extractSvgUrl(n);
+    if (svgUrl) {
+      const list = nodesByUrl.get(svgUrl) ?? [];
+      list.push(n);
+      nodesByUrl.set(svgUrl, list);
+    }
+    for (const child of n.children) {
+      if (child.type === 'FRAME') walk(child);
+    }
+  };
+  walk(root);
+
+  const urls = Array.from(nodesByUrl.keys());
+  if (urls.length === 0) return;
+
+  const markups = await fetchSvgMarkupForUrls(urls, fetch.bind(window));
+
+  for (const [url, markup] of Object.entries(markups)) {
+    const targets = nodesByUrl.get(url);
+    if (!targets) continue;
+    for (const node of targets) node.$svgMarkup = markup;
+  }
+}
+
+/**
+ * Return the SVG URL for a node (if any) — from $url (img) or
+ * background-image style. Returns undefined when no SVG is present.
+ */
+function extractSvgUrl(node: W2WFrameNode): string | undefined {
+  if (node.$url && isSvgUrl(node.$url)) return node.$url;
+  const bg = typeof node.styles.backgroundImage === 'string' ? node.styles.backgroundImage : '';
+  if (bg && bg.includes('url(')) {
+    const m = bg.match(/url\(["']?([^"')]+)["']?\)/);
+    if (m && isSvgUrl(m[1])) return resolveUrl(m[1]);
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------

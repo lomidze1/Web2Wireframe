@@ -5,6 +5,7 @@
 
 import type { WireframeNode, RenderContext } from "../types";
 import { getBorderRadius } from "./layout";
+import { isRasterMasqueradeSvg, extractEmbeddedImageFromSvg } from "@w2w/shared";
 
 // Base64 lookup table for pure JS decoding (Figma sandbox has no atob)
 const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -122,6 +123,20 @@ export async function createRealImage(
     // SVG handling
     if (isSvgDataUri(base64Data)) {
       const svgString = svgDataUriToString(base64Data);
+
+      // Raster-masquerade SVG: Adobe Illustrator / "Save As SVG" exports that
+      // wrap a base64 PNG/JPEG in an <image> tag with no real vector content.
+      // figma.createNodeFromSvg produces a broken node for these; extract the
+      // embedded raster and render as a regular image instead.
+      if (isRasterMasqueradeSvg(svgString)) {
+        const embedded = extractEmbeddedImageFromSvg(svgString);
+        if (embedded) {
+          console.log(`[W2W-SVG] raster-masquerade detected, extracting embedded image (${embedded.length} chars)`);
+          // Recurse with the extracted data URI — it'll hit the raster path below.
+          return await createRealImage(node, embedded, context);
+        }
+      }
+
       const svgNode = figma.createNodeFromSvg(svgString);
       svgNode.resize(Math.max(node.width, 1), Math.max(node.height, 1));
       frame.appendChild(svgNode);

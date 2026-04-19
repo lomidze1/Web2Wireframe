@@ -44,6 +44,14 @@ export interface W2WFrameNode extends W2WBaseNode {
   /** Image URL for img/video tags — from currentSrc or src */
   $url?: string;
 
+  /**
+   * Inline SVG markup fetched from $url (for <img src="*.svg">) or
+   * background-image url(*.svg). When present, the figma-plugin renders
+   * this as a native vector via figma.createNodeFromSvg().
+   * Populated by content-script post-pass (see svg-fetch.ts).
+   */
+  $svgMarkup?: string;
+
   /** Hover state subtree (re-captured with forced :hover) */
   hover?: W2WFrameNode;
 }

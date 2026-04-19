@@ -549,7 +549,8 @@ function figmaFillToPaint(fill: FigmaFill): Paint | null {
  */
 export async function createUnifiedWebsiteColorStyles(
   frames: WireframeFrame[],
-  cssVariables: ExtractedCSSVariable[]
+  cssVariables: ExtractedCSSVariable[],
+  hostnamePrefix: string = "WEB"
 ): Promise<{ colorStyleMap: Map<string, PaintStyle>; variableStyleMap: Map<string, PaintStyle> }> {
   const colorStyleMap = new Map<string, PaintStyle>();
   const variableStyleMap = new Map<string, PaintStyle>();
@@ -594,7 +595,7 @@ export async function createUnifiedWebsiteColorStyles(
     if (!parsed) continue;
 
     try {
-      const styleName = `WEB/${variable.name}`;
+      const styleName = `${hostnamePrefix}/${variable.name}`;
       const paints: Paint[] = [
         {
           type: "SOLID",
@@ -761,7 +762,7 @@ export async function createUnifiedWebsiteColorStyles(
       if (fill.type === "SOLID" && fill.color) {
         const effectiveOpacity = fill.opacity * fill.color.a;
         autoCounter++;
-        styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
+        styleName = `${hostnamePrefix}/--created-variable-${String(autoCounter).padStart(2, "0")}`;
 
         paints = [
           {
@@ -777,10 +778,10 @@ export async function createUnifiedWebsiteColorStyles(
       ) {
         const gradName = gradientVarName(fill.type, fill.angle, fill.stops);
         if (gradName) {
-          styleName = `WEB/${gradName}`;
+          styleName = `${hostnamePrefix}/${gradName}`;
         } else {
           autoCounter++;
-          styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
+          styleName = `${hostnamePrefix}/--created-variable-${String(autoCounter).padStart(2, "0")}`;
         }
 
         paints = [
@@ -804,10 +805,10 @@ export async function createUnifiedWebsiteColorStyles(
       ) {
         const gradName = gradientVarName(fill.type, fill.angle, fill.stops);
         if (gradName) {
-          styleName = `WEB/${gradName}`;
+          styleName = `${hostnamePrefix}/${gradName}`;
         } else {
           autoCounter++;
-          styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
+          styleName = `${hostnamePrefix}/--created-variable-${String(autoCounter).padStart(2, "0")}`;
         }
 
         const radialTransform = calculateRadialGradientTransform(fill);
@@ -828,10 +829,10 @@ export async function createUnifiedWebsiteColorStyles(
       ) {
         const gradName = gradientVarName(fill.type, fill.angle, fill.stops);
         if (gradName) {
-          styleName = `WEB/${gradName}`;
+          styleName = `${hostnamePrefix}/${gradName}`;
         } else {
           autoCounter++;
-          styleName = `WEB/--created-variable-${String(autoCounter).padStart(2, "0")}`;
+          styleName = `${hostnamePrefix}/--created-variable-${String(autoCounter).padStart(2, "0")}`;
         }
 
         paints = [
@@ -906,7 +907,7 @@ export async function createUnifiedWebsiteColorStyles(
         }
       }
 
-      const styleName = `WEB/--compound(${parts.join(", ")})`;
+      const styleName = `${hostnamePrefix}/--compound(${parts.join(", ")})`;
 
       // Convert each fill to a native Figma Paint
       // CSS order is top-to-bottom, Figma order is bottom-to-top → reverse
@@ -1087,7 +1088,8 @@ export async function createTextStyles(
   frames: WireframeFrame[],
   fontFamily: string,
   fontMode: "plugin" | "website" | "lines",
-  originalFontNames?: Record<string, string>
+  originalFontNames?: Record<string, string>,
+  hostnamePrefix: string = "WEB"
 ): Promise<Map<string, TextStyle>> {
   const textStyleMap = new Map<string, TextStyle>();
 
@@ -1116,7 +1118,10 @@ export async function createTextStyles(
   const existingTextStyles = figma.getLocalTextStyles();
   let stylesCreated = 0;
   const skippedMissingFont = new Set<string>();
-  const prefix = fontMode === "plugin" ? "W2W" : fontMode === "lines" ? "LNS" : "WEB";
+  // Plugin fonts → "W2W", Lines → "LNS", Website → hostname-based prefix.
+  // Hostname grouping lets Figma's Styles panel cleanly separate text styles
+  // per source site when multiple wireframes coexist in one document.
+  const prefix = fontMode === "plugin" ? "W2W" : fontMode === "lines" ? "LNS" : hostnamePrefix;
 
   // Detect lineHeight collisions: same base key (font+style+size+ls) with different lineHeights.
   // Only include lh in the display name when needed to disambiguate.

@@ -275,6 +275,18 @@ export { buildMarkerWrapperNode } from "./content-marker";
 export type { BuildMarkerWrapperInput } from "./content-marker";
 
 // ============================================================================
+// SVG DETECTION + FETCH
+// ============================================================================
+
+export { isSvgUrl, isSvgMime, isSvgMarkup } from "./svg-detect";
+export { fetchSvgMarkupForUrls } from "./svg-fetch";
+export type { FetchSvgOpts, FetchFn } from "./svg-fetch";
+export {
+  isRasterMasqueradeSvg,
+  extractEmbeddedImageFromSvg,
+} from "./svg-masquerade";
+
+// ============================================================================
 // W2W HOVER CAPTURE - Shared interactive node detection
 // ============================================================================
 
