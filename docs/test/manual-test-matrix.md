@@ -1,8 +1,20 @@
 # Web2Wireframe — Manual Test Matrix
 
 > Generated: 2026-04-09
-> Updated: 2026-04-15
+> Updated: 2026-04-22
 > Branch: `dev` (new-way merged; `old-way` kept as backup)
+
+---
+
+## 0. Test Websites (3 difficulty levels)
+
+| დონე      | URL                                                  | აღწერა                                 |
+| --------- | ---------------------------------------------------- | -------------------------------------- |
+| 🟢 მარტივი | `https://www.web2wireframe.design/pricing`           | Simple layout, own design system       |
+| 🟡 საშუალო | `https://www.apple.com/`                             | Complex layout, images, CSS animations |
+| 🔴 რთული   | `https://www.tesla.com/`                             | Full-bleed images, video backgrounds   |
+
+**ტესტის მეთოდი:** ყოველ smoke test-ს (W-01, W-02, W-03...) ვატარებთ 3-ივე ვებსაიტზე, რომ ბევრი use case-ი გავტესტოთ (მარტივი → რთული).
 
 ---
 
@@ -158,18 +170,20 @@
 
 ### 5.1 Web Tab
 
-| #    | VP        | Colors  | Fonts   | Text     | Assets       | CSS Vars | Layout | Inter.  | შენიშვნა               | სტატუსი |
-| ---- | --------- | ------- | ------- | -------- | ------------ | -------- | ------ | ------- | ----------------------- | ------- |
-| W-01 | 1440      | Website | Website | Website  | Real         | Direct   | AL     | None    | Default real-world      | ✅      |
-| W-02 | 1440      | Plugin  | Plugin  | Semantic | Placeholders | Direct   | AL     | None    | Default wireframe       | ✅      |
-| W-03 | 1440      | Website | Website | Website  | Real         | Styles   | AL     | Hover   | Full features           |         |
-| W-04 | 1440      | Plugin  | Lines   | Lorem    | Placeholders | Direct   | Abs    | None    | Full wireframe          |         |
-| W-05 | 375       | Website | Website | Website  | Real         | Direct   | AL     | None    | Mobile                  |         |
-| W-06 | 1920+375  | Website | Website | Website  | Real         | Direct   | AL     | None    | Multi-viewport          |         |
-| W-07 | All 5     | Plugin  | Plugin  | Semantic | Placeholders | Styles   | AL     | Hover   | All VP + all features   |         |
-| W-08 | 1440      | Website | Lines   | Website  | Real         | Styles   | Abs    | Hover   | Mixed: real + wireframe |         |
-| W-09 | 768       | Plugin  | Website | Lorem    | Real         | Direct   | Abs    | None    | Tablet + mixed          |         |
-| W-10 | 1024      | Website | Plugin  | Semantic | Placeholders | Styles   | AL     | Hover   | Mixed reversed          |         |
+> 🟢 მარტივი = web2wireframe.design/pricing | 🟡 საშუალო = apple.com | 🔴 რთული = tesla.com
+
+| #    | VP        | Colors  | Fonts   | Text     | Assets       | CSS Vars | Layout | Inter.  | შენიშვნა               | 🟢 მარტივი | 🟡 საშუალო | 🔴 რთული |
+| ---- | --------- | ------- | ------- | -------- | ------------ | -------- | ------ | ------- | ----------------------- | ---------- | ---------- | -------- |
+| W-01 | 1440      | Website | Website | Website  | Real         | Direct   | AL     | None    | Default real-world      | ✅         |            |          |
+| W-02 | 1440      | Plugin  | Plugin  | Semantic | Placeholders | Direct   | AL     | None    | Default wireframe       | ✅         |            |          |
+| W-03 | 1440      | Website | Website | Website  | Real         | Styles   | AL     | Hover   | Full features           | ⛔         |            |          |
+| W-04 | 1440      | Plugin  | Lines   | Lorem    | Placeholders | Direct   | Abs    | None    | Full wireframe          |            |            |          |
+| W-05 | 375       | Website | Website | Website  | Real         | Direct   | AL     | None    | Mobile                  |            |            |          |
+| W-06 | 1920+375  | Website | Website | Website  | Real         | Direct   | AL     | None    | Multi-viewport          |            |            |          |
+| W-07 | All 5     | Plugin  | Plugin  | Semantic | Placeholders | Styles   | AL     | Hover   | All VP + all features   |            |            |          |
+| W-08 | 1440      | Website | Lines   | Website  | Real         | Styles   | Abs    | Hover   | Mixed: real + wireframe |            |            |          |
+| W-09 | 768       | Plugin  | Website | Lorem    | Real         | Direct   | Abs    | None    | Tablet + mixed          |            |            |          |
+| W-10 | 1024      | Website | Plugin  | Semantic | Placeholders | Styles   | AL     | Hover   | Mixed reversed          |            |            |          |
 
 ### 5.2 Screenshot Tab
 

@@ -814,11 +814,15 @@ export async function createNodeInFigma(
         );
       // On cache hit the ComponentSet is already in the Components section
       // from the first occurrence — don't push it again.
-      if (!cacheHit) {
+      if (cacheHit) {
+        if (context.renderStats) context.renderStats.hoverCacheHits += 1;
+      } else {
+        if (context.renderStats) context.renderStats.hoverCacheMisses += 1;
         context.componentSets?.push(componentSet);
       }
       return defaultInstance;
     } catch (err) {
+      if (context.renderStats) context.renderStats.pseudoErrors += 1;
       logger.error("Pseudo-state variant creation failed", err);
     }
   }
@@ -1391,9 +1395,15 @@ export async function createWireframeFrame(
 
         // appendChild on an already-parented node moves it (re-parents)
         wireframeFrame.appendChild(fixedNode);
-        // Set absolute positioning so it overlays at its original x/y
+        // Set absolute positioning so it overlays at its original x/y.
+        // `layoutPositioning = "ABSOLUTE"` is only valid when the parent has
+        // auto-layout; in absolute (x/y) mode the root frame's layoutMode is
+        // NONE and children already free-position via x/y — Figma throws if
+        // we try to set ABSOLUTE on a NONE-parent child.
         if ("layoutPositioning" in fixedNode) {
-          (fixedNode as FrameNode).layoutPositioning = "ABSOLUTE";
+          if (wireframeFrame.layoutMode !== "NONE") {
+            (fixedNode as FrameNode).layoutPositioning = "ABSOLUTE";
+          }
           // FIX D: override y/x with the CSS top/left values (captured as
           // pluginData during createNodeInFigma). Nested sticky headers
           // carry the DOM flow y-coord (e.g. 1384px) rather than their

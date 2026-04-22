@@ -317,6 +317,14 @@ export interface RenderContext {
     string,
     { componentSet: ComponentSetNode; defaultComponent: ComponentNode }
   >;
+  // Render statistics — incremented during traversal, logged at the end of
+  // the import so we can diagnose dedup effectiveness.
+  renderStats?: {
+    hoverCacheHits: number;
+    hoverCacheMisses: number;
+    emptyPseudoSkipped: number;
+    pseudoErrors: number;
+  };
 }
 
 /**

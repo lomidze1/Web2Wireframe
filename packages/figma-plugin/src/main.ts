@@ -407,6 +407,12 @@ export default function () {
         interactionMode: interactionMode || "none",
         componentSets: [],
         hoverComponentCache: new Map(),
+        renderStats: {
+          hoverCacheHits: 0,
+          hoverCacheMisses: 0,
+          emptyPseudoSkipped: 0,
+          pseudoErrors: 0,
+        },
       };
 
       // Create effect styles (Phase 2) — shared shadow/blur library. Plugin
@@ -662,6 +668,48 @@ export default function () {
 
         // Zoom to fit
         figma.viewport.scrollAndZoomIntoView(selectionTarget);
+
+        // === W2W-STATS: comprehensive render statistics ===
+        const countBy = (types: string[]): number => {
+          let n = 0;
+          for (const target of selectionTarget) {
+            if ("findAll" in target && typeof target.findAll === "function") {
+              n += target.findAll((node: SceneNode) =>
+                types.includes(node.type),
+              ).length;
+            }
+          }
+          return n;
+        };
+        const stats = {
+          componentSetsTotal: renderContext.componentSets?.length ?? 0,
+          hoverCacheSize: renderContext.hoverComponentCache?.size ?? 0,
+          hoverCacheHits: renderContext.renderStats?.hoverCacheHits ?? 0,
+          hoverCacheMisses: renderContext.renderStats?.hoverCacheMisses ?? 0,
+          pseudoErrors: renderContext.renderStats?.pseudoErrors ?? 0,
+          nodes: {
+            frames: countBy(["FRAME"]),
+            components: countBy(["COMPONENT"]),
+            componentSets: countBy(["COMPONENT_SET"]),
+            instances: countBy(["INSTANCE"]),
+            text: countBy(["TEXT"]),
+            vectors: countBy(["VECTOR"]),
+            rectangles: countBy(["RECTANGLE"]),
+            ellipses: countBy(["ELLIPSE"]),
+          },
+          sections: selectionTarget.length,
+          interactionMode: renderContext.interactionMode,
+          hostname,
+        };
+        console.log("[W2W-STATS]", JSON.stringify(stats, null, 2));
+        console.log(
+          `[W2W-STATS-SHORT] ComponentSets=${stats.componentSetsTotal} ` +
+            `(unique=${stats.hoverCacheSize}, reused=${stats.hoverCacheHits}, ` +
+            `new=${stats.hoverCacheMisses}, errors=${stats.pseudoErrors}) | ` +
+            `Nodes: frames=${stats.nodes.frames}, text=${stats.nodes.text}, ` +
+            `instances=${stats.nodes.instances}, componentSets=${stats.nodes.componentSets}, ` +
+            `vectors=${stats.nodes.vectors}, rectangles=${stats.nodes.rectangles}`,
+        );
 
         logger.info("Wireframe created successfully", {
           frameCount: createdFrames.length,
