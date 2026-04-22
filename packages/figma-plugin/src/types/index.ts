@@ -182,6 +182,11 @@ export interface WireframeNode {
   lineHeight: number | string;
   letterSpacing: number;
   browserLineCount?: number;        // Number of lines from browser (from CDP textBoxes.length)
+  // Max rendered text bounding-box width across the node's text children.
+  // When a `<p>` element has width: 100% but text spans only half the box,
+  // this stores the real text width so wireframe-lines (FILLR) render to the
+  // text's visual span instead of stretching to the full element width.
+  renderedTextWidth?: number;
 
   // CSS max-width (px). When set, applied to Figma node as native TextNode.maxWidth
   // or FrameNode.maxWidth, enforcing a hard upper bound regardless of

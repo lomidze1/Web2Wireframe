@@ -188,6 +188,56 @@ describe("computeHoverSignature", () => {
 
     expect(sigA).not.toBe(sigB);
   });
+
+  it("normalizes matrix transform tx/ty — different mid-animation values collapse to same signature", () => {
+    // Simulates two elements captured at different points in a
+    // transform transition. Post-normalization they should dedupe.
+    const frame = createMockFrame();
+    const sigA = computeHoverSignature(frame, {
+      hover: { transform: "matrix(1, 0, 0, 1, 0, -1.7)" },
+    });
+    const sigB = computeHoverSignature(frame, {
+      hover: { transform: "matrix(1, 0, 0, 1, 0, -2.3)" },
+    });
+    expect(sigA).toBe(sigB);
+  });
+
+  it("normalizes sub-pixel matrix transforms to identity (noise floor)", () => {
+    // Jittery values below ±0.5 px should round to 0, producing a
+    // stable "no meaningful transform" signature.
+    const frame = createMockFrame();
+    const sigA = computeHoverSignature(frame, {
+      hover: { transform: "matrix(1, 0, 0, 1, 0, -0.184126)" },
+    });
+    const sigB = computeHoverSignature(frame, {
+      hover: { transform: "matrix(1, 0, 0, 1, 0, 0.2)" },
+    });
+    expect(sigA).toBe(sigB);
+  });
+
+  it("preserves distinct transforms at px-granularity", () => {
+    // A real -2px lift vs a real -4px lift are different components.
+    const frame = createMockFrame();
+    const sigA = computeHoverSignature(frame, {
+      hover: { transform: "matrix(1, 0, 0, 1, 0, -2)" },
+    });
+    const sigB = computeHoverSignature(frame, {
+      hover: { transform: "matrix(1, 0, 0, 1, 0, -4)" },
+    });
+    expect(sigA).not.toBe(sigB);
+  });
+
+  it("leaves non-matrix transform values untouched", () => {
+    // translateY string form — rule-text fallback. Same string → same sig.
+    const frame = createMockFrame();
+    const sigA = computeHoverSignature(frame, {
+      hover: { transform: "translateY(-2px)" },
+    });
+    const sigB = computeHoverSignature(frame, {
+      hover: { transform: "translateY(-2px)" },
+    });
+    expect(sigA).toBe(sigB);
+  });
 });
 
 // ============================================================================

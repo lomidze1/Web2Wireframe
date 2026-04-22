@@ -77,13 +77,51 @@ function frameVisualSignature(frame: FrameNode | ComponentNode): string {
  * Compute a canonical signature string for a frame + its pseudo-state diff.
  * Same visual pattern + same hover diff → same signature → cache hit.
  */
+/**
+ * Normalize a `transform: matrix(a,b,c,d,tx,ty)` value by rounding tx/ty to
+ * the nearest integer px. Protects dedup against mid-animation jitter
+ * (e.g. `-0.184126` vs `-0.203`) where the CDP capture lands at slightly
+ * different points in a running transition for each element.
+ *
+ * Non-matrix values (e.g. `translateY(-2px)`, `rotate(45deg)`) are returned
+ * unchanged — only the computed `matrix(...)` form has the jitter issue.
+ */
+function normalizeTransformValue(value: string): string {
+  const m = value.match(
+    /^matrix\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/,
+  );
+  if (!m) return value;
+  const a = m[1].trim();
+  const b = m[2].trim();
+  const c = m[3].trim();
+  const d = m[4].trim();
+  const tx = Math.round(parseFloat(m[5]));
+  const ty = Math.round(parseFloat(m[6]));
+  return `matrix(${a}, ${b}, ${c}, ${d}, ${tx}, ${ty})`;
+}
+
+function normalizePseudoStatesForSignature(
+  pseudoStates: PseudoStateDiffs,
+): PseudoStateDiffs {
+  const result: PseudoStateDiffs = {};
+  for (const stateKey of ["hover", "focus", "active", "focusVisible"] as const) {
+    const diff = pseudoStates[stateKey];
+    if (!diff) continue;
+    const normalized: Record<string, string> = {};
+    for (const [k, v] of Object.entries(diff)) {
+      normalized[k] = k === "transform" ? normalizeTransformValue(v) : v;
+    }
+    result[stateKey] = normalized;
+  }
+  return result;
+}
+
 export function computeHoverSignature(
   frame: FrameNode,
   pseudoStates: PseudoStateDiffs,
 ): string {
   const visual = frameVisualSignature(frame);
-  // Normalize to plain object so stableStringify sorts keys consistently
-  // regardless of whether the caller passed a typed struct or a dict.
-  const diffPart = stableStringify({ ...pseudoStates });
+  const normalized = normalizePseudoStatesForSignature(pseudoStates);
+  const diffPart = stableStringify(normalized);
   return `${visual}::${diffPart}`;
 }
