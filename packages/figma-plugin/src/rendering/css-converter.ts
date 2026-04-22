@@ -1255,22 +1255,26 @@ function parseFills(
 ): FigmaFill[] {
   const fills: FigmaFill[] = [];
 
-  // Background image (gradients, url())
+  // Background image (gradients, url()) — may contain multiple comma-separated
+  // layers. CSS paints the first layer on top, which matches Figma's fills[0]
+  // = top convention, so preserve order.
   const bgImage = str(s.backgroundImage);
   if (bgImage && bgImage !== 'none') {
-    const gradientFill = parseGradientToFill(bgImage, width, height);
-    if (gradientFill) {
-      fills.push(gradientFill);
-    } else if (bgImage.includes('url(')) {
-      // Extract URL from background-image
-      const urlMatch = bgImage.match(/url\(["']?([^"')]+)["']?\)/);
-      fills.push({
-        type: 'IMAGE_PLACEHOLDER',
-        visible: true,
-        opacity: 1,
-        isImagePlaceholder: true,
-        imageUrl: urlMatch?.[1] || undefined,
-      });
+    const layers = splitMultipleBackgrounds(bgImage);
+    for (const layer of layers) {
+      const gradientFill = parseGradientToFill(layer, width, height);
+      if (gradientFill) {
+        fills.push(gradientFill);
+      } else if (layer.includes('url(')) {
+        const urlMatch = layer.match(/url\(["']?([^"')]+)["']?\)/);
+        fills.push({
+          type: 'IMAGE_PLACEHOLDER',
+          visible: true,
+          opacity: 1,
+          isImagePlaceholder: true,
+          imageUrl: urlMatch?.[1] || undefined,
+        });
+      }
     }
   }
 
@@ -1658,6 +1662,40 @@ function figmaColorToCSS(color: FigmaColor): string {
 // Gradient parsing
 // ---------------------------------------------------------------------------
 
+/**
+ * Split multiple comma-separated CSS background layers, respecting parens
+ * (so rgba()/gradients/etc aren't broken in the middle) and quoted strings
+ * (so url("a,b.jpg") stays intact).
+ */
+function splitMultipleBackgrounds(background: string): string[] {
+  const layers: string[] = [];
+  let depth = 0;
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (const char of background) {
+    if (char === "'" && !inDoubleQuote) inSingleQuote = !inSingleQuote;
+    else if (char === '"' && !inSingleQuote) inDoubleQuote = !inDoubleQuote;
+
+    const inQuotes = inSingleQuote || inDoubleQuote;
+
+    if (!inQuotes) {
+      if (char === '(') depth++;
+      else if (char === ')') depth--;
+      else if (char === ',' && depth === 0) {
+        layers.push(current.trim());
+        current = '';
+        continue;
+      }
+    }
+    current += char;
+  }
+
+  if (current.trim()) layers.push(current.trim());
+  return layers;
+}
+
 function parseGradientToFill(
   bgImage: string,
   width: number,
@@ -1764,7 +1802,13 @@ function parseColorStops(content: string): FigmaGradientStop[] {
       explicit = posStr.endsWith('%') ? parseFloat(posStr) / 100 : parseFloat(posStr);
       colorStr = part.slice(0, part.length - posMatch[0].length).trim();
     }
-    const color = parseCSSColor(colorStr);
+    // "transparent" keyword is a valid gradient stop (= rgba(0,0,0,0)).
+    // parseCSSColor() returns null for it by design (to filter out
+    // transparent backgrounds upstream), so we handle it here explicitly.
+    const color =
+      colorStr === 'transparent'
+        ? { r: 0, g: 0, b: 0, a: 0 }
+        : parseCSSColor(colorStr);
     if (color) raw.push({ color, explicit });
   }
 
