@@ -146,7 +146,7 @@ describe("childrenStructureSignature", () => {
     expect(childrenStructureSignature(a)).toBe(childrenStructureSignature(b));
   });
 
-  it("differentiates text-only from icon+text", () => {
+  it('returns "text-only" for text-only and "has-image" for icon+text (h2d 2-bucket)', () => {
     const textOnly = makeWfNode({ children: [textNode("Click")] });
     const iconPlusText = makeWfNode({
       children: [
@@ -154,24 +154,59 @@ describe("childrenStructureSignature", () => {
         textNode("Click"),
       ],
     });
-    expect(childrenStructureSignature(textOnly)).not.toBe(
-      childrenStructureSignature(iconPlusText),
-    );
+    expect(childrenStructureSignature(textOnly)).toBe("text-only");
+    expect(childrenStructureSignature(iconPlusText)).toBe("has-image");
   });
 
-  it("differentiates by child count", () => {
-    const one = makeWfNode({ children: [textNode("a")] });
-    const two = makeWfNode({ children: [textNode("a"), textNode("b")] });
-    expect(childrenStructureSignature(one)).not.toBe(
-      childrenStructureSignature(two),
-    );
+  it("merges varying text-only shapes into one bucket (frame-child vs direct-text)", () => {
+    // h2d collapses: a text node, an element with a text child, a frame with
+    // a nested div — all map to "text-only" if none contain images.
+    const plainText = textNode("Docs");
+    const withTextChild = makeWfNode({ children: [textNode("Pricing")] });
+    const withNestedFrame = makeWfNode({
+      children: [
+        makeWfNode({ tag: "div", children: [textNode("How it works")] }),
+      ],
+    });
+    const sigs = new Set([
+      childrenStructureSignature(plainText),
+      childrenStructureSignature(withTextChild),
+      childrenStructureSignature(withNestedFrame),
+    ]);
+    expect(sigs.size).toBe(1);
+    expect(sigs.has("text-only")).toBe(true);
+  });
+
+  it("treats SVG descendants as images too", () => {
+    const node = makeWfNode({
+      children: [
+        makeWfNode({ type: "placeholder", tag: "svg" }),
+        textNode("Badge"),
+      ],
+    });
+    expect(childrenStructureSignature(node)).toBe("has-image");
+  });
+
+  it("finds images at any depth within the 3-level search range", () => {
+    const deepImg = makeWfNode({
+      children: [
+        makeWfNode({
+          children: [
+            makeWfNode({
+              children: [makeWfNode({ type: "placeholder", tag: "img" })],
+            }),
+          ],
+        }),
+      ],
+    });
+    expect(childrenStructureSignature(deepImg)).toBe("has-image");
   });
 
   it("returns a stable string for empty children (no-child elements)", () => {
     const a = makeWfNode();
     const b = makeWfNode();
     expect(childrenStructureSignature(a)).toBe(childrenStructureSignature(b));
-    expect(childrenStructureSignature(a).length).toBeGreaterThan(0);
+    expect(childrenStructureSignature(a)).toBe("text-only");
   });
 });
 
@@ -457,6 +492,94 @@ describe("buildHoverMasterRegistry", () => {
       expect.any(String),
       "TEXT",
       "Hello",
+    );
+  });
+
+  it("R2 alpha quantization: nav links with jittery hover alphas merge into 1 variant", async () => {
+    // Simulates real-world capture where three nav links catch slightly
+    // different mid-transition alpha values for the same hover background.
+    // With R2's 5% alpha quantization, all three should dedupe to a single
+    // variant (not 3 separate ones).
+    const n1 = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.034)" },
+      },
+      children: [textNode("How it works")],
+    });
+    const n2 = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.048)" },
+      },
+      children: [textNode("Pricing")],
+    });
+    const n3 = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.071)" },
+      },
+      children: [textNode("Docs")],
+    });
+    const root = makeWfNode({ children: [n1, n2, n3] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      minimalContext(),
+    );
+    expect(registry.size).toBe(1);
+    const entry = Array.from(registry.values())[0];
+    // All 3 nav links map to the same variant number (1), because their
+    // quantized hover-diffs are all the same.
+    expect(entry.variantByVisualSig.size).toBe(1);
+  });
+
+  it("R4 fixed-column grid: rest at x=0, hover at x=maxRestWidth+GAP, rows by variant idx", async () => {
+    // Two variants of DIFFERENT widths. Expected layout:
+    //   variant=1 rest at x=0, y=0
+    //   variant=1 hover at x=maxRestWidth+40, y=0
+    //   variant=2 rest at x=0, y=(row-height+40)
+    //   variant=2 hover at x=maxRestWidth+40, y=(row-height+40)
+    // All "hover" variants should share the same x column (fixed), not
+    // per-component shifted.
+    const widePrimary = makeWfNode({
+      name: "wide-primary",
+      width: 300,
+      fills: [{ type: "SOLID", color: { r: 0, g: 0.4, b: 1, a: 1 } }] as never,
+      pseudoStateStyles: { hover: { "background-color": "rgba(0, 0, 0, 0.1)" } },
+      children: [textNode("Upgrade Now")],
+    });
+    const narrowSecondary = makeWfNode({
+      name: "narrow-secondary",
+      width: 120,
+      fills: [{ type: "SOLID", color: { r: 0.9, g: 0.9, b: 0.9, a: 1 } }] as never,
+      pseudoStateStyles: { hover: { "background-color": "rgba(0, 0, 0, 0.1)" } },
+      children: [textNode("Go")],
+    });
+    const root = makeWfNode({ children: [widePrimary, narrowSecondary] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      minimalContext(),
+    );
+    const entry = Array.from(registry.values())[0];
+    const variants = entry.componentSet.children as unknown as Array<{
+      name: string; x: number; y: number;
+    }>;
+    const byName: Record<string, { x: number; y: number }> = {};
+    for (const v of variants) byName[v.name] = { x: v.x, y: v.y };
+
+    // All rest variants share x=0
+    expect(byName["variant=1, :hover=false"].x).toBe(0);
+    expect(byName["variant=2, :hover=false"].x).toBe(0);
+    // All hover variants share the SAME x — maxRestWidth + 40 (in mock, both
+    // clones have width=100, since mock doesn't propagate the original
+    // WireframeNode width). The important invariant: both hover variants
+    // have the SAME x coordinate (not per-component).
+    expect(byName["variant=1, :hover=true"].x).toBe(
+      byName["variant=2, :hover=true"].x,
+    );
+    expect(byName["variant=1, :hover=true"].x).toBeGreaterThan(0);
+    // Variant rows stack vertically: variant=2 row > variant=1 row.
+    expect(byName["variant=2, :hover=false"].y).toBeGreaterThan(
+      byName["variant=1, :hover=false"].y,
     );
   });
 });

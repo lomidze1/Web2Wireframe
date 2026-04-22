@@ -54,23 +54,33 @@ export function collectHoverables(frames: WireframeFrame[]): WireframeNode[] {
 }
 
 /**
- * Deterministic hash of a node's immediate children topology.
- * Deliberately shallow (depth = 1) so minor content variation inside a
- * nested frame doesn't split a category. Includes type + tag per child.
- * Text CONTENT is ignored; only STRUCTURE matters.
+ * Coarse 2-bucket categorization matching h2d's Components section layout:
+ *   - "has-image": brand-like containers (logo + optional text)
+ *   - "text-only": everything else (nav links, buttons, CTAs)
+ *
+ * Rationale: h2d's pricing capture produces exactly 2 ComponentSets —
+ * Component 1 holds the brand img, Component 2 holds all interactive text
+ * elements regardless of their inner frame structure. Per-tag or per-class
+ * granularity splits W2W too aggressively (pricing: 4 sets instead of 2).
  */
 export function childrenStructureSignature(node: WireframeNode): string {
-  const kids = node.children ?? [];
-  if (kids.length === 0) return "empty";
-  const parts: string[] = [];
-  for (const k of kids) {
-    const type = k.type || "frame";
-    const tag = k.tag || "";
-    const hasText = (k.textContent ?? "").length > 0 ? "1" : "0";
-    const grandKids = (k.children ?? []).length;
-    parts.push(`${type}:${tag}:t${hasText}:c${grandKids}`);
+  return hasImageDescendant(node) ? "has-image" : "text-only";
+}
+
+/**
+ * DFS with depth cap — a hoverable "brand" container rarely nests images
+ * more than 3 levels deep (<a><div><span><img/></span></div></a>).
+ */
+function hasImageDescendant(node: WireframeNode, depth = 0): boolean {
+  if (depth > 3) return false;
+  const children = node.children ?? [];
+  for (const c of children) {
+    if (c.type === "placeholder" && (c.tag === "img" || c.tag === "svg")) {
+      return true;
+    }
+    if (hasImageDescendant(c, depth + 1)) return true;
   }
-  return parts.join("|");
+  return false;
 }
 
 /**
@@ -126,13 +136,57 @@ function normalizeTransformValue(value: string): string {
   return `matrix(${a}, ${b}, ${c}, ${d}, ${tx}, ${ty})`;
 }
 
+/**
+ * Quantize rgba alpha to nearest 0.05 step (5% granularity). Neutralizes
+ * per-element jitter in color/background captures caused by mid-transition
+ * alpha interpolation — e.g. nav links catching `rgba(12,13,18,0.034)` vs
+ * `rgba(12,13,18,0.048)` both quantize to `rgba(12,13,18,0.05)` →
+ * identical signatures → 1 variant, not 5.
+ */
+function quantizeRgbaAlpha(value: string): string {
+  // Match rgba() and rgb(); if no alpha, return as-is.
+  const rgba = value.match(
+    /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/i,
+  );
+  if (rgba) {
+    const [, r, g, b, a] = rgba;
+    const quantA = Math.round(parseFloat(a) * 20) / 20; // nearest 0.05
+    return `rgba(${r}, ${g}, ${b}, ${quantA})`;
+  }
+  return value;
+}
+
+/**
+ * Whitelist of CSS properties whose values should pass through
+ * `quantizeRgbaAlpha`. Transform is handled separately above.
+ */
+function isColorLikeProperty(name: string): boolean {
+  return (
+    name === "color" ||
+    name === "background-color" ||
+    name === "background" ||
+    name === "border-color" ||
+    name === "border-top-color" ||
+    name === "border-right-color" ||
+    name === "border-bottom-color" ||
+    name === "border-left-color" ||
+    name === "outline-color"
+  );
+}
+
 function normalizeHoverDiff(
   diff: Record<string, string> | undefined,
 ): Record<string, string> {
   if (!diff) return {};
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(diff)) {
-    out[k] = k === "transform" ? normalizeTransformValue(v) : v;
+    if (k === "transform") {
+      out[k] = normalizeTransformValue(v);
+    } else if (isColorLikeProperty(k)) {
+      out[k] = quantizeRgbaAlpha(v);
+    } else {
+      out[k] = v;
+    }
   }
   return out;
 }
@@ -444,14 +498,21 @@ export async function buildHoverMasterRegistry(
         hover = await buildComponentFromWireframe(hoverName, rep, _context);
       }
 
-      // CRITICAL: apply the captured hover CSS diff to the `:hover=true`
-      // variant so it ACTUALLY looks different from `:hover=false`. Without
-      // this, prototype-mode hover swaps variants but users see no visual
-      // change because both variants are identical clones.
+      // Apply the captured hover CSS diff to the `:hover=true` variant so
+      // it visually differs from `:hover=false` when the live CSS produces
+      // a visible change (fill, color, border). skipTransform=true omits
+      // the position-shift + Hybrid-C drop-shadow tricks — h2d emits no
+      // such decorative effects on hover variants. If the live CSS only
+      // declares `transform: translateY(-2px)`, the hover variant will
+      // look identical to rest (matching h2d's behavior).
       const hoverDiff = rep.pseudoStateStyles?.hover;
       if (hoverDiff && Object.keys(hoverDiff).length > 0) {
         try {
-          applyCssDiffToNode(hover as unknown as FrameNode, hoverDiff);
+          applyCssDiffToNode(
+            hover as unknown as FrameNode,
+            hoverDiff,
+            { skipTransform: true },
+          );
         } catch {
           // Non-fatal — hover variant falls back to visually-identical clone.
         }
@@ -463,24 +524,29 @@ export async function buildHoverMasterRegistry(
 
     if (allComponents.length === 0) continue;
 
-    // Lay components in a grid before combineAsVariants so variants don't
-    // stack at (0,0) in the resulting ComponentSet. Rows = variant index,
-    // columns = :hover state. Gap = 40 px.
+    // h2d-style FIXED-COLUMN grid layout: rests at x=0, hovers at one
+    // constant x that sits just past the widest rest. This mirrors h2d's
+    // Component 2 where rest variants align at x=30 and hover variants at
+    // x=269 regardless of per-row content width.
     const GAP = 40;
-    let maxHeight = 0;
-    for (const comp of allComponents) {
-      if (comp.height > maxHeight) maxHeight = comp.height;
+    let maxRestWidth = 0;
+    for (const p of hoverPairs) {
+      if (p.rest.width > maxRestWidth) maxRestWidth = p.rest.width;
     }
-    for (let idx = 0; idx < allComponents.length; idx++) {
-      const comp = allComponents[idx];
-      const row = Math.floor(idx / 2); // variant index (0-based)
-      const col = idx % 2; // 0 = :hover=false, 1 = :hover=true
+    const hoverColX = maxRestWidth + GAP;
+
+    let cumY = 0;
+    for (const p of hoverPairs) {
+      const rowHeight = Math.max(p.rest.height, p.hover.height);
       try {
-        comp.x = col * (comp.width + GAP);
-        comp.y = row * (maxHeight + GAP);
+        p.rest.x = 0;
+        p.rest.y = cumY;
+        p.hover.x = hoverColX;
+        p.hover.y = cumY;
       } catch {
         // Mock components in tests may not expose x/y setters.
       }
+      cumY += rowHeight + GAP;
     }
 
     const componentSet = figma.combineAsVariants(
