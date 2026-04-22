@@ -195,6 +195,53 @@ describe("applyCssDiffToNode", () => {
     expect(frame.strokes).toEqual(originalStrokes);
     expect(frame.opacity).toBe(originalOpacity);
   });
+
+  // R3 — skipTransform option (added for h2d-parity consolidation path).
+  // The inline fallback path keeps the old transform-shift + Hybrid-C shadow
+  // behavior; the consolidation path passes { skipTransform: true } so
+  // hover variants don't get fake drop shadows when the live CSS only
+  // declares `transform: translateY(-2px)`.
+
+  it("R3 default (no opts): translateY(-2px) still adds drop shadow (Hybrid-C)", () => {
+    const frame = createMockFrame({ effects: [], y: 0 });
+    applyCssDiffToNode(frame, { transform: "matrix(1, 0, 0, 1, 0, -2)" });
+    const hasShadow = frame.effects.some(
+      (e): e is { type: string } =>
+        typeof e === "object" && e !== null && (e as { type?: string }).type === "DROP_SHADOW",
+    );
+    expect(hasShadow).toBe(true);
+  });
+
+  it("R3 { skipTransform: true }: transform is skipped entirely — no shadow added", () => {
+    const frame = createMockFrame({ effects: [] });
+    applyCssDiffToNode(
+      frame,
+      { transform: "matrix(1, 0, 0, 1, 0, -2)" },
+      { skipTransform: true },
+    );
+    // No drop shadow added (Hybrid-C gated behind !skipTransform)
+    const hasShadow = frame.effects.some(
+      (e): e is { type: string } =>
+        typeof e === "object" && e !== null && (e as { type?: string }).type === "DROP_SHADOW",
+    );
+    expect(hasShadow).toBe(false);
+  });
+
+  it("R3 { skipTransform: true }: other diff props (fills, strokes) still apply", () => {
+    const frame = createMockFrame({ effects: [] });
+    applyCssDiffToNode(
+      frame,
+      {
+        transform: "matrix(1, 0, 0, 1, 0, -2)",
+        "background-color": "#2563EB",
+      },
+      { skipTransform: true },
+    );
+    // Background fill applied (via the `background-color` handler)
+    expect(frame.fills).toEqual([
+      expect.objectContaining({ type: "SOLID" }),
+    ]);
+  });
 });
 
 // ============================================================================

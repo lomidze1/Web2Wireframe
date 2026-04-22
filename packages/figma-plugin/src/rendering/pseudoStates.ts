@@ -45,9 +45,20 @@ const STATE_TRIGGERS: Record<string, { type: string }> = {
  * Apply a CSS property diff to a Figma FrameNode (or ComponentNode).
  * Mutates the node in-place.
  */
+export interface ApplyCssDiffOpts {
+  /**
+   * Skip the `transform` handler entirely — no position shift, no
+   * Hybrid-C drop shadow added. Used by the h2d-aligned consolidation
+   * path (hoverConsolidation.ts) where hover variants must not grow
+   * decorative effects that h2d doesn't emit.
+   */
+  skipTransform?: boolean;
+}
+
 export function applyCssDiffToNode(
   frame: FrameNode | ComponentNode,
-  diff: Record<string, string>
+  diff: Record<string, string>,
+  opts: ApplyCssDiffOpts = {}
 ): void {
   for (const [prop, value] of Object.entries(diff)) {
     if (value === "__removed__") {
@@ -173,6 +184,10 @@ export function applyCssDiffToNode(
       }
 
       case "transform": {
+        // R3 (h2d-parity): consolidation path passes skipTransform=true so
+        // hover variants don't get fake drop shadows or invisible position
+        // shifts that don't match h2d's actual emit.
+        if (opts.skipTransform) break;
         // Parse rotation → frame.rotation (CSS clockwise → Figma counter-clockwise)
         const rotateMatch = value.match(/rotate\((-?[\d.]+)deg\)/);
         if (rotateMatch) {
