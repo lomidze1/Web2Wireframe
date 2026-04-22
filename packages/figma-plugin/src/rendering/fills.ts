@@ -381,6 +381,7 @@ export function convertEffectsToFigma(
             radius: effect.radius || 0,
             spread: effect.spread || 0,
             blendMode: "NORMAL",
+            showShadowBehindNode: false,
           });
         }
         break;
