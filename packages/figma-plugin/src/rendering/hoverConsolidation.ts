@@ -426,16 +426,15 @@ export async function buildHoverMasterRegistry(
     let textPropIds: string[] = [];
     let representativeTextCount = 0;
 
+    // Import the diff applier once for the whole category.
+    const { applyCssDiffToNode } = await import("./pseudoStates");
+
     for (const { variant, rep } of representatives) {
       const texts = collectTextValues(rep);
       representativeTextCount = Math.max(representativeTextCount, texts.length);
       const restName = `variant=${variant}, :hover=false`;
       const rest = await buildComponentFromWireframe(restName, rep, _context);
 
-      // Build the :hover=true variant by cloning and letting PASS 2
-      // apply the actual hover CSS diff at instance time if needed.
-      // For the master itself we keep the same visuals (the reaction
-      // target exists purely so prototype mode has a destination).
       const hoverName = `variant=${variant}, :hover=true`;
       let hover: ComponentNode;
       try {
@@ -445,11 +444,44 @@ export async function buildHoverMasterRegistry(
         hover = await buildComponentFromWireframe(hoverName, rep, _context);
       }
 
+      // CRITICAL: apply the captured hover CSS diff to the `:hover=true`
+      // variant so it ACTUALLY looks different from `:hover=false`. Without
+      // this, prototype-mode hover swaps variants but users see no visual
+      // change because both variants are identical clones.
+      const hoverDiff = rep.pseudoStateStyles?.hover;
+      if (hoverDiff && Object.keys(hoverDiff).length > 0) {
+        try {
+          applyCssDiffToNode(hover as unknown as FrameNode, hoverDiff);
+        } catch {
+          // Non-fatal — hover variant falls back to visually-identical clone.
+        }
+      }
+
       allComponents.push(rest, hover);
       hoverPairs.push({ rest, hover });
     }
 
     if (allComponents.length === 0) continue;
+
+    // Lay components in a grid before combineAsVariants so variants don't
+    // stack at (0,0) in the resulting ComponentSet. Rows = variant index,
+    // columns = :hover state. Gap = 40 px.
+    const GAP = 40;
+    let maxHeight = 0;
+    for (const comp of allComponents) {
+      if (comp.height > maxHeight) maxHeight = comp.height;
+    }
+    for (let idx = 0; idx < allComponents.length; idx++) {
+      const comp = allComponents[idx];
+      const row = Math.floor(idx / 2); // variant index (0-based)
+      const col = idx % 2; // 0 = :hover=false, 1 = :hover=true
+      try {
+        comp.x = col * (comp.width + GAP);
+        comp.y = row * (maxHeight + GAP);
+      } catch {
+        // Mock components in tests may not expose x/y setters.
+      }
+    }
 
     const componentSet = figma.combineAsVariants(
       allComponents,
