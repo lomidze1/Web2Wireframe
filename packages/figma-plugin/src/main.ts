@@ -484,6 +484,36 @@ export default function () {
         },
       });
 
+      // PASS 1: h2d-aligned hover ComponentSet consolidation.
+      // Before the frame-render loop, walk the tree once, group hoverables
+      // by (children-structure, visual-signature), and build shared master
+      // ComponentSets. PASS 2 (nodes.ts) turns each hoverable element into
+      // an instance of the right master.
+      if (renderContext.interactionMode === "variants") {
+        try {
+          const { buildHoverMasterRegistry } = await import(
+            "./rendering/hoverConsolidation"
+          );
+          const registry = await buildHoverMasterRegistry(
+            frames,
+            renderContext,
+          );
+          renderContext.hoverMasterRegistry = registry;
+          // Collect master ComponentSets for the Components section.
+          registry.forEach((entry) => {
+            renderContext.componentSets?.push(entry.componentSet);
+          });
+          logger.info("Built hover master registry", {
+            categories: registry.size,
+            masters: registry.size,
+          });
+        } catch (err) {
+          logger.warn("Failed to build hover master registry — falling back to inline variants", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       try {
         const createdFrames: FrameNode[] = [];
 

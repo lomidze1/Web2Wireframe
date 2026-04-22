@@ -799,6 +799,63 @@ export async function createNodeInFigma(
     (hasOwnPseudoStates || hasLiveDescendantDiffs);
 
   if (shouldCreateVariants) {
+    // PASS 2 — h2d-aligned path. If Pass 1 built a master ComponentSet for
+    // this node's (childrenStructure, visualSig) bucket, we create an
+    // instance of it here instead of minting a fresh ComponentSet.
+    if (hasOwnPseudoStates && context.hoverMasterRegistry) {
+      try {
+        const { lookupHoverMaster } = await import("./hoverConsolidation");
+        const lookup = lookupHoverMaster(node, context.hoverMasterRegistry);
+        if (lookup) {
+          const wantedName = `variant=${lookup.variantIndex}, :hover=false`;
+          const master = (lookup.entry.componentSet.children as SceneNode[]).find(
+            (c) => c.type === "COMPONENT" && c.name === wantedName,
+          ) as ComponentNode | undefined;
+          if (master) {
+            const instance = master.createInstance();
+            instance.resize(frame.width, frame.height);
+            const parent = frame.parent as (BaseNode & ChildrenMixin) | null;
+            if (parent) parent.appendChild(instance);
+            try { frame.remove(); } catch { /* non-fatal */ }
+
+            // Set variant property (no-op if unsupported by the mock).
+            try {
+              const setProps = (instance as unknown as {
+                setProperties?: (p: Record<string, string | boolean>) => void;
+              }).setProperties;
+              if (typeof setProps === "function") {
+                setProps.call(instance, { variant: String(lookup.variantIndex) });
+              }
+            } catch { /* non-fatal */ }
+
+            // Override TEXT properties with this node's actual text values.
+            for (let i = 0; i < lookup.entry.textPropIds.length; i++) {
+              const propId = lookup.entry.textPropIds[i];
+              const value = lookup.textValues[i];
+              if (value === undefined) continue;
+              try {
+                const setProps = (instance as unknown as {
+                  setProperties?: (p: Record<string, string | boolean>) => void;
+                }).setProperties;
+                if (typeof setProps === "function") {
+                  setProps.call(instance, { [propId]: value });
+                }
+              } catch { /* non-fatal */ }
+            }
+
+            if (context.renderStats) context.renderStats.hoverCacheHits += 1;
+            return instance;
+          }
+        }
+      } catch (err) {
+        logger.warn("Hover registry lookup failed — falling back to inline variants", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Fallback: inline per-element ComponentSet creation (content-signature
+    // dedup via hoverComponentCache). Used for nodes not in the registry.
     try {
       const { createPseudoStateVariants } = await import("./pseudoStates");
       // If self diff is empty, pass a synthetic hover state so the
