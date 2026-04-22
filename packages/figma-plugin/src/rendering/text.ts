@@ -49,7 +49,7 @@ import {
   getSmartTextColor,
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
-import { linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey } from "./styles";
+import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey } from "./styles";
 import { isIconFont, stripFontStyleSuffix } from "../utils/fontUtils";
 
 /** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
@@ -797,11 +797,6 @@ export async function createTextNode(
       if (linkedStyle) {
         textNode.fillStyleId = linkedStyle.id;
       } else {
-        if (context?.variableMode === "styles" && lookupKey) {
-          console.log(
-            `[W2W-DEBUG][P5-text-lookup] MISS: color="${singleColorToUse}" → key="${lookupKey}" → fallback to direct fill (tag=${node.tag}, text="${(node.textContent || "").slice(0, 30)}")`,
-          );
-        }
         textNode.fills = [
           {
             type: "SOLID",
@@ -1138,11 +1133,17 @@ export async function createTextWithBackground(
     }
   }
 
-  // Apply effects (shadows, blur) to the frame
+  // Apply effects (shadows, blur) to the frame — try style linking first (Phase 2)
   if (node.effects && node.effects.length > 0) {
-    const figmaEffects = convertEffectsToFigma(node.effects, context);
-    if (figmaEffects.length > 0) {
-      frame.effects = figmaEffects;
+    const linked =
+      context.variableMode === "styles"
+        ? await linkEffectStyleIfAvailable(frame, context, node.effects)
+        : false;
+    if (!linked) {
+      const figmaEffects = convertEffectsToFigma(node.effects, context);
+      if (figmaEffects.length > 0) {
+        frame.effects = figmaEffects;
+      }
     }
   }
 

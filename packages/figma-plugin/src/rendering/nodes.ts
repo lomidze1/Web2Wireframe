@@ -39,7 +39,9 @@ import {
   convertEffectsToFigma,
 } from "./fills";
 import {
+  linkEffectStyleIfAvailable,
   linkFillStyleIfAvailable,
+  linkGridStyleIfAvailable,
   linkStrokeStyleIfAvailable,
 } from "./styles";
 import { createTextNode, createTextWithBackground } from "./text";
@@ -284,7 +286,6 @@ export async function createNodeInFigma(
       node.imageUrl &&
       context.assetsMap?.has(node.imageUrl)
     ) {
-      console.log(`[W2W] ✅ Real image: ${node.imageUrl.substring(0, 60)}...`);
       return await createRealImage(
         node,
         context.assetsMap.get(node.imageUrl)!,
@@ -297,14 +298,6 @@ export async function createNodeInFigma(
     const svgMarkup = node.computedStyles?.svgMarkup;
     if (context.assetMode === "realAssets" && svgMarkup) {
       return await createRealImage(node, svgMarkup, context);
-    }
-
-    // Debug: log why placeholder was used instead of real image
-    if (node.imageUrl) {
-      const reasons: string[] = [];
-      if (context.assetMode !== "realAssets") reasons.push(`assetMode="${context.assetMode}"`);
-      if (!context.assetsMap?.has(node.imageUrl)) reasons.push(`URL not in assetsMap (map size=${context.assetsMap?.size || 0})`);
-      console.log(`[W2W] ⚠️ Placeholder for: ${node.imageUrl.substring(0, 60)}... — ${reasons.join(", ")}`);
     }
 
     // Default: wireframe placeholder
@@ -330,8 +323,25 @@ export async function createNodeInFigma(
   if (isGrid) {
     // === CSS GRID LAYOUT → Figma Grid ===
     try {
-      applyGridLayout(frame, node);
-      gridApplied = true;
+      // Phase 3: try to link a shared GridStyle before applying inline grid.
+      // A linked GridStyle governs the full grid config (columns, gaps,
+      // alignment), so inline setters in applyGridLayout would be overridden.
+      const linkedGrid =
+        context.variableMode === "styles"
+          ? await linkGridStyleIfAvailable(frame, context, node)
+          : false;
+      if (linkedGrid) {
+        // Still mark layoutMode=GRID so child placement works. Other
+        // grid-specific setters (sizes, gap, padding offsets) live inside
+        // applyGridLayout; the style already holds the column/gap values.
+        (frame as unknown as Record<string, unknown>).layoutMode = "GRID";
+        frame.layoutSizingHorizontal = "FIXED";
+        frame.layoutSizingVertical = "FIXED";
+        gridApplied = true;
+      } else {
+        applyGridLayout(frame, node);
+        gridApplied = true;
+      }
     } catch (err) {
       // Fallback to VERTICAL auto layout if Grid API fails
       logger.warn("Grid layout failed, falling back to auto layout", { error: err, nodeName: node.name });
@@ -462,9 +472,18 @@ export async function createNodeInFigma(
 
   // Apply effects from Figma-ready array
   if (node.effects && node.effects.length > 0) {
-    const figmaEffects = convertEffectsToFigma(node.effects, context);
-    if (figmaEffects.length > 0) {
-      frame.effects = figmaEffects;
+    // Try to link a shared EffectStyle first (Phase 2). Setting effectStyleId
+    // and frame.effects simultaneously detaches the link, so we skip the
+    // inline assignment when linking succeeds.
+    const linked =
+      context.variableMode === "styles"
+        ? await linkEffectStyleIfAvailable(frame, context, node.effects)
+        : false;
+    if (!linked) {
+      const figmaEffects = convertEffectsToFigma(node.effects, context);
+      if (figmaEffects.length > 0) {
+        frame.effects = figmaEffects;
+      }
     }
   }
 
@@ -545,9 +564,6 @@ export async function createNodeInFigma(
         if (typeof node.cssLeft === "number" && !isNaN(node.cssLeft)) {
           frame.setPluginData("w2w_css_left", String(node.cssLeft));
         }
-        console.log(
-          `[W2W-DEBUG][P1-sticky] Promoted to fixed: tag=${node.tag} position=${node.position} cssTop=${node.cssTop ?? 0} id=${node.id || "?"}`,
-        );
       } catch {
         // setPluginData may not be available in mock environments
       }
@@ -782,7 +798,6 @@ export async function createNodeInFigma(
     context.interactionMode === "variants" &&
     (hasOwnPseudoStates || hasLiveDescendantDiffs);
 
-  console.log(`[W2W-VARIANTS] Check: interactionMode=${context.interactionMode}, hasPseudo=${hasOwnPseudoStates}, hasDescHover=${!!node.hasDescendantHover}, hasLiveTags=${hasLiveDescendantDiffs}, name=${node.name}`);
   if (shouldCreateVariants) {
     try {
       const { createPseudoStateVariants } = await import("./pseudoStates");
@@ -791,9 +806,17 @@ export async function createNodeInFigma(
       const pseudoStatesToUse = hasOwnPseudoStates
         ? node.pseudoStateStyles!
         : { hover: {} }; // empty self diff, descendant diffs applied via pluginData
-      const { componentSet, defaultInstance } =
-        await createPseudoStateVariants(frame, pseudoStatesToUse);
-      context.componentSets?.push(componentSet);
+      const { componentSet, defaultInstance, cacheHit } =
+        await createPseudoStateVariants(
+          frame,
+          pseudoStatesToUse,
+          context.hoverComponentCache,
+        );
+      // On cache hit the ComponentSet is already in the Components section
+      // from the first occurrence — don't push it again.
+      if (!cacheHit) {
+        context.componentSets?.push(componentSet);
+      }
       return defaultInstance;
     } catch (err) {
       logger.error("Pseudo-state variant creation failed", err);
@@ -1120,9 +1143,6 @@ export function insertFixedSpacer(fn: FrameNode): void {
 
     spacer.setPluginData("w2w_sticky_spacer", "1");
     (originalParent as FrameNode).insertChild(originalIndex, spacer);
-    console.log(
-      `[W2W-DEBUG][P1-sticky] Inserted spacer: name=${spacer.name} size=${spacer.width}x${spacer.height} parentMode=${parentLayoutMode}`,
-    );
   } catch (err) {
     logger.warn("Failed to insert sticky spacer", { error: err });
   }
@@ -1395,9 +1415,6 @@ export async function createWireframeFrame(
               const leftVal = parseFloat(leftStr);
               if (!isNaN(leftVal)) frameNode.x = leftVal;
             }
-            console.log(
-              `[W2W-DEBUG][P1-sticky] Re-parented: name=${frameNode.name} → x=${frameNode.x}, y=${frameNode.y}`,
-            );
           } catch {
             // getPluginData / coordinate setters may fail in mocks
           }

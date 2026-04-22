@@ -226,11 +226,10 @@ export function convertFillsToPaints(
                 visible: true,
                 opacity: 1,
               } as Paint);
-              console.log(`[W2W] ✅ Background image fill: ${(fill.imageUrl ?? '').substring(0, 60)}...`);
               break;
             }
-          } catch (err) {
-            console.warn(`[W2W] Background image failed, using placeholder:`, err);
+          } catch {
+            // Image load failed — fall through to solid surface color fallback
           }
         }
         // Fallback: solid surface color

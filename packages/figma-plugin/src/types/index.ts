@@ -288,6 +288,10 @@ export interface RenderContext {
   textMode: "semantic" | "lorem" | "website";
   // Text style linking map (typography key → TextStyle)
   textStyleMap?: Map<string, TextStyle>;
+  // Effect style linking map (effectsKey → EffectStyle) — Phase 2
+  effectStyleMap?: Map<string, EffectStyle>;
+  // Grid style linking map (gridKey → GridStyle) — Phase 3
+  gridStyleMap?: Map<string, GridStyle>;
   // Parent background tracking for child-parent contrast
   parentBackgroundColor?: { r: number; g: number; b: number } | null;
   // Parent container width for text sizing decisions
@@ -306,6 +310,13 @@ export interface RenderContext {
   interactionMode?: "none" | "variants";
   // Collected ComponentSets from pseudo-state variant creation
   componentSets?: ComponentSetNode[];
+  // Content-signature dedup cache for hover ComponentSets — one entry per
+  // unique visual+hover pattern; subsequent matches reuse the master via
+  // createInstance() instead of minting new ComponentSets.
+  hoverComponentCache?: Map<
+    string,
+    { componentSet: ComponentSetNode; defaultComponent: ComponentNode }
+  >;
 }
 
 /**

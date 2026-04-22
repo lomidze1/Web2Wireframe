@@ -100,9 +100,8 @@ function AppContent() {
             const jpegDataUri = canvas.toDataURL("image/jpeg", 0.85);
 
             results.push({ url: asset.url, dataUri: jpegDataUri, frameIdx: asset.frameIdx });
-            console.log(`[W2W-UI] Converted: ${asset.url.substring(0, 50)}... → JPEG (${Math.round(jpegDataUri.length / 1024)}KB)`);
-          } catch (err) {
-            console.warn(`[W2W-UI] Conversion failed for ${asset.url.substring(0, 50)}:`, err);
+          } catch {
+            // Image conversion failed — skip this asset (falls back to placeholder).
           }
         }
 
