@@ -5,6 +5,10 @@
  */
 
 import { cssColorToFigmaRGB } from "./colors";
+import {
+  computeHoverSignature,
+  type HoverComponentCache,
+} from "./pseudoStateDedup";
 
 // ============================================================================
 // Types
@@ -45,12 +49,6 @@ export function applyCssDiffToNode(
   frame: FrameNode | ComponentNode,
   diff: Record<string, string>
 ): void {
-  const frameName = (frame as FrameNode).name || "?";
-  console.log(
-    `[W2W-DEBUG][P3-hover] applyCssDiffToNode on <${frameName}>:`,
-    JSON.stringify(diff),
-  );
-
   for (const [prop, value] of Object.entries(diff)) {
     if (value === "__removed__") {
       applyRemovedProperty(frame, prop);
@@ -661,11 +659,33 @@ function clearHoverDiffPluginData(root: FrameNode | ComponentNode): void {
  */
 export async function createPseudoStateVariants(
   frame: FrameNode,
-  pseudoStates: PseudoStateStyles
+  pseudoStates: PseudoStateStyles,
+  cache?: HoverComponentCache,
 ): Promise<{
   componentSet: ComponentSetNode;
   defaultInstance: InstanceNode;
+  cacheHit: boolean;
 }> {
+  // Content-signature dedup: if this visual pattern + hover diff has already
+  // produced a ComponentSet in this import, reuse it and return an instance.
+  let signature: string | null = null;
+  if (cache) {
+    signature = computeHoverSignature(frame, pseudoStates);
+    const hit = cache.get(signature);
+    if (hit) {
+      const parent = frame.parent as (BaseNode & ChildrenMixin) | null;
+      const instance = hit.defaultComponent.createInstance();
+      instance.resize(frame.width, frame.height);
+      if (parent) parent.appendChild(instance);
+      frame.remove();
+      return {
+        componentSet: hit.componentSet,
+        defaultInstance: instance,
+        cacheHit: true,
+      };
+    }
+  }
+
   // FIX 4: accept states with empty self diff as long as the frame subtree
   // has pluginData-tagged descendant diffs. `Object.entries(pseudoStates)`
   // yields every state key that was provided, even if its value is `{}`.
@@ -746,7 +766,13 @@ export async function createPseudoStateVariants(
   // Clean up original frame
   frame.remove();
 
-  return { componentSet, defaultInstance };
+  // Store in dedup cache so subsequent elements with the same signature
+  // reuse this ComponentSet instead of minting a duplicate.
+  if (cache && signature) {
+    cache.set(signature, { componentSet, defaultComponent: defaultComp });
+  }
+
+  return { componentSet, defaultInstance, cacheHit: false };
 }
 
 /**

@@ -696,11 +696,9 @@ function convertFrame(
       if (node.hover) {
         const diff = computeHoverDiff(node.styles, node.hover.styles);
         if (diff) {
-          console.log(`[W2W-HOVER] ✅ Hover diff found for <${node.tag}.${node.classList[0] || ''}>:`, JSON.stringify(diff));
           return diff;
         }
-        console.log(`[W2W-HOVER] ⚠️ Hover exists but NO diff for <${node.tag}.${node.classList[0] || ''}> — CSS :hover may be JS-driven`);
-        // Fall through to synthetic fallback below.
+        // Fall through to synthetic fallback below — hover may be JS-driven.
       }
 
       // FIX 4 gate: if any descendant already has its own hover diff, skip
@@ -720,7 +718,6 @@ function convertFrame(
       // hover diff was captured, synthesize a generic `opacity: 0.8` hover so
       // the ComponentSet still gets a visible Hover variant.
       if (isInteractiveNode(node)) {
-        console.log(`[W2W-HOVER] 🪄 Synthesized fallback hover for <${node.tag}.${node.classList[0] || ''}>`);
         return { hover: { opacity: '0.8' } };
       }
 

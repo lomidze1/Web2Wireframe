@@ -33,6 +33,8 @@ import {
   createPluginColorStyles,
   createUnifiedWebsiteColorStyles,
   createTextStyles,
+  createEffectStyles,
+  createGridStyles,
   createWireframeFrame,
 } from "./rendering";
 import { convertW2WToWireframe } from "./rendering/css-converter";
@@ -329,7 +331,9 @@ export default function () {
           data: { step: "Converting images for Figma...", percent: 8 },
         });
 
-        console.log(`[W2W] Converting ${assetsToConvert.length} images (AVIF/WebP → JPEG) via UI iframe...`);
+        logger.info("Converting unsupported images via UI iframe", {
+          count: assetsToConvert.length,
+        });
 
         // Send to UI for conversion and wait for response
         const convertedAssets = await new Promise<Array<{ url: string; dataUri: string; frameIdx: number }>>((resolve) => {
@@ -364,7 +368,10 @@ export default function () {
           if (!fd.assets) fd.assets = {};
           fd.assets[converted.url] = converted.dataUri;
         }
-        console.log(`[W2W] Image conversion complete: ${convertedAssets.length}/${assetsToConvert.length} converted`);
+        logger.info("Image conversion complete", {
+          converted: convertedAssets.length,
+          requested: assetsToConvert.length,
+        });
       }
 
       // Build unified assets map from all frames
@@ -378,7 +385,6 @@ export default function () {
             }
           }
         }
-        console.log(`[W2W] assetsMap built: ${assetsMap.size} entries`);
       }
 
 
@@ -400,7 +406,27 @@ export default function () {
         assetsMap,
         interactionMode: interactionMode || "none",
         componentSets: [],
+        hoverComponentCache: new Map(),
       };
+
+      // Create effect styles (Phase 2) — shared shadow/blur library. Plugin
+      // color mode returns empty map because effects are stripped upstream
+      // for clean wireframes.
+      if (variableMode === "styles") {
+        try {
+          const effectStyleMap = await createEffectStyles(
+            frames,
+            derivedHostname,
+            effectiveColorMode
+          );
+          renderContext.effectStyleMap = effectStyleMap;
+          logger.info("Created effect styles", {
+            styleCount: effectStyleMap.size,
+          });
+        } catch (err) {
+          logger.warn("Failed to create effect styles", { error: err });
+        }
+      }
 
       // Create text styles if "Create Figma Styles" is enabled
       if (variableMode === "styles") {
@@ -426,6 +452,20 @@ export default function () {
           });
         } catch (err) {
           logger.warn("Failed to create text styles", { error: err });
+        }
+      }
+
+      // Create grid styles (Phase 3) — only root-level CSS Grid containers
+      // get promoted to a reusable GridStyle. Nested sub-grids remain inline.
+      if (variableMode === "styles") {
+        try {
+          const gridStyleMap = await createGridStyles(frames, derivedHostname);
+          renderContext.gridStyleMap = gridStyleMap;
+          logger.info("Created grid styles", {
+            styleCount: gridStyleMap.size,
+          });
+        } catch (err) {
+          logger.warn("Failed to create grid styles", { error: err });
         }
       }
 

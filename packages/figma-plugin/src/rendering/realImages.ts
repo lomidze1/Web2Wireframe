@@ -6,6 +6,7 @@
 import type { WireframeNode, RenderContext } from "../types";
 import { getBorderRadius } from "./layout";
 import { isRasterMasqueradeSvg, extractEmbeddedImageFromSvg } from "@w2w/shared";
+import { logger } from "../utils/logger";
 
 // Base64 lookup table for pure JS decoding (Figma sandbox has no atob)
 const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -131,7 +132,6 @@ export async function createRealImage(
       if (isRasterMasqueradeSvg(svgString)) {
         const embedded = extractEmbeddedImageFromSvg(svgString);
         if (embedded) {
-          console.log(`[W2W-SVG] raster-masquerade detected, extracting embedded image (${embedded.length} chars)`);
           // Recurse with the extracted data URI — it'll hit the raster path below.
           return await createRealImage(node, embedded, context);
         }
@@ -143,19 +143,10 @@ export async function createRealImage(
       return frame;
     }
 
-    // Detect MIME and log for debugging
-    const mimeMatch = base64Data.match(/^data:([^;,]+)/);
-    const detectedMime = mimeMatch?.[1] || 'unknown';
-    const commaIdx = base64Data.indexOf(',');
-    const b64Length = commaIdx > 0 ? base64Data.length - commaIdx - 1 : 0;
-    console.log(`[W2W-IMG] createRealImage: mime=${detectedMime} b64size=${Math.round(b64Length/1024)}KB name=${node.name}`);
-
     // Try to create image directly — Figma supports PNG/JPEG/GIF.
     // If createImage() throws, the catch block creates a placeholder fallback.
     const bytes = dataUriToBytes(base64Data);
-    console.log(`[W2W-IMG] decoded ${bytes.length} bytes, calling figma.createImage()...`);
     const image = figma.createImage(bytes);
-    console.log(`[W2W-IMG] ✅ createImage success! hash=${image.hash}`);
 
     frame.fills = [
       {
@@ -168,7 +159,7 @@ export async function createRealImage(
     ];
   } catch (error) {
     // Fallback: empty frame with surface color
-    console.warn(`[W2W] Failed to create real image for ${node.name}:`, error);
+    logger.warn("Failed to create real image", { name: node.name, error });
     const { hexToFigmaRGB } = await import("./colors");
     const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);
     frame.fills = [
