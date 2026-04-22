@@ -1755,6 +1755,29 @@ function parseRadialGradient(
   width?: number,
   height?: number,
 ): FigmaFill | null {
+  // Parse shape (CSS spec default: ellipse)
+  let shape: 'circle' | 'ellipse' = 'ellipse';
+  const shapeMatch = content.match(/^(circle|ellipse)\b/i);
+  if (shapeMatch) shape = shapeMatch[1].toLowerCase() as 'circle' | 'ellipse';
+
+  // Parse size keyword (CSS spec default: farthest-corner)
+  let size: 'closest-side' | 'farthest-side' | 'closest-corner' | 'farthest-corner' =
+    'farthest-corner';
+  const sizeMatch = content.match(
+    /\b(closest-side|farthest-side|closest-corner|farthest-corner)\b/i,
+  );
+  if (sizeMatch) size = sizeMatch[1].toLowerCase() as typeof size;
+
+  // Parse center "at X Y"; default (0.5, 0.5)
+  let center = { x: 0.5, y: 0.5 };
+  const atMatch = content.match(/at\s+([\d.]+%?)\s+([\d.]+%?)/i);
+  if (atMatch) {
+    center = {
+      x: parsePercentOrUnit(atMatch[1]),
+      y: parsePercentOrUnit(atMatch[2]),
+    };
+  }
+
   const stops = parseColorStops(content);
   if (stops.length < 2) return null;
 
@@ -1762,11 +1785,19 @@ function parseRadialGradient(
     type: 'GRADIENT_RADIAL',
     visible: true,
     opacity: 1,
-    center: { x: 0.5, y: 0.5 },
+    center,
+    shape,
+    size,
     stops,
     elementWidth: width,
     elementHeight: height,
   };
+}
+
+// Parse "20%" → 0.2; "50" (bare number) → 0.5 (treat as percent for radial "at").
+function parsePercentOrUnit(s: string): number {
+  const n = parseFloat(s);
+  return isFinite(n) ? n / 100 : 0.5;
 }
 
 function parseColorStops(content: string): FigmaGradientStop[] {
@@ -1786,9 +1817,11 @@ function parseColorStops(content: string): FigmaGradientStop[] {
   const parts = splitShadows(stopsStr);
 
   // First pass: parse color + explicit position (if any) for each non-empty part.
-  // We defer auto-position assignment until after null-colored parts are dropped,
-  // so positions reflect the *valid* stops only.
-  type RawStop = { color: FigmaColor; explicit: number | null };
+  // Track "transparent" stops so we can inherit adjacent RGB in the second pass
+  // — Figma interpolates RGB linearly between stops, and going from a color to
+  // black-at-alpha-0 leaves a dark/muddy halo. Matching the adjacent color's
+  // RGB (with alpha 0) gives a clean fade. Same technique as h2d.
+  type RawStop = { color: FigmaColor; explicit: number | null; isTransparent: boolean };
   const raw: RawStop[] = [];
   for (const rawPart of parts) {
     const part = rawPart.trim();
@@ -1805,14 +1838,24 @@ function parseColorStops(content: string): FigmaGradientStop[] {
     // "transparent" keyword is a valid gradient stop (= rgba(0,0,0,0)).
     // parseCSSColor() returns null for it by design (to filter out
     // transparent backgrounds upstream), so we handle it here explicitly.
-    const color =
-      colorStr === 'transparent'
-        ? { r: 0, g: 0, b: 0, a: 0 }
-        : parseCSSColor(colorStr);
-    if (color) raw.push({ color, explicit });
+    const isTransparent = colorStr === 'transparent';
+    const color = isTransparent
+      ? { r: 0, g: 0, b: 0, a: 0 }
+      : parseCSSColor(colorStr);
+    if (color) raw.push({ color, explicit, isTransparent });
   }
 
-  // Second pass: fill auto-positions across valid stops only.
+  // Second pass: for each transparent stop, inherit RGB from the nearest
+  // non-transparent stop (previous first, then next). Keep alpha at 0.
+  for (let i = 0; i < raw.length; i++) {
+    if (!raw[i].isTransparent) continue;
+    let ref: FigmaColor | null = null;
+    if (i > 0 && !raw[i - 1].isTransparent) ref = raw[i - 1].color;
+    else if (i < raw.length - 1 && !raw[i + 1].isTransparent) ref = raw[i + 1].color;
+    if (ref) raw[i].color = { r: ref.r, g: ref.g, b: ref.b, a: 0 };
+  }
+
+  // Third pass: fill auto-positions across valid stops only.
   const denom = Math.max(raw.length - 1, 1);
   for (let i = 0; i < raw.length; i++) {
     const { color, explicit } = raw[i];
