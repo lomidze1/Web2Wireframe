@@ -116,6 +116,33 @@ describe("css-converter — radial gradient center/shape/size", () => {
 });
 
 describe("css-converter — transparent stop inherits adjacent color", () => {
+  // Regression: browser getComputedStyle normalizes the `transparent` keyword
+  // to the literal string "rgba(0, 0, 0, 0)" before it reaches the plugin, so
+  // a keyword-only check misses the real-world case that prompted this fix.
+  it("rgba(0, 0, 0, 0) form (browser-normalized) inherits adjacent RGB", () => {
+    const node = makeFrame({
+      styles: {
+        display: "block",
+        backgroundImage:
+          "radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.08), rgba(0, 0, 0, 0) 28%)",
+      },
+    });
+
+    const result = convertW2WToWireframe(node as never, {
+      layoutMode: "autoLayout",
+    }) as Tree;
+
+    const fill = getFills(result).find((f) => f.type === "GRADIENT_RADIAL");
+    expect(fill).toBeDefined();
+    expect(fill!.stops?.length).toBe(2);
+
+    const secondStop = fill!.stops![1];
+    expect(secondStop.color.r).toBeCloseTo(59 / 255, 3);
+    expect(secondStop.color.g).toBeCloseTo(130 / 255, 3);
+    expect(secondStop.color.b).toBeCloseTo(246 / 255, 3);
+    expect(secondStop.color.a).toBe(0);
+  });
+
   it("transparent at END inherits RGB of previous stop (alpha=0)", () => {
     const node = makeFrame({
       styles: {

@@ -1836,9 +1836,14 @@ function parseColorStops(content: string): FigmaGradientStop[] {
       colorStr = part.slice(0, part.length - posMatch[0].length).trim();
     }
     // "transparent" keyword is a valid gradient stop (= rgba(0,0,0,0)).
-    // parseCSSColor() returns null for it by design (to filter out
-    // transparent backgrounds upstream), so we handle it here explicitly.
-    const isTransparent = colorStr === 'transparent';
+    // Browser getComputedStyle normalizes `transparent` to the literal
+    // string "rgba(0, 0, 0, 0)" before it reaches the plugin, so we need
+    // to detect BOTH forms (with and without spaces, any case).
+    // parseCSSColor() returns null for the keyword by design (to filter
+    // out transparent backgrounds upstream), so we handle it explicitly.
+    const normalized = colorStr.toLowerCase().replace(/\s+/g, '');
+    const isTransparent =
+      normalized === 'transparent' || normalized === 'rgba(0,0,0,0)';
     const color = isTransparent
       ? { r: 0, g: 0, b: 0, a: 0 }
       : parseCSSColor(colorStr);
