@@ -682,6 +682,9 @@ function convertFrame(
     textContent,
     styledSegments,
     browserLineCount,
+    renderedTextWidth: type === 'text' && textChildValues.length > 0
+      ? textChildValues.reduce((acc, t) => Math.max(acc, t.width || 0), 0) || undefined
+      : undefined,
     fontSize,
     fontWeight,
     fontFamily,

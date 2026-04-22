@@ -176,6 +176,11 @@ export interface WireframeNode {
   lineHeight: number | string;
   letterSpacing: number;
   browserLineCount?: number;
+  // Max rendered text bounding-box width across the node's text children.
+  // When a `<p>` element has width: 100% but text spans only half the box,
+  // this stores the real text width so wireframe-lines (FILLR) render to the
+  // text's visual span instead of stretching to the full element width.
+  renderedTextWidth?: number;
   textTruncation?: "ENDING";
   computedStyles?: Record<string, string>;
   textColorVariable?: string;
