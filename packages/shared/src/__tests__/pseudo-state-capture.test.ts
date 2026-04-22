@@ -1023,3 +1023,156 @@ describe("captureForcedPseudoStyles — property removal", () => {
     expect(Object.values(result!).some(v => v === "__removed__")).toBe(false);
   });
 });
+
+// ============================================================================
+// #7: capturePseudoStatesForNodes — transition-disable injection
+// ============================================================================
+
+describe("capturePseudoStatesForNodes — transition-disable injection", () => {
+  let capturePseudoStatesForNodes: (
+    client: CDPClientInterface,
+    nodes: Array<{ backendNodeId: number; nodeId: number }>,
+    normalStylesMap: Map<number, CDPMatchedStyles>,
+  ) => Promise<Map<number, unknown>>;
+
+  beforeEach(async () => {
+    const mod = await import("../pseudo-states");
+    capturePseudoStatesForNodes = mod.capturePseudoStatesForNodes;
+  });
+
+  function classifyCall(c: { method: string; params?: Record<string, unknown> }):
+    | "inject"
+    | "restore"
+    | "force"
+    | "clear"
+    | "match"
+    | "other" {
+    if (c.method === "Runtime.evaluate") {
+      const expr = (c.params?.expression as string) || "";
+      if (expr.includes("document.createElement('style')")) return "inject";
+      if (expr.includes("removeChild") || expr.includes("remove()")) return "restore";
+      return "other";
+    }
+    if (c.method === "CSS.forcePseudoState") {
+      const forced = c.params?.forcedPseudoClasses as string[] | undefined;
+      return forced && forced.length > 0 ? "force" : "clear";
+    }
+    if (c.method === "CSS.getMatchedStylesForNode") return "match";
+    return "other";
+  }
+
+  it("skips inject/restore when nodes array is empty", async () => {
+    const client = createMockCDPClient();
+    const result = await capturePseudoStatesForNodes(client, [], new Map());
+
+    expect(result.size).toBe(0);
+    const kinds = client.calls.map(classifyCall);
+    expect(kinds).not.toContain("inject");
+    expect(kinds).not.toContain("restore");
+  });
+
+  it("injects before any forcePseudoState and restores after all captures", async () => {
+    const client = createMockCDPClient();
+    client.mockMatchedStyles.set("normal", createMockMatchedStyles());
+    client.mockMatchedStyles.set("hover", createMockMatchedStyles([
+      { properties: { color: "red" } },
+    ]));
+
+    const normalStylesMap = new Map<number, CDPMatchedStyles>();
+    normalStylesMap.set(1, createMockMatchedStyles());
+
+    await capturePseudoStatesForNodes(
+      client,
+      [{ backendNodeId: 1, nodeId: 42 }],
+      normalStylesMap,
+    );
+
+    const kinds = client.calls.map(classifyCall);
+    const injectIdx = kinds.indexOf("inject");
+    const restoreIdx = kinds.indexOf("restore");
+    const firstForceIdx = kinds.indexOf("force");
+    const lastKindIdx = kinds.length - 1;
+
+    expect(injectIdx).toBeGreaterThanOrEqual(0);
+    expect(restoreIdx).toBeGreaterThanOrEqual(0);
+    expect(firstForceIdx).toBeGreaterThanOrEqual(0);
+    // inject must come before the first force
+    expect(injectIdx).toBeLessThan(firstForceIdx);
+    // restore must come after (be among the last calls)
+    expect(restoreIdx).toBeGreaterThan(firstForceIdx);
+    // restore should be the final interaction
+    expect(restoreIdx).toBe(lastKindIdx);
+  });
+
+  it("restores transitions even when capture throws mid-batch", async () => {
+    const client = createMockCDPClient();
+
+    // Make forcePseudoState throw on purpose
+    let forceCallCount = 0;
+    const originalSend = client.send;
+    client.send = (async (method, params) => {
+      if (method === "CSS.forcePseudoState") {
+        forceCallCount += 1;
+        if (forceCallCount === 1) {
+          client.calls.push({ method, params });
+          throw new Error("simulated force failure");
+        }
+      }
+      return originalSend(method, params);
+    }) as CDPClientInterface["send"];
+
+    const normalStylesMap = new Map<number, CDPMatchedStyles>();
+    normalStylesMap.set(1, createMockMatchedStyles());
+
+    // Should NOT throw — errors inside the batch are swallowed per existing contract
+    await capturePseudoStatesForNodes(
+      client,
+      [{ backendNodeId: 1, nodeId: 42 }],
+      normalStylesMap,
+    );
+
+    const kinds = client.calls.map(classifyCall);
+    expect(kinds).toContain("restore");
+    // restore must be the last call
+    expect(kinds[kinds.length - 1]).toBe("restore");
+  });
+
+  it("continues capture when injection itself fails (non-fatal)", async () => {
+    const client = createMockCDPClient();
+    client.mockMatchedStyles.set("normal", createMockMatchedStyles());
+    client.mockMatchedStyles.set("hover", createMockMatchedStyles([
+      { properties: { color: "red" } },
+    ]));
+
+    // Intercept Runtime.evaluate injection and throw
+    const originalSend = client.send;
+    client.send = (async (method, params) => {
+      if (method === "Runtime.evaluate") {
+        const expr = (params?.expression as string) || "";
+        if (expr.includes("document.createElement('style')")) {
+          client.calls.push({ method, params });
+          throw new Error("simulated inject failure");
+        }
+      }
+      return originalSend(method, params);
+    }) as CDPClientInterface["send"];
+
+    const normalStylesMap = new Map<number, CDPMatchedStyles>();
+    normalStylesMap.set(1, createMockMatchedStyles());
+
+    // Capture proceeds despite injection failure
+    const result = await capturePseudoStatesForNodes(
+      client,
+      [{ backendNodeId: 1, nodeId: 42 }],
+      normalStylesMap,
+    );
+
+    const kinds = client.calls.map(classifyCall);
+    // force calls still happened
+    expect(kinds).toContain("force");
+    // We still attempt to restore (no-op if inject failed)
+    expect(kinds).toContain("restore");
+    // Result is valid (hover diff captured)
+    expect(result.size).toBe(1);
+  });
+});

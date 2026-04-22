@@ -799,6 +799,63 @@ export async function createNodeInFigma(
     (hasOwnPseudoStates || hasLiveDescendantDiffs);
 
   if (shouldCreateVariants) {
+    // PASS 2 — h2d-aligned path. If Pass 1 built a master ComponentSet for
+    // this node's (childrenStructure, visualSig) bucket, we create an
+    // instance of it here instead of minting a fresh ComponentSet.
+    if (hasOwnPseudoStates && context.hoverMasterRegistry) {
+      try {
+        const { lookupHoverMaster } = await import("./hoverConsolidation");
+        const lookup = lookupHoverMaster(node, context.hoverMasterRegistry);
+        if (lookup) {
+          const wantedName = `variant=${lookup.variantIndex}, :hover=false`;
+          const master = (lookup.entry.componentSet.children as SceneNode[]).find(
+            (c) => c.type === "COMPONENT" && c.name === wantedName,
+          ) as ComponentNode | undefined;
+          if (master) {
+            const instance = master.createInstance();
+            instance.resize(frame.width, frame.height);
+            const parent = frame.parent as (BaseNode & ChildrenMixin) | null;
+            if (parent) parent.appendChild(instance);
+            try { frame.remove(); } catch { /* non-fatal */ }
+
+            // Set variant property (no-op if unsupported by the mock).
+            try {
+              const setProps = (instance as unknown as {
+                setProperties?: (p: Record<string, string | boolean>) => void;
+              }).setProperties;
+              if (typeof setProps === "function") {
+                setProps.call(instance, { variant: String(lookup.variantIndex) });
+              }
+            } catch { /* non-fatal */ }
+
+            // Override TEXT properties with this node's actual text values.
+            for (let i = 0; i < lookup.entry.textPropIds.length; i++) {
+              const propId = lookup.entry.textPropIds[i];
+              const value = lookup.textValues[i];
+              if (value === undefined) continue;
+              try {
+                const setProps = (instance as unknown as {
+                  setProperties?: (p: Record<string, string | boolean>) => void;
+                }).setProperties;
+                if (typeof setProps === "function") {
+                  setProps.call(instance, { [propId]: value });
+                }
+              } catch { /* non-fatal */ }
+            }
+
+            if (context.renderStats) context.renderStats.hoverCacheHits += 1;
+            return instance;
+          }
+        }
+      } catch (err) {
+        logger.warn("Hover registry lookup failed — falling back to inline variants", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Fallback: inline per-element ComponentSet creation (content-signature
+    // dedup via hoverComponentCache). Used for nodes not in the registry.
     try {
       const { createPseudoStateVariants } = await import("./pseudoStates");
       // If self diff is empty, pass a synthetic hover state so the
@@ -814,11 +871,15 @@ export async function createNodeInFigma(
         );
       // On cache hit the ComponentSet is already in the Components section
       // from the first occurrence — don't push it again.
-      if (!cacheHit) {
+      if (cacheHit) {
+        if (context.renderStats) context.renderStats.hoverCacheHits += 1;
+      } else {
+        if (context.renderStats) context.renderStats.hoverCacheMisses += 1;
         context.componentSets?.push(componentSet);
       }
       return defaultInstance;
     } catch (err) {
+      if (context.renderStats) context.renderStats.pseudoErrors += 1;
       logger.error("Pseudo-state variant creation failed", err);
     }
   }
@@ -1391,9 +1452,15 @@ export async function createWireframeFrame(
 
         // appendChild on an already-parented node moves it (re-parents)
         wireframeFrame.appendChild(fixedNode);
-        // Set absolute positioning so it overlays at its original x/y
+        // Set absolute positioning so it overlays at its original x/y.
+        // `layoutPositioning = "ABSOLUTE"` is only valid when the parent has
+        // auto-layout; in absolute (x/y) mode the root frame's layoutMode is
+        // NONE and children already free-position via x/y — Figma throws if
+        // we try to set ABSOLUTE on a NONE-parent child.
         if ("layoutPositioning" in fixedNode) {
-          (fixedNode as FrameNode).layoutPositioning = "ABSOLUTE";
+          if (wireframeFrame.layoutMode !== "NONE") {
+            (fixedNode as FrameNode).layoutPositioning = "ABSOLUTE";
+          }
           // FIX D: override y/x with the CSS top/left values (captured as
           // pluginData during createNodeInFigma). Nested sticky headers
           // carry the DOM flow y-coord (e.g. 1384px) rather than their

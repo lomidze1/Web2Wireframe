@@ -179,6 +179,57 @@ export async function captureForcedHoverStyles(
 }
 
 // ============================================================================
+// TRANSITION DISABLE — kill CSS transitions/animations during capture so
+// `CSS.forcePseudoState` followed by `CSS.getMatchedStylesForNode` reads
+// the STABLE post-force computed style instead of a mid-transition
+// interpolant. Without this, transforms like `translateY(-2px)` sample as
+// mid-animation matrix values (e.g. `matrix(1,0,0,1,0,-0.184126)`) which
+// (a) fail our MIN_SHIFT=0.25 threshold in the render layer, and (b)
+// produce per-element jitter that defeats content-signature dedup.
+// ============================================================================
+
+const TRANSITION_KILLER_STYLE_ID = "w2w-pseudo-capture-disable-transitions";
+
+async function disableTransitions(client: CDPClientInterface): Promise<void> {
+  const expression = `
+    (() => {
+      if (document.getElementById('${TRANSITION_KILLER_STYLE_ID}')) return;
+      const s = document.createElement('style');
+      s.id = '${TRANSITION_KILLER_STYLE_ID}';
+      s.textContent = \`
+        *, *::before, *::after {
+          transition: none !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+        }
+      \`;
+      (document.head || document.documentElement).appendChild(s);
+    })();
+  `;
+  try {
+    await client.send("Runtime.evaluate", { expression, returnByValue: true });
+  } catch {
+    // Non-fatal — capture proceeds; values may be slightly jittery.
+  }
+}
+
+async function restoreTransitions(client: CDPClientInterface): Promise<void> {
+  const expression = `
+    (() => {
+      const el = document.getElementById('${TRANSITION_KILLER_STYLE_ID}');
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    })();
+  `;
+  try {
+    await client.send("Runtime.evaluate", { expression, returnByValue: true });
+  } catch {
+    // Non-fatal — a stale <style> tag is harmless.
+  }
+}
+
+// ============================================================================
 // BATCH PSEUDO-STATE CAPTURE
 // ============================================================================
 
@@ -205,48 +256,59 @@ export async function capturePseudoStatesForNodes(
   /** All pseudo-classes to capture */
   const PSEUDO_CLASSES: ForcedPseudoClass[] = ["hover", "focus", "active", "focus-visible"];
 
-  // Process in batches to limit concurrency
-  for (let i = 0; i < nodes.length; i += concurrency) {
-    const batch = nodes.slice(i, i + concurrency);
+  // Disable CSS transitions/animations so forced-pseudo-state captures
+  // read the final target value instead of a mid-transition interpolant.
+  // Best-effort — capture proceeds even if injection fails.
+  await disableTransitions(client);
 
-    await Promise.all(
-      batch.map(async ({ backendNodeId, nodeId }) => {
-        try {
-          // Get normal styles — use existing map or fetch fresh
-          let normalStyles = normalStylesMap.get(backendNodeId);
-          if (!normalStyles) {
-            const fetched = await getMatchedStylesForNode(client, nodeId);
-            if (!fetched) return;
-            normalStyles = fetched;
-          }
+  try {
+    // Process in batches to limit concurrency
+    for (let i = 0; i < nodes.length; i += concurrency) {
+      const batch = nodes.slice(i, i + concurrency);
 
-          // Capture diffs for all pseudo-classes
-          const states: PseudoStateStyles = {};
-
-          for (const pseudoClass of PSEUDO_CLASSES) {
-            const diff = await captureForcedPseudoStyles(
-              client,
-              nodeId,
-              normalStyles,
-              pseudoClass
-            );
-            if (diff) {
-              // Map "focus-visible" → "focusVisible"
-              const key = pseudoClass === "focus-visible" ? "focusVisible" : pseudoClass;
-              states[key] = diff;
+      await Promise.all(
+        batch.map(async ({ backendNodeId, nodeId }) => {
+          try {
+            // Get normal styles — use existing map or fetch fresh
+            let normalStyles = normalStylesMap.get(backendNodeId);
+            if (!normalStyles) {
+              const fetched = await getMatchedStylesForNode(client, nodeId);
+              if (!fetched) return;
+              normalStyles = fetched;
             }
-          }
 
-          // Only store if at least one state had diffs
-          if (Object.keys(states).length > 0) {
-            result.set(backendNodeId, states);
+            // Capture diffs for all pseudo-classes
+            const states: PseudoStateStyles = {};
+
+            for (const pseudoClass of PSEUDO_CLASSES) {
+              const diff = await captureForcedPseudoStyles(
+                client,
+                nodeId,
+                normalStyles,
+                pseudoClass
+              );
+              if (diff) {
+                // Map "focus-visible" → "focusVisible"
+                const key = pseudoClass === "focus-visible" ? "focusVisible" : pseudoClass;
+                states[key] = diff;
+              }
+            }
+
+            // Only store if at least one state had diffs
+            if (Object.keys(states).length > 0) {
+              result.set(backendNodeId, states);
+            }
+          } catch {
+            // Skip node on any error — don't break the batch
           }
-        } catch {
-          // Skip node on any error — don't break the batch
-        }
-      })
-    );
+        })
+      );
+    }
+
+    return result;
+  } finally {
+    // Always restore — leaves the page clean for subsequent capture steps
+    // (screenshot, asset pipeline) even if something threw above.
+    await restoreTransitions(client);
   }
-
-  return result;
 }

@@ -28,6 +28,30 @@ export function determineFillrTextColor(
 }
 
 /**
+ * Resolve the target width for FILLR rendering.
+ *
+ * `node.width` is the element's CSS box width (e.g. a `<p>` with width: 100%
+ * = 1114px). But the real text inside may only span half of that (e.g. 556px).
+ * Using the element width makes FILLR stretch the wireframe line across the
+ * full box — much longer than the real text's visual span.
+ *
+ * `renderedTextWidth` captures the max bounding-box width across the node's
+ * text children (from content-script TEXT nodes). When present, use it as
+ * the target so FILLR mirrors the real text. Clamp to elementWidth so
+ * overflowing text still truncates to the container.
+ */
+export function resolveFillrTargetWidth(
+  elementWidth: number,
+  renderedTextWidth: number | undefined,
+): number {
+  const clampedElement = Math.max(elementWidth || 100, 1);
+  if (renderedTextWidth && renderedTextWidth > 0) {
+    return Math.min(renderedTextWidth, clampedElement);
+  }
+  return clampedElement;
+}
+
+/**
  * Calculate how many characters to keep so FILLR text fits within the original width.
  * Uses ratio-based estimation (floor to never exceed).
  */
@@ -285,26 +309,37 @@ export async function createTextNode(
     textNode.characters = fullText;
     textNode.fontSize = node.fontSize || 14;
 
-    // Trim text so FILLR glyphs don't exceed the original element width.
-    // FILLR characters are wider than most fonts, so we measure the natural
-    // FILLR width and trim characters until the text fits.
-    const originalWidth = Math.max(node.width || 100, 1);
+    // FILLR sizing has two separate targets:
+    //   • trimTargetWidth — the VISUAL width the FILLR content should fit in
+    //     (the real text's bounding box, or the element width as fallback).
+    //   • elementWidth — the TEXT FRAME width. Stays at the element's box so
+    //     Figma's native `textAlignHorizontal` (center/left/right) positions
+    //     the trimmed FILLR content correctly within the original box.
+    //
+    // For a centered <h2> of width 1440 with renderedTextWidth 535: FILLR
+    // trims to fit 535 visually, then the frame is sized to 1440 and
+    // textAlignHorizontal=CENTER centers the 535-wide line in the frame.
+    const elementWidth = Math.max(node.width || 100, 1);
+    const trimTargetWidth = resolveFillrTargetWidth(
+      elementWidth,
+      node.renderedTextWidth,
+    );
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
     const fillrWidth = textNode.width;
 
-    if (fillrWidth > originalWidth && fullText.length > 0) {
-      const ratio = originalWidth / fillrWidth;
+    if (fillrWidth > trimTargetWidth && fullText.length > 0) {
+      const ratio = trimTargetWidth / fillrWidth;
       let trimLength = Math.floor(fullText.length * ratio);
       textNode.characters = fullText.slice(0, trimLength);
 
       // Fine-tune: trim more if still too wide
-      while (textNode.width > originalWidth && trimLength > 0) {
+      while (textNode.width > trimTargetWidth && trimLength > 0) {
         trimLength--;
         textNode.characters = fullText.slice(0, trimLength);
       }
     }
 
-    textNode.resize(originalWidth, Math.max(node.height || 20, 1));
+    textNode.resize(elementWidth, Math.max(node.height || 20, 1));
     textNode.textAutoResize = "HEIGHT";
     textNode.name = node.name || node.tag || "Text";
 

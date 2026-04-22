@@ -224,6 +224,7 @@ export function applyCssDiffToNode(
             radius: 16,
             visible: true,
             blendMode: "NORMAL",
+            showShadowBehindNode: false,
           });
           frame.effects = existing;
         }
@@ -398,6 +399,7 @@ function parseBoxShadow(shadow: string): Effect | null {
     radius: parseFloat(blurStr),
     spread: spreadStr ? parseFloat(spreadStr) : 0,
     blendMode: "NORMAL",
+    showShadowBehindNode: false,
   };
 }
 

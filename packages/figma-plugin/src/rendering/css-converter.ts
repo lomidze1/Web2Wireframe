@@ -682,6 +682,9 @@ function convertFrame(
     textContent,
     styledSegments,
     browserLineCount,
+    renderedTextWidth: type === 'text' && textChildValues.length > 0
+      ? textChildValues.reduce((acc, t) => Math.max(acc, t.width || 0), 0) || undefined
+      : undefined,
     fontSize,
     fontWeight,
     fontFamily,
@@ -1252,22 +1255,26 @@ function parseFills(
 ): FigmaFill[] {
   const fills: FigmaFill[] = [];
 
-  // Background image (gradients, url())
+  // Background image (gradients, url()) — may contain multiple comma-separated
+  // layers. CSS paints the first layer on top, which matches Figma's fills[0]
+  // = top convention, so preserve order.
   const bgImage = str(s.backgroundImage);
   if (bgImage && bgImage !== 'none') {
-    const gradientFill = parseGradientToFill(bgImage, width, height);
-    if (gradientFill) {
-      fills.push(gradientFill);
-    } else if (bgImage.includes('url(')) {
-      // Extract URL from background-image
-      const urlMatch = bgImage.match(/url\(["']?([^"')]+)["']?\)/);
-      fills.push({
-        type: 'IMAGE_PLACEHOLDER',
-        visible: true,
-        opacity: 1,
-        isImagePlaceholder: true,
-        imageUrl: urlMatch?.[1] || undefined,
-      });
+    const layers = splitMultipleBackgrounds(bgImage);
+    for (const layer of layers) {
+      const gradientFill = parseGradientToFill(layer, width, height);
+      if (gradientFill) {
+        fills.push(gradientFill);
+      } else if (layer.includes('url(')) {
+        const urlMatch = layer.match(/url\(["']?([^"')]+)["']?\)/);
+        fills.push({
+          type: 'IMAGE_PLACEHOLDER',
+          visible: true,
+          opacity: 1,
+          isImagePlaceholder: true,
+          imageUrl: urlMatch?.[1] || undefined,
+        });
+      }
     }
   }
 
@@ -1655,27 +1662,65 @@ function figmaColorToCSS(color: FigmaColor): string {
 // Gradient parsing
 // ---------------------------------------------------------------------------
 
+/**
+ * Split multiple comma-separated CSS background layers, respecting parens
+ * (so rgba()/gradients/etc aren't broken in the middle) and quoted strings
+ * (so url("a,b.jpg") stays intact).
+ */
+function splitMultipleBackgrounds(background: string): string[] {
+  const layers: string[] = [];
+  let depth = 0;
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (const char of background) {
+    if (char === "'" && !inDoubleQuote) inSingleQuote = !inSingleQuote;
+    else if (char === '"' && !inSingleQuote) inDoubleQuote = !inDoubleQuote;
+
+    const inQuotes = inSingleQuote || inDoubleQuote;
+
+    if (!inQuotes) {
+      if (char === '(') depth++;
+      else if (char === ')') depth--;
+      else if (char === ',' && depth === 0) {
+        layers.push(current.trim());
+        current = '';
+        continue;
+      }
+    }
+    current += char;
+  }
+
+  if (current.trim()) layers.push(current.trim());
+  return layers;
+}
+
 function parseGradientToFill(
   bgImage: string,
-  _width: number,
-  _height: number,
+  width: number,
+  height: number,
 ): FigmaFill | null {
   // Linear gradient
   const linearMatch = bgImage.match(/linear-gradient\((.+)\)/);
   if (linearMatch) {
-    return parseLinearGradient(linearMatch[1]);
+    return parseLinearGradient(linearMatch[1], width, height);
   }
 
   // Radial gradient
   const radialMatch = bgImage.match(/radial-gradient\((.+)\)/);
   if (radialMatch) {
-    return parseRadialGradient(radialMatch[1]);
+    return parseRadialGradient(radialMatch[1], width, height);
   }
 
   return null;
 }
 
-function parseLinearGradient(content: string): FigmaFill | null {
+function parseLinearGradient(
+  content: string,
+  width?: number,
+  height?: number,
+): FigmaFill | null {
   // Parse angle
   let angle = 180; // default: top to bottom
   const angleMatch = content.match(/^(\d+)deg/);
@@ -1700,10 +1745,39 @@ function parseLinearGradient(content: string): FigmaFill | null {
     opacity: 1,
     angle,
     stops,
+    elementWidth: width,
+    elementHeight: height,
   };
 }
 
-function parseRadialGradient(content: string): FigmaFill | null {
+function parseRadialGradient(
+  content: string,
+  width?: number,
+  height?: number,
+): FigmaFill | null {
+  // Parse shape (CSS spec default: ellipse)
+  let shape: 'circle' | 'ellipse' = 'ellipse';
+  const shapeMatch = content.match(/^(circle|ellipse)\b/i);
+  if (shapeMatch) shape = shapeMatch[1].toLowerCase() as 'circle' | 'ellipse';
+
+  // Parse size keyword (CSS spec default: farthest-corner)
+  let size: 'closest-side' | 'farthest-side' | 'closest-corner' | 'farthest-corner' =
+    'farthest-corner';
+  const sizeMatch = content.match(
+    /\b(closest-side|farthest-side|closest-corner|farthest-corner)\b/i,
+  );
+  if (sizeMatch) size = sizeMatch[1].toLowerCase() as typeof size;
+
+  // Parse center "at X Y"; default (0.5, 0.5)
+  let center = { x: 0.5, y: 0.5 };
+  const atMatch = content.match(/at\s+([\d.]+%?)\s+([\d.]+%?)/i);
+  if (atMatch) {
+    center = {
+      x: parsePercentOrUnit(atMatch[1]),
+      y: parsePercentOrUnit(atMatch[2]),
+    };
+  }
+
   const stops = parseColorStops(content);
   if (stops.length < 2) return null;
 
@@ -1711,9 +1785,19 @@ function parseRadialGradient(content: string): FigmaFill | null {
     type: 'GRADIENT_RADIAL',
     visible: true,
     opacity: 1,
-    center: { x: 0.5, y: 0.5 },
+    center,
+    shape,
+    size,
     stops,
+    elementWidth: width,
+    elementHeight: height,
   };
+}
+
+// Parse "20%" → 0.2; "50" (bare number) → 0.5 (treat as percent for radial "at").
+function parsePercentOrUnit(s: string): number {
+  const n = parseFloat(s);
+  return isFinite(n) ? n / 100 : 0.5;
 }
 
 function parseColorStops(content: string): FigmaGradientStop[] {
@@ -1733,9 +1817,11 @@ function parseColorStops(content: string): FigmaGradientStop[] {
   const parts = splitShadows(stopsStr);
 
   // First pass: parse color + explicit position (if any) for each non-empty part.
-  // We defer auto-position assignment until after null-colored parts are dropped,
-  // so positions reflect the *valid* stops only.
-  type RawStop = { color: FigmaColor; explicit: number | null };
+  // Track "transparent" stops so we can inherit adjacent RGB in the second pass
+  // — Figma interpolates RGB linearly between stops, and going from a color to
+  // black-at-alpha-0 leaves a dark/muddy halo. Matching the adjacent color's
+  // RGB (with alpha 0) gives a clean fade. Same technique as h2d.
+  type RawStop = { color: FigmaColor; explicit: number | null; isTransparent: boolean };
   const raw: RawStop[] = [];
   for (const rawPart of parts) {
     const part = rawPart.trim();
@@ -1749,11 +1835,32 @@ function parseColorStops(content: string): FigmaGradientStop[] {
       explicit = posStr.endsWith('%') ? parseFloat(posStr) / 100 : parseFloat(posStr);
       colorStr = part.slice(0, part.length - posMatch[0].length).trim();
     }
-    const color = parseCSSColor(colorStr);
-    if (color) raw.push({ color, explicit });
+    // "transparent" keyword is a valid gradient stop (= rgba(0,0,0,0)).
+    // Browser getComputedStyle normalizes `transparent` to the literal
+    // string "rgba(0, 0, 0, 0)" before it reaches the plugin, so we need
+    // to detect BOTH forms (with and without spaces, any case).
+    // parseCSSColor() returns null for the keyword by design (to filter
+    // out transparent backgrounds upstream), so we handle it explicitly.
+    const normalized = colorStr.toLowerCase().replace(/\s+/g, '');
+    const isTransparent =
+      normalized === 'transparent' || normalized === 'rgba(0,0,0,0)';
+    const color = isTransparent
+      ? { r: 0, g: 0, b: 0, a: 0 }
+      : parseCSSColor(colorStr);
+    if (color) raw.push({ color, explicit, isTransparent });
   }
 
-  // Second pass: fill auto-positions across valid stops only.
+  // Second pass: for each transparent stop, inherit RGB from the nearest
+  // non-transparent stop (previous first, then next). Keep alpha at 0.
+  for (let i = 0; i < raw.length; i++) {
+    if (!raw[i].isTransparent) continue;
+    let ref: FigmaColor | null = null;
+    if (i > 0 && !raw[i - 1].isTransparent) ref = raw[i - 1].color;
+    else if (i < raw.length - 1 && !raw[i + 1].isTransparent) ref = raw[i + 1].color;
+    if (ref) raw[i].color = { r: ref.r, g: ref.g, b: ref.b, a: 0 };
+  }
+
+  // Third pass: fill auto-positions across valid stops only.
   const denom = Math.max(raw.length - 1, 1);
   for (let i = 0; i < raw.length; i++) {
     const { color, explicit } = raw[i];

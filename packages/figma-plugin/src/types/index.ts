@@ -182,6 +182,11 @@ export interface WireframeNode {
   lineHeight: number | string;
   letterSpacing: number;
   browserLineCount?: number;        // Number of lines from browser (from CDP textBoxes.length)
+  // Max rendered text bounding-box width across the node's text children.
+  // When a `<p>` element has width: 100% but text spans only half the box,
+  // this stores the real text width so wireframe-lines (FILLR) render to the
+  // text's visual span instead of stretching to the full element width.
+  renderedTextWidth?: number;
 
   // CSS max-width (px). When set, applied to Figma node as native TextNode.maxWidth
   // or FrameNode.maxWidth, enforcing a hard upper bound regardless of
@@ -317,6 +322,27 @@ export interface RenderContext {
     string,
     { componentSet: ComponentSetNode; defaultComponent: ComponentNode }
   >;
+  // h2d-aligned consolidated hover ComponentSet registry (Pass 1 of the
+  // two-pass architecture). Built before the render loop; queried during
+  // render to turn hoverable elements into instances of shared masters.
+  // Key = children-structure signature; value carries the master set +
+  // variant index + TEXT property ids.
+  hoverMasterRegistry?: Map<
+    string,
+    {
+      componentSet: ComponentSetNode;
+      variantByVisualSig: Map<string, number>;
+      textPropIds: string[];
+    }
+  >;
+  // Render statistics — incremented during traversal, logged at the end of
+  // the import so we can diagnose dedup effectiveness.
+  renderStats?: {
+    hoverCacheHits: number;
+    hoverCacheMisses: number;
+    emptyPseudoSkipped: number;
+    pseudoErrors: number;
+  };
 }
 
 /**
