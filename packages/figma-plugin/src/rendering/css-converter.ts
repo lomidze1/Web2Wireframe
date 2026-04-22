@@ -1660,25 +1660,29 @@ function figmaColorToCSS(color: FigmaColor): string {
 
 function parseGradientToFill(
   bgImage: string,
-  _width: number,
-  _height: number,
+  width: number,
+  height: number,
 ): FigmaFill | null {
   // Linear gradient
   const linearMatch = bgImage.match(/linear-gradient\((.+)\)/);
   if (linearMatch) {
-    return parseLinearGradient(linearMatch[1]);
+    return parseLinearGradient(linearMatch[1], width, height);
   }
 
   // Radial gradient
   const radialMatch = bgImage.match(/radial-gradient\((.+)\)/);
   if (radialMatch) {
-    return parseRadialGradient(radialMatch[1]);
+    return parseRadialGradient(radialMatch[1], width, height);
   }
 
   return null;
 }
 
-function parseLinearGradient(content: string): FigmaFill | null {
+function parseLinearGradient(
+  content: string,
+  width?: number,
+  height?: number,
+): FigmaFill | null {
   // Parse angle
   let angle = 180; // default: top to bottom
   const angleMatch = content.match(/^(\d+)deg/);
@@ -1703,10 +1707,16 @@ function parseLinearGradient(content: string): FigmaFill | null {
     opacity: 1,
     angle,
     stops,
+    elementWidth: width,
+    elementHeight: height,
   };
 }
 
-function parseRadialGradient(content: string): FigmaFill | null {
+function parseRadialGradient(
+  content: string,
+  width?: number,
+  height?: number,
+): FigmaFill | null {
   const stops = parseColorStops(content);
   if (stops.length < 2) return null;
 
@@ -1716,6 +1726,8 @@ function parseRadialGradient(content: string): FigmaFill | null {
     opacity: 1,
     center: { x: 0.5, y: 0.5 },
     stops,
+    elementWidth: width,
+    elementHeight: height,
   };
 }
 
