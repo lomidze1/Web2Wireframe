@@ -173,10 +173,85 @@ function solidFill(color: FigmaSafeColor): Paint {
 }
 
 /**
+ * Build a COMPLETE ComponentNode by delegating to the full render pipeline.
+ * Runs `createNodeInFigma` on a pseudoStateStyles-stripped copy of the
+ * representative (so we don't recurse back into consolidation), then
+ * promotes the resulting SceneNode into a ComponentNode by moving its
+ * children and copying visual properties.
+ *
+ * Falls back to the lightweight skeleton if the render fails.
+ */
+async function buildComponentFromWireframe(
+  name: string,
+  rep: WireframeNode,
+  context: RenderContext,
+): Promise<ComponentNode> {
+  try {
+    const { createNodeInFigma } = await import("./nodes");
+    // Deep-clone the representative so we can safely mutate (remove
+    // pseudoStateStyles, hasDescendantHover) without touching the tree.
+    const copy = JSON.parse(JSON.stringify(rep)) as WireframeNode;
+    copy.pseudoStateStyles = undefined;
+    (copy as unknown as { hasDescendantHover?: boolean }).hasDescendantHover = false;
+
+    const rendered = await createNodeInFigma(copy, context, 0);
+    if (!rendered) {
+      return buildSkeletonComponent(name, rep, collectTextValues(rep));
+    }
+
+    const comp = figma.createComponent();
+    comp.name = name;
+    comp.resize(
+      Math.max(Math.round(rep.width ?? rendered.width ?? 100), 1),
+      Math.max(Math.round(rep.height ?? rendered.height ?? 40), 1),
+    );
+
+    // Type-narrowed copy for the common FrameNode case.
+    if (rendered.type === "FRAME") {
+      const frame = rendered as FrameNode;
+      try { comp.fills = JSON.parse(JSON.stringify(frame.fills)) as Paint[]; } catch { /* best-effort */ }
+      try { comp.strokes = JSON.parse(JSON.stringify(frame.strokes)) as Paint[]; } catch { /* best-effort */ }
+      try { comp.effects = JSON.parse(JSON.stringify(frame.effects)) as Effect[]; } catch { /* best-effort */ }
+      try { comp.opacity = frame.opacity; } catch { /* best-effort */ }
+      try { comp.cornerRadius = frame.cornerRadius as number; } catch { /* best-effort */ }
+      try { comp.strokeWeight = frame.strokeWeight as number; } catch { /* best-effort */ }
+      try { comp.strokeAlign = frame.strokeAlign; } catch { /* best-effort */ }
+      try { comp.clipsContent = frame.clipsContent; } catch { /* best-effort */ }
+      // Auto-layout properties so text centers correctly.
+      try {
+        if (frame.layoutMode !== "NONE") {
+          comp.layoutMode = frame.layoutMode;
+          comp.primaryAxisSizingMode = frame.primaryAxisSizingMode;
+          comp.counterAxisSizingMode = frame.counterAxisSizingMode;
+          comp.paddingTop = frame.paddingTop;
+          comp.paddingRight = frame.paddingRight;
+          comp.paddingBottom = frame.paddingBottom;
+          comp.paddingLeft = frame.paddingLeft;
+          comp.itemSpacing = frame.itemSpacing;
+          comp.primaryAxisAlignItems = frame.primaryAxisAlignItems;
+          comp.counterAxisAlignItems = frame.counterAxisAlignItems;
+        }
+      } catch { /* non-fatal */ }
+      // Move children (so text nodes, nested frames, etc. transfer).
+      while (frame.children.length > 0) {
+        comp.appendChild(frame.children[0]);
+      }
+      try { frame.remove(); } catch { /* non-fatal */ }
+    } else {
+      // Non-frame rendered result (text, instance, etc.) — append as single child.
+      try { comp.appendChild(rendered); } catch { /* non-fatal */ }
+    }
+
+    return comp;
+  } catch {
+    return buildSkeletonComponent(name, rep, collectTextValues(rep));
+  }
+}
+
+/**
  * Build a skeleton ComponentNode matching the representative WireframeNode's
- * top-level visuals. We intentionally keep it minimal — only fills, strokes,
- * effects, radius, size — because all that matters for the master is that
- * its visual signature matches what PASS 2 looked up.
+ * top-level visuals. Minimal fallback only — used when the full render
+ * pipeline fails (e.g. inside unit tests with stub figma globals).
  */
 function buildSkeletonComponent(
   name: string,
@@ -355,7 +430,7 @@ export async function buildHoverMasterRegistry(
       const texts = collectTextValues(rep);
       representativeTextCount = Math.max(representativeTextCount, texts.length);
       const restName = `variant=${variant}, :hover=false`;
-      const rest = buildSkeletonComponent(restName, rep, texts);
+      const rest = await buildComponentFromWireframe(restName, rep, _context);
 
       // Build the :hover=true variant by cloning and letting PASS 2
       // apply the actual hover CSS diff at instance time if needed.
@@ -367,7 +442,7 @@ export async function buildHoverMasterRegistry(
         hover = rest.clone();
         hover.name = hoverName;
       } catch {
-        hover = buildSkeletonComponent(hoverName, rep, texts);
+        hover = await buildComponentFromWireframe(hoverName, rep, _context);
       }
 
       allComponents.push(rest, hover);
