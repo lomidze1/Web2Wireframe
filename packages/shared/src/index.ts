@@ -73,6 +73,8 @@ export type {
   W2WAssetEntry,
   W2WDocMeta,
   W2WCaptureResult,
+  W2WFrameCapture,
+  W2WMultiCaptureResult,
   W2WCSSVariable,
   Quad,
 } from "./w2w-types";

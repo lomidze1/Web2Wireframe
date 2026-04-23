@@ -474,6 +474,13 @@ export function transformFrameData(
     return frame;
   }
 
+  // W2W content-script frames use `tree: null` and carry the real node tree
+  // on `capturedData.frame`; `transformW2WTreeText` handles those separately.
+  // Skip here so we don't crash dereferencing `element.tag` on a null tree.
+  if (!frame.tree) {
+    return frame;
+  }
+
   // Transform text content in the tree
   return {
     ...frame,

@@ -328,6 +328,47 @@ export interface W2WCSSVariable {
 }
 
 // ---------------------------------------------------------------------------
+// Multi-viewport capture result
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-viewport slice of a multi-viewport W2W capture.
+ * Holds only fields that differ per viewport; assets/fonts/cssVariables are
+ * shared at the top level of W2WMultiCaptureResult.
+ */
+export interface W2WFrameCapture {
+  /** Viewport width (emulated via CDP Emulation.setDeviceMetricsOverride) */
+  width: number;
+  /** Root FRAME node (html) captured at this viewport */
+  frame: W2WFrameNode;
+  /** Document metadata (innerHeight/innerWidth vary per viewport) */
+  doc: W2WDocMeta;
+}
+
+/**
+ * Multi-viewport capture result — produced by handleCapturePageW2W when
+ * options.viewports contains more than one width. Contains N per-viewport
+ * frames plus shared assets/fonts/cssVariables (extracted once because
+ * browser cache and @font-face definitions are viewport-independent).
+ */
+export interface W2WMultiCaptureResult {
+  /** Page URL */
+  name: string;
+  /** Page URL (duplicate of name for compatibility) */
+  url: string;
+  /** Theme: "default" | "dark" | "light" */
+  theme: string;
+  /** Per-viewport captures */
+  frames: W2WFrameCapture[];
+  /** Assets dictionary: URL → { base64Encoded, content, mimeType } (shared) */
+  assets: Record<string, W2WAssetEntry>;
+  /** Extracted @font-face entries (shared — viewport-independent) */
+  fonts: W2WFontEntry[];
+  /** Extracted CSS variables (shared — extracted once on first viewport) */
+  cssVariables?: W2WCSSVariable[];
+}
+
+// ---------------------------------------------------------------------------
 // CSS properties list (for content script extraction)
 // ---------------------------------------------------------------------------
 
