@@ -121,49 +121,78 @@ router.post("/import-cdp", async (req: Request, res: Response) => {
 /**
  * POST /api/import-w2w — W2W content script capture import
  *
- * Receives W2WCaptureResult from Browser Extension (content script path).
+ * Receives W2WCaptureResult (single viewport, legacy) OR
+ * W2WMultiCaptureResult (multi-viewport) from Browser Extension.
  * Pass-through storage — Figma plugin handles CSS→Figma conversion.
  *
  * Request body:
- * - capturedData: W2WCaptureResult (raw CSS node tree)
+ * - capturedData: W2WCaptureResult | W2WMultiCaptureResult
  * - timestamp: number
  */
 router.post("/import-w2w", async (req: Request, res: Response) => {
   try {
     const { capturedData, timestamp } = req.body;
 
-    if (!capturedData || !capturedData.frame) {
+    if (!capturedData) {
       return res.status(400).json({
         success: false,
-        error: "Missing or invalid capturedData (frame is required)",
+        error: "Missing capturedData",
+      });
+    }
+
+    // Detect multi-viewport payload (W2WMultiCaptureResult has frames[])
+    // vs legacy single-viewport payload (W2WCaptureResult has frame + width).
+    const isMulti = Array.isArray(capturedData.frames);
+    const frameSlices: Array<{ width: number; frame: unknown; doc: { innerHeight?: number; title?: string } }> = isMulti
+      ? capturedData.frames
+      : [
+          {
+            width: capturedData.width,
+            frame: capturedData.frame,
+            doc: capturedData.doc,
+          },
+        ];
+
+    if (frameSlices.length === 0 || !frameSlices[0].frame) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing or invalid capturedData (at least one frame is required)",
       });
     }
 
     const importId = `w2w-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-    // Convert W2W content script format to WireframeFrame structure for the plugin
-    const frames = [{
-      viewportWidth: capturedData.width || 1440,
-      viewportHeight: capturedData.doc?.innerHeight || 900,
+    // Shared assets live at top level on both legacy and multi payloads.
+    const sharedAssets = capturedData.assets || {};
+
+    // Convert each W2W frame to a WireframeFrame entry for the plugin.
+    const frames = frameSlices.map((fs) => ({
+      viewportWidth: fs.width || 1440,
+      viewportHeight: fs.doc?.innerHeight || 900,
       tree: {}, // Empty tree — plugin will use capturedData.frame for conversion
       capturedData: {
-        frame: capturedData.frame,
-        assets: capturedData.assets || {},
-        doc: capturedData.doc,
+        frame: fs.frame,
+        assets: sharedAssets,
+        doc: fs.doc,
       },
-    }];
+    }));
+
+    const viewports = frameSlices.map((fs) => fs.width || 1440);
 
     const localStyles = createLocalStylesStructure(DEFAULT_PLUGIN_COLORS, {
       primary: "Montserrat",
     });
 
+    // Pick a title — multi payloads have per-frame doc.title; take the first.
+    const title = frameSlices[0]?.doc?.title || capturedData.doc?.title || "Untitled";
+
     const importData: Record<string, unknown> = {
       success: true,
       importId,
       sourceUrl: capturedData.url || capturedData.name,
-      title: capturedData.doc?.title || "Untitled",
-      viewports: [capturedData.width || 1440],
-      frameCount: 1,
+      title,
+      viewports,
+      frameCount: frames.length,
       wireframeData: { frames },
       localStyles,
       fonts: capturedData.fonts || [],

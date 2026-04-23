@@ -64,8 +64,11 @@ import {
   findIconClassElements,
   // W2W content script types
   type W2WCaptureResult,
+  type W2WMultiCaptureResult,
+  type W2WFrameCapture,
   type W2WFrameNode,
   type W2WNode,
+  type W2WDocMeta,
   type W2WAssetEntry,
   w2wFindHoverCandidates,
   attachHoverToDescendants,
@@ -114,15 +117,21 @@ chrome.runtime.onMessage.addListener(
       console.log("[W2W] CAPTURE_PAGE_W2W received, tabId:", message.tabId);
       handleCapturePageW2W(message.tabId, message.options)
         .then(async (result) => {
-          console.log("[W2W] W2W capture complete, nodes:", w2wCountNodes(result.frame));
-          // Auto-download W2W result as JSON (+ optional deflate)
+          const totalNodes = result.frames.reduce(
+            (sum, f) => sum + w2wCountNodes(f.frame),
+            0,
+          );
+          console.log(
+            `[W2W] W2W capture complete: ${result.frames.length} viewport(s), ${totalNodes} total nodes`,
+          );
+          // Auto-download combined JSON — one file with all viewports
           try {
             const jsonString = JSON.stringify(result, null, 2);
             const domain = getDomainFromUrl(result.url || "");
-            const filename = `${domain}_${result.width}_w2w.json`;
+            const widthLabel = result.frames.map((f) => f.width).join("_");
+            const filename = `${domain}_${widthLabel}_w2w.json`;
             console.log(`[W2W] JSON size: ${(jsonString.length / 1024 / 1024).toFixed(1)} MB`);
 
-            // Download readable JSON (for debugging in VS Code)
             const jsonBlob = new Blob([jsonString], { type: "application/json" });
             const jsonReader = new FileReader();
             const jsonDataUrl = await new Promise<string>((resolve, reject) => {
@@ -131,9 +140,6 @@ chrome.runtime.onMessage.addListener(
               jsonReader.readAsDataURL(jsonBlob);
             });
             await chrome.downloads.download({ url: jsonDataUrl, filename, saveAs: false });
-
-            // Deflate download disabled — JSON-only for now
-            // TODO: Re-enable when debugging is done
           } catch (e) {
             console.error("[W2W] Auto-download failed:", e);
           }
@@ -815,7 +821,7 @@ async function handleCapturePage(
 async function handleCapturePageW2W(
   tabId: number,
   options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS,
-): Promise<W2WCaptureResult> {
+): Promise<W2WMultiCaptureResult> {
   if (isCapturing) {
     throw new Error("Capture already in progress");
   }
@@ -832,239 +838,295 @@ async function handleCapturePageW2W(
     updateProgress(5, "Connecting to page...");
     client = await createCDPClient(tabId);
 
-    // Get devicePixelRatio
+    // Get devicePixelRatio — shared across all viewports
     const dprResult = await client.send<{ result: { value: number } }>(
       "Runtime.evaluate",
       { expression: "window.devicePixelRatio", returnByValue: true },
     );
     const browserDpr = dprResult.result.value || 1;
 
-    const targetViewport = options.viewports.length > 0 ? options.viewports[0] : 1440;
-
-    // --- Viewport Setup (same as classic) ---
-    updateProgress(10, `Setting viewport ${targetViewport}px...`);
+    const viewports = options.viewports.length > 0 ? options.viewports : [1440];
     const targetHeight = 900;
-    await client.send("Emulation.setDeviceMetricsOverride", {
-      width: targetViewport,
-      height: targetHeight,
-      deviceScaleFactor: 1 / browserDpr,
-      mobile: targetViewport <= 768,
-      screenWidth: targetViewport,
-      screenHeight: targetHeight,
-      positionX: 0,
-      positionY: 0,
-      screenOrientation: { angle: 0, type: "landscapePrimary" },
-    });
+    const captures: W2WFrameCapture[] = [];
 
-    await client.send("Page.reload", { ignoreCache: false });
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // Aggregated across all viewports for shared-font filtering
+    const aggregatedUsedFamilies = new Set<string>();
 
-    // Auto-scroll for lazy content
-    await autoScrollPage(client);
+    // Per-viewport progress budget: [10 .. 70] = 60 points across N viewports
+    const perViewportBudget = 60 / viewports.length;
 
-    // Scrollbar compensation
-    const layoutMetrics = await client.send<{
-      layoutViewport: { clientWidth: number; clientHeight: number };
-    }>("Page.getLayoutMetrics", {});
+    // =========================================================================
+    // CAPTURE EACH VIEWPORT SEQUENTIALLY (single CDP attach)
+    // =========================================================================
+    for (let vi = 0; vi < viewports.length; vi++) {
+      const targetViewport = viewports[vi];
+      const baseProgress = 10 + vi * perViewportBudget;
+      const label = `${targetViewport}px (${vi + 1}/${viewports.length})`;
 
-    const actualLayoutWidth = layoutMetrics.layoutViewport.clientWidth;
-    const scrollbarWidth = targetViewport - actualLayoutWidth;
+      console.log(`[W2W] Capturing viewport ${label}...`);
+      updateProgress(baseProgress, `Setting viewport ${label}...`);
 
-    if (scrollbarWidth > 0) {
+      // --- Viewport Setup ---
       await client.send("Emulation.setDeviceMetricsOverride", {
-        width: targetViewport + scrollbarWidth,
+        width: targetViewport,
         height: targetHeight,
         deviceScaleFactor: 1 / browserDpr,
         mobile: targetViewport <= 768,
-        screenWidth: targetViewport + scrollbarWidth,
+        screenWidth: targetViewport,
         screenHeight: targetHeight,
         positionX: 0,
         positionY: 0,
         screenOrientation: { angle: 0, type: "landscapePrimary" },
       });
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
 
-    // CSS scrollbar hide
-    await client.send("Runtime.evaluate", {
-      expression: `
-        const style = document.createElement('style');
-        style.id = '__w2w_hide_scrollbar';
-        style.textContent = 'html { scrollbar-width: none !important; } html::-webkit-scrollbar { display: none !important; }';
-        document.head.appendChild(style);
-      `,
-      awaitPromise: false,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 200));
+      await client.send("Page.reload", { ignoreCache: false });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    // --- Content Script DOM Extraction ---
-    updateProgress(30, "Extracting DOM via content script...");
-    console.log("[W2W] Sending EXTRACT_DOM to content script...");
+      // Auto-scroll for lazy content
+      await autoScrollPage(client);
 
-    const extractResult = await chrome.tabs.sendMessage(tabId, { type: "EXTRACT_DOM" });
+      // Scrollbar compensation
+      const layoutMetrics = await client.send<{
+        layoutViewport: { clientWidth: number; clientHeight: number };
+      }>("Page.getLayoutMetrics", {});
 
-    if (!extractResult || !extractResult.success) {
-      throw new Error(`Content script extraction failed: ${extractResult?.error || "unknown"}`);
-    }
+      const actualLayoutWidth = layoutMetrics.layoutViewport.clientWidth;
+      const scrollbarWidth = targetViewport - actualLayoutWidth;
 
-    const { doc, frame, textHostCount } = extractResult.data as {
-      doc: W2WCaptureResult["doc"];
-      frame: W2WFrameNode;
-      textHostCount: number;
-    };
-    console.log(`[W2W] DOM extracted: ${w2wCountNodes(frame)} nodes, ${textHostCount} text hosts`);
+      if (scrollbarWidth > 0) {
+        await client.send("Emulation.setDeviceMetricsOverride", {
+          width: targetViewport + scrollbarWidth,
+          height: targetHeight,
+          deviceScaleFactor: 1 / browserDpr,
+          mobile: targetViewport <= 768,
+          screenWidth: targetViewport + scrollbarWidth,
+          screenHeight: targetHeight,
+          positionX: 0,
+          positionY: 0,
+          screenOrientation: { angle: 0, type: "landscapePrimary" },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
 
-    // --- Platform Fonts via CDP ---
-    updateProgress(50, "Collecting platform fonts...");
-    await client.send("CSS.enable", {});
-    await client.send("DOM.enable", {});
+      // CSS scrollbar hide — re-injected after each reload
+      await client.send("Runtime.evaluate", {
+        expression: `
+          const style = document.createElement('style');
+          style.id = '__w2w_hide_scrollbar';
+          style.textContent = 'html { scrollbar-width: none !important; } html::-webkit-scrollbar { display: none !important; }';
+          document.head.appendChild(style);
+        `,
+        awaitPromise: false,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const docRoot = await client.send<{ root: { nodeId: number } }>(
-      "DOM.getDocument",
-      { depth: -1, pierce: true },
-    );
-    const idxResult = await client.send<{ nodeIds: number[] }>(
-      "DOM.querySelectorAll",
-      { nodeId: docRoot.root.nodeId, selector: "[data-w2w-idx]" },
-    );
+      // --- Content Script DOM Extraction (per viewport) ---
+      updateProgress(
+        baseProgress + perViewportBudget * 0.3,
+        `Extracting DOM at ${label}...`,
+      );
+      console.log(`[W2W] Sending EXTRACT_DOM to content script for ${label}...`);
 
-    // Collect platform fonts for all text-hosting elements
-    const fontsByIdx = new Map<number, { familyName: string; postScriptName: string }>();
-    if (idxResult.nodeIds.length > 0) {
+      const extractResult = await chrome.tabs.sendMessage(tabId, { type: "EXTRACT_DOM" });
+
+      if (!extractResult || !extractResult.success) {
+        throw new Error(`Content script extraction failed: ${extractResult?.error || "unknown"}`);
+      }
+
+      const { doc, frame, textHostCount } = extractResult.data as {
+        doc: W2WDocMeta;
+        frame: W2WFrameNode;
+        textHostCount: number;
+      };
       console.log(
-        `[W2W] Collecting platform fonts for ${idxResult.nodeIds.length} text-hosting elements...`,
+        `[W2W] DOM extracted at ${label}: ${w2wCountNodes(frame)} nodes, ${textHostCount} text hosts`,
       );
 
-      for (const nodeId of idxResult.nodeIds) {
-        try {
-          const fontsResult = await client.send<{
-            fonts: Array<{
-              familyName: string;
-              postScriptName: string;
-              isCustomFont: boolean;
-              glyphCount: number;
-            }>;
-          }>("CSS.getPlatformFontsForNode", { nodeId });
+      // --- Platform Fonts via CDP (per viewport) ---
+      updateProgress(
+        baseProgress + perViewportBudget * 0.5,
+        `Collecting fonts at ${label}...`,
+      );
+      await client.send("CSS.enable", {});
+      await client.send("DOM.enable", {});
 
-          if (fontsResult.fonts && fontsResult.fonts.length > 0) {
-            // Get data-w2w-idx attribute
-            const attrResult = await client.send<{ attributes: string[] }>(
-              "DOM.getAttributes",
-              { nodeId },
-            );
-            const attrs = attrResult.attributes;
-            const idxPos = attrs.indexOf("data-w2w-idx");
-            if (idxPos >= 0) {
-              const idx = parseInt(attrs[idxPos + 1], 10);
-              // Primary font = highest glyph count
-              const primaryFont = fontsResult.fonts.reduce(
-                (best, f) => (f.glyphCount > best.glyphCount ? f : best),
-                fontsResult.fonts[0],
+      const docRoot = await client.send<{ root: { nodeId: number } }>(
+        "DOM.getDocument",
+        { depth: -1, pierce: true },
+      );
+      const idxResult = await client.send<{ nodeIds: number[] }>(
+        "DOM.querySelectorAll",
+        { nodeId: docRoot.root.nodeId, selector: "[data-w2w-idx]" },
+      );
+
+      const fontsByIdx = new Map<number, { familyName: string; postScriptName: string }>();
+      if (idxResult.nodeIds.length > 0) {
+        for (const nodeId of idxResult.nodeIds) {
+          try {
+            const fontsResult = await client.send<{
+              fonts: Array<{
+                familyName: string;
+                postScriptName: string;
+                isCustomFont: boolean;
+                glyphCount: number;
+              }>;
+            }>("CSS.getPlatformFontsForNode", { nodeId });
+
+            if (fontsResult.fonts && fontsResult.fonts.length > 0) {
+              const attrResult = await client.send<{ attributes: string[] }>(
+                "DOM.getAttributes",
+                { nodeId },
               );
-              fontsByIdx.set(idx, {
-                familyName: primaryFont.familyName,
-                postScriptName: primaryFont.postScriptName,
+              const attrs = attrResult.attributes;
+              const idxPos = attrs.indexOf("data-w2w-idx");
+              if (idxPos >= 0) {
+                const idx = parseInt(attrs[idxPos + 1], 10);
+                const primaryFont = fontsResult.fonts.reduce(
+                  (best, f) => (f.glyphCount > best.glyphCount ? f : best),
+                  fontsResult.fonts[0],
+                );
+                fontsByIdx.set(idx, {
+                  familyName: primaryFont.familyName,
+                  postScriptName: primaryFont.postScriptName,
+                });
+                aggregatedUsedFamilies.add(primaryFont.familyName.toLowerCase());
+              }
+            }
+          } catch {
+            // Skip elements that can't be queried
+          }
+        }
+
+        w2wEnrichAllTextNodes(frame, fontsByIdx);
+        console.log(`[W2W] Platform fonts at ${label}: ${fontsByIdx.size} elements`);
+      }
+
+      // --- Hover State Capture (per viewport) ---
+      // Geometry of hover subtrees must match this viewport's layout, so we
+      // capture per viewport rather than once at the end.
+      updateProgress(
+        baseProgress + perViewportBudget * 0.7,
+        `Capturing hover at ${label}...`,
+      );
+
+      let hoverSelectorPairs: Array<{ trigger: string; target: string }> = [];
+      try {
+        const selResult = await chrome.tabs.sendMessage(tabId, {
+          type: "COLLECT_HOVER_SELECTORS",
+        });
+        if (selResult?.success && Array.isArray(selResult.data)) {
+          hoverSelectorPairs = selResult.data;
+          console.log(
+            `[W2W-HOVER] ${label}: collected ${hoverSelectorPairs.length} :hover selectors from stylesheets`,
+          );
+        }
+      } catch (err) {
+        console.warn(`[W2W-HOVER] ${label}: failed to collect stylesheet selectors:`, err);
+      }
+
+      const extraSelectors = hoverSelectorPairs.map((h) => h.trigger);
+      const interactiveNodes = w2wFindHoverCandidates(frame, extraSelectors);
+      console.log(
+        `[W2W-HOVER] ${label}: found ${interactiveNodes.length} hover candidates`,
+      );
+      if (interactiveNodes.length > 0) {
+        let hoverCount = 0;
+
+        let precaptureInjected = false;
+        try {
+          const injectRes = await chrome.tabs.sendMessage(tabId, {
+            type: "INJECT_PRECAPTURE_STYLES",
+          });
+          precaptureInjected = !!injectRes?.success;
+        } catch {
+          // Non-fatal — hover capture still runs, just may catch jitter.
+        }
+
+        try {
+          for (const { node, selector } of interactiveNodes) {
+            if (!selector) continue;
+            try {
+              const qResult = await client.send<{ nodeId: number }>(
+                "DOM.querySelector",
+                { nodeId: docRoot.root.nodeId, selector },
+              );
+              if (!qResult.nodeId) continue;
+
+              await client.send("CSS.forcePseudoState", {
+                nodeId: qResult.nodeId,
+                forcedPseudoClasses: ["hover"],
               });
+
+              await new Promise((r) => setTimeout(r, 16));
+
+              const hoverResult = await chrome.tabs.sendMessage(tabId, {
+                type: "EXTRACT_SUBTREE",
+                selector,
+              });
+
+              await client.send("CSS.forcePseudoState", {
+                nodeId: qResult.nodeId,
+                forcedPseudoClasses: [],
+              });
+
+              if (hoverResult?.success && hoverResult.data) {
+                node.hover = hoverResult.data as W2WFrameNode;
+                attachHoverToDescendants(node, node.hover);
+                hoverCount++;
+              }
+            } catch {
+              // Skip elements that fail hover capture
             }
           }
-        } catch {
-          // Skip elements that can't be queried
-        }
-      }
-
-      // Enrich TEXT nodes with platform font info
-      w2wEnrichAllTextNodes(frame, fontsByIdx);
-      console.log(`[W2W] Platform fonts collected: ${fontsByIdx.size} elements`);
-    }
-
-    // --- Hover State Capture ---
-    // NOTE: CLEANUP_MARKERS moved after hover capture (markers needed for selectors)
-    updateProgress(65, "Capturing hover states...");
-
-    // FIX 1: Expand hover candidate pool by parsing document.styleSheets
-    // for :hover selectors. Content script returns { trigger, target } pairs
-    // for every :hover rule whose trigger actually matches an element on page.
-    let hoverSelectorPairs: Array<{ trigger: string; target: string }> = [];
-    try {
-      const selResult = await chrome.tabs.sendMessage(tabId, {
-        type: "COLLECT_HOVER_SELECTORS",
-      });
-      if (selResult?.success && Array.isArray(selResult.data)) {
-        hoverSelectorPairs = selResult.data;
-        console.log(`[W2W-HOVER] Collected ${hoverSelectorPairs.length} :hover selectors from stylesheets`);
-      }
-    } catch (err) {
-      console.warn("[W2W-HOVER] Failed to collect stylesheet selectors:", err);
-    }
-
-    const extraSelectors = hoverSelectorPairs.map((h) => h.trigger);
-    const interactiveNodes = w2wFindHoverCandidates(frame, extraSelectors);
-    console.log(`[W2W-HOVER] Found ${interactiveNodes.length} hover candidates (${hoverSelectorPairs.length} from CSS, rest from interactive tags). Sample:`, interactiveNodes.map(n => n.selector).filter(Boolean).slice(0, 10));
-    if (interactiveNodes.length > 0) {
-      console.log(`[W2W] Capturing hover states for ${interactiveNodes.length} interactive elements...`);
-      let hoverCount = 0;
-
-      for (const { node, selector } of interactiveNodes) {
-        if (!selector) continue;
-        try {
-          // Find element in CDP DOM
-          const qResult = await client.send<{ nodeId: number }>(
-            "DOM.querySelector",
-            { nodeId: docRoot.root.nodeId, selector },
-          );
-          if (!qResult.nodeId) continue;
-
-          // Force :hover state
-          await client.send("CSS.forcePseudoState", {
-            nodeId: qResult.nodeId,
-            forcedPseudoClasses: ["hover"],
-          });
-
-          // Small delay for styles to apply (30ms sufficient for CSS recalc)
-          await new Promise((r) => setTimeout(r, 30));
-
-          // Re-extract subtree via content script
-          const hoverResult = await chrome.tabs.sendMessage(tabId, {
-            type: "EXTRACT_SUBTREE",
-            selector,
-          });
-
-          // Clear forced state
-          await client.send("CSS.forcePseudoState", {
-            nodeId: qResult.nodeId,
-            forcedPseudoClasses: [],
-          });
-
-          if (hoverResult?.success && hoverResult.data) {
-            node.hover = hoverResult.data as W2WFrameNode;
-            // FIX 4: propagate hover down to descendants so per-child diffs
-            // (e.g. parent-hover → curtain becomes visible) are detectable.
-            attachHoverToDescendants(node, node.hover);
-            hoverCount++;
+        } finally {
+          if (precaptureInjected) {
+            try {
+              await chrome.tabs.sendMessage(tabId, {
+                type: "REMOVE_PRECAPTURE_STYLES",
+              });
+            } catch {
+              // Page may already be navigating away — ignore.
+            }
           }
-        } catch {
-          // Skip elements that fail hover capture
         }
+        console.log(`[W2W] Hover states captured at ${label}: ${hoverCount}`);
       }
-      console.log(`[W2W] Hover states captured: ${hoverCount}`);
+
+      // Cleanup data-w2w-idx markers (they'll be re-injected on next reload)
+      try {
+        await chrome.tabs.sendMessage(tabId, { type: "CLEANUP_MARKERS" });
+      } catch {
+        // Content script may not be ready
+      }
+
+      captures.push({ width: targetViewport, frame, doc });
     }
 
-    // Cleanup data-w2w-idx markers from the page (moved after hover capture)
-    try {
-      await chrome.tabs.sendMessage(tabId, { type: "CLEANUP_MARKERS" });
-    } catch {
-      // Content script may not be ready
-    }
-
+    // =========================================================================
+    // SHARED EXTRACTION (once, after the loop — page is on last viewport)
+    // =========================================================================
     // --- Asset Extraction from Browser Cache ---
-    updateProgress(70, "Extracting assets from cache...");
+    // Union of image URLs across ALL captured frames (responsive srcset may
+    // expose different images per viewport; browser cache is shared).
+    updateProgress(72, "Extracting assets from cache...");
     const assets: Record<string, W2WAssetEntry> = {};
 
     const settings = await getSettings();
     if (settings.captureAssets) {
       const resourceMap = await buildResourceMap(client);
-      const imageUrls = w2wCollectImageUrls(frame);
-      console.log(`[W2W] Extracting ${imageUrls.length} assets from browser cache...`);
+      const seenUrls = new Set<string>();
+      const imageUrls: string[] = [];
+      for (const cap of captures) {
+        for (const url of w2wCollectImageUrls(cap.frame)) {
+          if (!seenUrls.has(url)) {
+            seenUrls.add(url);
+            imageUrls.push(url);
+          }
+        }
+      }
+      console.log(
+        `[W2W] Extracting ${imageUrls.length} unique assets across ${captures.length} viewport(s)...`,
+      );
 
       for (const url of imageUrls) {
         const resource = resourceMap.get(url);
@@ -1072,8 +1134,6 @@ async function handleCapturePageW2W(
           try {
             const base64 = await getResourceBase64(client, resource.frameId, url);
             if (base64) {
-              // Keep original format (AVIF/WebP) — plugin handles compatibility.
-              // Figma plugin handles format compatibility at render time.
               assets[url] = {
                 base64Encoded: true,
                 content: base64,
@@ -1240,11 +1300,9 @@ async function handleCapturePageW2W(
     console.log(`[W2W] Font assets extracted (before filter), total assets: ${Object.keys(assets).length}`);
 
     // --- Filter fonts: keep only actually-used fonts (like h2d) ---
-    // fontsByIdx already contains platform fonts from CSS.getPlatformFontsForNode
-    const usedFontFamilies = new Set<string>();
-    for (const [, fontInfo] of fontsByIdx) {
-      usedFontFamilies.add(fontInfo.familyName.toLowerCase());
-    }
+    // aggregatedUsedFamilies unions platform fonts across ALL viewports
+    // (responsive designs may use different fonts at different widths).
+    const usedFontFamilies = aggregatedUsedFamilies;
     console.log(`[W2W] Used font families: ${[...usedFontFamilies].join(", ")}`);
 
     if (usedFontFamilies.size > 0) {
@@ -1339,22 +1397,21 @@ async function handleCapturePageW2W(
 
     updateProgress(97, "Finalizing...");
 
-    // --- Assemble Result ---
-    const result: W2WCaptureResult = {
+    // --- Assemble Multi-Viewport Result ---
+    const result: W2WMultiCaptureResult = {
       name: tab.url,
-      doc,
-      frame,
-      assets,
-      fonts: w2wFonts,
       url: tab.url,
       theme: "default",
-      width: targetViewport,
+      frames: captures,
+      assets,
+      fonts: w2wFonts,
       cssVariables,
     };
 
     updateProgress(100, "Complete!");
+    const totalNodes = captures.reduce((sum, c) => sum + w2wCountNodes(c.frame), 0);
     console.log(
-      `[W2W] Capture complete: ${w2wCountNodes(frame)} nodes, ${Object.keys(assets).length} assets, ${w2wFonts.length} fonts`,
+      `[W2W] Capture complete: ${captures.length} viewport(s), ${totalNodes} total nodes, ${Object.keys(assets).length} assets, ${w2wFonts.length} fonts`,
     );
     return result;
   } finally {

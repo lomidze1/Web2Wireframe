@@ -67,6 +67,103 @@ export function calculateFillrTrimLength(
   return Math.floor(fullTextLength * ratio);
 }
 
+/**
+ * Split FILLR text into N explicit lines, each trimmed to the matching target
+ * width from `lineWidths` (capped at `frameWidth` so chunks don't re-wrap
+ * inside the fixed text frame). Mutates `textNode.characters` during
+ * measurement. Caller must set `textAutoResize = "WIDTH_AND_HEIGHT"` before
+ * invoking.
+ *
+ * Trailing text that doesn't fit in N lines is dropped (same policy as the
+ * single-line path's width-only trim). Absorbing it into the last line
+ * causes Figma to soft-wrap past `browserLineCount`.
+ */
+export function splitFillrTextByLineWidths(
+  textNode: { characters: string; width: number },
+  fullText: string,
+  lineWidths: number[],
+  frameWidth = Infinity,
+): string {
+  const lines: string[] = [];
+  let cursor = 0;
+  // Safety margin: Figma measurements round to subpixels; leave ~2px headroom
+  // so chunks never exceed the frame and trigger soft-wrap.
+  const frameCap = Math.max(frameWidth - 2, 1);
+
+  for (let i = 0; i < lineWidths.length; i++) {
+    if (cursor >= fullText.length) break;
+
+    const target = Math.max(1, Math.min(lineWidths[i], frameCap));
+    const remaining = fullText.length - cursor;
+
+    // Measure natural width of remaining text to compute ratio-based estimate.
+    textNode.characters = fullText.slice(cursor);
+    const naturalWidth = textNode.width || 1;
+
+    let chars = Math.max(
+      1,
+      Math.min(remaining, Math.floor(remaining * (target / naturalWidth))),
+    );
+    textNode.characters = fullText.slice(cursor, cursor + chars);
+
+    // Fine-tune: shrink if too wide
+    while (textNode.width > target && chars > 1) {
+      chars--;
+      textNode.characters = fullText.slice(cursor, cursor + chars);
+    }
+    // Fine-tune: grow if too narrow and more text remains
+    while (textNode.width < target && cursor + chars < fullText.length) {
+      chars++;
+      textNode.characters = fullText.slice(cursor, cursor + chars);
+      if (textNode.width > target) {
+        chars--;
+        textNode.characters = fullText.slice(cursor, cursor + chars);
+        break;
+      }
+    }
+
+    lines.push(fullText.slice(cursor, cursor + chars));
+    cursor += chars;
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Apply CSS lineHeight (string or number) to a Figma text node. Mirrors the
+ * inline logic at text.ts:880-906 but callable from the FILLR multi-line
+ * branch where we need lineHeight for Figma's vertical stacking to match
+ * the browser's layout.
+ */
+export function applyLineHeightFromCss(
+  textNode: TextNode,
+  node: Pick<WireframeNode, "lineHeight">,
+): void {
+  const lh = node.lineHeight;
+  if (!lh || lh === "normal") return;
+  if (typeof lh === "number") {
+    textNode.lineHeight = { value: lh, unit: "PIXELS" };
+    return;
+  }
+  if (typeof lh !== "string") return;
+  if (lh.endsWith("%")) {
+    const v = parseFloat(lh);
+    if (!isNaN(v)) textNode.lineHeight = { value: v, unit: "PERCENT" };
+    return;
+  }
+  if (lh.endsWith("px")) {
+    const v = parseFloat(lh);
+    if (!isNaN(v)) textNode.lineHeight = { value: v, unit: "PIXELS" };
+    return;
+  }
+  const v = parseFloat(lh);
+  if (!isNaN(v)) {
+    textNode.lineHeight = v < 10
+      ? { value: v * 100, unit: "PERCENT" }
+      : { value: v, unit: "PIXELS" };
+  }
+}
+
 import {
   cssColorToFigmaRGB,
   paintKeyFromCSSColor,
@@ -320,27 +417,49 @@ export async function createTextNode(
     // trims to fit 535 visually, then the frame is sized to 1440 and
     // textAlignHorizontal=CENTER centers the 535-wide line in the frame.
     const elementWidth = Math.max(node.width || 100, 1);
-    const trimTargetWidth = resolveFillrTargetWidth(
-      elementWidth,
-      node.renderedTextWidth,
-    );
-    textNode.textAutoResize = "WIDTH_AND_HEIGHT";
-    const fillrWidth = textNode.width;
+    const lineWidths = node.renderedTextWidths;
 
-    if (fillrWidth > trimTargetWidth && fullText.length > 0) {
-      const ratio = trimTargetWidth / fillrWidth;
-      let trimLength = Math.floor(fullText.length * ratio);
-      textNode.characters = fullText.slice(0, trimLength);
+    if (lineWidths && lineWidths.length > 1 && fullText.length > 0) {
+      // Multi-line path: split FILLR into N explicit lines matching the
+      // browser's per-line widths (e.g. [535, 550, 240]). Each \n forces a
+      // hard break so Figma renders exactly N squigglies. Targets are capped
+      // at `elementWidth` so chunks never re-wrap inside the fixed frame.
+      textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+      const joined = splitFillrTextByLineWidths(
+        textNode,
+        fullText,
+        lineWidths,
+        elementWidth,
+      );
+      textNode.characters = joined;
+      applyLineHeightFromCss(textNode, node);
+      textNode.resize(elementWidth, Math.max(node.height || 20, 1));
+      textNode.textAutoResize = "NONE";
+    } else {
+      // Single-line path: width-only trim.
+      const trimTargetWidth = resolveFillrTargetWidth(
+        elementWidth,
+        node.renderedTextWidth,
+      );
+      textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+      const fillrWidth = textNode.width;
 
-      // Fine-tune: trim more if still too wide
-      while (textNode.width > trimTargetWidth && trimLength > 0) {
-        trimLength--;
+      if (fillrWidth > trimTargetWidth && fullText.length > 0) {
+        const ratio = trimTargetWidth / fillrWidth;
+        let trimLength = Math.floor(fullText.length * ratio);
         textNode.characters = fullText.slice(0, trimLength);
+
+        // Fine-tune: trim more if still too wide
+        while (textNode.width > trimTargetWidth && trimLength > 0) {
+          trimLength--;
+          textNode.characters = fullText.slice(0, trimLength);
+        }
       }
+
+      textNode.resize(elementWidth, Math.max(node.height || 20, 1));
+      textNode.textAutoResize = "HEIGHT";
     }
 
-    textNode.resize(elementWidth, Math.max(node.height || 20, 1));
-    textNode.textAutoResize = "HEIGHT";
     textNode.name = node.name || node.tag || "Text";
 
     // Apply text color based on colorMode

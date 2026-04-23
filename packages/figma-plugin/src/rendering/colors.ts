@@ -42,6 +42,46 @@ export function hexToFigmaRGB(hex: string): RGB {
 }
 
 /**
+ * Shift a Figma RGB color's lightness by `amount` (0..1 range in HSL).
+ * Positive amount lightens, negative darkens. Near-black colors (L < 0.15)
+ * with a negative amount invert direction and lighten instead, so dark-button
+ * hover produces a visible delta instead of an imperceptible blacker-black.
+ */
+export function shiftLightness(rgb: RGB, amount: number): RGB {
+  const { r, g, b } = rgb;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l0 = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l0 > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  const effective = l0 < 0.15 && amount < 0 ? -amount : amount;
+  const l = Math.max(0, Math.min(1, l0 + effective));
+
+  if (s === 0) return { r: l, g: l, b: l };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2rgb = (t: number): number => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return { r: hue2rgb(h + 1 / 3), g: hue2rgb(h), b: hue2rgb(h - 1 / 3) };
+}
+
+/**
  * Parse CSS color to Figma RGB (handles hex, rgb, rgba)
  */
 export function cssColorToFigmaRGB(

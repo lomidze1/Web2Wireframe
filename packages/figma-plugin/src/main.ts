@@ -588,7 +588,13 @@ export default function () {
         // "hostname = sourceUrl" and wrote the raw URL into the section name).
         const hostname = extractHostname(sourceUrl);
 
-        const viewportWidths = frames.map((f) => f.viewportWidth).join(" + ");
+        // Sort widths descending (largest → smallest) to match the visual
+        // top-to-bottom / left-to-right frame order in the section.
+        const viewportWidths = frames
+          .map((f) => f.viewportWidth)
+          .slice()
+          .sort((a, b) => b - a)
+          .join(" + ");
         const now = new Date();
         const shortDate = now.toLocaleDateString("en-GB", {
           day: "2-digit",
@@ -629,7 +635,9 @@ export default function () {
 
         const selectionTarget: SceneNode[] = [section];
 
-        // Create separate Components Section for interaction variant ComponentSets
+        // Create separate Components Section for interaction variant ComponentSets.
+        // Phase 8: VERTICAL stack with 64px padding+gap to match h2d's layout.
+        // Previously: HORIZONTAL wrap at 1400px with 80px gap.
         if (renderContext.componentSets && renderContext.componentSets.length > 0) {
           const compSection = figma.createSection();
           compSection.name = `Components — ${hostname}`;
@@ -637,35 +645,22 @@ export default function () {
             { type: "SOLID", color: { r: 0xC0 / 255, g: 0xC0 / 255, b: 0xC0 / 255 } },
           ];
 
-          const compPadding = 80;
-          let compX = compPadding;
+          const compPadding = 64;
           let compY = compPadding;
-          let rowMaxHeight = 0;
-          let actualMaxRight = 0; // Track actual rightmost edge
-          const maxRowWidth = 1400;
+          let maxWidth = 0;
 
           for (const cs of renderContext.componentSets) {
-            // Wrap to next row if this element would exceed max width
-            if (compX + cs.width + compPadding > maxRowWidth && compX > compPadding) {
-              compX = compPadding;
-              compY += rowMaxHeight + compPadding;
-              rowMaxHeight = 0;
-            }
-
             compSection.appendChild(cs);
-            cs.x = compX;
+            cs.x = compPadding;
             cs.y = compY;
 
-            // Track the actual rightmost edge of placed elements
-            actualMaxRight = Math.max(actualMaxRight, compX + cs.width);
-            compX += cs.width + compPadding;
-            rowMaxHeight = Math.max(rowMaxHeight, cs.height);
+            maxWidth = Math.max(maxWidth, cs.width);
+            compY += cs.height + compPadding;
           }
 
-          // Size section to exactly fit all elements with padding
           compSection.resizeWithoutConstraints(
-            actualMaxRight + compPadding,
-            compY + rowMaxHeight + compPadding
+            maxWidth + compPadding * 2,
+            compY, // last ComponentSet's bottom + compPadding already counted
           );
 
           // Position to the right of wireframe section
@@ -674,7 +669,7 @@ export default function () {
 
           selectionTarget.push(compSection);
 
-          logger.info("Created Components Section", {
+          logger.info("Created Components Section (vertical)", {
             componentSetCount: renderContext.componentSets.length,
           });
         }

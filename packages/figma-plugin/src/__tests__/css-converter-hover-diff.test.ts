@@ -68,17 +68,19 @@ describe('css-converter: hover diff computation', () => {
   it('returns undefined pseudoStateStyles when no relevant properties changed', () => {
     // Non-interactive <div> so the synthetic hover fallback (FIX 2) doesn't
     // kick in — we want to verify that filtered-out CSS diffs yield undefined.
+    // Phase 5 supports font-size and width, so we pick properties that are
+    // genuinely unsupported (display is the only one that stays filtered).
     const node = makeFrame({
       tag: 'div',
       styles: {
         display: 'flex',
-        fontSize: '16px',
+        cursor: 'default',
       },
       hover: makeFrame({
         tag: 'div',
         styles: {
-          display: 'block',     // changed but NOT a supported hover property
-          fontSize: '18px',     // changed but NOT a supported hover property
+          display: 'block',     // NOT supported
+          cursor: 'pointer',    // NOT supported
         },
       }),
     });
@@ -89,7 +91,7 @@ describe('css-converter: hover diff computation', () => {
     expect(result.pseudoStateStyles).toBeUndefined();
   });
 
-  it('filters to supported CSS properties only', () => {
+  it('filters to supported CSS properties only (Phase 5: more supported)', () => {
     const node = makeFrame({
       tag: 'button',
       styles: {
@@ -97,14 +99,16 @@ describe('css-converter: hover diff computation', () => {
         fontSize: '14px',
         fontWeight: '400',
         width: '100px',
+        display: 'block',       // NOT supported (never was)
       },
       hover: makeFrame({
         tag: 'button',
         styles: {
-          backgroundColor: 'rgb(50, 50, 50)',  // supported — IN diff
-          fontSize: '16px',                     // NOT supported
-          fontWeight: '700',                    // NOT supported
-          width: '110px',                       // NOT supported
+          backgroundColor: 'rgb(50, 50, 50)',  // supported
+          fontSize: '16px',                     // Phase 5: supported
+          fontWeight: '700',                    // Phase 5: supported
+          width: '110px',                       // Phase 5: supported
+          display: 'flex',                      // still NOT supported
         },
       }),
     });
@@ -114,10 +118,12 @@ describe('css-converter: hover diff computation', () => {
     expect(result.pseudoStateStyles).toBeDefined();
     const diff = result.pseudoStateStyles!.hover!;
     expect(diff['background-color']).toBe('rgb(50, 50, 50)');
-    // Unsupported properties NOT in diff
-    expect(diff['font-size']).toBeUndefined();
-    expect(diff['font-weight']).toBeUndefined();
-    expect(diff['width']).toBeUndefined();
+    // Phase 5: these are now supported and appear in the diff.
+    expect(diff['font-size']).toBe('16px');
+    expect(diff['font-weight']).toBe('700');
+    expect(diff['width']).toBe('110px');
+    // `display` remains unsupported.
+    expect(diff['display']).toBeUndefined();
   });
 
   it('handles opacity changes', () => {

@@ -35,6 +35,7 @@ import {
 import {
   parseHoverSelectorsFromCssText,
   splitHoverSelector,
+  extractRightmostCompound,
 } from './hover-parser';
 
 import { SKIP_TAGS, isHidden, isOffscreen } from './visibility';
@@ -1198,13 +1199,28 @@ export function collectHoverSelectors(): Array<{ trigger: string; target: string
   const seen = new Set<string>();
   const MAX = 300;
 
+  // DIAGNOSTIC counters — logged at the end so we can see where selectors
+  // are being lost on pages like apple.com that use cross-origin CDN CSS.
+  let sheetsTotal = 0;
+  let sheetsBlocked = 0;
+  let sheetsOk = 0;
+  let rulesSeen = 0;
+  let hoverCandidates = 0;
+  let splitFails = 0;
+  let queryFails = 0;
+  let queryThrows = 0;
+  let dedupSkips = 0;
+
   function processRule(rule: CSSRule): void {
     if (results.length >= MAX) return;
 
-    // Recurse into grouping rules (@media, @supports, @layer, @container)
-    // CSSGroupingRule was introduced in all modern browsers — not all its
-    // subclasses are exposed as globals (e.g., CSSLayerBlockRule), so we
-    // detect by duck-typing `.cssRules`.
+    rulesSeen++;
+
+    // Recurse into nested rules (@media, @supports, @layer, @container, and
+    // under CSS Nesting every CSSStyleRule too — Chrome 120+ exposes `.cssRules`
+    // on plain style rules even when they have no nested selectors, so we must
+    // NOT early-return here: the outer rule may ALSO carry a `:hover` selector
+    // that we still need to parse below.
     const maybeRules = (rule as CSSGroupingRule).cssRules;
     if (maybeRules && typeof maybeRules[Symbol.iterator] === 'function') {
       try {
@@ -1212,46 +1228,80 @@ export function collectHoverSelectors(): Array<{ trigger: string; target: string
       } catch {
         // Some nested rules may throw on access
       }
-      return;
+      // Fall through to check this rule's own selectorText (CSS Nesting).
     }
 
-    // Only CSSStyleRule has `selectorText`
     const styleRule = rule as CSSStyleRule;
     if (typeof styleRule.selectorText !== 'string') return;
 
     const selectors = parseHoverSelectorsFromCssText(styleRule.selectorText);
+    hoverCandidates += selectors.length;
     for (const sel of selectors) {
       if (results.length >= MAX) return;
       const split = splitHoverSelector(sel);
-      if (!split) continue;
-      if (seen.has(split.trigger)) continue;
+      if (!split) { splitFails++; continue; }
 
-      // Verify trigger exists on the page. Saves wasted CDP calls for dead
-      // rules (unused CSS). Invalid selectors throw → skip.
+      // Resolve effective trigger. If the full trigger doesn't match (common
+      // on state-gated selectors like
+      // `#globalnav.globalnav-with-menu-open .link` where the state class is
+      // absent at capture time), fall back to the rightmost compound alone.
+      let effectiveTrigger = split.trigger;
+      let matched = false;
       try {
-        if (!document.querySelector(split.trigger)) continue;
+        matched = !!document.querySelector(effectiveTrigger);
       } catch {
+        // Invalid selector — try fallback below.
+      }
+
+      if (!matched) {
+        const fallback = extractRightmostCompound(split.trigger);
+        if (fallback && fallback !== split.trigger) {
+          try {
+            if (document.querySelector(fallback)) {
+              effectiveTrigger = fallback;
+              matched = true;
+            }
+          } catch {
+            // Ignore — fallback also invalid.
+          }
+        }
+      }
+
+      if (!matched) {
+        // Distinguish "no match in DOM" from "both selectors threw".
+        queryFails++;
         continue;
       }
 
-      seen.add(split.trigger);
-      results.push(split);
+      if (seen.has(effectiveTrigger)) { dedupSkips++; continue; }
+      seen.add(effectiveTrigger);
+      results.push({ trigger: effectiveTrigger, target: split.target });
     }
   }
 
-  for (const sheet of Array.from(document.styleSheets)) {
+  const sheets = Array.from(document.styleSheets);
+  sheetsTotal = sheets.length;
+
+  for (const sheet of sheets) {
     try {
       const rules = sheet.cssRules; // throws SecurityError on cross-origin
       if (!rules) continue;
+      sheetsOk++;
       for (const rule of Array.from(rules)) {
         if (results.length >= MAX) break;
         processRule(rule);
       }
     } catch {
-      // Cross-origin stylesheet — skip silently
+      sheetsBlocked++;
     }
     if (results.length >= MAX) break;
   }
+
+  console.log(
+    `[W2W-HOVER-DIAG] sheets=${sheetsTotal} ok=${sheetsOk} cors-blocked=${sheetsBlocked} | ` +
+    `rules=${rulesSeen} hover-candidates=${hoverCandidates} split-fails=${splitFails} | ` +
+    `query-fails=${queryFails} query-throws=${queryThrows} dedup=${dedupSkips} | results=${results.length}`
+  );
 
   return results;
 }

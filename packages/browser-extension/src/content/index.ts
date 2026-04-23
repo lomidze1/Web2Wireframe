@@ -11,6 +11,7 @@ import {
   extractSubtree,
   collectHoverSelectors,
 } from './extractor';
+import { injectPreCaptureStyles, removePreCaptureStyles } from './styles';
 
 // Listen for messages from background script or popup
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -67,6 +68,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // Cleanup data-w2w-idx markers (called by service worker after font collection)
   if (message.type === "CLEANUP_MARKERS") {
     cleanupMarkers();
+    sendResponse({ success: true });
+    return true;
+  }
+
+  // Re-inject transition-disable CSS during hover capture loop — required
+  // so `getComputedStyle()` reads return final CSS values (not interpolated
+  // mid-transition) after `CSS.forcePseudoState`. Paired with REMOVE below.
+  if (message.type === "INJECT_PRECAPTURE_STYLES") {
+    injectPreCaptureStyles();
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (message.type === "REMOVE_PRECAPTURE_STYLES") {
+    removePreCaptureStyles();
     sendResponse({ success: true });
     return true;
   }

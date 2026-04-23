@@ -63,18 +63,21 @@ function buildSelectorForNode(node: W2WFrameNode): string | null {
  * Find interactive elements in a W2WFrameNode tree that could have hover states.
  * Returns nodes with CSS selectors for re-querying in the DOM.
  *
- * Detection: <a>, <button>, <input>, <select>, <textarea>,
- * [role=button|link|tab|menuitem|option], [tabindex] (not -1).
+ * Detection (Phase 2):
+ *   - tags:   <a>, <button>, <input>, <select>, <textarea>
+ *   - roles:  button, link, tab, menuitem, option
+ *   - [tabindex] (not -1)
+ *   - `cursor: pointer` — catches `<div onclick>` clickables
  *
  * Selector priority: #id > tag.class1.class2 > tag[href] > tag[role] > null
  *
  * @param frame Root W2WFrameNode to search
- * @param maxResults Maximum interactive nodes to return (default 100)
+ * @param maxResults Maximum interactive nodes to return (default 500, Phase 2)
  * @returns Array of {node, selector} pairs
  */
 export function w2wFindInteractiveNodes(
   frame: W2WFrameNode,
-  maxResults = 100,
+  maxResults = 500,
 ): Array<{ node: W2WFrameNode; selector: string | null }> {
   const results: Array<{ node: W2WFrameNode; selector: string | null }> = [];
 
@@ -82,10 +85,13 @@ export function w2wFindInteractiveNodes(
     if (node.type === "FRAME") {
       const tag = node.tag;
       const role = node.attr?.role as string | undefined;
+      const tabindex = node.attr?.tabindex;
+      const cursor = node.styles?.cursor;
       const isInteractive =
         INTERACTIVE_TAGS.has(tag) ||
         (role != null && INTERACTIVE_ROLES.has(role)) ||
-        (node.attr?.tabindex != null && String(node.attr.tabindex) !== "-1");
+        (tabindex != null && String(tabindex) !== "-1") ||
+        cursor === "pointer";
 
       if (isInteractive) {
         results.push({ node, selector: buildSelectorForNode(node) });
@@ -99,8 +105,15 @@ export function w2wFindInteractiveNodes(
 
   walk(frame);
 
-  // Limit to avoid excessive CDP calls
-  return results.slice(0, maxResults);
+  if (results.length > maxResults) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[w2w-hover] Truncated interactive-node pool: found ${results.length}, cap=${maxResults}`,
+    );
+    return results.slice(0, maxResults);
+  }
+
+  return results;
 }
 
 // ===========================================================================
@@ -112,20 +125,21 @@ export function w2wFindInteractiveNodes(
  * should be applied) and a target (where the hover effect manifests).
  *
  * Examples:
- *   ".btn:hover"           → { trigger: ".btn", target: ".btn" }
- *   ".nav:hover .icon"     → { trigger: ".nav", target: ".nav .icon" }
- *   ".card:hover > span"   → { trigger: ".card", target: ".card > span" }
+ *   ".btn:hover"           → { trigger: ".btn",   target: ".btn" }
+ *   ".nav:hover .icon"     → { trigger: ".nav",   target: ".nav .icon" }
+ *   ".card:hover > span"   → { trigger: ".card",  target: ".card > span" }
  *   "a.link:hover"         → { trigger: "a.link", target: "a.link" }
- *   ".btn:hover::before"   → null  (pseudo-element, skip — forcePseudoState on ::before not supported)
+ *   ".btn:hover::before"   → { trigger: ".btn",   target: ".btn::before" }
+ *   ".foo::before:hover"   → { trigger: ".foo",   target: ".foo::before" }
  *
- * Returns `null` if the selector contains pseudo-element (::before/::after)
- * combined with :hover, as those cannot be captured via forcePseudoState.
+ * Pseudo-elements (`::before`, `::after`, …) are STRIPPED from the trigger
+ * because `forcePseudoState :hover` on the host still fires the transition of
+ * the attached pseudo-element (Apple nav uses exactly this pattern for the
+ * underline sweep).
  */
 export function splitHoverSelector(
   selector: string,
 ): { trigger: string; target: string } | null {
-  // Reject pseudo-element combinations (::before, ::after, etc.)
-  if (/::/.test(selector)) return null;
 
   // Split selector into "parts" by top-level whitespace or combinators.
   // The `:hover` appears on some compound at position i; everything before
@@ -165,19 +179,31 @@ export function splitHoverSelector(
     }
   }
 
-  // Trigger = prefix + compound (with :hover and other interactive pseudo-
-  // classes stripped, so the trigger is a usable querySelector target).
+  // Trigger = prefix + compound with :hover, other interactive pseudo-classes,
+  // AND pseudo-elements stripped, so the trigger is a usable querySelector
+  // target. Target preserves the pseudo-element (for logging / debugging).
   const compoundWithHover = selector.slice(compoundStart, compoundEnd);
   const compoundWithoutHover = compoundWithHover
     .replace(/:focus-visible|:focus-within|:hover|:focus|:active/g, "")
     .trim();
-  if (!compoundWithoutHover) return null;
+  // Extract pseudo-element (if any) so we can reattach it in `target`.
+  const pseudoMatch = compoundWithoutHover.match(
+    /::(?:before|after|first-line|first-letter|placeholder|backdrop|selection|marker)/,
+  );
+  const pseudoElement = pseudoMatch ? pseudoMatch[0] : "";
+  const compoundClean = compoundWithoutHover
+    .replace(
+      /::(?:before|after|first-line|first-letter|placeholder|backdrop|selection|marker)/g,
+      "",
+    )
+    .trim();
+  if (!compoundClean) return null;
 
   const prefix = selector.slice(0, compoundStart);
   const suffix = selector.slice(compoundEnd);
 
-  const trigger = (prefix + compoundWithoutHover).trim();
-  const target = (prefix + compoundWithoutHover + suffix).trim();
+  const trigger = (prefix + compoundClean).trim();
+  const target = (prefix + compoundClean + pseudoElement + suffix).trim();
 
   if (!trigger) return null;
 
@@ -229,13 +255,12 @@ export function parseHoverSelectorsFromCssText(selectorText: string): string[] {
     const sel = rawSel.trim();
     if (!sel) continue;
 
-    // Quick filters
     const topLevelHoverIdx = findTopLevelHover(sel);
     if (topLevelHoverIdx < 0) continue;
 
-    // Reject pseudo-element combinations (::before, ::after, etc.)
-    if (/::/.test(sel)) continue;
-
+    // Pseudo-element combinations (::before, ::after, …) ARE kept. Apple-
+    // style nav underlines use `.link:hover::before` and we strip the
+    // pseudo-element inside `splitHoverSelector` when forming the trigger.
     result.push(sel);
   }
 
@@ -265,36 +290,34 @@ function splitTopLevel(input: string, sep: string): string[] {
 
 /**
  * Walk a W2WFrameNode tree (DFS) and return the first FRAME node matching a
- * simple CSS selector.
+ * CSS selector.
  *
- * Supported selectors:
- *   - `#id`
- *   - `.class1.class2` (one or more classes)
- *   - `tag`
- *   - `tag.class1.class2`
- *   - `tag#id`
+ * Supported (Phase 2):
+ *   - compound: `tag`, `.class`, `#id`, `[attr]`, `[attr="val"]`, and any
+ *     combination thereof (e.g. `a.link[href="/x"]`)
+ *   - descendant, child, sibling combinators: ` `, `>`, `+`, `~`
  *
- * NOT supported:
- *   - descendant/child combinators (` `, `>`, `+`, `~`)
- *   - attribute selectors (`[attr=val]`)
- *   - pseudo-classes (`:hover`, etc.)
- *
- * The intent is to match a selector that comes from stylesheet hover parsing
- * (where the trigger is a single compound selector) against the in-memory
- * W2W tree. For more complex selectors, the caller should fall back to
- * DOM.querySelector via CDP.
+ * Matching rule for selectors with combinators: we match the **rightmost
+ * compound** only. The prefix is treated as a hint — dropped if it would
+ * exclude valid hover candidates (e.g. Apple's state-gated selectors like
+ * `#globalnav.globalnav-with-menu-open .link` where the state class isn't
+ * present at capture time).
  */
 export function findNodeBySelector(
   frame: W2WFrameNode,
   selector: string,
 ): W2WFrameNode | null {
-  const matcher = compileSimpleSelector(selector);
+  // Extract rightmost compound. Combinators (` `, `>`, `+`, `~`) separate
+  // compounds; we take the one furthest right.
+  const rightmost = extractRightmostCompound(selector.trim());
+  if (!rightmost) return null;
+
+  const matcher = compileSimpleSelector(rightmost);
   if (!matcher) return null;
 
-  const predicate = matcher;
   function walk(node: W2WNode): W2WFrameNode | null {
     if (node.type !== "FRAME") return null;
-    if (predicate(node)) return node;
+    if (matcher!(node)) return node;
     for (const child of node.children) {
       const found = walk(child);
       if (found) return found;
@@ -306,8 +329,44 @@ export function findNodeBySelector(
 }
 
 /**
- * Compile a simple compound CSS selector into a predicate function.
- * Returns null for unsupported selectors.
+ * Extract the rightmost compound selector from a full CSS selector,
+ * respecting brackets/parens and escaped characters.
+ *
+ * Examples:
+ *   ".nav-link"                    → ".nav-link"
+ *   "#nav .link"                   → ".link"
+ *   "ul > li.item"                 → "li.item"
+ *   ".a + .b"                      → ".b"
+ *   'a.link[href="/x"]'            → 'a.link[href="/x"]'
+ *   '#globalnav .globalnav-link'   → '.globalnav-link'
+ */
+function extractRightmostCompound(selector: string): string {
+  let depth = 0;
+  let lastBreak = -1;
+  for (let i = 0; i < selector.length; i++) {
+    const c = selector[i];
+    if (c === "\\") {
+      i++; // skip next char
+      continue;
+    }
+    if (c === "(" || c === "[") depth++;
+    else if (c === ")" || c === "]") depth--;
+    else if (depth === 0 && /[ >+~]/.test(c)) {
+      lastBreak = i;
+    }
+  }
+  return selector.slice(lastBreak + 1).trim();
+}
+
+interface AttrMatch {
+  name: string;
+  value: string | null; // null = presence only
+}
+
+/**
+ * Compile a single compound CSS selector (no combinators) into a predicate.
+ * Supports tag, #id, .class, [attr], [attr="value"]. Returns null for
+ * unsupported syntax.
  */
 function compileSimpleSelector(
   selector: string,
@@ -315,18 +374,17 @@ function compileSimpleSelector(
   const s = selector.trim();
   if (!s) return null;
 
-  // Reject combinators and unsupported syntax — this function only handles
-  // compound selectors.
-  if (/[ >+~]/.test(s)) return null;
-  if (s.includes("[")) return null;
-  // Reject pseudo-classes (unescaped `:`). Escaped `\:` inside a class name
-  // (e.g. Tailwind `md\:hidden`) is allowed.
-  if (/(?:^|[^\\]):/.test(s)) return null;
+  // No combinators at this level — caller is expected to have split them.
+  if (/(?:^|[^\\])\s|[>+~]/.test(s)) return null;
+  // Reject pseudo-classes (unescaped `:`). Escaped `\:` allowed (Tailwind).
+  // But `[attr="val"]` can contain `:` inside brackets — the walker below
+  // handles brackets, so we only reject `:` OUTSIDE brackets.
+  if (hasTopLevelPseudoClass(s)) return null;
 
-  // Parse tokens: tag? (#id | .class)*
   let tag: string | null = null;
   let id: string | null = null;
   const classes: string[] = [];
+  const attrs: AttrMatch[] = [];
 
   let i = 0;
   // Optional leading tag
@@ -341,17 +399,39 @@ function compileSimpleSelector(
   while (i < s.length) {
     const c = s[i];
     if (c === "#") {
-      const m = /^#([^.#]+)/.exec(s.slice(i));
+      const m = /^#([^.#\[]+)/.exec(s.slice(i));
       if (!m) return null;
       id = unescapeCssIdentifier(m[1]);
       i += m[0].length;
     } else if (c === ".") {
-      const m = /^\.([^.#]+)/.exec(s.slice(i));
+      const m = /^\.([^.#\[]+)/.exec(s.slice(i));
       if (!m) return null;
       classes.push(unescapeCssIdentifier(m[1]));
       i += m[0].length;
+    } else if (c === "[") {
+      const end = s.indexOf("]", i);
+      if (end === -1) return null;
+      const expr = s.slice(i + 1, end).trim();
+      const eqIdx = expr.indexOf("=");
+      if (eqIdx === -1) {
+        attrs.push({ name: expr, value: null });
+      } else {
+        const name = expr.slice(0, eqIdx).trim();
+        // Strip matcher suffix chars (`^`, `$`, `*`, `|`, `~`) — Phase 2 treats
+        // them all as equality for simplicity.
+        const cleanName = name.replace(/[\^\$\*\|~]$/, "");
+        let value = expr.slice(eqIdx + 1).trim();
+        if (
+          (value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))
+        ) {
+          value = value.slice(1, -1);
+        }
+        attrs.push({ name: cleanName, value });
+      }
+      i = end + 1;
     } else {
-      return null; // unexpected char
+      return null;
     }
   }
 
@@ -361,8 +441,29 @@ function compileSimpleSelector(
     for (const cls of classes) {
       if (!node.classList.includes(cls)) return false;
     }
+    for (const attr of attrs) {
+      const actual = node.attr?.[attr.name];
+      if (attr.value === null) {
+        if (actual === undefined || actual === null) return false;
+      } else {
+        if (String(actual) !== attr.value) return false;
+      }
+    }
     return true;
   };
+}
+
+/** True if the selector contains an unescaped `:` OUTSIDE any `[...]`. */
+function hasTopLevelPseudoClass(s: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "\\") { i++; continue; }
+    if (c === "[") depth++;
+    else if (c === "]") depth--;
+    else if (depth === 0 && c === ":") return true;
+  }
+  return false;
 }
 
 // ===========================================================================
@@ -431,16 +532,18 @@ export function attachHoverToDescendants(
 export function w2wFindHoverCandidates(
   frame: W2WFrameNode,
   extraSelectors: string[] = [],
-  maxResults = 200,
+  maxResults = 500,
 ): Array<{ node: W2WFrameNode; selector: string | null }> {
-  // Start with interactive tag discovery (unchanged from legacy behavior).
-  // Use a high cap here — final capping happens below against maxResults.
   const base = w2wFindInteractiveNodes(frame, maxResults);
   const results: Array<{ node: W2WFrameNode; selector: string | null }> = [...base];
   const seen = new Set<W2WFrameNode>(base.map((r) => r.node));
+  let truncatedExtras = 0;
 
   for (const sel of extraSelectors) {
-    if (results.length >= maxResults) break;
+    if (results.length >= maxResults) {
+      truncatedExtras++;
+      continue;
+    }
     const node = findNodeBySelector(frame, sel);
     if (!node) continue;
     if (seen.has(node)) continue;
@@ -448,5 +551,12 @@ export function w2wFindHoverCandidates(
     results.push({ node, selector: buildSelectorForNode(node) });
   }
 
-  return results.slice(0, maxResults);
+  if (truncatedExtras > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[w2w-hover] Truncated ${truncatedExtras} extra selectors past cap=${maxResults}`,
+    );
+  }
+
+  return results;
 }

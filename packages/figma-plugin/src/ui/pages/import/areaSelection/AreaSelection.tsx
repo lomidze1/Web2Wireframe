@@ -186,6 +186,42 @@ function toUnifiedFormat(data: any): UnifiedCaptureResult | null {
     };
   }
 
+  // Check for multi-viewport w2w content-script format (W2WMultiCaptureResult):
+  // frames[i] has { width, frame, doc } (no viewport/tree). Top-level shares
+  // assets/fonts/cssVariables across all frames.
+  if (
+    'frames' in data &&
+    Array.isArray(data.frames) &&
+    data.frames.length > 0 &&
+    typeof data.frames[0]?.frame === 'object' &&
+    data.frames[0]?.frame !== null &&
+    typeof data.frames[0]?.width === 'number'
+  ) {
+    const sharedAssets = data.assets || {};
+    return {
+      url: data.url || data.name || '',
+      title: data.frames[0]?.doc?.title || '',
+      timestamp: Date.now(),
+      frames: data.frames.map((fc: { width: number; frame: Record<string, unknown>; doc?: { innerHeight?: number; innerWidth?: number } }) => ({
+        viewport: {
+          width: fc.width || fc.doc?.innerWidth || 1440,
+          height: fc.doc?.innerHeight || 900,
+        },
+        tree: null, // Populated downstream via convertW2WToWireframe()
+        assets: {},
+        capturedData: {
+          frame: fc.frame,
+          assets: sharedAssets,
+          doc: fc.doc as Record<string, unknown> | undefined,
+        },
+      })),
+      fonts: data.fonts || [],
+      assets: [],
+      stylesheets: [],
+      cssVariables: data.cssVariables,
+    };
+  }
+
   // Check for new multi-frame format
   if ('frames' in data && Array.isArray(data.frames) && data.frames.length > 0) {
     const multiFrame = data as MultiFrameCaptureResult;

@@ -26,7 +26,8 @@ export function parseHoverSelectorsFromCssText(selectorText: string): string[] {
     const sel = rawSel.trim();
     if (!sel) continue;
     if (findTopLevelHover(sel) < 0) continue;
-    if (/::/.test(sel)) continue; // pseudo-elements combined with :hover
+    // Phase 2: pseudo-element combinations (::before, ::after) are KEPT.
+    // splitHoverSelector strips the pseudo-element when forming the trigger.
     result.push(sel);
   }
   return result;
@@ -36,16 +37,19 @@ export function parseHoverSelectorsFromCssText(selectorText: string): string[] {
  * Split a selector containing `:hover` into a trigger (for forcePseudoState)
  * and a target (where the hover effect manifests).
  *
+ * Phase 2: pseudo-elements are STRIPPED from the trigger but preserved in the
+ * target — forcing :hover on the host still fires attached `::before`/`::after`
+ * transitions (Apple nav underline pattern).
+ *
  * Examples:
- *   ".btn:hover"          → { trigger: ".btn",  target: ".btn" }
- *   ".nav:hover .icon"    → { trigger: ".nav",  target: ".nav .icon" }
- *   ".card:hover::before" → null  (pseudo-element, skip)
+ *   ".btn:hover"           → { trigger: ".btn",   target: ".btn" }
+ *   ".nav:hover .icon"     → { trigger: ".nav",   target: ".nav .icon" }
+ *   ".btn:hover::before"   → { trigger: ".btn",   target: ".btn::before" }
+ *   ".foo::before:hover"   → { trigger: ".foo",   target: ".foo::before" }
  */
 export function splitHoverSelector(
   selector: string,
 ): { trigger: string; target: string } | null {
-  if (/::/.test(selector)) return null;
-
   const hoverIdx = findTopLevelHover(selector);
   if (hoverIdx < 0) return null;
 
@@ -72,13 +76,23 @@ export function splitHoverSelector(
   const compoundWithoutHover = compoundWithHover
     .replace(/:focus-visible|:focus-within|:hover|:focus|:active/g, "")
     .trim();
-  if (!compoundWithoutHover) return null;
+  const pseudoMatch = compoundWithoutHover.match(
+    /::(?:before|after|first-line|first-letter|placeholder|backdrop|selection|marker)/,
+  );
+  const pseudoElement = pseudoMatch ? pseudoMatch[0] : "";
+  const compoundClean = compoundWithoutHover
+    .replace(
+      /::(?:before|after|first-line|first-letter|placeholder|backdrop|selection|marker)/g,
+      "",
+    )
+    .trim();
+  if (!compoundClean) return null;
 
   const prefix = selector.slice(0, compoundStart);
   const suffix = selector.slice(compoundEnd);
 
-  const trigger = (prefix + compoundWithoutHover).trim();
-  const target = (prefix + compoundWithoutHover + suffix).trim();
+  const trigger = (prefix + compoundClean).trim();
+  const target = (prefix + compoundClean + pseudoElement + suffix).trim();
 
   if (!trigger) return null;
   return { trigger, target };
@@ -102,6 +116,27 @@ function findTopLevelHover(selector: string): number {
     }
   }
   return -1;
+}
+
+/**
+ * Extract the rightmost compound selector from a full CSS selector.
+ * Used as a FALLBACK trigger when the full trigger can't resolve due to
+ * state-gated prefixes (e.g. `#globalnav.menu-open .link` where `.menu-open`
+ * isn't present at capture time).
+ */
+export function extractRightmostCompound(selector: string): string {
+  let depth = 0;
+  let lastBreak = -1;
+  for (let i = 0; i < selector.length; i++) {
+    const c = selector[i];
+    if (c === "\\") { i++; continue; }
+    if (c === "(" || c === "[") depth++;
+    else if (c === ")" || c === "]") depth--;
+    else if (depth === 0 && /[ >+~]/.test(c)) {
+      lastBreak = i;
+    }
+  }
+  return selector.slice(lastBreak + 1).trim();
 }
 
 /** Split a string on separator at top level (outside parens/brackets). */
