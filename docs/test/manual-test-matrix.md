@@ -178,8 +178,8 @@
 | W-02 | 1440      | Plugin  | Plugin  | Semantic | Placeholders | Direct   | AL     | None    | Default wireframe       | ✅         |            |          |
 | W-03 | 1440      | Website | Website | Website  | Real         | Styles   | AL     | Hover   | Full features           | ⛔         |            |          |
 | W-04 | 1440      | Plugin  | Lines   | Lorem    | Placeholders | Direct   | Abs    | None    | Full wireframe          | ✅         |            |          |
-| W-05 | 375       | Website | Website | Website  | Real         | Direct   | AL     | None    | Mobile                  |            |            |          |
-| W-06 | 1920+375  | Website | Website | Website  | Real         | Direct   | AL     | None    | Multi-viewport          |            |            |          |
+| W-05 | 375       | Website | Website | Website  | Real         | Direct   | AL     | None    | Mobile                  | ✅         |            |          |
+| W-06 | 1920+375  | Website | Website | Website  | Real         | Direct   | AL     | None    | Multi-viewport          | ✅         |            |          |
 | W-07 | All 5     | Plugin  | Plugin  | Semantic | Placeholders | Styles   | AL     | Hover   | All VP + all features   |            |            |          |
 | W-08 | 1440      | Website | Lines   | Website  | Real         | Styles   | Abs    | Hover   | Mixed: real + wireframe |            |            |          |
 | W-09 | 768       | Plugin  | Website | Lorem    | Real         | Direct   | Abs    | None    | Tablet + mixed          |            |            |          |

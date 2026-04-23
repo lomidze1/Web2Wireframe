@@ -187,6 +187,11 @@ export interface WireframeNode {
   // this stores the real text width so wireframe-lines (FILLR) render to the
   // text's visual span instead of stretching to the full element width.
   renderedTextWidth?: number;
+  // Per-line rendered widths in reading order (top→bottom). Captured from CDP
+  // client-rects so FILLR multi-line rendering can draw N squigglies at the
+  // browser's actual per-line widths (e.g. [535, 550, 240] for a 3-line <p>)
+  // instead of collapsing to a single line at max width.
+  renderedTextWidths?: number[];
 
   // CSS max-width (px). When set, applied to Figma node as native TextNode.maxWidth
   // or FrameNode.maxWidth, enforcing a hard upper bound regardless of

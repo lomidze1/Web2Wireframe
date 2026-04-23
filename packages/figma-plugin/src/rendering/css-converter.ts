@@ -105,6 +105,36 @@ interface TextChildValue {
 let _nodeId = 0;
 
 /**
+ * Group `textChildValues` by visual Y-row and return the per-row widths in
+ * reading order. Returns an empty array for zero entries, or a single-element
+ * array for one row (inline text parts on the same line).
+ *
+ * Widths of same-Y entries are summed (e.g. `<p>a <strong>b</strong> c</p>`
+ * on one visual line yields `[widthA + widthB + widthC]`).
+ *
+ * Used by the FILLR multi-line renderer to decide whether to split text into
+ * N squigglies. `textChildValues.length` alone is not a reliable multi-line
+ * signal because a single line may contain multiple inline text parts.
+ */
+function computeLineWidthsByY(textChildValues: TextChildValue[]): number[] {
+  if (textChildValues.length === 0) return [];
+  const sorted = [...textChildValues].sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows: Array<{ y: number; height: number; width: number }> = [];
+  for (const tv of sorted) {
+    const last = rows[rows.length - 1];
+    // Tolerance: half the entry's height catches sub-pixel rounding but still
+    // splits genuinely-different visual lines (line-height > 0.5 × height).
+    const tolerance = Math.max(2, tv.height * 0.5);
+    if (last && Math.abs(tv.y - last.y) <= tolerance) {
+      last.width += tv.width;
+    } else {
+      rows.push({ y: tv.y, height: tv.height, width: tv.width });
+    }
+  }
+  return rows.map(r => r.width);
+}
+
+/**
  * Convert a W2W content-script frame tree to a WireframeNode tree.
  */
 export function convertW2WToWireframe(
@@ -473,10 +503,16 @@ function convertFrame(
       if (entry.kind === 'text') {
         const tv = mergedValues[entry.index];
         const wn = convertTextNodeFromValue(tv, node, s, options);
-        // Propagate browserLineCount from merged entries
-        const lineCount = (tv as TextChildValue & { _mergedLineCount?: number })._mergedLineCount;
-        if (lineCount && lineCount > 1) {
-          wn.browserLineCount = lineCount;
+        // Propagate browserLineCount + per-line widths from merged entries
+        const merged = tv as TextChildValue & {
+          _mergedLineCount?: number;
+          _mergedLineWidths?: number[];
+        };
+        if (merged._mergedLineCount && merged._mergedLineCount > 1) {
+          wn.browserLineCount = merged._mergedLineCount;
+          if (merged._mergedLineWidths && merged._mergedLineWidths.length > 1) {
+            wn.renderedTextWidths = merged._mergedLineWidths;
+          }
         }
         ordered.push(wn);
       } else {
@@ -685,6 +721,14 @@ function convertFrame(
     renderedTextWidth: type === 'text' && textChildValues.length > 0
       ? textChildValues.reduce((acc, t) => Math.max(acc, t.width || 0), 0) || undefined
       : undefined,
+    renderedTextWidths: (() => {
+      // Only populate for genuinely multi-line text. Same-Y inline parts
+      // (e.g. `<p>a <strong>b</strong> c</p>` on one line) must not trigger
+      // the FILLR multi-line renderer.
+      if (type !== 'text' || textChildValues.length < 2) return undefined;
+      const widths = computeLineWidthsByY(textChildValues);
+      return widths.length > 1 ? widths : undefined;
+    })(),
     fontSize,
     fontWeight,
     fontFamily,
@@ -901,9 +945,11 @@ function mergeAdjacentTextEntries(
           textDecoration: first.textDecoration,
           tag: first.tag,
           fontWeight: first.fontWeight,
-          // Store original line count for browserLineCount
+          // Store original line count + per-line widths for FILLR multi-line
+          // rendering (widths in reading order top→bottom).
           _mergedLineCount: group.length,
-        } as TextChildValue & { _mergedLineCount: number };
+          _mergedLineWidths: group.map(t => t.width),
+        } as TextChildValue & { _mergedLineCount: number; _mergedLineWidths: number[] };
 
         const idx = mergedValues.length;
         mergedValues.push(merged);
@@ -2004,7 +2050,7 @@ const HOVER_DIFF_PROPERTIES: string[] = [
   'color', 'opacity',
   'boxShadow', 'outlineColor',
   'textDecoration', 'textDecorationLine',
-  // Expanded properties:
+  // Expanded (Phase 2A):
   'visibility',      // frame.visible
   'transform',       // extract rotate() → frame.rotation
   'outlineWidth',    // frame.strokeWeight + OUTSIDE
@@ -2014,6 +2060,16 @@ const HOVER_DIFF_PROPERTIES: string[] = [
   'backdropFilter',  // blur() → BACKGROUND_BLUR
   'textShadow',      // → TextNode.effects[DROP_SHADOW]
   'clipPath',        // inset() → frame.clipsContent
+  // Phase 5 — per-side borders (Apple nav underline), typography on hover,
+  // box geometry (padding, gap, size). Each has a matching case in
+  // applyCssDiffToNode.
+  'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+  'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+  'fontWeight', 'fontSize',
+  'textDecorationColor', 'textDecorationThickness', 'textUnderlineOffset',
+  'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'gap', 'rowGap', 'columnGap',
+  'width', 'height',
 ];
 
 /**

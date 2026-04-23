@@ -41,8 +41,10 @@ function makeText(value: string, overrides: Record<string, unknown> = {}): Recor
 }
 
 /** Flatten all text WireframeNodes in tree */
-function collectTextNodes(node: unknown): Array<{ textContent: string; browserLineCount?: number }> {
-  const out: Array<{ textContent: string; browserLineCount?: number }> = [];
+function collectTextNodes(
+  node: unknown,
+): Array<{ textContent: string; browserLineCount?: number; renderedTextWidths?: number[] }> {
+  const out: Array<{ textContent: string; browserLineCount?: number; renderedTextWidths?: number[] }> = [];
   const visit = (n: unknown): void => {
     if (!n || typeof n !== 'object') return;
     const obj = n as Record<string, unknown>;
@@ -50,6 +52,7 @@ function collectTextNodes(node: unknown): Array<{ textContent: string; browserLi
       out.push({
         textContent: obj.textContent,
         browserLineCount: obj.browserLineCount as number | undefined,
+        renderedTextWidths: obj.renderedTextWidths as number[] | undefined,
       });
     }
     const children = obj.children as unknown[] | undefined;
@@ -57,6 +60,20 @@ function collectTextNodes(node: unknown): Array<{ textContent: string; browserLi
   };
   visit(node);
   return out;
+}
+
+/** Find first WireframeNode matching a predicate (BFS). */
+function findNode(node: unknown, predicate: (n: Record<string, unknown>) => boolean): Record<string, unknown> | null {
+  const stack: unknown[] = [node];
+  while (stack.length) {
+    const cur = stack.shift();
+    if (!cur || typeof cur !== 'object') continue;
+    const obj = cur as Record<string, unknown>;
+    if (predicate(obj)) return obj;
+    const children = obj.children as unknown[] | undefined;
+    if (Array.isArray(children)) stack.push(...children);
+  }
+  return null;
 }
 
 /** Count direct children of the first li WireframeNode found */
@@ -293,5 +310,151 @@ describe("css-converter: adjacent per-line TEXT merging", () => {
     expect(p1).toBeDefined();
     expect(p2).toBeDefined();
     expect(p1!.textContent).not.toContain('Paragraph two');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-line widths preservation for FILLR multi-line rendering
+// ---------------------------------------------------------------------------
+
+describe("css-converter: renderedTextWidths preservation", () => {
+  it("mixed-children merge: preserves per-line widths [535, 550, 240] in reading order", () => {
+    // 3-line paragraph nested inside a <li> with a marker — forces the
+    // mixed-children merge path (mergeAdjacentTextEntries).
+    const lineHeight = 24;
+    const widths = [535, 550, 240];
+
+    const textChildren = widths.map((w, i) => makeText(`line ${i + 1}`, {
+      x: 247,
+      y: i * lineHeight,
+      width: w,
+      height: 20,
+    }));
+
+    const marker = makeFrame({
+      tag: 'span',
+      classList: ['__w2w-pseudo-marker'],
+      x: 233, y: 0, width: 10, height: 16,
+      quad: [233, 0, 243, 0, 243, 16, 233, 16],
+      styles: { display: 'inline', position: 'static' },
+      children: [makeText('1.', { x: 233, y: 0, width: 10, height: 16 })],
+    });
+
+    const li = makeFrame({
+      tag: 'li',
+      x: 233, y: 0, width: 946, height: 3 * lineHeight,
+      quad: [233, 0, 1179, 0, 1179, 72, 233, 72],
+      styles: { display: 'list-item', fontSize: '12px' },
+      children: [marker, ...textChildren],
+    });
+
+    const ol = makeFrame({
+      tag: 'ol',
+      styles: { display: 'block' },
+      children: [li],
+    });
+
+    const result = convertW2WToWireframe(ol as never, { layoutMode: 'autoLayout' });
+    const textNodes = collectTextNodes(result);
+
+    const merged = textNodes.find(t => t.browserLineCount === 3);
+    expect(merged).toBeDefined();
+    expect(merged!.renderedTextWidths).toEqual([535, 550, 240]);
+  });
+
+  it("FRAME-is-text path: <p> with 3 text children surfaces renderedTextWidths", () => {
+    // Pure-text <p> — no frame children — hits TEXT_COALESCE_TAGS branch
+    // where renderedTextWidths is emitted directly from textChildValues.
+    const lineHeight = 22;
+    const widths = [600, 580, 180];
+
+    const textChildren = widths.map((w, i) => makeText(`lorem ${i}`, {
+      x: 0,
+      y: i * lineHeight,
+      width: w,
+      height: 20,
+    }));
+
+    const p = makeFrame({
+      tag: 'p',
+      x: 0, y: 0, width: 620, height: 3 * lineHeight,
+      quad: [0, 0, 620, 0, 620, 66, 0, 66],
+      styles: { display: 'block', fontSize: '16px' },
+      children: textChildren,
+    });
+
+    const result = convertW2WToWireframe(p as never, { layoutMode: 'autoLayout' });
+    const pNode = findNode(result, (n) => n.tag === 'p' && n.type === 'text');
+
+    expect(pNode).toBeDefined();
+    expect(pNode!.browserLineCount).toBe(3);
+    expect(pNode!.renderedTextWidths).toEqual([600, 580, 180]);
+    // Max is still surfaced on the legacy single-width field
+    expect(pNode!.renderedTextWidth).toBe(600);
+  });
+
+  it("single-line text: renderedTextWidths is undefined (only max is surfaced)", () => {
+    const p = makeFrame({
+      tag: 'p',
+      x: 0, y: 0, width: 400, height: 20,
+      quad: [0, 0, 400, 0, 400, 20, 0, 20],
+      styles: { display: 'block', fontSize: '16px' },
+      children: [makeText('single line', { x: 0, y: 0, width: 120, height: 20 })],
+    });
+
+    const result = convertW2WToWireframe(p as never, { layoutMode: 'autoLayout' });
+    const pNode = findNode(result, (n) => n.tag === 'p' && n.type === 'text');
+
+    expect(pNode).toBeDefined();
+    expect(pNode!.renderedTextWidths).toBeUndefined();
+    expect(pNode!.renderedTextWidth).toBe(120);
+  });
+
+  it("same-Y inline parts: renderedTextWidths is undefined (1 visual line)", () => {
+    // <p>Hello <strong>world</strong>! More text.</p> — 3 text parts at same Y.
+    // Must NOT trigger FILLR multi-line rendering since it's 1 visual line.
+    // (collectTextFromFrame inlines <strong>'s text into the parent's textChildValues
+    //  — simulated directly here with 3 same-Y W2WTextNode children.)
+    const p = makeFrame({
+      tag: 'p',
+      x: 0, y: 0, width: 400, height: 20,
+      quad: [0, 0, 400, 0, 400, 20, 0, 20],
+      styles: { display: 'block', fontSize: '16px' },
+      children: [
+        makeText('Hello ', { x: 0, y: 0, width: 40, height: 18 }),
+        makeText('world', { x: 40, y: 0, width: 40, height: 18 }),
+        makeText('! More text.', { x: 80, y: 0, width: 80, height: 18 }),
+      ],
+    });
+
+    const result = convertW2WToWireframe(p as never, { layoutMode: 'autoLayout' });
+    const pNode = findNode(result, (n) => n.tag === 'p' && n.type === 'text');
+
+    expect(pNode).toBeDefined();
+    // 3 inline parts but 1 visual line — renderedTextWidths MUST be undefined
+    // so FILLR renders a single squiggly, not three stacked ones.
+    expect(pNode!.renderedTextWidths).toBeUndefined();
+  });
+
+  it("multi-line text: renderedTextWidths reflects unique Y-rows only", () => {
+    // 2 visual lines, line 1 has inline parts.
+    // Expected: [sum of line-1 widths, line-2 width] = [160, 100]
+    const p = makeFrame({
+      tag: 'p',
+      x: 0, y: 0, width: 400, height: 40,
+      quad: [0, 0, 400, 0, 400, 40, 0, 40],
+      styles: { display: 'block', fontSize: '16px' },
+      children: [
+        makeText('line1 part A', { x: 0, y: 0, width: 80, height: 18 }),
+        makeText('line1 part B', { x: 80, y: 0, width: 80, height: 18 }),
+        makeText('line 2 content', { x: 0, y: 20, width: 100, height: 18 }),
+      ],
+    });
+
+    const result = convertW2WToWireframe(p as never, { layoutMode: 'autoLayout' });
+    const pNode = findNode(result, (n) => n.tag === 'p' && n.type === 'text');
+
+    expect(pNode).toBeDefined();
+    expect(pNode!.renderedTextWidths).toEqual([160, 100]);
   });
 });
