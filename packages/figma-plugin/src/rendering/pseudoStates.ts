@@ -313,10 +313,207 @@ export function applyCssDiffToNode(
         break;
       }
 
+      // --- Phase 5: per-side borders, typography, geometry ---
+
+      case "border-top-color":
+      case "border-right-color":
+      case "border-bottom-color":
+      case "border-left-color": {
+        // Figma has a single stroke color per frame (no per-side colors). We
+        // approximate by setting the stroke color; per-side WIDTHs below
+        // control which edge is visible — matching the Apple-nav underline
+        // pattern where one side's width is 0 and another is 2px.
+        const parsed = cssColorToFigmaRGB(value);
+        if (parsed) {
+          frame.strokes = [
+            { type: "SOLID", color: parsed.color, opacity: parsed.opacity },
+          ];
+        }
+        break;
+      }
+
+      case "border-top-width":
+      case "border-right-width":
+      case "border-bottom-width":
+      case "border-left-width": {
+        const num = parseFloat(value);
+        if (isNaN(num)) break;
+        const side = prop.replace("border-", "").replace("-width", "");
+        const key = `stroke${side.charAt(0).toUpperCase()}${side.slice(1)}Weight` as
+          | "strokeTopWeight"
+          | "strokeRightWeight"
+          | "strokeBottomWeight"
+          | "strokeLeftWeight";
+        try {
+          (frame as unknown as Record<string, number>)[key] = Math.max(0, num);
+        } catch {
+          // Figma may throw if strokes haven't been set yet — seed them.
+          frame.strokes = frame.strokes ?? [];
+        }
+        break;
+      }
+
+      case "font-weight": {
+        const target = parseInt(value, 10);
+        if (isNaN(target)) break;
+        const textNodes = frame.findAll(
+          (n) => n.type === "TEXT",
+        ) as TextNode[];
+        const style = fontWeightToStyleName(target);
+        for (const tn of textNodes) {
+          const current = (tn as unknown as { fontName: FontName }).fontName;
+          if (current && typeof current === "object" && "family" in current) {
+            try {
+              (tn as unknown as { fontName: FontName }).fontName = {
+                family: current.family,
+                style,
+              };
+            } catch {
+              // Font may not be loaded in that weight — skip silently.
+            }
+          }
+        }
+        break;
+      }
+
+      case "font-size": {
+        const num = parseFloat(value);
+        if (isNaN(num) || num <= 0) break;
+        const textNodes = frame.findAll(
+          (n) => n.type === "TEXT",
+        ) as TextNode[];
+        for (const tn of textNodes) {
+          try {
+            (tn as unknown as { fontSize: number }).fontSize = num;
+          } catch {
+            // Ignore — font may not be loaded.
+          }
+        }
+        break;
+      }
+
+      case "text-decoration-color": {
+        // Figma's text decoration color tracks the text fill; we set both.
+        const parsed = cssColorToFigmaRGB(value);
+        if (!parsed) break;
+        const textNodes = frame.findAll(
+          (n) => n.type === "TEXT",
+        ) as TextNode[];
+        for (const tn of textNodes) {
+          tn.fills = [
+            { type: "SOLID", color: parsed.color, opacity: parsed.opacity },
+          ];
+        }
+        break;
+      }
+
+      case "text-decoration-thickness":
+      case "text-underline-offset": {
+        // Figma plugin API doesn't expose underline offset/thickness as
+        // separate properties. The delta is captured in the hover variant's
+        // style but not visually applied — documented limitation.
+        break;
+      }
+
+      case "padding":
+      case "padding-top":
+      case "padding-right":
+      case "padding-bottom":
+      case "padding-left": {
+        // Figma padding only applies to auto-layout frames.
+        if (frame.layoutMode === "NONE") break;
+        const num = parseFloat(value);
+        if (isNaN(num) || num < 0) break;
+        const f = frame as unknown as {
+          paddingTop: number;
+          paddingRight: number;
+          paddingBottom: number;
+          paddingLeft: number;
+        };
+        if (prop === "padding") {
+          f.paddingTop = num;
+          f.paddingRight = num;
+          f.paddingBottom = num;
+          f.paddingLeft = num;
+        } else if (prop === "padding-top") f.paddingTop = num;
+        else if (prop === "padding-right") f.paddingRight = num;
+        else if (prop === "padding-bottom") f.paddingBottom = num;
+        else if (prop === "padding-left") f.paddingLeft = num;
+        break;
+      }
+
+      case "gap": {
+        // Legacy CSS `gap` on flex/grid → Figma itemSpacing on auto-layout.
+        if (frame.layoutMode === "NONE") break;
+        const num = parseFloat(value);
+        if (isNaN(num) || num < 0) break;
+        (frame as unknown as { itemSpacing: number }).itemSpacing = num;
+        break;
+      }
+
+      case "row-gap":
+      case "column-gap": {
+        if (frame.layoutMode === "NONE") break;
+        const num = parseFloat(value);
+        if (isNaN(num) || num < 0) break;
+        const isHorizontal = frame.layoutMode === "HORIZONTAL";
+        // On horizontal layout: row-gap = counter-axis (between wrapped rows),
+        //                       column-gap = main-axis (between items).
+        // On vertical layout: swap.
+        const isMain =
+          (prop === "column-gap" && isHorizontal) ||
+          (prop === "row-gap" && !isHorizontal);
+        if (isMain) {
+          (frame as unknown as { itemSpacing: number }).itemSpacing = num;
+        } else {
+          (frame as unknown as { counterAxisSpacing: number }).counterAxisSpacing = num;
+        }
+        break;
+      }
+
+      case "width": {
+        const num = parseFloat(value);
+        if (isNaN(num) || num <= 0) break;
+        try {
+          frame.resize(num, frame.height);
+        } catch {
+          // Resize may throw on 0-sized frames or unsupported node types.
+        }
+        break;
+      }
+
+      case "height": {
+        const num = parseFloat(value);
+        if (isNaN(num) || num <= 0) break;
+        try {
+          frame.resize(frame.width, num);
+        } catch {
+          // Ignore — see width case.
+        }
+        break;
+      }
+
       default:
         break;
     }
   }
+}
+
+/**
+ * Map a numeric CSS font-weight (100-900) to the closest Figma font style
+ * name. Figma uses named styles (Regular, Medium, Semibold, Bold, …) so we
+ * bucket numeric weights to their nearest canonical name.
+ */
+function fontWeightToStyleName(weight: number): string {
+  if (weight <= 150) return "Thin";
+  if (weight <= 250) return "ExtraLight";
+  if (weight <= 350) return "Light";
+  if (weight <= 450) return "Regular";
+  if (weight <= 550) return "Medium";
+  if (weight <= 650) return "Semibold";
+  if (weight <= 750) return "Bold";
+  if (weight <= 850) return "ExtraBold";
+  return "Black";
 }
 
 /**
@@ -722,9 +919,17 @@ export async function createPseudoStateVariants(
     throw new Error("No active pseudo-states to create variants for");
   }
 
+  // Phase 7: when the only captured state is hover, use the same 2D naming
+  // (`variant=1, :hover=false/true`) that the registry consolidation path
+  // uses. For multi-state captures we keep the legacy 1D `State=…` axis
+  // because mixing 2D hover naming with 1D state names in one ComponentSet
+  // would make the Figma Variants panel inconsistent.
+  const singleHover =
+    activeStates.length === 1 && activeStates[0][0] === "hover";
+
   // Step 1: Create default component from the frame
   const defaultComp = figma.createComponent();
-  defaultComp.name = "State=Default";
+  defaultComp.name = singleHover ? "variant=1, :hover=false" : "State=Default";
   defaultComp.resize(frame.width, frame.height);
 
   // Copy visual properties from frame to component
@@ -741,7 +946,9 @@ export async function createPseudoStateVariants(
 
   for (const [stateKey, diff] of activeStates) {
     const variantComp = defaultComp.clone();
-    variantComp.name = STATE_DISPLAY_NAMES[stateKey] || `State=${stateKey}`;
+    variantComp.name = singleHover
+      ? "variant=1, :hover=true"
+      : STATE_DISPLAY_NAMES[stateKey] || `State=${stateKey}`;
 
     // FIX 4: apply descendant hover diffs via pluginData walk BEFORE the
     // self diff, so that the self diff takes precedence on the root frame.

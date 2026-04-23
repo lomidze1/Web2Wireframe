@@ -1,7 +1,7 @@
 /**
  * Tests for w2wFindInteractiveNodes — shared hover capture utility.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   w2wFindInteractiveNodes,
   w2wFindHoverCandidates,
@@ -122,13 +122,26 @@ describe("w2wFindInteractiveNodes", () => {
     expect(result[0].selector).toBe('div[role="button"]');
   });
 
-  it("caps results at maxResults (default 100)", () => {
-    const children = Array.from({ length: 120 }, (_, i) =>
+  it("caps results at maxResults (Phase 2: default 500)", () => {
+    const children = Array.from({ length: 550 }, (_, i) =>
       makeFrame({ tag: "a", classList: [`link-${i}`] })
     );
     const tree = makeFrame({ tag: "div", children });
     const result = w2wFindInteractiveNodes(tree);
-    expect(result).toHaveLength(100);
+    expect(result).toHaveLength(500);
+  });
+
+  it("warns when truncating beyond cap (Phase 2)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const children = Array.from({ length: 550 }, (_, i) =>
+      makeFrame({ tag: "a", classList: [`link-${i}`] })
+    );
+    const tree = makeFrame({ tag: "div", children });
+    w2wFindInteractiveNodes(tree);
+    expect(warnSpy).toHaveBeenCalled();
+    const msg = warnSpy.mock.calls[0]?.[0];
+    expect(String(msg)).toMatch(/truncat/i);
+    warnSpy.mockRestore();
   });
 
   it("caps results at custom maxResults", () => {
@@ -172,6 +185,36 @@ describe("w2wFindInteractiveNodes", () => {
     const result = w2wFindInteractiveNodes(tree);
     expect(result[0].selector).toBeNull();
   });
+
+  it("detects cursor:pointer as interactive (Phase 2)", () => {
+    // Apple's clickable <div onclick> uses cursor:pointer but no role/tag.
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({
+          tag: "div",
+          classList: ["clickable"],
+          styles: { cursor: "pointer" },
+        }),
+        makeFrame({ tag: "span", styles: { cursor: "default" } }),
+        makeFrame({ tag: "section" }),
+      ],
+    });
+    const result = w2wFindInteractiveNodes(tree);
+    expect(result).toHaveLength(1);
+    expect(result[0].node.classList).toContain("clickable");
+  });
+
+  it("detects role=option (Phase 2: align with shared/pseudo-states.ts)", () => {
+    const tree = makeFrame({
+      tag: "ul",
+      children: [
+        makeFrame({ tag: "li", attr: { role: "option" }, classList: ["opt"] }),
+      ],
+    });
+    const result = w2wFindInteractiveNodes(tree);
+    expect(result).toHaveLength(1);
+  });
 });
 
 describe("escapeCssClass", () => {
@@ -214,9 +257,17 @@ describe("parseHoverSelectorsFromCssText", () => {
     expect(parseHoverSelectorsFromCssText(".btn:not(:hover)")).toEqual([]);
   });
 
-  it("ignores ::before/::after pseudo-elements combined with :hover", () => {
-    expect(parseHoverSelectorsFromCssText(".btn:hover::before")).toEqual([]);
-    expect(parseHoverSelectorsFromCssText(".btn:hover::after")).toEqual([]);
+  it("keeps ::before/::after pseudo-elements combined with :hover (Phase 2)", () => {
+    // Phase 2: Apple nav uses `.link:hover::before { … }` for underline sweeps.
+    // We keep these and let splitHoverSelector strip the pseudo-element from
+    // the trigger so `forcePseudoState :hover` on the host still fires the
+    // pseudo-element's transition.
+    expect(parseHoverSelectorsFromCssText(".btn:hover::before")).toEqual([
+      ".btn:hover::before",
+    ]);
+    expect(parseHoverSelectorsFromCssText(".btn:hover::after")).toEqual([
+      ".btn:hover::after",
+    ]);
   });
 
   it("handles multiple pseudo-classes (hover + focus)", () => {
@@ -270,8 +321,26 @@ describe("splitHoverSelector", () => {
     expect(result!.trigger).toBe(".btn");
   });
 
-  it("returns null for pseudo-element combined selectors", () => {
-    expect(splitHoverSelector(".btn:hover::before")).toBeNull();
+  it("strips ::before/::after from trigger but keeps in target (Phase 2)", () => {
+    // Phase 2: trigger = host, target = host + pseudo (for reference).
+    // Forcing :hover on the host fires the ::before transition too.
+    expect(splitHoverSelector(".btn:hover::before")).toEqual({
+      trigger: ".btn",
+      target: ".btn::before",
+    });
+    expect(splitHoverSelector(".card:hover::after")).toEqual({
+      trigger: ".card",
+      target: ".card::after",
+    });
+  });
+
+  it("handles ::before BEFORE :hover — trigger = host (Phase 2)", () => {
+    // Edge case: `.foo::before:hover` = when ::before itself is hovered.
+    // We can't force :hover on a pseudo-element, so approximate by forcing
+    // :hover on the host. Trigger drops both :hover and ::before.
+    const result = splitHoverSelector(".foo::before:hover");
+    expect(result).not.toBeNull();
+    expect(result!.trigger).toBe(".foo");
   });
 
   it("handles compound :hover on tag.class form", () => {
@@ -374,6 +443,98 @@ describe("findNodeBySelector", () => {
     const result = findNodeBySelector(tree, ".md\\:hidden");
     expect(result).not.toBeNull();
   });
+
+  // --- Phase 2: combinator & attribute-selector support ---
+
+  it("resolves selector with descendant combinator — matches rightmost compound", () => {
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({
+          tag: "nav",
+          attr: { id: "globalnav" },
+          children: [
+            makeFrame({ tag: "a", classList: ["globalnav-link"] }),
+          ],
+        }),
+      ],
+    });
+    // Apple-shaped: `#globalnav .globalnav-link` — rightmost = `.globalnav-link`.
+    const result = findNodeBySelector(tree, "#globalnav .globalnav-link");
+    expect(result).not.toBeNull();
+    expect(result!.tag).toBe("a");
+  });
+
+  it("resolves selector with child combinator (>)", () => {
+    const tree = makeFrame({
+      tag: "ul",
+      children: [
+        makeFrame({ tag: "li", classList: ["item"] }),
+      ],
+    });
+    const result = findNodeBySelector(tree, "ul > li.item");
+    expect(result!.tag).toBe("li");
+  });
+
+  it("resolves selector with sibling combinators (+, ~)", () => {
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "span", classList: ["a"] }),
+        makeFrame({ tag: "span", classList: ["b"] }),
+      ],
+    });
+    expect(findNodeBySelector(tree, ".a + .b")!.classList).toContain("b");
+    expect(findNodeBySelector(tree, ".a ~ .b")!.classList).toContain("b");
+  });
+
+  it("resolves [href] attribute-presence selector", () => {
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "a", attr: { href: "/page" } }),
+        makeFrame({ tag: "a" }), // no href
+      ],
+    });
+    const result = findNodeBySelector(tree, "a[href]");
+    expect(result).not.toBeNull();
+    expect(result!.attr?.href).toBe("/page");
+  });
+
+  it("resolves [attr=\"value\"] equality selector", () => {
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "a", attr: { href: "/foo" } }),
+        makeFrame({ tag: "a", attr: { href: "/bar" } }),
+      ],
+    });
+    const result = findNodeBySelector(tree, 'a[href="/bar"]');
+    expect(result!.attr?.href).toBe("/bar");
+  });
+
+  it("resolves [data-*] attribute selectors", () => {
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "div", attr: { "data-focus-method": "key" } }),
+      ],
+    });
+    const result = findNodeBySelector(tree, 'div[data-focus-method="key"]');
+    expect(result).not.toBeNull();
+  });
+
+  it("combines attribute + class: a.link[href=\"/x\"]", () => {
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "a", classList: ["link"], attr: { href: "/x" } }),
+        makeFrame({ tag: "a", classList: ["link"], attr: { href: "/y" } }),
+      ],
+    });
+    const result = findNodeBySelector(tree, 'a.link[href="/x"]');
+    expect(result!.attr?.href).toBe("/x");
+  });
 });
 
 describe("w2wFindHoverCandidates", () => {
@@ -443,6 +604,39 @@ describe("w2wFindHoverCandidates", () => {
     });
     const result = w2wFindHoverCandidates(tree, [".nonexistent"]);
     expect(result).toHaveLength(0);
+  });
+
+  it("default cap is 500 (Phase 2: raised from 200)", () => {
+    const children = Array.from({ length: 600 }, (_, i) =>
+      makeFrame({ tag: "a", classList: [`link-${i}`] }),
+    );
+    const tree = makeFrame({ tag: "div", children });
+    const result = w2wFindHoverCandidates(tree);
+    expect(result).toHaveLength(500);
+  });
+
+  it("resolves extra selectors using descendant combinators (Phase 2)", () => {
+    // Apple-style: selector from stylesheet comes as `#globalnav .globalnav-link`.
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({
+          tag: "nav",
+          attr: { id: "globalnav" },
+          children: [
+            makeFrame({ tag: "a", classList: ["globalnav-link"] }),
+          ],
+        }),
+      ],
+    });
+    const result = w2wFindHoverCandidates(tree, [
+      "#globalnav .globalnav-link",
+    ]);
+    // Expect the nav-link to be included (already in interactive pool via <a>
+    // tag, but we still verify the extra selector resolves).
+    expect(result.some((r) => r.node.classList.includes("globalnav-link"))).toBe(
+      true,
+    );
   });
 });
 

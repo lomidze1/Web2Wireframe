@@ -132,21 +132,25 @@ describe("collectHoverables", () => {
 // Pure logic: childrenStructureSignature
 // ---------------------------------------------------------------------------
 
-describe("childrenStructureSignature", () => {
+describe("childrenStructureSignature — Phase 3 structural hash", () => {
   let childrenStructureSignature: (node: WireframeNode) => string;
+  let setStructureHashMode: (mode: "legacy" | "structural") => void;
 
   beforeEach(async () => {
     const mod = await import("../rendering/hoverConsolidation");
     childrenStructureSignature = mod.childrenStructureSignature;
+    setStructureHashMode = mod.setStructureHashMode;
+    // Default: Phase 3 structural mode.
+    setStructureHashMode("structural");
   });
 
-  it("returns identical signatures for structurally-identical nodes with different text", () => {
+  it("returns identical signatures for nodes with different text but same shape", () => {
     const a = makeWfNode({ children: [textNode("Start Free")] });
     const b = makeWfNode({ children: [textNode("Get Plus")] });
     expect(childrenStructureSignature(a)).toBe(childrenStructureSignature(b));
   });
 
-  it('returns "text-only" for text-only and "has-image" for icon+text (h2d 2-bucket)', () => {
+  it("distinguishes text-only from icon+text (replaces legacy 2-bucket)", () => {
     const textOnly = makeWfNode({ children: [textNode("Click")] });
     const iconPlusText = makeWfNode({
       children: [
@@ -154,13 +158,14 @@ describe("childrenStructureSignature", () => {
         textNode("Click"),
       ],
     });
-    expect(childrenStructureSignature(textOnly)).toBe("text-only");
-    expect(childrenStructureSignature(iconPlusText)).toBe("has-image");
+    expect(childrenStructureSignature(textOnly)).not.toBe(
+      childrenStructureSignature(iconPlusText),
+    );
   });
 
-  it("merges varying text-only shapes into one bucket (frame-child vs direct-text)", () => {
-    // h2d collapses: a text node, an element with a text child, a frame with
-    // a nested div — all map to "text-only" if none contain images.
+  it("distinguishes nesting depth (text vs text-in-span vs text-in-div-in-span)", () => {
+    // Phase 3 INVERSE of legacy: these shapes are structurally different
+    // and must produce distinct sigs → distinct ComponentSets.
     const plainText = textNode("Docs");
     const withTextChild = makeWfNode({ children: [textNode("Pricing")] });
     const withNestedFrame = makeWfNode({
@@ -173,40 +178,254 @@ describe("childrenStructureSignature", () => {
       childrenStructureSignature(withTextChild),
       childrenStructureSignature(withNestedFrame),
     ]);
-    expect(sigs.size).toBe(1);
-    expect(sigs.has("text-only")).toBe(true);
+    expect(sigs.size).toBe(3);
   });
 
-  it("treats SVG descendants as images too", () => {
-    const node = makeWfNode({
+  it("distinguishes img from svg placeholder", () => {
+    const withImg = makeWfNode({
+      children: [makeWfNode({ type: "placeholder", tag: "img" })],
+    });
+    const withSvg = makeWfNode({
+      children: [makeWfNode({ type: "placeholder", tag: "svg" })],
+    });
+    expect(childrenStructureSignature(withImg)).not.toBe(
+      childrenStructureSignature(withSvg),
+    );
+  });
+
+  it("distinguishes root tag (a vs button) with identical children", () => {
+    const anchor = makeWfNode({ tag: "a", children: [textNode("Buy")] });
+    const button = makeWfNode({ tag: "button", children: [textNode("Buy")] });
+    expect(childrenStructureSignature(anchor)).not.toBe(
+      childrenStructureSignature(button),
+    );
+  });
+
+  it("returns a stable signature for empty children", () => {
+    const a = makeWfNode({ tag: "a" });
+    const b = makeWfNode({ tag: "a" });
+    expect(childrenStructureSignature(a)).toBe(childrenStructureSignature(b));
+  });
+
+  it("caps recursion (deep trees do not explode)", () => {
+    let inner: WireframeNode = textNode("x");
+    for (let i = 0; i < 12; i++) {
+      inner = makeWfNode({ tag: "div", children: [inner] });
+    }
+    const sig = childrenStructureSignature(inner);
+    // Signature should be finite and contain a depth-cap marker.
+    expect(sig.length).toBeLessThan(200);
+    expect(sig).toMatch(/…|\[cap\]/);
+  });
+
+  it("Apple-shaped hoverable fixture: produces ≥4 distinct category keys", () => {
+    const textLink = makeWfNode({
+      tag: "a",
+      children: [makeWfNode({ tag: "span", children: [textNode("Mac")] })],
+    });
+    const textLinkWithChevron = makeWfNode({
+      tag: "a",
       children: [
+        makeWfNode({ tag: "span", children: [textNode("Store")] }),
         makeWfNode({ type: "placeholder", tag: "svg" }),
-        textNode("Badge"),
       ],
     });
-    expect(childrenStructureSignature(node)).toBe("has-image");
-  });
-
-  it("finds images at any depth within the 3-level search range", () => {
-    const deepImg = makeWfNode({
+    const ctaPill = makeWfNode({
+      tag: "button",
+      children: [textNode("Buy")],
+    });
+    const logo = makeWfNode({
+      tag: "a",
+      children: [makeWfNode({ type: "placeholder", tag: "svg" })],
+    });
+    const productCard = makeWfNode({
+      tag: "a",
       children: [
+        makeWfNode({ type: "placeholder", tag: "img" }),
         makeWfNode({
+          tag: "div",
           children: [
-            makeWfNode({
-              children: [makeWfNode({ type: "placeholder", tag: "img" })],
-            }),
+            makeWfNode({ tag: "h3", children: [textNode("iPhone 16")] }),
+            makeWfNode({ tag: "p", children: [textNode("From $799")] }),
           ],
         }),
       ],
     });
-    expect(childrenStructureSignature(deepImg)).toBe("has-image");
+
+    const sigs = new Set([
+      childrenStructureSignature(textLink),
+      childrenStructureSignature(textLinkWithChevron),
+      childrenStructureSignature(ctaPill),
+      childrenStructureSignature(logo),
+      childrenStructureSignature(productCard),
+    ]);
+    expect(sigs.size).toBeGreaterThanOrEqual(4);
   });
 
-  it("returns a stable string for empty children (no-child elements)", () => {
-    const a = makeWfNode();
-    const b = makeWfNode();
-    expect(childrenStructureSignature(a)).toBe(childrenStructureSignature(b));
-    expect(childrenStructureSignature(a)).toBe("text-only");
+  it("legacy mode returns 'text-only' | 'has-image' for rollback", () => {
+    setStructureHashMode("legacy");
+    const textOnly = makeWfNode({ children: [textNode("X")] });
+    const withImg = makeWfNode({
+      children: [makeWfNode({ type: "placeholder", tag: "img" })],
+    });
+    expect(childrenStructureSignature(textOnly)).toBe("text-only");
+    expect(childrenStructureSignature(withImg)).toBe("has-image");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4: visualStyleSignature — expanded text + tighter quantization
+// ---------------------------------------------------------------------------
+
+describe("visualStyleSignature — Phase 4 expanded", () => {
+  let visualStyleSignature: (node: WireframeNode) => string;
+  let setVisualSigMode: (mode: "expanded" | "legacy") => void;
+
+  beforeEach(async () => {
+    const mod = await import("../rendering/hoverConsolidation");
+    visualStyleSignature = mod.visualStyleSignature;
+    setVisualSigMode = mod.setVisualSigMode;
+    setVisualSigMode("expanded");
+  });
+
+  it("identical boxes with identical text produce identical sigs", () => {
+    const a = makeWfNode({
+      fills: [] as never,
+      children: [textNode("Buy", { textColor: "#111", fontWeight: 400 })],
+    });
+    const b = makeWfNode({
+      fills: [] as never,
+      children: [textNode("Buy", { textColor: "#111", fontWeight: 400 })],
+    });
+    expect(visualStyleSignature(a)).toBe(visualStyleSignature(b));
+  });
+
+  it("identical boxes with same text style but different characters collapse", () => {
+    // TEXT properties on the ComponentSet handle text content; visual sig
+    // ignores `textContent`.
+    const a = makeWfNode({
+      children: [textNode("Buy", { textColor: "#111", fontWeight: 500 })],
+    });
+    const b = makeWfNode({
+      children: [textNode("Sell", { textColor: "#111", fontWeight: 500 })],
+    });
+    expect(visualStyleSignature(a)).toBe(visualStyleSignature(b));
+  });
+
+  it("different text color produces distinct sigs", () => {
+    const red = makeWfNode({
+      children: [textNode("Buy", { textColor: "#ff0000" })],
+    });
+    const blue = makeWfNode({
+      children: [textNode("Buy", { textColor: "#0000ff" })],
+    });
+    expect(visualStyleSignature(red)).not.toBe(visualStyleSignature(blue));
+  });
+
+  it("different font-weight produces distinct sigs", () => {
+    const regular = makeWfNode({
+      children: [textNode("Buy", { fontWeight: 400 })],
+    });
+    const bold = makeWfNode({
+      children: [textNode("Buy", { fontWeight: 700 })],
+    });
+    expect(visualStyleSignature(regular)).not.toBe(visualStyleSignature(bold));
+  });
+
+  it("different font-size produces distinct sigs", () => {
+    const small = makeWfNode({
+      children: [textNode("Buy", { fontSize: 12 })],
+    });
+    const large = makeWfNode({
+      children: [textNode("Buy", { fontSize: 24 })],
+    });
+    expect(visualStyleSignature(small)).not.toBe(visualStyleSignature(large));
+  });
+
+  it("Phase 4 transform: sub-0.1px jitter still collapses", () => {
+    // 0.21 → 0.2, 0.23 → 0.2 (both within same 0.1 bucket).
+    const a = makeWfNode({
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,0.21)" } },
+    });
+    const b = makeWfNode({
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,0.23)" } },
+    });
+    expect(visualStyleSignature(a)).toBe(visualStyleSignature(b));
+  });
+
+  it("Phase 4 transform: 0.23 vs 0.27 land in different buckets (tighter than legacy)", () => {
+    // Phase 4 preserves more detail than legacy: 0.23 → 0.2, 0.27 → 0.3.
+    const a = makeWfNode({
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,0.23)" } },
+    });
+    const b = makeWfNode({
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,0.27)" } },
+    });
+    expect(visualStyleSignature(a)).not.toBe(visualStyleSignature(b));
+  });
+
+  it("transform differences > 0.1px produce distinct sigs", () => {
+    const subtle = makeWfNode({
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,-0.5)" } },
+    });
+    const big = makeWfNode({
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,-2)" } },
+    });
+    expect(visualStyleSignature(subtle)).not.toBe(visualStyleSignature(big));
+  });
+
+  it("Phase 4 alpha quantum: rgba(…,0.03) and rgba(…,0.04) now distinct", () => {
+    // Legacy bucketed both to 0.05; Phase 4 keeps them distinct (0.03 vs 0.04).
+    const a = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.03)" },
+      },
+    });
+    const b = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.04)" },
+      },
+    });
+    expect(visualStyleSignature(a)).not.toBe(visualStyleSignature(b));
+  });
+
+  it("alpha jitter within quantum still collapses (0.032 vs 0.034 → both 0.03)", () => {
+    const a = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.032)" },
+      },
+    });
+    const b = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.034)" },
+      },
+    });
+    expect(visualStyleSignature(a)).toBe(visualStyleSignature(b));
+  });
+
+  it("legacy mode: restores 0.05 alpha bucket + integer tx/ty + no text fields", () => {
+    setVisualSigMode("legacy");
+    // Alpha 0.034 → 0.05; 0.048 → 0.05 → same sig under legacy.
+    const a = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.034)" },
+      },
+    });
+    const b = makeWfNode({
+      pseudoStateStyles: {
+        hover: { "background-color": "rgba(12, 13, 18, 0.048)" },
+      },
+    });
+    expect(visualStyleSignature(a)).toBe(visualStyleSignature(b));
+
+    // Under legacy: different text colors should NOT differentiate.
+    const red = makeWfNode({
+      children: [textNode("X", { textColor: "#ff0000" })],
+    });
+    const blue = makeWfNode({
+      children: [textNode("X", { textColor: "#0000ff" })],
+    });
+    expect(visualStyleSignature(red)).toBe(visualStyleSignature(blue));
   });
 });
 
@@ -474,6 +693,33 @@ describe("buildHoverMasterRegistry", () => {
     ]);
   });
 
+  it("Phase 6: hover reaction uses transition=null (h2d instant swap)", async () => {
+    const btn = makeWfNode({
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,-2)" } },
+      children: [textNode("Hover me")],
+    });
+    const root = makeWfNode({ children: [btn] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      minimalContext(),
+    );
+    const entry = Array.from(registry.values())[0];
+    const variants = entry.componentSet.children as unknown as Array<{
+      name: string;
+      setReactionsAsync: ReturnType<typeof vi.fn>;
+    }>;
+    const restVariant = variants.find((v) => v.name.includes(":hover=false"));
+    expect(restVariant).toBeDefined();
+    expect(restVariant!.setReactionsAsync).toHaveBeenCalled();
+    const call = restVariant!.setReactionsAsync.mock.calls[0];
+    const [reactions] = call as [Array<{ trigger: { type: string }; actions: Array<{ transition: unknown }> }>];
+    expect(reactions).toHaveLength(1);
+    expect(reactions[0].trigger.type).toBe("ON_HOVER");
+    // Phase 6: transition must be null (instant). Previously SMART_ANIMATE/150ms.
+    expect(reactions[0].actions[0].transition).toBeNull();
+  });
+
   it("creates TEXT component properties for text children", async () => {
     const btn = makeWfNode({
       pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,-2)" } },
@@ -581,6 +827,370 @@ describe("buildHoverMasterRegistry", () => {
     expect(byName["variant=2, :hover=false"].y).toBeGreaterThan(
       byName["variant=1, :hover=false"].y,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shiftLightness — HSL lightness shift utility
+// ---------------------------------------------------------------------------
+
+describe("shiftLightness", () => {
+  let shiftLightness: (rgb: RGB, amount: number) => RGB;
+
+  beforeEach(async () => {
+    const mod = await import("../rendering/colors");
+    shiftLightness = mod.shiftLightness;
+  });
+
+  function lightnessOf(rgb: RGB): number {
+    const max = Math.max(rgb.r, rgb.g, rgb.b);
+    const min = Math.min(rgb.r, rgb.g, rgb.b);
+    return (max + min) / 2;
+  }
+
+  it("darkens a mid-lightness color (negative amount reduces L)", () => {
+    const grey = { r: 0.6, g: 0.6, b: 0.6 };
+    const out = shiftLightness(grey, -0.12);
+    expect(lightnessOf(out)).toBeLessThan(lightnessOf(grey) - 0.05);
+    expect(out.r).toBeCloseTo(out.g, 5);
+    expect(out.g).toBeCloseTo(out.b, 5);
+  });
+
+  it("preserves hue when shifting a saturated color", () => {
+    // Pure blue
+    const blue = { r: 0.1, g: 0.2, b: 0.9 };
+    const out = shiftLightness(blue, -0.12);
+    // Blue must remain the dominant channel.
+    expect(out.b).toBeGreaterThan(out.r);
+    expect(out.b).toBeGreaterThan(out.g);
+  });
+
+  it("near-black input + negative amount inverts to lighten", () => {
+    // #11151A ≈ { r: 0.066, g: 0.082, b: 0.101 } — L ≈ 0.084 (< 0.15)
+    const nearBlack = { r: 17 / 255, g: 21 / 255, b: 26 / 255 };
+    const l0 = lightnessOf(nearBlack);
+    const out = shiftLightness(nearBlack, -0.12);
+    expect(lightnessOf(out)).toBeGreaterThan(l0);
+  });
+
+  it("clamps at 0 when darkening below minimum", () => {
+    const almostBlack = { r: 0.05, g: 0.05, b: 0.05 };
+    // Force-darken with strong amount below the near-black clamp threshold.
+    // L ≈ 0.05 (< 0.15) so near-black clamp inverts; but test the raw math:
+    // pass a positive-luminance color at exactly 0.15 to avoid the clamp.
+    const edge = { r: 0.15, g: 0.15, b: 0.15 };
+    const out = shiftLightness(edge, -0.30);
+    expect(out.r).toBeGreaterThanOrEqual(0);
+    expect(out.r).toBeLessThanOrEqual(1);
+    // But almostBlack triggers near-black clamp (not tested here).
+    expect(almostBlack.r).toBeLessThan(0.15);
+  });
+
+  it("clamps at 1 when lightening above maximum", () => {
+    const almostWhite = { r: 0.95, g: 0.95, b: 0.95 };
+    const out = shiftLightness(almostWhite, 0.5);
+    expect(out.r).toBeLessThanOrEqual(1);
+    expect(out.g).toBeLessThanOrEqual(1);
+    expect(out.b).toBeLessThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// darkenRootSolidPaint — direct unit test
+// ---------------------------------------------------------------------------
+
+describe("darkenRootSolidPaint", () => {
+  let darkenRootSolidPaint: (
+    frame: { fills?: unknown; strokes?: unknown },
+    amount: number,
+  ) => void;
+
+  beforeEach(async () => {
+    const mod = await import("../rendering/hoverConsolidation");
+    darkenRootSolidPaint = mod.darkenRootSolidPaint as never;
+  });
+
+  it("darkens the first SOLID fill", () => {
+    const frame = {
+      fills: [{ type: "SOLID", color: { r: 0.7, g: 0.7, b: 0.7 }, opacity: 1 }],
+      strokes: [],
+    };
+    darkenRootSolidPaint(frame as never, 0.12);
+    const fill = (frame.fills as Array<{ color: RGB }>)[0];
+    expect(fill.color.r).toBeLessThan(0.7);
+  });
+
+  it("preserves opacity on the darkened fill", () => {
+    const frame = {
+      fills: [{ type: "SOLID", color: { r: 0.5, g: 0.5, b: 0.5 }, opacity: 0.42 }],
+      strokes: [],
+    };
+    darkenRootSolidPaint(frame as never, 0.12);
+    const fill = (frame.fills as Array<{ opacity: number }>)[0];
+    expect(fill.opacity).toBe(0.42);
+  });
+
+  it("falls back to first SOLID stroke when fills has no SOLID", () => {
+    const frame = {
+      fills: [] as unknown[],
+      strokes: [{ type: "SOLID", color: { r: 0.6, g: 0.6, b: 0.6 }, opacity: 1 }],
+    };
+    darkenRootSolidPaint(frame as never, 0.12);
+    const stroke = (frame.strokes as Array<{ color: RGB }>)[0];
+    expect(stroke.color.r).toBeLessThan(0.6);
+  });
+
+  it("skips non-SOLID paints (IMAGE, GRADIENT)", () => {
+    const frame = {
+      fills: [
+        { type: "IMAGE", scaleMode: "FILL" },
+        { type: "SOLID", color: { r: 0.7, g: 0.7, b: 0.7 }, opacity: 1 },
+      ],
+      strokes: [],
+    };
+    darkenRootSolidPaint(frame as never, 0.12);
+    // Image untouched; SOLID (idx 1) darkened.
+    const fills = frame.fills as Array<{ type: string; color?: RGB }>;
+    expect(fills[0].type).toBe("IMAGE");
+    expect(fills[1].color!.r).toBeLessThan(0.7);
+  });
+
+  it("no-op when frame has no SOLID fills or strokes", () => {
+    const frame = { fills: [], strokes: [] };
+    expect(() => darkenRootSolidPaint(frame as never, 0.12)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin colors mode: hover variant darkening
+// ---------------------------------------------------------------------------
+
+describe("buildHoverMasterRegistry — plugin colors mode", () => {
+  let buildHoverMasterRegistry: typeof import("../rendering/hoverConsolidation").buildHoverMasterRegistry;
+  let mockCreateComponent: ReturnType<typeof vi.fn>;
+  let mockCombineAsVariants: ReturnType<typeof vi.fn>;
+  let componentIdCounter: number;
+
+  // Clone-aware mock: clone() deep-copies fills and strokes (matching real
+  // Figma semantics), so hover starts with the same paints as rest before
+  // our darken logic runs.
+  function makeCloneAwareMockComp(): Record<string, unknown> {
+    const id = `comp-${++componentIdCounter}`;
+    const comp: Record<string, unknown> = {
+      type: "COMPONENT",
+      id,
+      name: "",
+      fills: [] as unknown[],
+      strokes: [] as unknown[],
+      effects: [] as unknown[],
+      opacity: 1,
+      cornerRadius: 0,
+      strokeWeight: 1,
+      strokeAlign: "INSIDE",
+      width: 100,
+      height: 40,
+      children: [] as unknown[],
+      componentPropertyReferences: {} as Record<string, string>,
+      resize: vi.fn(),
+      appendChild: vi.fn(),
+      findAll: vi.fn(() => [] as unknown[]),
+      createInstance: vi.fn(),
+      setReactionsAsync: vi.fn(),
+      reactions: [] as unknown[],
+    };
+    comp.clone = vi.fn(() => {
+      const clone = makeCloneAwareMockComp();
+      clone.fills = JSON.parse(JSON.stringify(comp.fills));
+      clone.strokes = JSON.parse(JSON.stringify(comp.strokes));
+      clone.effects = JSON.parse(JSON.stringify(comp.effects));
+      clone.name = comp.name;
+      clone.width = comp.width;
+      clone.height = comp.height;
+      return clone;
+    });
+    return comp;
+  }
+
+  beforeEach(async () => {
+    componentIdCounter = 0;
+    mockCreateComponent = vi.fn(makeCloneAwareMockComp);
+    mockCombineAsVariants = vi.fn(
+      (components: Array<Record<string, unknown>>) => ({
+        type: "COMPONENT_SET",
+        id: `cs-${++componentIdCounter}`,
+        name: "ComponentSet",
+        children: components,
+        componentPropertyDefinitions: {} as Record<string, unknown>,
+        addComponentProperty: vi.fn((name: string) => `${name}#1:0`),
+        findOne: vi.fn(),
+      }),
+    );
+
+    (globalThis as Record<string, unknown>).figma = {
+      createComponent: mockCreateComponent,
+      combineAsVariants: mockCombineAsVariants,
+      currentPage: { appendChild: vi.fn() },
+    };
+
+    const mod = await import("../rendering/hoverConsolidation");
+    buildHoverMasterRegistry = mod.buildHoverMasterRegistry;
+  });
+
+  function pluginContext() {
+    return {
+      interactionMode: "variants" as const,
+      componentSets: [],
+      hoverMasterRegistry: undefined,
+      colorMode: "plugin",
+    } as never;
+  }
+  function websiteContext() {
+    return {
+      interactionMode: "variants" as const,
+      componentSets: [],
+      hoverMasterRegistry: undefined,
+      colorMode: "website",
+    } as never;
+  }
+
+  function fillsOf(comp: Record<string, unknown>): Array<{ color: RGB }> {
+    return (comp.fills as Array<{ color: RGB }>) ?? [];
+  }
+
+  it("plugin mode: hover fill is darker than rest (diff has background-color)", async () => {
+    const btn = makeWfNode({
+      name: "btn",
+      fills: [{ type: "SOLID", color: { r: 0.68, g: 0.78, b: 0.86, a: 1 } }] as never,
+      pseudoStateStyles: { hover: { "background-color": "#ff0000" } },
+      children: [textNode("Click")],
+    });
+    const root = makeWfNode({ children: [btn] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      pluginContext(),
+    );
+    const entry = Array.from(registry.values())[0];
+    const variants = entry.componentSet.children as unknown as Array<
+      Record<string, unknown>
+    >;
+    const rest = variants.find((v) => (v.name as string).includes(":hover=false"))!;
+    const hover = variants.find((v) => (v.name as string).includes(":hover=true"))!;
+
+    const restColor = fillsOf(rest)[0].color;
+    const hoverColor = fillsOf(hover)[0].color;
+
+    // Hover must differ from rest. Captured CSS color (#ff0000 = red) must
+    // NOT appear — plugin mode strips it and darkens the palette fill instead.
+    expect(hoverColor.r).not.toBeCloseTo(1.0, 1);
+    const restL = (restColor.r + restColor.g + restColor.b) / 3;
+    const hoverL = (hoverColor.r + hoverColor.g + hoverColor.b) / 3;
+    expect(hoverL).toBeLessThan(restL);
+  });
+
+  it("plugin mode: hover still darkened when diff has only transform (no color)", async () => {
+    const btn = makeWfNode({
+      name: "btn",
+      fills: [{ type: "SOLID", color: { r: 0.68, g: 0.78, b: 0.86, a: 1 } }] as never,
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,-2)" } },
+      children: [textNode("Click")],
+    });
+    const root = makeWfNode({ children: [btn] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      pluginContext(),
+    );
+    const entry = Array.from(registry.values())[0];
+    const variants = entry.componentSet.children as unknown as Array<
+      Record<string, unknown>
+    >;
+    const rest = variants.find((v) => (v.name as string).includes(":hover=false"))!;
+    const hover = variants.find((v) => (v.name as string).includes(":hover=true"))!;
+
+    const restColor = fillsOf(rest)[0].color;
+    const hoverColor = fillsOf(hover)[0].color;
+    expect(hoverColor.r).toBeLessThan(restColor.r);
+  });
+
+  it("website mode: hover uses captured CSS color (no darkening applied)", async () => {
+    const btn = makeWfNode({
+      name: "btn",
+      fills: [{ type: "SOLID", color: { r: 0.68, g: 0.78, b: 0.86, a: 1 } }] as never,
+      pseudoStateStyles: { hover: { "background-color": "#ff0000" } },
+      children: [textNode("Click")],
+    });
+    const root = makeWfNode({ children: [btn] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      websiteContext(),
+    );
+    const entry = Array.from(registry.values())[0];
+    const variants = entry.componentSet.children as unknown as Array<
+      Record<string, unknown>
+    >;
+    const hover = variants.find((v) => (v.name as string).includes(":hover=true"))!;
+    const hoverColor = fillsOf(hover)[0].color;
+    // Captured red should apply in website mode.
+    expect(hoverColor.r).toBeCloseTo(1.0, 1);
+    expect(hoverColor.g).toBeCloseTo(0, 1);
+    expect(hoverColor.b).toBeCloseTo(0, 1);
+  });
+
+  it("plugin mode + near-black rest fill: hover is lightened (not darkened)", async () => {
+    // #11151A ≈ rest fill. L ≈ 0.08 (< 0.15 → clamp inverts direction).
+    const btn = makeWfNode({
+      name: "btn",
+      fills: [{
+        type: "SOLID",
+        color: { r: 17 / 255, g: 21 / 255, b: 26 / 255, a: 1 },
+      }] as never,
+      pseudoStateStyles: { hover: { "background-color": "#ffffff" } },
+      children: [textNode("Click")],
+    });
+    const root = makeWfNode({ children: [btn] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      pluginContext(),
+    );
+    const entry = Array.from(registry.values())[0];
+    const variants = entry.componentSet.children as unknown as Array<
+      Record<string, unknown>
+    >;
+    const rest = variants.find((v) => (v.name as string).includes(":hover=false"))!;
+    const hover = variants.find((v) => (v.name as string).includes(":hover=true"))!;
+
+    const restL = (fillsOf(rest)[0].color.r + fillsOf(rest)[0].color.g + fillsOf(rest)[0].color.b) / 3;
+    const hoverL = (fillsOf(hover)[0].color.r + fillsOf(hover)[0].color.g + fillsOf(hover)[0].color.b) / 3;
+    expect(hoverL).toBeGreaterThan(restL);
+  });
+
+  it("mutation isolation: darkening hover does not change rest fills", async () => {
+    const btn = makeWfNode({
+      name: "btn",
+      fills: [{ type: "SOLID", color: { r: 0.68, g: 0.78, b: 0.86, a: 1 } }] as never,
+      pseudoStateStyles: { hover: { transform: "matrix(1,0,0,1,0,-2)" } },
+      children: [textNode("Click")],
+    });
+    const root = makeWfNode({ children: [btn] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      pluginContext(),
+    );
+    const entry = Array.from(registry.values())[0];
+    const variants = entry.componentSet.children as unknown as Array<
+      Record<string, unknown>
+    >;
+    const rest = variants.find((v) => (v.name as string).includes(":hover=false"))!;
+    const restColor = fillsOf(rest)[0].color;
+    // Rest must be unchanged (approximately 0.68/0.78/0.86, possibly tweaked by pipeline).
+    // The critical invariant: it is NOT the darkened value.
+    const hover = variants.find((v) => (v.name as string).includes(":hover=true"))!;
+    const hoverColor = fillsOf(hover)[0].color;
+    expect(restColor.r).not.toBe(hoverColor.r);
   });
 });
 

@@ -14,6 +14,61 @@
  */
 
 import type { RenderContext, WireframeFrame, WireframeNode } from "../types";
+import { shiftLightness } from "./colors";
+
+// Plugin-colors hover treatment: when colorMode === "plugin", the captured
+// CSS hover color would be overwritten by the palette anyway, so we strip
+// it from the diff and instead darken the rest variant's plugin fill by
+// this amount. Guarantees a visible rest↔hover delta in wireframe mode.
+const PLUGIN_HOVER_DARKEN = 0.12;
+const PLUGIN_HOVER_COLOR_KEYS = new Set([
+  "background-color",
+  "background",
+  "color",
+  "border-color",
+  "outline-color",
+]);
+
+function filterPluginColorKeys(
+  diff: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(diff)) {
+    if (!PLUGIN_HOVER_COLOR_KEYS.has(k)) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Darken the first SOLID paint on the hover variant's root. Used only in
+ * plugin-colors mode to force a visible rest↔hover delta. Falls back to
+ * the first SOLID stroke if no SOLID fill exists (transparent root).
+ */
+export function darkenRootSolidPaint(
+  frame: FrameNode | ComponentNode,
+  amount: number,
+): void {
+  const shift = -Math.abs(amount);
+  const fills = Array.isArray(frame.fills) ? [...frame.fills] : [];
+  const fillIdx = fills.findIndex(
+    (p) => (p as Paint).type === "SOLID" && (p as Paint).visible !== false,
+  );
+  if (fillIdx >= 0) {
+    const p = fills[fillIdx] as SolidPaint;
+    fills[fillIdx] = { ...p, color: shiftLightness(p.color, shift) };
+    frame.fills = fills;
+    return;
+  }
+  const strokes = Array.isArray(frame.strokes) ? [...frame.strokes] : [];
+  const strokeIdx = strokes.findIndex(
+    (p) => (p as Paint).type === "SOLID" && (p as Paint).visible !== false,
+  );
+  if (strokeIdx >= 0) {
+    const p = strokes[strokeIdx] as SolidPaint;
+    strokes[strokeIdx] = { ...p, color: shiftLightness(p.color, shift) };
+    frame.strokes = strokes;
+  }
+}
 
 // ============================================================================
 // Public types
@@ -54,22 +109,56 @@ export function collectHoverables(frames: WireframeFrame[]): WireframeNode[] {
 }
 
 /**
- * Coarse 2-bucket categorization matching h2d's Components section layout:
- *   - "has-image": brand-like containers (logo + optional text)
- *   - "text-only": everything else (nav links, buttons, CTAs)
+ * Structure-hash mode. Default is Phase 3 structural hash that produces
+ * fine-grained categories (mirrors h2d's `$hashes.set`). Legacy 2-bucket
+ * mode is retained for fast rollback if regressions appear.
+ */
+type StructureHashMode = "structural" | "legacy";
+let structureHashMode: StructureHashMode = "structural";
+
+export function setStructureHashMode(mode: StructureHashMode): void {
+  structureHashMode = mode;
+}
+
+const STRUCTURE_DEPTH_CAP = 5;
+
+/**
+ * Phase 3: structural signature for ComponentSet grouping.
  *
- * Rationale: h2d's pricing capture produces exactly 2 ComponentSets —
- * Component 1 holds the brand img, Component 2 holds all interactive text
- * elements regardless of their inner frame structure. Per-tag or per-class
- * granularity splits W2W too aggressively (pricing: 4 sets instead of 2).
+ * Format: `tag:(child1,child2,…)`
+ * Leaves: `text`, `p-img`, `p-svg`, `p-<tag>`
+ *
+ * Distinguishes nodes that differ in tag, child count, child types, or child
+ * shapes — while collapsing nodes whose only difference is text content or
+ * visual styling. Matches h2d's per-element ComponentSet granularity, which
+ * is what multiplies apple.com's count from 2-3 to ~30-40.
+ *
+ * Depth is capped at 5 to bound signature length; `…` marks the cap.
  */
 export function childrenStructureSignature(node: WireframeNode): string {
-  return hasImageDescendant(node) ? "has-image" : "text-only";
+  if (structureHashMode === "legacy") {
+    return hasImageDescendant(node) ? "has-image" : "text-only";
+  }
+  return structuralSig(node, 0);
+}
+
+function structuralSig(node: WireframeNode, depth: number): string {
+  if (depth > STRUCTURE_DEPTH_CAP) return "…";
+  if (node.type === "text") return "text";
+  if (node.type === "placeholder") {
+    return `p-${node.tag || "?"}`;
+  }
+  // frame
+  const tag = node.tag || "div";
+  const children = node.children ?? [];
+  if (children.length === 0) return tag;
+  const parts = children.map((c) => structuralSig(c, depth + 1));
+  return `${tag}:(${parts.join(",")})`;
 }
 
 /**
- * DFS with depth cap — a hoverable "brand" container rarely nests images
- * more than 3 levels deep (<a><div><span><img/></span></div></a>).
+ * Legacy helper — retained for `setStructureHashMode("legacy")` rollback.
+ * DFS with depth cap 3.
  */
 function hasImageDescendant(node: WireframeNode, depth = 0): boolean {
   if (depth > 3) return false;
@@ -118,9 +207,12 @@ function stableStringify(value: unknown): string {
 }
 
 /**
- * Normalize jittery matrix transform values so elements caught at
- * different mid-transition moments still dedupe. Rounds tx/ty to the
- * nearest integer px.
+ * Normalize jittery matrix transform values so elements caught at slightly
+ * different mid-transition moments still dedupe. Phase 4: tx/ty rounded to
+ * the nearest 0.1 px (was 1 px) — with Phase 1's transition-disable the
+ * captured transforms are stable enough to preserve sub-pixel intent
+ * (e.g. `translateY(-2px)` stays distinct from `translateY(-1.8px)` while
+ * `-1.82px` and `-1.85px` dedupe).
  */
 function normalizeTransformValue(value: string): string {
   const m = value.match(
@@ -131,26 +223,25 @@ function normalizeTransformValue(value: string): string {
   const b = m[2].trim();
   const c = m[3].trim();
   const d = m[4].trim();
-  const tx = Math.round(parseFloat(m[5]));
-  const ty = Math.round(parseFloat(m[6]));
+  const quantum = visualSigMode === "legacy" ? 1 : 10; // legacy=nearest 1px, expanded=nearest 0.1px
+  const tx = Math.round(parseFloat(m[5]) * quantum) / quantum;
+  const ty = Math.round(parseFloat(m[6]) * quantum) / quantum;
   return `matrix(${a}, ${b}, ${c}, ${d}, ${tx}, ${ty})`;
 }
 
 /**
- * Quantize rgba alpha to nearest 0.05 step (5% granularity). Neutralizes
- * per-element jitter in color/background captures caused by mid-transition
- * alpha interpolation — e.g. nav links catching `rgba(12,13,18,0.034)` vs
- * `rgba(12,13,18,0.048)` both quantize to `rgba(12,13,18,0.05)` →
- * identical signatures → 1 variant, not 5.
+ * Quantize rgba alpha. Phase 4: nearest 0.01 step (1% granularity) — tighter
+ * than the legacy 0.05 now that Phase 1 removes mid-transition jitter at the
+ * capture layer. Legacy mode restores the 0.05 bucket for rollback.
  */
 function quantizeRgbaAlpha(value: string): string {
-  // Match rgba() and rgb(); if no alpha, return as-is.
   const rgba = value.match(
     /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/i,
   );
   if (rgba) {
     const [, r, g, b, a] = rgba;
-    const quantA = Math.round(parseFloat(a) * 20) / 20; // nearest 0.05
+    const quantum = visualSigMode === "legacy" ? 20 : 100; // legacy=0.05, expanded=0.01
+    const quantA = Math.round(parseFloat(a) * quantum) / quantum;
     return `rgba(${r}, ${g}, ${b}, ${quantA})`;
   }
   return value;
@@ -192,11 +283,56 @@ function normalizeHoverDiff(
 }
 
 /**
- * Visual signature within a category: node's fills+strokes+effects+radius
- * combined with the normalized hover diff. Size is deliberately excluded
- * (different text widths → same signature).
+ * Visual-sig mode. Default is Phase 4 expanded mode that includes recursive
+ * TEXT descendants (fontFamily, fontWeight, fontSize, textColor) so pills
+ * with identical box styling but different type collapse correctly into one
+ * variant. Legacy mode retained for rollback.
  */
-function visualStyleSignature(node: WireframeNode): string {
+type VisualSigMode = "expanded" | "legacy";
+let visualSigMode: VisualSigMode = "expanded";
+
+export function setVisualSigMode(mode: VisualSigMode): void {
+  visualSigMode = mode;
+}
+
+/**
+ * Recursively collect TEXT descendants' typography fields for inclusion in
+ * the visual signature. Phase 4: identical box + different text color or
+ * font-weight must produce different visual sigs so they render as separate
+ * variants.
+ *
+ * Excludes `textContent` (the characters themselves vary per-variant — the
+ * TEXT component property handles that) and geometry (width/height/x/y).
+ */
+function collectTextTypographyFingerprint(node: WireframeNode, depth = 0): unknown[] {
+  if (depth > 6) return [];
+  const out: unknown[] = [];
+  if (node.type === "text") {
+    // Text-decoration lives on per-segment TextSegment, not WireframeNode,
+    // so we skip it here; font-size/weight/family/color are the primary
+    // variant differentiators anyway.
+    out.push({
+      fs: node.fontSize ?? null,
+      fw: node.fontWeight ?? null,
+      ff: node.fontFamily ?? null,
+      tc: node.textColor ?? null,
+      ta: node.textAlign ?? null,
+    });
+  }
+  for (const c of node.children ?? []) {
+    const sub = collectTextTypographyFingerprint(c, depth + 1);
+    if (sub.length) out.push(...sub);
+  }
+  return out;
+}
+
+/**
+ * Visual signature within a category: node's fills+strokes+effects+radius
+ * combined with the normalized hover diff AND — Phase 4 — TEXT descendants'
+ * typography. Size is deliberately excluded (different text widths → same
+ * signature).
+ */
+export function visualStyleSignature(node: WireframeNode): string {
   const visualParts = [
     stableStringify(node.fills ?? []),
     stableStringify(node.strokes ?? []),
@@ -207,6 +343,9 @@ function visualStyleSignature(node: WireframeNode): string {
     node.backgroundColor ?? "",
     node.backgroundGradient ?? "",
   ];
+  if (visualSigMode === "expanded") {
+    visualParts.push(stableStringify(collectTextTypographyFingerprint(node)));
+  }
   const hover = normalizeHoverDiff(node.pseudoStateStyles?.hover);
   const hoverPart = stableStringify(hover);
   return `${visualParts.join("|")}::${hoverPart}`;
@@ -402,6 +541,9 @@ async function wireHoverReactions(
   pairs: Array<{ rest: ComponentNode; hover: ComponentNode }>,
 ): Promise<void> {
   for (const { rest, hover } of pairs) {
+    // Phase 6: `transition: null` matches h2d's instant swap. Previously
+    // SMART_ANIMATE/150ms/EASE_OUT — that was a W2W enhancement that users
+    // reading the Figma prototype couldn't distinguish from a bug.
     const reactions = [
       {
         trigger: { type: "ON_HOVER" },
@@ -410,11 +552,7 @@ async function wireHoverReactions(
             type: "NODE",
             destinationId: hover.id,
             navigation: "CHANGE_TO",
-            transition: {
-              type: "SMART_ANIMATE",
-              duration: 0.15,
-              easing: { type: "EASE_OUT" },
-            },
+            transition: null,
             preserveScrollPosition: false,
           },
         ],
@@ -505,16 +643,32 @@ export async function buildHoverMasterRegistry(
       // such decorative effects on hover variants. If the live CSS only
       // declares `transform: translateY(-2px)`, the hover variant will
       // look identical to rest (matching h2d's behavior).
+      //
+      // Plugin-colors mode: strip captured color keys (palette already
+      // overrode rest's fill; re-applying CSS color would either match
+      // rest or clash with the palette). Darken the hover root fill
+      // post-diff to guarantee a visible delta.
+      const pluginColorMode =
+        (_context as { colorMode?: string } | undefined)?.colorMode === "plugin";
       const hoverDiff = rep.pseudoStateStyles?.hover;
-      if (hoverDiff && Object.keys(hoverDiff).length > 0) {
+      const effectiveDiff =
+        pluginColorMode && hoverDiff ? filterPluginColorKeys(hoverDiff) : hoverDiff;
+      if (effectiveDiff && Object.keys(effectiveDiff).length > 0) {
         try {
           applyCssDiffToNode(
             hover as unknown as FrameNode,
-            hoverDiff,
+            effectiveDiff,
             { skipTransform: true },
           );
         } catch {
           // Non-fatal — hover variant falls back to visually-identical clone.
+        }
+      }
+      if (pluginColorMode) {
+        try {
+          darkenRootSolidPaint(hover as unknown as FrameNode, PLUGIN_HOVER_DARKEN);
+        } catch {
+          // Non-fatal — if paint shape is unexpected, variants stay identical.
         }
       }
 

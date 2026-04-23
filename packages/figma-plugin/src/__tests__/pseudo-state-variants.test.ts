@@ -364,7 +364,7 @@ describe("variant creation", () => {
     expect(components).toHaveLength(2);
   });
 
-  it("names variants with correct State= convention", async () => {
+  it("names multi-state variants with State= convention", async () => {
     const frame = createMockFrame();
     const result = await createPseudoStateVariants(frame, {
       hover: { "background-color": "#2563EB" },
@@ -380,6 +380,19 @@ describe("variant creation", () => {
     expect(names).toContain("State=Focus");
     expect(names).toContain("State=Active");
     expect(names).toContain("State=Focus Visible");
+  });
+
+  it("Phase 7: single-hover inline fallback uses 2D naming (variant=1, :hover=…)", async () => {
+    // When the only captured state is hover, the inline fallback should match
+    // the registry path's 2D naming so the Figma Variants panel is uniform.
+    const frame = createMockFrame();
+    await createPseudoStateVariants(frame, {
+      hover: { "background-color": "#2563EB" },
+    });
+
+    const components = mockCombineAsVariants.mock.calls[0][0] as MockComponentNode[];
+    const names = components.map((c) => c.name).sort();
+    expect(names).toEqual(["variant=1, :hover=false", "variant=1, :hover=true"]);
   });
 
   it("returns ComponentSetNode with correct variant count", async () => {
