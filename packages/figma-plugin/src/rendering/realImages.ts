@@ -137,6 +137,31 @@ export async function createRealImage(
         }
       }
 
+      // Phase D (h2d-parity): if the icon library has a master for this
+      // SVG, emit an INSTANCE instead of inlining markup. This dedups
+      // repeated icons across the page (Apple nav: 1 search/bag/menu master,
+      // many INSTANCE references) and matches h2d's `Component 3` pattern.
+      const iconLib = context.iconLibrary;
+      if (iconLib) {
+        try {
+          const { hashSvg } = await import("./svgLibrary");
+          const hash = hashSvg(svgString);
+          const master = iconLib.hashToComponent.get(hash);
+          if (master) {
+            const instance = master.createInstance();
+            try {
+              instance.resize(Math.max(node.width, 1), Math.max(node.height, 1));
+            } catch {
+              // Best-effort sizing.
+            }
+            frame.appendChild(instance);
+            return frame;
+          }
+        } catch {
+          // Fall through to inline render on any lookup failure.
+        }
+      }
+
       const svgNode = figma.createNodeFromSvg(svgString);
       svgNode.resize(Math.max(node.width, 1), Math.max(node.height, 1));
       frame.appendChild(svgNode);

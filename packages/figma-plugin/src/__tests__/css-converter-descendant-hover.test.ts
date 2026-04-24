@@ -120,9 +120,12 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
     expect(result.hasDescendantHover).toBe(true);
   });
 
-  it('synthesizes FIX 2 fallback for interactive nodes WITHOUT descendant hover and no real diff', () => {
+  it('marks interactive nodes WITHOUT descendant hover and no real diff as needsCursorPointer', () => {
     // Plain <button> with a passive child and no captured node.hover.
-    // FIX 2 synthesizes opacity:0.8 so it becomes a ComponentSet.
+    // Previously synthesized opacity:0.8 (ghost hover variant). Now emits
+    // no pseudoStateStyles; nodes.ts attaches a self-referencing ON_HOVER
+    // reaction via needsCursorPointer so Figma Preview still shows
+    // cursor:pointer.
     const passiveChild = makeFrame({
       tag: 'span',
       styles: { color: 'rgb(0,0,0)' },
@@ -134,7 +137,8 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = convertW2WToWireframe(btn as any, { interactionMode: 'variants' });
-    expect(result.pseudoStateStyles?.hover).toEqual({ opacity: '0.8' });
+    expect(result.pseudoStateStyles).toBeUndefined();
+    expect(result.needsCursorPointer).toBe(true);
     expect(result.hasDescendantHover).toBeUndefined();
   });
 

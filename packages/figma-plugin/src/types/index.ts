@@ -211,6 +211,14 @@ export interface WireframeNode {
     focusVisible?: Record<string, string>;
   };
 
+  // Batch 3 (h2d-parity): element is clickable (tag/role/tabindex/cursor:pointer)
+  // but carries NO hover variant (either no captured diff or only a trivial
+  // one like cursor/text-decoration-line:none). nodes.ts attaches a
+  // self-referencing ON_HOVER reaction so Figma Preview shows cursor:pointer
+  // without creating a ghost ComponentSet. Matches h2d's behavior on image
+  // cards (apple .tile-link) where hovering only changes the cursor.
+  needsCursorPointer?: boolean;
+
   // CSS variable reference for text color (e.g. "--text-primary")
   textColorVariable?: string;
 
@@ -336,10 +344,29 @@ export interface RenderContext {
     string,
     {
       componentSet: ComponentSetNode;
+      // Phase C (h2d-parity): "Component N" wrapper FRAME with legends.
+      // Section append uses this; bare ComponentSet remains accessible
+      // for instance lookups in PASS 2.
+      wrapper: FrameNode;
+      componentIndex: number;
       variantByVisualSig: Map<string, number>;
       textPropIds: string[];
     }
   >;
+  // Phase C (h2d-parity): "Component N" wrapper FRAMEs collected during PASS 1
+  // for the Components section. Replaces direct componentSets append so the
+  // section sees the documented frames (gray bg + legends), not bare sets.
+  componentWrappers?: FrameNode[];
+  // Phase D (h2d-parity): icon library (one ComponentSet bundling all unique
+  // SVGs as variants). Render-time SVG creation looks up this library and
+  // emits an INSTANCE instead of inlining `figma.createNodeFromSvg(markup)`.
+  iconLibrary?: {
+    componentSet: ComponentSetNode;
+    wrapper: FrameNode;
+    componentIndex: number;
+    hashToComponent: Map<string, ComponentNode>;
+    hashToVariantIndex: Map<string, number>;
+  };
   // Render statistics — incremented during traversal, logged at the end of
   // the import so we can diagnose dedup effectiveness.
   renderStats?: {

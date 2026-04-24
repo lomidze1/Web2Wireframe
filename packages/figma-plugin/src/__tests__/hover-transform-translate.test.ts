@@ -102,12 +102,23 @@ describe("FIX C — transform handling in applyCssDiffToNode", () => {
     expect(frame.y).toBe(50);
   });
 
-  it("ignores sub-threshold matrix shift (<0.25px)", () => {
+  // Phase A3 (h2d-parity): MIN_SHIFT lowered 0.25 → 0.05 to capture
+  // mid-transition sub-pixel translates that were previously dropped.
+  // Identity-matrix float-drift still filtered (<0.05).
+  it("ignores identity-matrix float-drift (<0.05px)", () => {
+    const frame = makeMockFrame();
+    applyCssDiffToNode(frame as unknown as FrameNode, {
+      transform: "matrix(1, 0, 0, 1, 0, -0.001)",
+    });
+    expect(frame.y).toBe(50);
+  });
+
+  it("Phase A3: applies sub-pixel translates ≥0.05px (was dropped under 0.25)", () => {
     const frame = makeMockFrame();
     applyCssDiffToNode(frame as unknown as FrameNode, {
       transform: "matrix(1, 0, 0, 1, 0, -0.1)",
     });
-    expect(frame.y).toBe(50);
+    expect(frame.y).toBeCloseTo(49.9, 2);
   });
 
   it("adds drop-shadow effect for upward translate ≥1px", () => {

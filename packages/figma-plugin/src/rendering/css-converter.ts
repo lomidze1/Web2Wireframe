@@ -17,6 +17,7 @@ import type {
   FigmaGradientStop,
   TextSegment,
 } from '../types';
+import { isTrivialHoverDiff } from './trivialHoverDiff';
 
 // Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
 interface W2WFrameNode {
@@ -739,36 +740,42 @@ function convertFrame(
     // Pseudo states
     pseudoStateStyles: (() => {
       // Preferred path: a real hover subtree was captured via CDP. Compute
-      // the diff and use it when it contains any Figma-renderable changes.
+      // the diff; discard it when every prop is trivial (no visible delta).
+      // Image-card anchors (apple .tile-link) trigger this because their
+      // only hover change is `text-decoration-line: none` or cursor — h2d
+      // doesn't create variants for these either.
       if (node.hover) {
         const diff = computeHoverDiff(node.styles, node.hover.styles);
-        if (diff) {
+        if (diff && !isTrivialHoverDiff(diff.hover)) {
           return diff;
         }
-        // Fall through to synthetic fallback below — hover may be JS-driven.
       }
-
-      // FIX 4 gate: if any descendant already has its own hover diff, skip
-      // synthesizing a fallback on the parent — the real change is downstream
-      // (e.g. parent-hover → child-visibility curtain case).
-      const hasDescendantHoverLocal = children.some(
-        (c) =>
-          (c.pseudoStateStyles !== undefined &&
-            c.pseudoStateStyles.hover !== undefined) ||
-          c.hasDescendantHover === true,
-      );
-      if (hasDescendantHoverLocal) {
-        return undefined;
-      }
-
-      // FIX 2 fallback: if the element is clearly interactive but no usable
-      // hover diff was captured, synthesize a generic `opacity: 0.8` hover so
-      // the ComponentSet still gets a visible Hover variant.
-      if (isInteractiveNode(node)) {
-        return { hover: { opacity: '0.8' } };
-      }
-
+      // Synthetic `opacity: 0.8` fallback REMOVED (h2d-parity).
+      // Previously: interactive elements without a captured diff got a
+      // fake `{ opacity: 0.8 }` hover so they'd render with a visible
+      // Hover variant. That turned out to be pure fiction on apple.com
+      // image tiles (no such CSS rule exists) and produced ghost hover
+      // components on every hero/card. Cursor:pointer for interactive
+      // elements is now handled via `needsCursorPointer` + dummy reaction
+      // in nodes.ts instead.
       return undefined;
+    })(),
+
+    // Batch 3 (h2d-parity): interactive element marker for Figma Preview
+    // cursor:pointer. Set when the element is clickable (tag/role/tabindex/
+    // cursor-pointer) but we did NOT emit a hover variant (either no diff
+    // or only a trivial one). nodes.ts attaches a self-referencing ON_HOVER
+    // reaction on these elements → Figma Preview renders cursor:pointer
+    // without a ghost ComponentSet being created.
+    needsCursorPointer: (() => {
+      // If we already returned a real pseudoStateStyles.hover, the variant
+      // path handles cursor:pointer — no marker needed.
+      const realHover = node.hover
+        ? computeHoverDiff(node.styles, node.hover.styles)
+        : undefined;
+      if (realHover && !isTrivialHoverDiff(realHover.hover)) return undefined;
+      // Mark only when the element is actually interactive.
+      return isInteractiveNode(node) ? true : undefined;
     })(),
 
     // Visibility state (for interaction variants)

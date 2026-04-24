@@ -97,6 +97,57 @@ export function flattenMatchedRules(
   return result;
 }
 
+// Phase A2 (h2d-parity) — properties where the browser may serialize
+// `prop.value` as the COMPUTED form (e.g. `matrix(...)` for transform,
+// composed kernel for filter) while the SOURCE rule text is preserved
+// in `prop.text`. Capturing both lets the renderer prefer the source
+// form, sidestepping mid-transition matrix interpolation.
+const SOURCE_TEXT_PROPS = new Set(["transform", "filter"]);
+
+/**
+ * Extract source-text values for SOURCE_TEXT_PROPS from matched rules.
+ * Returns only properties where the source text differs from prop.value
+ * (no point emitting transform2 if it equals transform). Preserves cascade
+ * order: later rules override earlier ones; inline overrides matched.
+ */
+function extractSourceTextProps(
+  matchedStyles: CDPMatchedStyles
+): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  const captureFrom = (props: Array<{ name: string; value: string; text?: string; disabled?: boolean }>) => {
+    for (const prop of props) {
+      if (!SOURCE_TEXT_PROPS.has(prop.name) || prop.disabled) continue;
+      if (!prop.value || prop.value === "initial") continue;
+
+      // Strip "name:" prefix and trailing ";"/"!important" from prop.text.
+      let sourceValue = prop.value;
+      if (prop.text) {
+        const colonIdx = prop.text.indexOf(":");
+        if (colonIdx >= 0) {
+          sourceValue = prop.text
+            .substring(colonIdx + 1)
+            .trim()
+            .replace(/;$/, "")
+            .replace(/\s*!important\s*$/, "")
+            .trim();
+        }
+      }
+      result[prop.name] = sourceValue;
+    }
+  };
+
+  for (const entry of matchedStyles.matchedCSSRules) {
+    if (entry.rule.origin === "user-agent") continue;
+    captureFrom(entry.rule.style.cssProperties);
+  }
+  if (matchedStyles.inlineStyle) {
+    captureFrom(matchedStyles.inlineStyle.cssProperties);
+  }
+
+  return result;
+}
+
 // ============================================================================
 // FORCED PSEUDO-STATE STYLE CAPTURE (GENERIC)
 // ============================================================================
@@ -146,6 +197,19 @@ export async function captureForcedPseudoStyles(
     for (const key of Object.keys(normalProps)) {
       if (!(key in forcedProps)) {
         diff[key] = "__removed__";
+      }
+    }
+
+    // Phase A2 (h2d-parity): for each source-text prop that changed, emit
+    // a `<name>2` field with the source rule text. The renderer prefers it
+    // over the computed form when both are present.
+    const forcedSource = extractSourceTextProps(forcedStyles);
+    for (const propName of SOURCE_TEXT_PROPS) {
+      if (!(propName in diff)) continue;       // only when prop changed
+      if (diff[propName] === "__removed__") continue;
+      const sourceText = forcedSource[propName];
+      if (sourceText && sourceText !== diff[propName]) {
+        diff[`${propName}2`] = sourceText;
       }
     }
 

@@ -60,7 +60,19 @@ export function applyCssDiffToNode(
   diff: Record<string, string>,
   opts: ApplyCssDiffOpts = {}
 ): void {
-  for (const [prop, value] of Object.entries(diff)) {
+  // Phase A3 (h2d-parity): browser samples computed style mid-CSS-transition,
+  // so `transform: matrix(…)` may arrive partially-interpolated (e.g.
+  // matrix(1,0,0,1,0,-0.184) instead of the parsed -2). The shared extractor
+  // also emits `transform2` with the unparsed rule text (e.g. "translateY(-2px)") —
+  // prefer it when present.
+  let entries = Object.entries(diff);
+  if (diff.transform2 !== undefined) {
+    const merged: Record<string, string> = { ...diff, transform: diff.transform2 };
+    delete merged.transform2;
+    entries = Object.entries(merged);
+  }
+
+  for (const [prop, value] of entries) {
     if (value === "__removed__") {
       applyRemovedProperty(frame, prop);
       continue;
@@ -219,8 +231,13 @@ export function applyCssDiffToNode(
             if (translateBoth[2]) ty = parseFloat(translateBoth[2]);
           }
         }
-        // Only apply if there's a meaningful shift (avoid identity matrix noise)
-        const MIN_SHIFT = 0.25;
+        // Only apply if there's a meaningful shift (avoid identity matrix noise).
+        // Phase A3 (h2d-parity): lowered 0.25 → 0.05 so sub-pixel translates
+        // sampled mid-transition are no longer silently dropped. Combined
+        // with `transform2` parsed-rule preference above, the renderer now
+        // catches `translateY(-2px)`-style hover lifts that previously
+        // appeared only as opacity changes (Get Plus button bug).
+        const MIN_SHIFT = 0.05;
         if (!isNaN(ty) && Math.abs(ty) >= MIN_SHIFT) {
           frame.y = frame.y + ty;
         }
@@ -929,7 +946,7 @@ export async function createPseudoStateVariants(
 
   // Step 1: Create default component from the frame
   const defaultComp = figma.createComponent();
-  defaultComp.name = singleHover ? "variant=1, :hover=false" : "State=Default";
+  defaultComp.name = singleHover ? "variant=1,:hover=false" : "State=Default";
   defaultComp.resize(frame.width, frame.height);
 
   // Copy visual properties from frame to component
@@ -947,7 +964,7 @@ export async function createPseudoStateVariants(
   for (const [stateKey, diff] of activeStates) {
     const variantComp = defaultComp.clone();
     variantComp.name = singleHover
-      ? "variant=1, :hover=true"
+      ? "variant=1,:hover=true"
       : STATE_DISPLAY_NAMES[stateKey] || `State=${stateKey}`;
 
     // FIX 4: apply descendant hover diffs via pluginData walk BEFORE the

@@ -242,6 +242,58 @@ describe("applyCssDiffToNode", () => {
       expect.objectContaining({ type: "SOLID" }),
     ]);
   });
+
+  // Phase A3 (h2d-parity) — MIN_SHIFT 0.25→0.05 + transform2 preference.
+  // Browser samples computed style mid-CSS-transition, so `transform: matrix`
+  // arrives as `matrix(1,0,0,1,0,-0.184)` instead of the parsed `-2`. The
+  // shared/pseudo-states extractor now ALSO emits `transform2` with the
+  // unparsed rule text (e.g. "translateY(-2px)"), and the renderer prefers
+  // it over the mid-animation matrix.
+
+  it("Phase A3: prefers transform2 (parsed rule text) over transform (mid-animation matrix)", () => {
+    const frame = createMockFrame({ effects: [], y: 0, x: 0 } as Partial<MockFrameNode>);
+    applyCssDiffToNode(frame, {
+      transform: "matrix(1, 0, 0, 1, 0, -0.184)", // mid-animation noise
+      transform2: "translateY(-2px)",              // parsed rule
+    });
+    // Should use transform2's -2px shift, NOT matrix's -0.184
+    expect((frame as unknown as { y: number }).y).toBe(-2);
+  });
+
+  it("Phase A3: transform2 with translate(X, Y) — both axes applied", () => {
+    const frame = createMockFrame({ effects: [], y: 0, x: 0 } as Partial<MockFrameNode>);
+    applyCssDiffToNode(frame, {
+      transform2: "translate(3px, -5px)",
+    });
+    expect((frame as unknown as { x: number }).x).toBe(3);
+    expect((frame as unknown as { y: number }).y).toBe(-5);
+  });
+
+  it("Phase A3: MIN_SHIFT lowered — sub-pixel translate now applied (was dropped)", () => {
+    // Pre-fix: MIN_SHIFT=0.25 dropped this. Post-fix: 0.05 captures it.
+    // This exercises the case where transition timing or rounding produces
+    // small but real shifts that must not vanish.
+    const frame = createMockFrame({ effects: [], y: 0, x: 0 } as Partial<MockFrameNode>);
+    applyCssDiffToNode(frame, {
+      transform: "matrix(1, 0, 0, 1, 0, -0.18)",
+    });
+    expect((frame as unknown as { y: number }).y).toBeCloseTo(-0.18, 2);
+  });
+
+  it("Phase A3: ultra-tiny shift below new MIN_SHIFT (0.05) still ignored as identity-noise", () => {
+    const frame = createMockFrame({ effects: [], y: 100, x: 50 } as Partial<MockFrameNode>);
+    applyCssDiffToNode(frame, {
+      transform: "matrix(1, 0, 0, 1, 0.001, 0.001)", // identity-matrix float drift
+    });
+    expect((frame as unknown as { y: number }).y).toBe(100);
+    expect((frame as unknown as { x: number }).x).toBe(50);
+  });
+
+  it("Phase A3: backwards-compat — only `transform` present still works", () => {
+    const frame = createMockFrame({ effects: [], y: 0 } as Partial<MockFrameNode>);
+    applyCssDiffToNode(frame, { transform: "translateY(-3px)" });
+    expect((frame as unknown as { y: number }).y).toBe(-3);
+  });
 });
 
 // ============================================================================
@@ -382,7 +434,7 @@ describe("variant creation", () => {
     expect(names).toContain("State=Focus Visible");
   });
 
-  it("Phase 7: single-hover inline fallback uses 2D naming (variant=1, :hover=…)", async () => {
+  it("Phase 7: single-hover inline fallback uses 2D naming (variant=1,:hover=…)", async () => {
     // When the only captured state is hover, the inline fallback should match
     // the registry path's 2D naming so the Figma Variants panel is uniform.
     const frame = createMockFrame();
@@ -392,7 +444,7 @@ describe("variant creation", () => {
 
     const components = mockCombineAsVariants.mock.calls[0][0] as MockComponentNode[];
     const names = components.map((c) => c.name).sort();
-    expect(names).toEqual(["variant=1, :hover=false", "variant=1, :hover=true"]);
+    expect(names).toEqual(["variant=1,:hover=false", "variant=1,:hover=true"]);
   });
 
   it("returns ComponentSetNode with correct variant count", async () => {
