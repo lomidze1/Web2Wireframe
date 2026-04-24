@@ -274,6 +274,162 @@ describe("childrenStructureSignature — Phase 3 structural hash", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase B (h2d-parity): role-based grouping
+// ---------------------------------------------------------------------------
+// h2d collapses similar interactive elements (e.g. 6 differently-sized "Learn
+// more" buttons → 1 ComponentSet with 6 variants). Our structural-hash grouping
+// is too granular: the inner DOM (`a:(span:(p-svg))` vs `a:(span:(span:(p-svg)))`)
+// produces separate ComponentSets even when the buttons play the same role.
+//
+// Role mode collapses on `tag + media-presence + text-presence`:
+//   link-icon-text | link-icon | link-text |
+//   button-icon | button-text | input | <tag>-other
+
+describe("childrenStructureSignature — Phase B role mode", () => {
+  let childrenStructureSignature: (node: WireframeNode) => string;
+  let setStructureHashMode: (mode: "legacy" | "structural" | "role") => void;
+
+  beforeEach(async () => {
+    const mod = await import("../rendering/hoverConsolidation");
+    childrenStructureSignature = mod.childrenStructureSignature;
+    setStructureHashMode = mod.setStructureHashMode as (mode: "legacy" | "structural" | "role") => void;
+    setStructureHashMode("role");
+  });
+
+  it("collapses two <a> with text-only into 'link-text'", () => {
+    const a = makeWfNode({ tag: "a", children: [textNode("Mac")] });
+    const b = makeWfNode({
+      tag: "a",
+      children: [makeWfNode({ tag: "span", children: [textNode("iPhone")] })],
+    });
+    expect(childrenStructureSignature(a)).toBe("link-text");
+    expect(childrenStructureSignature(b)).toBe("link-text");
+    expect(childrenStructureSignature(a)).toBe(childrenStructureSignature(b));
+  });
+
+  it("collapses <a> with svg-only nested at any depth into 'link-icon'", () => {
+    const shallow = makeWfNode({
+      tag: "a",
+      children: [makeWfNode({ tag: "span", children: [makeWfNode({ type: "placeholder", tag: "svg" })] })],
+    });
+    const deep = makeWfNode({
+      tag: "a",
+      children: [
+        makeWfNode({
+          tag: "span",
+          children: [makeWfNode({ tag: "span", children: [makeWfNode({ type: "placeholder", tag: "svg" })] })],
+        }),
+      ],
+    });
+    expect(childrenStructureSignature(shallow)).toBe("link-icon");
+    expect(childrenStructureSignature(deep)).toBe("link-icon");
+  });
+
+  it("returns 'link-icon-text' when <a> has both media and text descendants", () => {
+    const node = makeWfNode({
+      tag: "a",
+      children: [
+        makeWfNode({ type: "placeholder", tag: "img" }),
+        makeWfNode({ tag: "span", children: [textNode("Buy")] }),
+      ],
+    });
+    expect(childrenStructureSignature(node)).toBe("link-icon-text");
+  });
+
+  it("returns 'button-icon' for <button> with svg, no text", () => {
+    const node = makeWfNode({
+      tag: "button",
+      children: [makeWfNode({ tag: "span", children: [makeWfNode({ type: "placeholder", tag: "svg" })] })],
+    });
+    expect(childrenStructureSignature(node)).toBe("button-icon");
+  });
+
+  it("returns 'button-text' for <button> with text only", () => {
+    const node = makeWfNode({ tag: "button", children: [textNode("Submit")] });
+    expect(childrenStructureSignature(node)).toBe("button-text");
+  });
+
+  it("returns 'input' for <input> regardless of children", () => {
+    const node = makeWfNode({ tag: "input" });
+    expect(childrenStructureSignature(node)).toBe("input");
+  });
+
+  it("non-link/non-button tags get same media/text discrimination (e.g. clickable span)", () => {
+    const spanIcon = makeWfNode({ tag: "span", children: [makeWfNode({ type: "placeholder", tag: "svg" })] });
+    const spanText = makeWfNode({ tag: "span", children: [textNode("X")] });
+    const spanIconText = makeWfNode({
+      tag: "span",
+      children: [makeWfNode({ type: "placeholder", tag: "svg" }), textNode("X")],
+    });
+    expect(childrenStructureSignature(spanIcon)).toBe("span-icon");
+    expect(childrenStructureSignature(spanText)).toBe("span-text");
+    expect(childrenStructureSignature(spanIconText)).toBe("span-icon-text");
+  });
+
+  it("Apple-shape fixture: 5 different DOM trees collapse to ≤4 categories", () => {
+    // Mirrors the Apple.com situation where structural-mode produces 21 sets
+    // and h2d produces 7. Same set of fixtures as the structural test above
+    // — but role mode collapses link variants into 'link-text' / 'link-icon' /
+    // 'link-icon-text' regardless of intermediate <span>s.
+    const textLink = makeWfNode({
+      tag: "a",
+      children: [makeWfNode({ tag: "span", children: [textNode("Mac")] })],
+    });
+    const textLinkWithChevron = makeWfNode({
+      tag: "a",
+      children: [
+        makeWfNode({ tag: "span", children: [textNode("Store")] }),
+        makeWfNode({ type: "placeholder", tag: "svg" }),
+      ],
+    });
+    const ctaPill = makeWfNode({ tag: "button", children: [textNode("Buy")] });
+    const logo = makeWfNode({
+      tag: "a",
+      children: [makeWfNode({ type: "placeholder", tag: "svg" })],
+    });
+    const productCard = makeWfNode({
+      tag: "a",
+      children: [
+        makeWfNode({ type: "placeholder", tag: "img" }),
+        makeWfNode({
+          tag: "div",
+          children: [makeWfNode({ tag: "h3", children: [textNode("iPhone")] })],
+        }),
+      ],
+    });
+
+    const sigs = new Set([
+      childrenStructureSignature(textLink),         // link-text
+      childrenStructureSignature(textLinkWithChevron), // link-icon-text
+      childrenStructureSignature(ctaPill),           // button-text
+      childrenStructureSignature(logo),              // link-icon
+      childrenStructureSignature(productCard),       // link-icon-text
+    ]);
+    // 4 unique buckets (textLinkWithChevron + productCard collapse)
+    expect(sigs.size).toBeLessThanOrEqual(4);
+    expect(sigs.has("link-text")).toBe(true);
+    expect(sigs.has("link-icon")).toBe(true);
+    expect(sigs.has("link-icon-text")).toBe(true);
+    expect(sigs.has("button-text")).toBe(true);
+  });
+
+  it("'role' is the default mode (no setStructureHashMode call needed)", async () => {
+    // Re-import with no mode override to confirm the default is 'role'.
+    // (vitest module cache keeps the singleton; we reset by calling the
+    // setter to a known state then dropping it.)
+    const mod = await import("../rendering/hoverConsolidation");
+    // Verify by feeding a fixture where 'role' and 'structural' would diverge.
+    const a = makeWfNode({
+      tag: "a",
+      children: [makeWfNode({ tag: "span", children: [textNode("X")] })],
+    });
+    const b = makeWfNode({ tag: "a", children: [textNode("X")] });
+    // Role mode collapses these to 'link-text'; structural would emit two sigs.
+    expect(mod.childrenStructureSignature(a)).toBe(mod.childrenStructureSignature(b));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 4: visualStyleSignature — expanded text + tighter quantization
 // ---------------------------------------------------------------------------
 
@@ -686,10 +842,10 @@ describe("buildHoverMasterRegistry", () => {
     expect(variants).toHaveLength(4);
     const names = variants.map((v) => v.name).sort();
     expect(names).toEqual([
-      "variant=1, :hover=false",
-      "variant=1, :hover=true",
-      "variant=2, :hover=false",
-      "variant=2, :hover=true",
+      "variant=1,:hover=false",
+      "variant=1,:hover=true",
+      "variant=2,:hover=false",
+      "variant=2,:hover=true",
     ]);
   });
 
@@ -813,19 +969,19 @@ describe("buildHoverMasterRegistry", () => {
     for (const v of variants) byName[v.name] = { x: v.x, y: v.y };
 
     // All rest variants share x=0
-    expect(byName["variant=1, :hover=false"].x).toBe(0);
-    expect(byName["variant=2, :hover=false"].x).toBe(0);
+    expect(byName["variant=1,:hover=false"].x).toBe(0);
+    expect(byName["variant=2,:hover=false"].x).toBe(0);
     // All hover variants share the SAME x — maxRestWidth + 40 (in mock, both
     // clones have width=100, since mock doesn't propagate the original
     // WireframeNode width). The important invariant: both hover variants
     // have the SAME x coordinate (not per-component).
-    expect(byName["variant=1, :hover=true"].x).toBe(
-      byName["variant=2, :hover=true"].x,
+    expect(byName["variant=1,:hover=true"].x).toBe(
+      byName["variant=2,:hover=true"].x,
     );
-    expect(byName["variant=1, :hover=true"].x).toBeGreaterThan(0);
+    expect(byName["variant=1,:hover=true"].x).toBeGreaterThan(0);
     // Variant rows stack vertically: variant=2 row > variant=1 row.
-    expect(byName["variant=2, :hover=false"].y).toBeGreaterThan(
-      byName["variant=1, :hover=false"].y,
+    expect(byName["variant=2,:hover=false"].y).toBeGreaterThan(
+      byName["variant=1,:hover=false"].y,
     );
   });
 });

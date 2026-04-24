@@ -484,6 +484,31 @@ export default function () {
         },
       });
 
+      renderContext.componentWrappers = renderContext.componentWrappers ?? [];
+
+      // Phase D (h2d-parity, PASS 0): build the shared icon library FIRST so
+      // PASS 1 hover masters can reference icons via INSTANCE instead of
+      // inlining vector markup. Mirrors h2d's `Component 3` (43 unique SVGs
+      // bundled into one ComponentSet, referenced from Components 4/7/8).
+      if (renderContext.assetMode === "realAssets") {
+        try {
+          const { buildIconLibrary } = await import("./rendering/svgLibrary");
+          const iconLib = await buildIconLibrary(frames, { componentIndex: 1 });
+          if (iconLib) {
+            renderContext.iconLibrary = iconLib;
+            renderContext.componentWrappers!.push(iconLib.wrapper);
+            logger.info("Built icon library", {
+              uniqueSvgs: iconLib.hashToComponent.size,
+              componentIndex: iconLib.componentIndex,
+            });
+          }
+        } catch (err) {
+          logger.warn("Failed to build icon library — SVGs will render inline", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       // PASS 1: h2d-aligned hover ComponentSet consolidation.
       // Before the frame-render loop, walk the tree once, group hoverables
       // by (children-structure, visual-signature), and build shared master
@@ -494,14 +519,28 @@ export default function () {
           const { buildHoverMasterRegistry } = await import(
             "./rendering/hoverConsolidation"
           );
+          // Sequential index continues after the icon library (so icons are
+          // Component 1 and hover sets follow as Component 2, 3, …).
+          const startIndex = renderContext.iconLibrary ? 2 : 1;
           const registry = await buildHoverMasterRegistry(
             frames,
             renderContext,
           );
           renderContext.hoverMasterRegistry = registry;
-          // Collect master ComponentSets for the Components section.
+          // Phase C (h2d-parity): collect "Component N" wrapper FRAMEs (with
+          // legends + ComponentSet styling) for the Components section. Bare
+          // ComponentSets stay accessible via the registry for PASS 2 lookups.
+          let runningIndex = startIndex;
           registry.forEach((entry) => {
+            // Re-number wrappers if the icon library bumped startIndex.
+            if (startIndex > 1) {
+              entry.componentIndex = runningIndex;
+              entry.componentSet.name = `Component ${runningIndex}`;
+              entry.wrapper.name = `Component ${runningIndex}`;
+              runningIndex += 1;
+            }
             renderContext.componentSets?.push(entry.componentSet);
+            renderContext.componentWrappers!.push(entry.wrapper);
           });
           logger.info("Built hover master registry", {
             categories: registry.size,
@@ -636,31 +675,37 @@ export default function () {
         const selectionTarget: SceneNode[] = [section];
 
         // Create separate Components Section for interaction variant ComponentSets.
-        // Phase 8: VERTICAL stack with 64px padding+gap to match h2d's layout.
-        // Previously: HORIZONTAL wrap at 1400px with 80px gap.
-        if (renderContext.componentSets && renderContext.componentSets.length > 0) {
+        // Phase C (h2d-parity): wrappers (FRAME containing ComponentSet +
+        // x-axis-legend + y-axis-legend) replace bare ComponentSets. Section
+        // fill switched to white to match h2d.
+        const sectionItems =
+          renderContext.componentWrappers && renderContext.componentWrappers.length > 0
+            ? renderContext.componentWrappers
+            : renderContext.componentSets ?? [];
+        if (sectionItems.length > 0) {
           const compSection = figma.createSection();
           compSection.name = `Components — ${hostname}`;
+          // Phase E (h2d-parity): white section fill (was gray rgb(192,192,192)).
           compSection.fills = [
-            { type: "SOLID", color: { r: 0xC0 / 255, g: 0xC0 / 255, b: 0xC0 / 255 } },
+            { type: "SOLID", color: { r: 1, g: 1, b: 1 } },
           ];
 
-          const compPadding = 64;
+          const compPadding = 120;
           let compY = compPadding;
           let maxWidth = 0;
 
-          for (const cs of renderContext.componentSets) {
-            compSection.appendChild(cs);
-            cs.x = compPadding;
-            cs.y = compY;
+          for (const item of sectionItems) {
+            compSection.appendChild(item);
+            (item as { x: number }).x = compPadding;
+            (item as { y: number }).y = compY;
 
-            maxWidth = Math.max(maxWidth, cs.width);
-            compY += cs.height + compPadding;
+            maxWidth = Math.max(maxWidth, item.width);
+            compY += item.height + compPadding;
           }
 
           compSection.resizeWithoutConstraints(
             maxWidth + compPadding * 2,
-            compY, // last ComponentSet's bottom + compPadding already counted
+            compY,
           );
 
           // Position to the right of wireframe section
@@ -670,7 +715,7 @@ export default function () {
           selectionTarget.push(compSection);
 
           logger.info("Created Components Section (vertical)", {
-            componentSetCount: renderContext.componentSets.length,
+            componentSetCount: sectionItems.length,
           });
         }
 

@@ -76,6 +76,14 @@ export function darkenRootSolidPaint(
 
 export interface HoverMasterEntry {
   componentSet: ComponentSetNode;
+  /**
+   * h2d-style "Component N" wrapper FRAME containing the ComponentSet plus
+   * x-axis-legend + y-axis-legend documentation children. main.ts appends
+   * THIS to the Components section (not the bare ComponentSet).
+   */
+  wrapper: FrameNode;
+  /** Sequential 1-based index used in `Component N` naming. */
+  componentIndex: number;
   /** Map from visual signature → assigned variant number (1-based). */
   variantByVisualSig: Map<string, number>;
   /** Array of TEXT property IDs in DFS order over the representative's text children. */
@@ -109,12 +117,13 @@ export function collectHoverables(frames: WireframeFrame[]): WireframeNode[] {
 }
 
 /**
- * Structure-hash mode. Default is Phase 3 structural hash that produces
- * fine-grained categories (mirrors h2d's `$hashes.set`). Legacy 2-bucket
- * mode is retained for fast rollback if regressions appear.
+ * Structure-hash mode. Phase B (h2d-parity): default is `role` — collapses
+ * by semantic role (link-text, button-icon, etc.) so apple.com produces ~7
+ * ComponentSets instead of 21. `structural` (Phase 3 fine-grained) and
+ * `legacy` (2-bucket) remain available for rollback.
  */
-type StructureHashMode = "structural" | "legacy";
-let structureHashMode: StructureHashMode = "structural";
+type StructureHashMode = "structural" | "legacy" | "role";
+let structureHashMode: StructureHashMode = "role";
 
 export function setStructureHashMode(mode: StructureHashMode): void {
   structureHashMode = mode;
@@ -123,23 +132,73 @@ export function setStructureHashMode(mode: StructureHashMode): void {
 const STRUCTURE_DEPTH_CAP = 5;
 
 /**
- * Phase 3: structural signature for ComponentSet grouping.
+ * Signature for ComponentSet grouping. Mode-dispatched:
  *
- * Format: `tag:(child1,child2,…)`
- * Leaves: `text`, `p-img`, `p-svg`, `p-<tag>`
- *
- * Distinguishes nodes that differ in tag, child count, child types, or child
- * shapes — while collapsing nodes whose only difference is text content or
- * visual styling. Matches h2d's per-element ComponentSet granularity, which
- * is what multiplies apple.com's count from 2-3 to ~30-40.
- *
- * Depth is capped at 5 to bound signature length; `…` marks the cap.
+ *   role        — h2d-parity. Bucket by `tag + media-presence + text-presence`.
+ *                 e.g. `link-text`, `link-icon`, `link-icon-text`,
+ *                 `button-icon`, `button-text`, `input`, `<tag>-other`.
+ *                 Collapses inner DOM differences (intermediate <span>s)
+ *                 that h2d ignores.
+ *   structural  — Phase 3 fine-grained `tag:(child1,…)`. Distinguishes by
+ *                 full DOM topology. Useful for debugging or when role mode
+ *                 over-collapses.
+ *   legacy      — 2 buckets: `text-only` | `has-image`.
  */
 export function childrenStructureSignature(node: WireframeNode): string {
   if (structureHashMode === "legacy") {
     return hasImageDescendant(node) ? "has-image" : "text-only";
   }
+  if (structureHashMode === "role") {
+    return roleSignature(node);
+  }
   return structuralSig(node, 0);
+}
+
+// Phase B (h2d-parity): subtree presence checks for role classification.
+// Both `text` (real text node) and `placeholder/img|svg` (media node) are
+// the relevant signals — visual styling, geometry, and class names are
+// ignored at this layer (visualStyleSignature handles those).
+function subtreeHasMedia(node: WireframeNode, depth = 0): boolean {
+  if (depth > STRUCTURE_DEPTH_CAP) return false;
+  if (node.type === "placeholder" && (node.tag === "img" || node.tag === "svg")) return true;
+  for (const c of node.children ?? []) {
+    if (subtreeHasMedia(c, depth + 1)) return true;
+  }
+  return false;
+}
+
+function subtreeHasText(node: WireframeNode, depth = 0): boolean {
+  if (depth > STRUCTURE_DEPTH_CAP) return false;
+  if (node.type === "text" && (node.textContent ?? "").length > 0) return true;
+  for (const c of node.children ?? []) {
+    if (subtreeHasText(c, depth + 1)) return true;
+  }
+  return false;
+}
+
+/**
+ * Phase B (h2d-parity): role-based signature. Fixed bucket per
+ * `tag + media-presence + text-presence` so similar interactive elements
+ * collapse into one ComponentSet regardless of intermediate DOM nesting.
+ *
+ * Bucket grammar:
+ *   <a>      → link-text | link-icon | link-icon-text
+ *   <button> → button-text | button-icon | button-icon-text
+ *   <input>  → input
+ *   other    → <tag>-text | <tag>-icon | <tag>-icon-text
+ *
+ * Discrimination by media/text is preserved for ALL tags (not just a/button)
+ * so that e.g. `<div>` brand cells (img+text) and `<div>` CTA pills (text)
+ * still split into separate ComponentSets.
+ */
+export function roleSignature(node: WireframeNode): string {
+  const tag = (node.tag || "div").toLowerCase();
+  if (tag === "input") return "input";
+  const hasMedia = subtreeHasMedia(node);
+  const hasText = subtreeHasText(node);
+  const role = tag === "a" ? "link" : tag === "button" ? "button" : tag;
+  const flavor = hasMedia && hasText ? "icon-text" : hasMedia ? "icon" : "text";
+  return `${role}-${flavor}`;
 }
 
 function structuralSig(node: WireframeNode, depth: number): string {
@@ -587,6 +646,16 @@ export async function buildHoverMasterRegistry(
   const byCategory = new Map<string, WireframeNode[]>();
   for (const node of hoverables) {
     const key = childrenStructureSignature(node);
+    const vSig = visualStyleSignature(node);
+    // DEBUG: log every hoverable so we can compare Pass 1 vs Pass 2 signatures.
+    console.log("[W2W-PASS1]", JSON.stringify({
+      categoryKey: key,
+      vSigHash: vSig.substring(0, 50),
+      tag: (node as { tag?: string }).tag,
+      name: (node as { name?: string }).name,
+      childTypes: (node.children ?? []).map(c => c.type + ":" + ((c as { tag?: string }).tag || "")),
+      hoverDiffKeys: Object.keys(node.pseudoStateStyles?.hover || {}),
+    }));
     if (!byCategory.has(key)) byCategory.set(key, []);
     byCategory.get(key)!.push(node);
   }
@@ -595,6 +664,15 @@ export async function buildHoverMasterRegistry(
   byCategory.forEach((members, categoryKey) => {
     categoryEntries.push([categoryKey, members]);
   });
+
+  // Phase C (h2d-parity): sequential componentIndex for "Component N" naming
+  // across the whole page. Apple.com → Component 1, 2, 3, … Component 7.
+  let componentIndex = 0;
+
+  // Lazily import wrapper to avoid circular deps and to keep tests that
+  // don't exercise it from needing extra figma mocks.
+  let wrapInDocFrameImpl: typeof import("./componentDocFrame").wrapInDocFrame | null = null;
+
   for (const [categoryKey, members] of categoryEntries) {
     // Within the category, group by visual signature → variant index.
     const variantByVisualSig = new Map<string, number>();
@@ -624,10 +702,11 @@ export async function buildHoverMasterRegistry(
     for (const { variant, rep } of representatives) {
       const texts = collectTextValues(rep);
       representativeTextCount = Math.max(representativeTextCount, texts.length);
-      const restName = `variant=${variant}, :hover=false`;
+      // Phase C (h2d-parity): no-space format `variant=N,:hover=…`.
+      const restName = `variant=${variant},:hover=false`;
       const rest = await buildComponentFromWireframe(restName, rep, _context);
 
-      const hoverName = `variant=${variant}, :hover=true`;
+      const hoverName = `variant=${variant},:hover=true`;
       let hover: ComponentNode;
       try {
         hover = rest.clone();
@@ -707,7 +786,10 @@ export async function buildHoverMasterRegistry(
       allComponents,
       figma.currentPage as BaseNode & ChildrenMixin,
     );
-    componentSet.name = `Interactive — ${categoryKey}`;
+    componentIndex += 1;
+    // Phase C (h2d-parity): name overridden by wrapInDocFrame to "Component N".
+    // Set a placeholder here for tests that don't exercise the wrapper path.
+    componentSet.name = `Component ${componentIndex}`;
 
     // TEXT component properties: one per text slot. We look up the master
     // via the representative with the most text values (already tracked
@@ -752,8 +834,28 @@ export async function buildHoverMasterRegistry(
     // Wire ON_HOVER reactions.
     await wireHoverReactions(hoverPairs);
 
+    // Phase C (h2d-parity): wrap in "Component N" doc-frame with legends.
+    // Lazy-load to avoid pulling componentDocFrame into pure-logic tests.
+    let wrapper: FrameNode = componentSet as unknown as FrameNode;
+    try {
+      if (!wrapInDocFrameImpl) {
+        wrapInDocFrameImpl = (await import("./componentDocFrame")).wrapInDocFrame;
+      }
+      wrapper = await wrapInDocFrameImpl({
+        componentSet,
+        componentIndex,
+        variantCount: representatives.length,
+      });
+    } catch {
+      // Non-fatal — wrapper falls back to bare componentSet so the section
+      // still includes it. Existing tests that only mock combineAsVariants
+      // (without createFrame/createText) hit this path.
+    }
+
     registry.set(categoryKey, {
       componentSet,
+      wrapper,
+      componentIndex,
       variantByVisualSig,
       textPropIds,
     });

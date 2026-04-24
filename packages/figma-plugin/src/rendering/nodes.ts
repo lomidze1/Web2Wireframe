@@ -798,6 +798,41 @@ export async function createNodeInFigma(
     context.interactionMode === "variants" &&
     (hasOwnPseudoStates || hasLiveDescendantDiffs);
 
+  // DEBUG: log every node that was registered as hoverable at Pass 1 time,
+  // regardless of whether Pass 2 still considers it one.
+  if (
+    context.interactionMode === "variants" &&
+    (node.pseudoStateStyles !== undefined || node.hasDescendantHover === true)
+  ) {
+    try {
+      const { childrenStructureSignature, visualStyleSignature } = await import(
+        "./hoverConsolidation"
+      );
+      const cat = childrenStructureSignature(node);
+      const vSig = visualStyleSignature(node);
+      const registry = context.hoverMasterRegistry;
+      const entry = registry ? registry.get(cat) : undefined;
+      const variantIdx = entry ? entry.variantByVisualSig.get(vSig) : undefined;
+      console.log("[W2W-PASS2]", JSON.stringify({
+        tag: node.tag,
+        name: node.name,
+        hasOwnPseudo: hasOwnPseudoStates,
+        pseudoHoverExists: node.pseudoStateStyles?.hover !== undefined,
+        hasDescendantHover: node.hasDescendantHover === true,
+        shouldCreate: shouldCreateVariants,
+        categoryKey: cat,
+        vSigHash: vSig.substring(0, 50),
+        registryHasCategory: !!entry,
+        registryHasVariant: variantIdx !== undefined,
+        childTypes: (node.children ?? []).map(
+          (c) => c.type + ":" + (c.tag || ""),
+        ),
+      }));
+    } catch (err) {
+      console.log("[W2W-PASS2-ERR]", err instanceof Error ? err.message : String(err));
+    }
+  }
+
   if (shouldCreateVariants) {
     // PASS 2 — h2d-aligned path. If Pass 1 built a master ComponentSet for
     // this node's (childrenStructure, visualSig) bucket, we create an
@@ -807,7 +842,8 @@ export async function createNodeInFigma(
         const { lookupHoverMaster } = await import("./hoverConsolidation");
         const lookup = lookupHoverMaster(node, context.hoverMasterRegistry);
         if (lookup) {
-          const wantedName = `variant=${lookup.variantIndex}, :hover=false`;
+          // Phase C (h2d-parity): no-space variant naming.
+          const wantedName = `variant=${lookup.variantIndex},:hover=false`;
           const master = (lookup.entry.componentSet.children as SceneNode[]).find(
             (c) => c.type === "COMPONENT" && c.name === wantedName,
           ) as ComponentNode | undefined;
@@ -881,6 +917,39 @@ export async function createNodeInFigma(
     } catch (err) {
       if (context.renderStats) context.renderStats.pseudoErrors += 1;
       logger.error("Pseudo-state variant creation failed", err);
+    }
+  }
+
+  // Batch 3 (h2d-parity): element is clickable but has no hover variant
+  // (either no captured diff or only a trivial one — e.g. apple .tile-link
+  // where hovering only changes cursor). Attach a self-referencing ON_HOVER
+  // reaction so Figma Preview shows cursor:pointer without creating a ghost
+  // ComponentSet. The "CHANGE_TO self" action is a visual no-op.
+  if (node.needsCursorPointer && frame.type === "FRAME") {
+    try {
+      const reactions = [
+        {
+          trigger: { type: "ON_HOVER" },
+          actions: [
+            {
+              type: "NODE",
+              destinationId: frame.id,
+              navigation: "CHANGE_TO",
+              transition: null,
+              preserveScrollPosition: false,
+            },
+          ],
+        },
+      ] as unknown as Reaction[];
+      if (typeof (frame as unknown as { setReactionsAsync?: (r: Reaction[]) => Promise<void> })
+        .setReactionsAsync === "function") {
+        await (frame as unknown as { setReactionsAsync: (r: Reaction[]) => Promise<void> })
+          .setReactionsAsync(reactions);
+      } else {
+        (frame as unknown as { reactions: Reaction[] }).reactions = reactions;
+      }
+    } catch {
+      // Non-fatal — cursor:pointer is a nice-to-have, never block render.
     }
   }
 

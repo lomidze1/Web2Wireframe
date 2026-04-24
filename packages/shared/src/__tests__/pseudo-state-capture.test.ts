@@ -750,6 +750,154 @@ describe("captureForcedPseudoStyles", () => {
 
     expect(result).toBeNull();
   });
+
+  // Phase A2 (h2d-parity) — emit `transform2` with the source-text form when
+  // transform changes on hover/focus/active. CDP serializes `transform`
+  // (and similar) with the COMPUTED matrix on some browsers; the source
+  // form is preserved in `prop.text`. The renderer (Phase A3) prefers
+  // `transform2` over `transform` to avoid mid-transition matrix noise.
+
+  it("Phase A2: emits `transform2` with source-text when transform changes on :hover", async () => {
+    const client = createMockCDPClient();
+
+    // Build matched styles where prop.value is the COMPUTED matrix but
+    // prop.text preserves the SOURCE form `translateY(-2px)`.
+    const normalStyles = createMockMatchedStyles([
+      { selectorText: ".btn", properties: { color: "black" } },
+    ]);
+    const hoverStyles: CDPMatchedStyles = {
+      inlineStyle: { cssProperties: [], shorthandEntries: [] },
+      matchedCSSRules: [
+        {
+          rule: {
+            selectorList: { selectors: [{ text: ".btn" }], text: ".btn" },
+            origin: "regular",
+            style: {
+              cssProperties: [{ name: "color", value: "black", text: "color: black" }],
+              shorthandEntries: [],
+            },
+          },
+          matchingSelectors: [0],
+        },
+        {
+          rule: {
+            selectorList: { selectors: [{ text: ".btn:hover" }], text: ".btn:hover" },
+            origin: "regular",
+            style: {
+              cssProperties: [
+                {
+                  name: "transform",
+                  value: "matrix(1, 0, 0, 1, 0, -0.184)", // mid-transition computed
+                  text: "transform: translateY(-2px)",   // source form
+                },
+              ],
+              shorthandEntries: [],
+            },
+          },
+          matchingSelectors: [0],
+        },
+      ],
+    };
+
+    client.mockMatchedStyles.set("normal", normalStyles);
+    client.mockMatchedStyles.set("hover", hoverStyles);
+
+    const result = await captureForcedPseudoStyles(client, 60, normalStyles, "hover");
+
+    expect(result).not.toBeNull();
+    expect(result!["transform"]).toBe("matrix(1, 0, 0, 1, 0, -0.184)");
+    expect(result!["transform2"]).toBe("translateY(-2px)");
+  });
+
+  it("Phase A2: omits `transform2` when source equals computed value (no need)", async () => {
+    const client = createMockCDPClient();
+    const normalStyles = createMockMatchedStyles([
+      { selectorText: ".btn", properties: { color: "black" } },
+    ]);
+    // prop.value === prop.text-stripped → no transform2 needed
+    const hoverStyles = createMockMatchedStyles([
+      { selectorText: ".btn", properties: { color: "black" } },
+      { selectorText: ".btn:hover", properties: { transform: "scale(0.98)" } }, // text auto-built as "transform: scale(0.98)"
+    ]);
+
+    client.mockMatchedStyles.set("normal", normalStyles);
+    client.mockMatchedStyles.set("hover", hoverStyles);
+
+    const result = await captureForcedPseudoStyles(client, 61, normalStyles, "hover");
+
+    expect(result).not.toBeNull();
+    expect(result!["transform"]).toBe("scale(0.98)");
+    expect(result!["transform2"]).toBeUndefined();
+  });
+
+  it("Phase A2: omits `transform2` when transform is unchanged on hover", async () => {
+    const client = createMockCDPClient();
+    const normalStyles = createMockMatchedStyles([
+      { selectorText: ".btn", properties: { color: "black" } },
+    ]);
+    const hoverStyles = createMockMatchedStyles([
+      { selectorText: ".btn", properties: { color: "black" } },
+      { selectorText: ".btn:hover", properties: { color: "red" } }, // transform NOT changed
+    ]);
+
+    client.mockMatchedStyles.set("normal", normalStyles);
+    client.mockMatchedStyles.set("hover", hoverStyles);
+
+    const result = await captureForcedPseudoStyles(client, 62, normalStyles, "hover");
+
+    expect(result).not.toBeNull();
+    expect(result!["color"]).toBe("red");
+    expect(result!["transform"]).toBeUndefined();
+    expect(result!["transform2"]).toBeUndefined();
+  });
+
+  it("Phase A2: also captures filter2 when filter source differs from computed", async () => {
+    const client = createMockCDPClient();
+    const normalStyles = createMockMatchedStyles([
+      { selectorText: ".img", properties: { color: "black" } },
+    ]);
+    const hoverStyles: CDPMatchedStyles = {
+      inlineStyle: { cssProperties: [], shorthandEntries: [] },
+      matchedCSSRules: [
+        {
+          rule: {
+            selectorList: { selectors: [{ text: ".img" }], text: ".img" },
+            origin: "regular",
+            style: {
+              cssProperties: [{ name: "color", value: "black", text: "color: black" }],
+              shorthandEntries: [],
+            },
+          },
+          matchingSelectors: [0],
+        },
+        {
+          rule: {
+            selectorList: { selectors: [{ text: ".img:hover" }], text: ".img:hover" },
+            origin: "regular",
+            style: {
+              cssProperties: [
+                {
+                  name: "filter",
+                  value: "blur(0.5px) saturate(1.05)", // computed mid-transition
+                  text: "filter: blur(2px) saturate(1.2)",
+                },
+              ],
+              shorthandEntries: [],
+            },
+          },
+          matchingSelectors: [0],
+        },
+      ],
+    };
+
+    client.mockMatchedStyles.set("normal", normalStyles);
+    client.mockMatchedStyles.set("hover", hoverStyles);
+
+    const result = await captureForcedPseudoStyles(client, 63, normalStyles, "hover");
+
+    expect(result).not.toBeNull();
+    expect(result!["filter2"]).toBe("blur(2px) saturate(1.2)");
+  });
 });
 
 // ============================================================================
