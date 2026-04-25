@@ -1297,12 +1297,41 @@ export async function createUnifiedWebsiteColorStyles(
 const MAX_TEXT_STYLES = 50;
 
 /**
- * Map a numeric font weight to a Figma font style string
+ * Map a numeric CSS font-weight (100…900) to ordered Figma style candidates.
+ * Index 0 = preferred style; later entries are perceptual fallbacks for fonts
+ * that lack the preferred variant (e.g. Space Grotesk without Semibold).
+ *
+ * Buckets follow the CSS standard: 600 = Semibold, 700 = Bold, 800 = ExtraBold.
+ *
+ * Each bucket includes alternative spellings used by various fonts in Figma
+ * ("SemiBold", "Semi Bold", "DemiBold", …) before falling back to neighbour
+ * weights. Within neighbour fallbacks the LIGHTER neighbour comes first
+ * (perceptually closer for wireframe rendering — going heavier makes text
+ * look bolder than the source).
+ */
+export function fontWeightToStyleCandidates(weight: number): string[] {
+  if (weight <= 150) return ["Thin", "Hairline", "ExtraLight", "Extra Light", "UltraLight", "Ultra Light", "Light", "Regular"];
+  // 200 — ExtraLight first (with spellings), then LIGHTER neighbour (Thin)
+  // before HEAVIER (Light). Same perceptual rule as 600 — don't overshoot.
+  if (weight <= 250) return ["ExtraLight", "Extra Light", "UltraLight", "Ultra Light", "Thin", "Light", "Regular"];
+  if (weight <= 350) return ["Light", "ExtraLight", "Extra Light", "Regular"];
+  if (weight <= 450) return ["Regular", "Normal", "Book"];
+  if (weight <= 550) return ["Medium", "Regular", "Semibold", "SemiBold", "Semi Bold"];
+  // 600 — Semibold first (with all spellings), then LIGHTER neighbour (Medium)
+  // before HEAVIER (Bold). Going heavier visually overshoots the source weight.
+  if (weight <= 650) return ["Semibold", "SemiBold", "Semi Bold", "DemiBold", "Demi Bold", "Medium", "Bold"];
+  if (weight <= 750) return ["Bold", "Semibold", "SemiBold", "Semi Bold", "ExtraBold", "Extra Bold"];
+  if (weight <= 850) return ["ExtraBold", "Extra Bold", "UltraBold", "Ultra Bold", "Bold", "Black"];
+  return ["Black", "Heavy", "ExtraBold", "Extra Bold", "Bold"];
+}
+
+/**
+ * Map a numeric font weight to its preferred Figma font style.
+ * For fallback handling when the preferred style isn't available, use
+ * `fontWeightToStyleCandidates()` directly.
  */
 export function fontWeightToStyle(weight: number): string {
-  if (weight >= 600) return "Bold";
-  if (weight >= 500) return "Medium";
-  return "Regular";
+  return fontWeightToStyleCandidates(weight)[0];
 }
 
 /**

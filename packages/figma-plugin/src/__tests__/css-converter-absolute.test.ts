@@ -138,7 +138,13 @@ describe("css-converter: absolute mode overrides", () => {
     expect(result.itemSpacing).toBe(0);
   });
 
-  it("strips flex properties", () => {
+  it("preserves justifyContent/alignItems (needed for text-with-bg centering); strips flexWrap", () => {
+    // justifyContent/alignItems are the source-of-truth signal that
+    // createTextWithBackground uses to center button text in absolute mode
+    // (inline-flex + justify-content: center). Frame-level auto-layout
+    // consumers in nodes.ts are gated by useAutoLayout, so this is inert
+    // for normal absolute frames. flexWrap remains stripped — it's purely
+    // an auto-layout concern.
     const root = makeFrame({
       styles: {
         display: 'flex',
@@ -149,8 +155,8 @@ describe("css-converter: absolute mode overrides", () => {
     });
 
     const result = convertW2WToWireframe(root as any, { layoutMode: 'absolute' });
-    expect(result.justifyContent).toBeUndefined();
-    expect(result.alignItems).toBeUndefined();
+    expect(result.justifyContent).toBe('center');
+    expect(result.alignItems).toBe('center');
     expect(result.flexWrap).toBeUndefined();
   });
 });

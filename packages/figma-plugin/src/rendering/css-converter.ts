@@ -629,8 +629,13 @@ function convertFrame(
     layoutMode,
     itemSpacing,
     padding,
-    justifyContent: !isAbsoluteMode ? str(s.justifyContent) : undefined,
-    alignItems: !isAbsoluteMode ? str(s.alignItems) : undefined,
+    // Pass justifyContent/alignItems through even in absolute mode: they are
+    // the source-of-truth signal for centering text-with-background buttons
+    // (inline-flex + justify-content: center). Frame-level auto-layout
+    // consumers in nodes.ts are gated by useAutoLayout, so this is inert
+    // for normal absolute frames.
+    justifyContent: str(s.justifyContent),
+    alignItems: str(s.alignItems),
     flexWrap: !isAbsoluteMode ? str(s.flexWrap) : undefined,
     layoutGrow: sizing.grow,
     layoutAlign: sizing.align,

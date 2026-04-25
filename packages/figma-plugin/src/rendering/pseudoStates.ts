@@ -5,6 +5,7 @@
  */
 
 import { cssColorToFigmaRGB } from "./colors";
+import { fontWeightToStyle } from "./styles";
 import {
   computeHoverSignature,
   type HoverComponentCache,
@@ -376,7 +377,7 @@ export function applyCssDiffToNode(
         const textNodes = frame.findAll(
           (n) => n.type === "TEXT",
         ) as TextNode[];
-        const style = fontWeightToStyleName(target);
+        const style = fontWeightToStyle(target);
         for (const tn of textNodes) {
           const current = (tn as unknown as { fontName: FontName }).fontName;
           if (current && typeof current === "object" && "family" in current) {
@@ -514,23 +515,6 @@ export function applyCssDiffToNode(
         break;
     }
   }
-}
-
-/**
- * Map a numeric CSS font-weight (100-900) to the closest Figma font style
- * name. Figma uses named styles (Regular, Medium, Semibold, Bold, …) so we
- * bucket numeric weights to their nearest canonical name.
- */
-function fontWeightToStyleName(weight: number): string {
-  if (weight <= 150) return "Thin";
-  if (weight <= 250) return "ExtraLight";
-  if (weight <= 350) return "Light";
-  if (weight <= 450) return "Regular";
-  if (weight <= 550) return "Medium";
-  if (weight <= 650) return "Semibold";
-  if (weight <= 750) return "Bold";
-  if (weight <= 850) return "ExtraBold";
-  return "Black";
 }
 
 /**
