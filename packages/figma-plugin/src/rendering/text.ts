@@ -130,6 +130,50 @@ export function splitFillrTextByLineWidths(
 }
 
 /**
+ * Trim trailing alphabetic characters from a Figma TextNode's content until
+ * its rendered height fits within `browserLineCount` lines. Used by lorem
+ * ipsum mode where the substitute text may render wider than the original
+ * (e.g. "Legal" 40.82px → "Lorem" 46.61px in Space Grotesk Bold) and
+ * overflow the content box. Mutates `textNode.characters` in place.
+ *
+ * Caller must:
+ *   - have already assigned `textNode.characters = fullText`
+ *   - have set fontName / fontSize / lineHeight / letterSpacing
+ *   - have called `textNode.resize(targetWidth, ...)` so width is locked
+ *   - have set `textAutoResize = "HEIGHT"` so wrapping grows height (not width)
+ *
+ * Stops when:
+ *   - height fits within `browserLineCount * expectedSingleLineHeight + 1px`
+ *   - characters reduced to ≤1 (give up — accept whatever overflow)
+ *   - no more alphabetic characters left to trim (give up)
+ *
+ * Non-alphabetic characters ($, digits, punctuation, spaces) are preserved
+ * in their original positions; only the LAST alphabetic char is removed
+ * each iteration.
+ */
+export function trimLoremToFitLineCount(
+  textNode: { characters: string; height: number },
+  browserLineCount: number,
+  expectedSingleLineHeight: number,
+): void {
+  const lineCount = Math.max(browserLineCount || 1, 1);
+  const targetMaxHeight = expectedSingleLineHeight * lineCount + 1; // 1px tolerance
+  if (textNode.height <= targetMaxHeight) return;
+
+  let chars = textNode.characters;
+  // Bound iterations by initial length — cannot loop more than that
+  for (let i = chars.length; i > 0; i--) {
+    if (textNode.height <= targetMaxHeight) return;
+    if (chars.length <= 1) return;
+    // Find last alphabetic char (ASCII a-zA-Z) — trailing non-alpha preserved
+    const idx = chars.search(/[a-zA-Z](?=[^a-zA-Z]*$)/);
+    if (idx < 0) return; // no alpha left to trim
+    chars = chars.slice(0, idx) + chars.slice(idx + 1);
+    textNode.characters = chars;
+  }
+}
+
+/**
  * Apply CSS lineHeight (string or number) to a Figma text node. Mirrors the
  * inline logic at text.ts:880-906 but callable from the FILLR multi-line
  * branch where we need lineHeight for Figma's vertical stacking to match
@@ -170,7 +214,7 @@ import {
   getSmartTextColor,
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
-import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey } from "./styles";
+import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates } from "./styles";
 import { isIconFont, stripFontStyleSuffix } from "../utils/fontUtils";
 
 /** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
@@ -363,21 +407,20 @@ export async function createTextNode(
 
   const textNode = figma.createText();
 
-  // Determine main font style based on parent weight
-  let mainFontStyle = "Regular";
-  if (node.fontWeight >= 600) {
-    mainFontStyle = "Bold";
-  } else if (node.fontWeight >= 500) {
-    mainFontStyle = "Medium";
-  }
+  // Determine main font style + per-weight fallback candidates.
+  // CSS standard 9-step mapping: 600 = Semibold, 700 = Bold, etc.
+  // candidates[0] is preferred; later entries fall back when the font lacks
+  // the preferred style (e.g. system-ui without Semibold).
+  const mainCandidates = fontWeightToStyleCandidates(node.fontWeight);
+  let mainFontStyle = mainCandidates[0];
 
-  // Load required fonts
+  // Load required fonts — include all candidates so the loader can fall back
   const fontsToLoad = new Set<string>();
-  fontsToLoad.add(mainFontStyle);
+  for (const c of mainCandidates) fontsToLoad.add(c);
   for (const seg of segments) {
-    if (seg.fontWeight >= 600) fontsToLoad.add("Bold");
-    else if (seg.fontWeight >= 500) fontsToLoad.add("Medium");
-    else fontsToLoad.add("Regular");
+    for (const c of fontWeightToStyleCandidates(seg.fontWeight)) {
+      fontsToLoad.add(c);
+    }
   }
 
   // Wireframe lines mode: use FILLR font (squiggly wireframe lines)
@@ -634,6 +677,29 @@ export async function createTextNode(
     }
   }
 
+  // Pre-load segment-weight candidates against the resolved usedFontFamily.
+  // Tracking which styles actually loaded lets segment processing pick the
+  // first AVAILABLE candidate (avoiding Semibold-not-loaded → setRangeFontName
+  // throws → silent fallback to mainFontStyle, which collapses weight diffs).
+  // Also includes node.fontWeight so single-segment paths can pick a matching
+  // candidate when it differs from mainFontStyle's resolved value.
+  const loadedStylesForUsedFont = new Set<string>([mainFontStyle]);
+  const uniqueWeights: number[] = [];
+  const seenWeights = new Set<number>();
+  for (const w of [node.fontWeight, ...segments.map((s) => s.fontWeight)]) {
+    if (seenWeights.has(w)) continue;
+    seenWeights.add(w);
+    uniqueWeights.push(w);
+  }
+  for (const w of uniqueWeights) {
+    for (const style of fontWeightToStyleCandidates(w)) {
+      if (loadedStylesForUsedFont.has(style)) continue;
+      if (await tryLoad(usedFontFamily, style)) {
+        loadedStylesForUsedFont.add(style);
+      }
+    }
+  }
+
   // Combine all text content
   // Add whitespace separator between segments when missing (ensures proper spacing)
   let fullText: string;
@@ -754,10 +820,11 @@ export async function createTextNode(
         }
       }
 
-      // Apply segment font weight + per-segment font family
-      let segStyle = "Regular";
-      if (segment.fontWeight >= 600) segStyle = "Bold";
-      else if (segment.fontWeight >= 500) segStyle = "Medium";
+      // Apply segment font weight + per-segment font family.
+      // Use first candidate (preferred for this CSS weight); fall back to next
+      // when the font family lacks the preferred style.
+      const segCandidates = fontWeightToStyleCandidates(segment.fontWeight);
+      let segStyle = segCandidates[0];
 
       let segFontFamily: string;
       if (context?.fontMode === "plugin") {
@@ -783,11 +850,24 @@ export async function createTextNode(
 
       const isSegIcon = isIconFont(segFontFamily);
       const segStylesToTry = isSegIcon
-        ? Array.from(new Set([segStyle, ...ICON_FONT_EXTRA_STYLES]))
-        : [segStyle];
+        ? Array.from(new Set([...segCandidates, ...ICON_FONT_EXTRA_STYLES]))
+        : segCandidates;
 
       let resolvedSegFont = segFontFamily;
       let resolvedSegStyle = segStyle;
+      // Same-family case: pick first candidate that's actually loaded so
+      // setRangeFontName won't throw and silently collapse to mainFontStyle.
+      if (segFontFamily === usedFontFamily) {
+        for (const c of segCandidates) {
+          if (loadedStylesForUsedFont.has(c)) {
+            resolvedSegStyle = c;
+            break;
+          }
+        }
+        if (!loadedStylesForUsedFont.has(resolvedSegStyle)) {
+          resolvedSegStyle = mainFontStyle;
+        }
+      }
       if (segFontFamily !== usedFontFamily) {
         let segLoaded = false;
 
@@ -895,7 +975,9 @@ export async function createTextNode(
       // Collect pending TextStyle links (applied after lineHeight/letterSpacing)
       if (context && context.variableMode === "styles" && context.textStyleMap) {
         const segWeight = segment.fontWeight || node.fontWeight || 400;
-        const segStyleStr = segWeight >= 600 ? "Bold" : segWeight >= 500 ? "Medium" : "Regular";
+        // Use the SAME mapping TextStyle creation uses (styles.ts fontWeightToStyle)
+        // so the lookup key matches and linking succeeds.
+        const segStyleStr = fontWeightToStyleCandidates(segWeight)[0];
         const segFontSize = Math.max(segment.fontSize || node.fontSize || 14, 8);
         const lh = parseFigmaLineHeight(node.lineHeight);
         const lhKey = lineHeightKeyStr(lh);
@@ -962,10 +1044,18 @@ export async function createTextNode(
       }
     }
 
-    // Apply segment font weight if different from node's weight
-    let segStyle = "Regular";
-    if (segment.fontWeight >= 600) segStyle = "Bold";
-    else if (segment.fontWeight >= 500) segStyle = "Medium";
+    // Apply segment font weight if different from node's weight.
+    // Resolve via candidates so Semibold/Bold/etc. preferred, with fallback
+    // when the font lacks the preferred style. Only override if the resolved
+    // style truly differs from mainFontStyle (and is actually loaded).
+    const segCandidates = fontWeightToStyleCandidates(segment.fontWeight);
+    let segStyle = mainFontStyle;
+    for (const c of segCandidates) {
+      if (loadedStylesForUsedFont.has(c)) {
+        segStyle = c;
+        break;
+      }
+    }
     if (segStyle !== mainFontStyle) {
       try {
         textNode.fontName = { family: usedFontFamily, style: segStyle };
@@ -1097,6 +1187,40 @@ export async function createTextNode(
     return textNode;
   }
 
+  // Lorem-ipsum placeholder text: substituted text often renders wider than
+  // the original (e.g. "Legal" 40.82px → "Lorem" 46.61px), causing wrap into
+  // the next line. Since lorem is meaningless filler, silently trim trailing
+  // alphabetic chars until the rendered line count matches the browser's.
+  // Width / height / font / dimensions are unchanged — only `characters`.
+  // Multi-segment lorem skipped: trimming would shift styling-range indices.
+  if (context?.textMode === "lorem" && segments.length === 1) {
+    // Resolve px line-height for the trim threshold.
+    const fs = node.fontSize || 14;
+    const lh = node.lineHeight;
+    let lineHeightPx: number;
+    if (typeof lh === "number" && lh > 0) {
+      lineHeightPx = lh;
+    } else if (typeof lh === "string") {
+      if (lh.endsWith("px")) lineHeightPx = parseFloat(lh) || fs * 1.2;
+      else if (lh.endsWith("%")) lineHeightPx = fs * ((parseFloat(lh) || 120) / 100);
+      else {
+        const r = parseFloat(lh);
+        lineHeightPx = isNaN(r) ? fs * 1.2 : r < 10 ? fs * r : r;
+      }
+    } else {
+      lineHeightPx = fs * 1.2;
+    }
+
+    // Lock width, let height grow with wrapping, trim until fits.
+    textNode.resize(browserWidth, Math.max(browserHeight, lineHeightPx));
+    textNode.textAutoResize = "HEIGHT";
+    trimLoremToFitLineCount(textNode, browserLineCount, lineHeightPx);
+    textNode.textAutoResize = "NONE";
+    textNode.resize(browserWidth, browserHeight);
+    applyDeferredTextStyles();
+    return textNode;
+  }
+
   // Step 1: Measure Figma's HUG dimensions
   textNode.textAutoResize = "WIDTH_AND_HEIGHT";
   const hugWidth = textNode.width;
@@ -1223,27 +1347,34 @@ export async function createTextWithBackground(
   frame.name = node.name || "Button";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
-  // Apply Auto Layout for proper text containment (text backgrounds never use Grid)
-  frame.layoutMode =
-    node.layoutMode && node.layoutMode !== "NONE" && node.layoutMode !== "GRID"
-      ? node.layoutMode
-      : "HORIZONTAL";
-  frame.primaryAxisSizingMode = "FIXED";
-  frame.counterAxisSizingMode = "FIXED";
-  frame.primaryAxisAlignItems = "CENTER";
-  frame.counterAxisAlignItems = "CENTER";
+  // In absolute (freeform) import mode the wrapper stays layoutMode="NONE";
+  // the inner TextNode is positioned via x/y from padding (see end of fn).
+  // This mirrors nodes.ts:255-270 (text-with-padding-no-background path).
+  const useAutoLayout = context.layoutMode !== "absolute";
 
-  // Apply padding
-  if (node.padding) {
-    frame.paddingTop = node.padding.top || 0;
-    frame.paddingRight = node.padding.right || 0;
-    frame.paddingBottom = node.padding.bottom || 0;
-    frame.paddingLeft = node.padding.left || 0;
-  }
+  if (useAutoLayout) {
+    // Apply Auto Layout for proper text containment (text backgrounds never use Grid)
+    frame.layoutMode =
+      node.layoutMode && node.layoutMode !== "NONE" && node.layoutMode !== "GRID"
+        ? node.layoutMode
+        : "HORIZONTAL";
+    frame.primaryAxisSizingMode = "FIXED";
+    frame.counterAxisSizingMode = "FIXED";
+    frame.primaryAxisAlignItems = "CENTER";
+    frame.counterAxisAlignItems = "CENTER";
 
-  // Apply item spacing
-  if (node.itemSpacing > 0) {
-    frame.itemSpacing = node.itemSpacing;
+    // Apply padding
+    if (node.padding) {
+      frame.paddingTop = node.padding.top || 0;
+      frame.paddingRight = node.padding.right || 0;
+      frame.paddingBottom = node.padding.bottom || 0;
+      frame.paddingLeft = node.padding.left || 0;
+    }
+
+    // Apply item spacing
+    if (node.itemSpacing > 0) {
+      frame.itemSpacing = node.itemSpacing;
+    }
   }
 
   // Apply fills (background) to the frame
@@ -1318,14 +1449,75 @@ export async function createTextWithBackground(
   const textNode = await createTextNode(node, context.fontFamily, context);
   if (textNode) {
     frame.appendChild(textNode);
-    if (context.textMode === "semantic") {
-      // Semantic text: preserve NONE + ENDING truncation, don't override to HUG.
-      // FIXED keeps original browser dimensions so truncation works in auto-layout.
-      textNode.layoutSizingHorizontal = "FIXED";
-      textNode.layoutSizingVertical = "FIXED";
+    if (useAutoLayout) {
+      if (context.textMode === "semantic") {
+        // Semantic text: preserve NONE + ENDING truncation, don't override to HUG.
+        // FIXED keeps original browser dimensions so truncation works in auto-layout.
+        textNode.layoutSizingHorizontal = "FIXED";
+        textNode.layoutSizingVertical = "FIXED";
+      } else {
+        textNode.layoutSizingHorizontal = "HUG";
+        textNode.layoutSizingVertical = "HUG";
+      }
     } else {
-      textNode.layoutSizingHorizontal = "HUG";
-      textNode.layoutSizingVertical = "HUG";
+      // Absolute mode: position via x/y, resize to content-box.
+      const padLeft = node.padding?.left || 0;
+      const padRight = node.padding?.right || 0;
+      const padTop = node.padding?.top || 0;
+      const padBottom = node.padding?.bottom || 0;
+      textNode.x = padLeft;
+      textNode.y = padTop;
+      const innerW = Math.max(node.width - padLeft - padRight, 1);
+      const innerH = Math.max(node.height - padTop - padBottom, 1);
+      textNode.resize(innerW, innerH);
+      textNode.textAutoResize = "NONE";
+
+      // Lorem mode re-trim: createTextNode trimmed against node.width (the full
+      // element box), but the actual TEXT area is innerW (after padding). Lorem
+      // that fit at 138px may overflow at 42px content-box width. Re-run trim
+      // against the real content-box width.
+      if (context.textMode === "lorem" && textNode.characters.length > 1) {
+        const fs = node.fontSize || 14;
+        const lh = node.lineHeight;
+        let lineHeightPx: number;
+        if (typeof lh === "number" && lh > 0) {
+          lineHeightPx = lh;
+        } else if (typeof lh === "string") {
+          if (lh.endsWith("px")) lineHeightPx = parseFloat(lh) || fs * 1.2;
+          else if (lh.endsWith("%")) lineHeightPx = fs * ((parseFloat(lh) || 120) / 100);
+          else {
+            const r = parseFloat(lh);
+            lineHeightPx = isNaN(r) ? fs * 1.2 : r < 10 ? fs * r : r;
+          }
+        } else {
+          lineHeightPx = fs * 1.2;
+        }
+        textNode.textAutoResize = "HEIGHT";
+        trimLoremToFitLineCount(textNode, node.browserLineCount || 1, lineHeightPx);
+        textNode.textAutoResize = "NONE";
+        textNode.resize(innerW, innerH);
+      }
+
+      // Honor flex centering. CSS for buttons (e.g. `inline-flex` +
+      // `justify-content: center` + `align-items: center`) centers the text
+      // visually even when text-align is the default "left". Without this,
+      // absolute-mode buttons render their label at the top-left of the wrapper.
+      const horizMap: Record<string, "LEFT" | "CENTER" | "RIGHT"> = {
+        "flex-start": "LEFT", start: "LEFT", left: "LEFT",
+        center: "CENTER",
+        "flex-end": "RIGHT", end: "RIGHT", right: "RIGHT",
+      };
+      const vertMap: Record<string, "TOP" | "CENTER" | "BOTTOM"> = {
+        "flex-start": "TOP", start: "TOP",
+        center: "CENTER",
+        "flex-end": "BOTTOM", end: "BOTTOM",
+      };
+      if (node.justifyContent && horizMap[node.justifyContent]) {
+        textNode.textAlignHorizontal = horizMap[node.justifyContent];
+      }
+      if (node.alignItems && vertMap[node.alignItems]) {
+        textNode.textAlignVertical = vertMap[node.alignItems];
+      }
     }
   }
 

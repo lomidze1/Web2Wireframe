@@ -149,17 +149,6 @@ export default function () {
       const executeRender = async (fontFamily: string, fontMapping?: FontMapping, originalFontNames?: FontMapping) => {
 
 
-      logger.info("Creating wireframe", {
-        frameCount: frames.length,
-        sourceUrl,
-        variableMode: variableMode || "direct",
-        layoutMode: layoutMode || "autoLayout",
-        cssVariablesCount: cssVariables?.length || 0,
-        colorMode: effectiveColorMode,
-        fontMode: effectiveFontMode,
-        fontFamily,
-      });
-
       figma.notify("Creating wireframe...", { timeout: 2000 });
 
       // Send initial progress to UI
@@ -490,7 +479,12 @@ export default function () {
       // PASS 1 hover masters can reference icons via INSTANCE instead of
       // inlining vector markup. Mirrors h2d's `Component 3` (43 unique SVGs
       // bundled into one ComponentSet, referenced from Components 4/7/8).
-      if (renderContext.assetMode === "realAssets") {
+      // Gated on interactionMode=variants — in `none` mode we skip the
+      // Components section entirely and SVGs render inline via realImages.ts.
+      if (
+        renderContext.assetMode === "realAssets" &&
+        renderContext.interactionMode === "variants"
+      ) {
         try {
           const { buildIconLibrary } = await import("./rendering/svgLibrary");
           const iconLib = await buildIconLibrary(frames, { componentIndex: 1 });
@@ -678,10 +672,15 @@ export default function () {
         // Phase C (h2d-parity): wrappers (FRAME containing ComponentSet +
         // x-axis-legend + y-axis-legend) replace bare ComponentSets. Section
         // fill switched to white to match h2d.
+        // Defense in depth: even if a future code path pushes into
+        // componentWrappers/componentSets, we only render the Components
+        // Section when the user explicitly opted into interaction variants.
         const sectionItems =
-          renderContext.componentWrappers && renderContext.componentWrappers.length > 0
-            ? renderContext.componentWrappers
-            : renderContext.componentSets ?? [];
+          renderContext.interactionMode === "variants"
+            ? renderContext.componentWrappers && renderContext.componentWrappers.length > 0
+              ? renderContext.componentWrappers
+              : renderContext.componentSets ?? []
+            : [];
         if (sectionItems.length > 0) {
           const compSection = figma.createSection();
           compSection.name = `Components — ${hostname}`;
@@ -719,11 +718,6 @@ export default function () {
           });
         }
 
-        logger.info("Created Section with frames", {
-          frameCount: createdFrames.length,
-          sectionName: section.name,
-        });
-
         // Send finalizing progress
         figma.ui.postMessage({
           type: "render-progress",
@@ -739,51 +733,6 @@ export default function () {
         // Zoom to fit
         figma.viewport.scrollAndZoomIntoView(selectionTarget);
 
-        // === W2W-STATS: comprehensive render statistics ===
-        const countBy = (types: string[]): number => {
-          let n = 0;
-          for (const target of selectionTarget) {
-            if ("findAll" in target && typeof target.findAll === "function") {
-              n += target.findAll((node: SceneNode) =>
-                types.includes(node.type),
-              ).length;
-            }
-          }
-          return n;
-        };
-        const stats = {
-          componentSetsTotal: renderContext.componentSets?.length ?? 0,
-          hoverCacheSize: renderContext.hoverComponentCache?.size ?? 0,
-          hoverCacheHits: renderContext.renderStats?.hoverCacheHits ?? 0,
-          hoverCacheMisses: renderContext.renderStats?.hoverCacheMisses ?? 0,
-          pseudoErrors: renderContext.renderStats?.pseudoErrors ?? 0,
-          nodes: {
-            frames: countBy(["FRAME"]),
-            components: countBy(["COMPONENT"]),
-            componentSets: countBy(["COMPONENT_SET"]),
-            instances: countBy(["INSTANCE"]),
-            text: countBy(["TEXT"]),
-            vectors: countBy(["VECTOR"]),
-            rectangles: countBy(["RECTANGLE"]),
-            ellipses: countBy(["ELLIPSE"]),
-          },
-          sections: selectionTarget.length,
-          interactionMode: renderContext.interactionMode,
-          hostname,
-        };
-        console.log("[W2W-STATS]", JSON.stringify(stats, null, 2));
-        console.log(
-          `[W2W-STATS-SHORT] ComponentSets=${stats.componentSetsTotal} ` +
-            `(unique=${stats.hoverCacheSize}, reused=${stats.hoverCacheHits}, ` +
-            `new=${stats.hoverCacheMisses}, errors=${stats.pseudoErrors}) | ` +
-            `Nodes: frames=${stats.nodes.frames}, text=${stats.nodes.text}, ` +
-            `instances=${stats.nodes.instances}, componentSets=${stats.nodes.componentSets}, ` +
-            `vectors=${stats.nodes.vectors}, rectangles=${stats.nodes.rectangles}`,
-        );
-
-        logger.info("Wireframe created successfully", {
-          frameCount: createdFrames.length,
-        });
         figma.notify(
           `Created ${createdFrames.length} wireframe frame(s)${createdFrames.length > 1 ? " in Section" : ""}!`,
           {

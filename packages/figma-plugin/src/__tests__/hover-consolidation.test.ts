@@ -1447,3 +1447,259 @@ describe("lookupHoverMaster", () => {
     expect(lookup).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: placeholder leaf reps must NOT leak an intermediate FrameNode
+// onto figma.currentPage during hover master build.
+//
+// Tesla's <img class="_logoMark_s3iw9_30"> with :hover CSS was producing 4
+// orphaned FrameNodes named `img._logoMark_*` / `img._logoImage_*` at (0,0)
+// after every import. Root cause: buildComponentFromWireframe called
+// createNodeInFigma(copy) for placeholder reps, which called createRealImage
+// (or createPlaceholder) → figma.createFrame() auto-parented to currentPage.
+// frame.remove() in a silent try/catch at hoverConsolidation.ts:491 swallowed
+// cleanup failures. Fix: skip the createNodeInFigma round-trip for leaf
+// placeholder reps and build the master directly from the skeleton path.
+// ---------------------------------------------------------------------------
+
+describe("buildHoverMasterRegistry — placeholder orphan regression", () => {
+  let buildHoverMasterRegistry: typeof import("../rendering/hoverConsolidation").buildHoverMasterRegistry;
+  let mockCreateFrame: ReturnType<typeof vi.fn>;
+  let createdFrames: Array<Record<string, unknown>>;
+
+  beforeEach(async () => {
+    createdFrames = [];
+
+    const makeMockFrame = (): Record<string, unknown> => {
+      const frame: Record<string, unknown> = {
+        type: "FRAME",
+        id: `frame-${createdFrames.length + 1}`,
+        name: "",
+        fills: [],
+        strokes: [],
+        effects: [],
+        opacity: 1,
+        cornerRadius: 0,
+        strokeWeight: 1,
+        strokeAlign: "INSIDE",
+        width: 100,
+        height: 40,
+        children: [] as unknown[],
+        resize: vi.fn(),
+        resizeWithoutConstraints: vi.fn(),
+        appendChild: vi.fn(),
+        remove: vi.fn(),
+        layoutMode: "NONE",
+        primaryAxisSizingMode: "AUTO",
+        counterAxisSizingMode: "AUTO",
+        primaryAxisAlignItems: "MIN",
+        counterAxisAlignItems: "MIN",
+        paddingTop: 0,
+        paddingRight: 0,
+        paddingBottom: 0,
+        paddingLeft: 0,
+        itemSpacing: 0,
+        clipsContent: false,
+      };
+      return frame;
+    };
+
+    mockCreateFrame = vi.fn(() => {
+      const frame = makeMockFrame();
+      createdFrames.push(frame);
+      return frame;
+    });
+
+    const makeMockComp = () => {
+      const comp: Record<string, unknown> = {
+        type: "COMPONENT",
+        id: `comp-${Math.random().toString(36).slice(2, 6)}`,
+        name: "",
+        fills: [],
+        strokes: [],
+        effects: [],
+        opacity: 1,
+        cornerRadius: 0,
+        strokeWeight: 1,
+        strokeAlign: "INSIDE",
+        width: 100,
+        height: 40,
+        children: [] as unknown[],
+        componentPropertyReferences: {} as Record<string, string>,
+        resize: vi.fn(),
+        appendChild: vi.fn(),
+        findAll: vi.fn(() => [] as unknown[]),
+        clone: vi.fn(() => makeMockComp()),
+        createInstance: vi.fn(),
+        setReactionsAsync: vi.fn(),
+        reactions: [] as unknown[],
+      };
+      return comp;
+    };
+
+    const makeMockShape = (kind: string): Record<string, unknown> => ({
+      type: kind,
+      id: `${kind.toLowerCase()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: "",
+      fills: [],
+      strokes: [],
+      resize: vi.fn(),
+      pointCount: 3,
+      cornerRadius: 0,
+      strokeWeight: 1,
+      x: 0,
+      y: 0,
+    });
+
+    (globalThis as Record<string, unknown>).figma = {
+      createComponent: vi.fn(makeMockComp),
+      createFrame: mockCreateFrame,
+      createRectangle: vi.fn(() => makeMockShape("RECTANGLE")),
+      createEllipse: vi.fn(() => makeMockShape("ELLIPSE")),
+      createPolygon: vi.fn(() => makeMockShape("POLYGON")),
+      createText: vi.fn(() => ({
+        type: "TEXT",
+        characters: "",
+        fontName: { family: "Inter", style: "Regular" },
+      })),
+      combineAsVariants: vi.fn(
+        (components: Array<Record<string, unknown>>) => ({
+          type: "COMPONENT_SET",
+          id: `cs-${Math.random().toString(36).slice(2, 6)}`,
+          name: "ComponentSet",
+          children: components,
+          componentPropertyDefinitions: {},
+          addComponentProperty: vi.fn((name: string) => `${name}#1:0`),
+          findOne: vi.fn(),
+          fills: [],
+          strokes: [],
+          strokeWeight: 0,
+          cornerRadius: 0,
+          width: 100,
+          height: 40,
+        }),
+      ),
+      loadFontAsync: vi.fn(async () => undefined),
+      getLocalPaintStyles: vi.fn(() => []),
+      createPaintStyle: vi.fn(() => ({ id: `style-${Math.random()}`, name: "", paints: [] })),
+      currentPage: { appendChild: vi.fn() },
+    };
+
+    const mod = await import("../rendering/hoverConsolidation");
+    buildHoverMasterRegistry = mod.buildHoverMasterRegistry;
+  });
+
+  function minimalContext() {
+    return {
+      interactionMode: "variants" as const,
+      componentSets: [],
+      hoverMasterRegistry: undefined,
+      pluginColors: {
+        primary: "#ffffff",
+        secondary: "#e5e5e5",
+        surface: "#f5f5f5",
+        text: "#000000",
+      },
+      fontFamily: "Inter",
+      colorStyleMap: new Map(),
+      variableMode: "none",
+      colorMode: "website",
+      assetMode: "wireframe",
+    } as never;
+  }
+
+  it("does NOT create an `img.*`-named frame for leaf placeholder <img> hoverables", async () => {
+    // Reproduces Tesla.com case: raster <img> with :hover CSS rule.
+    // Before fix: figma.createFrame is called with name `img._logoMark_...`
+    // via createPlaceholder/createRealImage, producing an orphan at (0,0).
+    // After fix: buildComponentFromWireframe short-circuits to skeleton for
+    // leaf placeholders, so no frame with the image's CSS-derived name is
+    // ever created on currentPage.
+    const imgRep = makeWfNode({
+      type: "placeholder",
+      tag: "img",
+      name: "img._logoMark_s3iw9_30",
+      isPlaceholder: true,
+      pseudoStateStyles: { hover: { opacity: "0.8" } },
+      children: [],
+    });
+    const root = makeWfNode({ name: "root", children: [imgRep] });
+
+    await buildHoverMasterRegistry([makeFrame(root)], minimalContext());
+
+    const orphans = createdFrames.filter((f) =>
+      (f.name as string).startsWith("img."),
+    );
+    expect(orphans).toHaveLength(0);
+  });
+
+  it("handles multiple distinct leaf placeholder reps without leaking", async () => {
+    // Mirrors Tesla's 2 unique img classes × 2 viewports = 4 representatives.
+    const imgA1 = makeWfNode({
+      type: "placeholder",
+      tag: "img",
+      name: "img._logoMark_s3iw9_30",
+      isPlaceholder: true,
+      pseudoStateStyles: { hover: { opacity: "0.8" } },
+      width: 48,
+      height: 48,
+    });
+    const imgA2 = makeWfNode({
+      type: "placeholder",
+      tag: "img",
+      name: "img._logoMark_s3iw9_30",
+      isPlaceholder: true,
+      pseudoStateStyles: { hover: { opacity: "0.8" } },
+      width: 32,
+      height: 32,
+    });
+    const imgB1 = makeWfNode({
+      type: "placeholder",
+      tag: "img",
+      name: "img._logoImage_rue7f_40",
+      isPlaceholder: true,
+      pseudoStateStyles: { hover: { opacity: "0.8" } },
+      width: 120,
+      height: 24,
+    });
+    const imgB2 = makeWfNode({
+      type: "placeholder",
+      tag: "img",
+      name: "img._logoImage_rue7f_40",
+      isPlaceholder: true,
+      pseudoStateStyles: { hover: { opacity: "0.8" } },
+      width: 96,
+      height: 20,
+    });
+    const root = makeWfNode({
+      name: "root",
+      children: [imgA1, imgA2, imgB1, imgB2],
+    });
+
+    await buildHoverMasterRegistry([makeFrame(root)], minimalContext());
+
+    const orphans = createdFrames.filter((f) =>
+      (f.name as string).startsWith("img."),
+    );
+    expect(orphans).toHaveLength(0);
+  });
+
+  it("still processes non-placeholder hoverables normally (regression guard)", async () => {
+    // A regular <button> hoverable should still reach buildComponentFromWireframe
+    // and produce a ComponentSet. This guards against an over-broad fix.
+    const btn = makeWfNode({
+      name: "btn",
+      tag: "button",
+      fills: [{ type: "SOLID", color: { r: 0.2, g: 0.4, b: 1, a: 1 } }] as never,
+      pseudoStateStyles: { hover: { "background-color": "#000" } },
+      children: [textNode("Click")],
+    });
+    const root = makeWfNode({ name: "root", children: [btn] });
+
+    const registry = await buildHoverMasterRegistry(
+      [makeFrame(root)],
+      minimalContext(),
+    );
+    expect(registry.size).toBe(1);
+  });
+});

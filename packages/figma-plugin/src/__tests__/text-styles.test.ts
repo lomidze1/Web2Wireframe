@@ -99,21 +99,27 @@ function buildTextStyleNames(
 // ============================================================================
 
 describe("fontWeightToStyle", () => {
-  it("returns Regular for weight < 500", () => {
-    expect(fontWeightToStyle(400)).toBe("Regular");
-    expect(fontWeightToStyle(100)).toBe("Regular");
-    expect(fontWeightToStyle(300)).toBe("Regular");
+  // CSS standard 9-step mapping. See font-weight-mapping.test.ts for full
+  // coverage including the candidate fallback chain.
+  it("maps light weights to Light/Thin", () => {
+    expect(fontWeightToStyle(100)).toBe("Thin");
+    expect(fontWeightToStyle(300)).toBe("Light");
   });
 
-  it("returns Medium for weight 500-599", () => {
+  it("maps Regular and Medium correctly", () => {
+    expect(fontWeightToStyle(400)).toBe("Regular");
     expect(fontWeightToStyle(500)).toBe("Medium");
     expect(fontWeightToStyle(550)).toBe("Medium");
   });
 
-  it("returns Bold for weight >= 600", () => {
-    expect(fontWeightToStyle(600)).toBe("Bold");
+  it("maps 600 to Semibold (CSS standard)", () => {
+    expect(fontWeightToStyle(600)).toBe("Semibold");
+  });
+
+  it("maps 700 and above to Bold/ExtraBold/Black", () => {
     expect(fontWeightToStyle(700)).toBe("Bold");
-    expect(fontWeightToStyle(900)).toBe("Bold");
+    expect(fontWeightToStyle(800)).toBe("ExtraBold");
+    expect(fontWeightToStyle(900)).toBe("Black");
   });
 });
 
