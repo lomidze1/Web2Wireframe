@@ -458,7 +458,17 @@ function convertFrame(
   if (hasTextChildren && !hasNonTextChildren && !isLayoutContainer && TEXT_COALESCE_TAGS.has(node.tag)) {
     // Coalesce all TEXT children into a single text node
     // Join with space because content script splits text per visual line
-    textContent = textChildValues.map(t => t.value).join(' ');
+    //
+    // Semantic placeholder dedup: when textMode="semantic", every per-line
+    // W2WTextNode gets the same placeholder ("List item", "Page Title", etc.)
+    // assigned by transformW2WTreeText. Joining with space would produce
+    // "List item List item List item". If all values are identical, render
+    // the placeholder once. browserLineCount + per-line widths preserved
+    // for FILLR (Lines mode) rendering.
+    const allSameValue = textChildValues.length > 1 &&
+      textChildValues.every(t => t.value === textChildValues[0].value);
+    const segmentSource = allSameValue ? [textChildValues[0]] : textChildValues;
+    textContent = segmentSource.map(t => t.value).join(' ');
     browserLineCount = textChildValues.length;
 
     // Check parent element's own text-decoration (e.g., standalone <a> with underline)
@@ -468,11 +478,11 @@ function convertFrame(
     else if (rawOwnDecoration.includes('line-through')) ownTextDecoration = 'line-through';
 
     // Create styledSegments — each segment preserves its own inline styles
-    const hasStyleVariation = textChildValues.length > 1 ||
-      textChildValues.some(t => t.color || t.textDecoration || t.tag || t.fontWeight) ||
+    const hasStyleVariation = segmentSource.length > 1 ||
+      segmentSource.some(t => t.color || t.textDecoration || t.tag || t.fontWeight) ||
       !!ownTextDecoration;
     if (hasStyleVariation) {
-      styledSegments = textChildValues.map(t => {
+      styledSegments = segmentSource.map(t => {
         const { family } = parseFontString(t.font);
         // Strip weight suffix from platform font name (e.g., "Space Grotesk Light" → "Space Grotesk")
         const cleanPlatformFamily = t.platformFamily ? parseFontString(t.platformFamily).family : undefined;
@@ -942,11 +952,15 @@ function mergeAdjacentTextEntries(
         mergedValues.push(group[0]);
         mergedEntries.push({ kind: 'text', index: idx });
       } else {
-        // Merge group: join values, expand bounds, track line count
+        // Merge group: join values, expand bounds, track line count.
+        // Semantic dedup: identical placeholder values (e.g. ["List item",
+        // "List item"] from a 2-line wrapped <li> in semantic mode) render
+        // once instead of joining into "List item List item".
         const first = group[0];
         const last = group[group.length - 1];
+        const allSameValue = group.every(t => t.value === first.value);
         const merged: TextChildValue = {
-          value: group.map(t => t.value).join(' '),
+          value: allSameValue ? first.value : group.map(t => t.value).join(' '),
           font: first.font,
           platformFamily: first.platformFamily,
           x: first.x,
