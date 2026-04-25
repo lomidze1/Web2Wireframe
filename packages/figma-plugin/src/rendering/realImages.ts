@@ -132,7 +132,10 @@ export async function createRealImage(
       if (isRasterMasqueradeSvg(svgString)) {
         const embedded = extractEmbeddedImageFromSvg(svgString);
         if (embedded) {
-          // Recurse with the extracted data URI — it'll hit the raster path below.
+          // The outer `frame` (created above) is never used on this branch —
+          // the inner recursion creates its own fresh frame. Remove ours
+          // first to avoid leaking an orphan on figma.currentPage.
+          try { frame.remove(); } catch { /* non-fatal */ }
           return await createRealImage(node, embedded, context);
         }
       }

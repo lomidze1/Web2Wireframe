@@ -798,41 +798,6 @@ export async function createNodeInFigma(
     context.interactionMode === "variants" &&
     (hasOwnPseudoStates || hasLiveDescendantDiffs);
 
-  // DEBUG: log every node that was registered as hoverable at Pass 1 time,
-  // regardless of whether Pass 2 still considers it one.
-  if (
-    context.interactionMode === "variants" &&
-    (node.pseudoStateStyles !== undefined || node.hasDescendantHover === true)
-  ) {
-    try {
-      const { childrenStructureSignature, visualStyleSignature } = await import(
-        "./hoverConsolidation"
-      );
-      const cat = childrenStructureSignature(node);
-      const vSig = visualStyleSignature(node);
-      const registry = context.hoverMasterRegistry;
-      const entry = registry ? registry.get(cat) : undefined;
-      const variantIdx = entry ? entry.variantByVisualSig.get(vSig) : undefined;
-      console.log("[W2W-PASS2]", JSON.stringify({
-        tag: node.tag,
-        name: node.name,
-        hasOwnPseudo: hasOwnPseudoStates,
-        pseudoHoverExists: node.pseudoStateStyles?.hover !== undefined,
-        hasDescendantHover: node.hasDescendantHover === true,
-        shouldCreate: shouldCreateVariants,
-        categoryKey: cat,
-        vSigHash: vSig.substring(0, 50),
-        registryHasCategory: !!entry,
-        registryHasVariant: variantIdx !== undefined,
-        childTypes: (node.children ?? []).map(
-          (c) => c.type + ":" + (c.tag || ""),
-        ),
-      }));
-    } catch (err) {
-      console.log("[W2W-PASS2-ERR]", err instanceof Error ? err.message : String(err));
-    }
-  }
-
   if (shouldCreateVariants) {
     // PASS 2 — h2d-aligned path. If Pass 1 built a master ComponentSet for
     // this node's (childrenStructure, visualSig) bucket, we create an

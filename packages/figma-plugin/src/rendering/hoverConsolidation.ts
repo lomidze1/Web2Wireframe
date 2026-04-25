@@ -439,6 +439,21 @@ async function buildComponentFromWireframe(
   context: RenderContext,
 ): Promise<ComponentNode> {
   try {
+    // Leaf placeholders (<img>/<svg>/<video> with no children) leak an
+    // intermediate FrameNode onto figma.currentPage if we run them through
+    // the full createNodeInFigma → createRealImage/createPlaceholder path:
+    // figma.createFrame() auto-parents to currentPage, children are moved
+    // into comp, then frame.remove() at line 491 silently fails for raster
+    // image frames in some sandbox conditions — leaving orphans at (0,0).
+    // Skeleton already handles rep.fills (including IMAGE paint), so short-
+    // circuit. PASS-2 instance rendering still emits the real image via
+    // createRealImage called independently from createWireframeFrame.
+    const isLeafPlaceholder =
+      (rep.type === "placeholder" || rep.isPlaceholder === true) &&
+      (rep.children?.length ?? 0) === 0;
+    if (isLeafPlaceholder) {
+      return buildSkeletonComponent(name, rep, collectTextValues(rep));
+    }
     const { createNodeInFigma } = await import("./nodes");
     // Deep-clone the representative so we can safely mutate (remove
     // pseudoStateStyles, hasDescendantHover) without touching the tree.
@@ -646,16 +661,6 @@ export async function buildHoverMasterRegistry(
   const byCategory = new Map<string, WireframeNode[]>();
   for (const node of hoverables) {
     const key = childrenStructureSignature(node);
-    const vSig = visualStyleSignature(node);
-    // DEBUG: log every hoverable so we can compare Pass 1 vs Pass 2 signatures.
-    console.log("[W2W-PASS1]", JSON.stringify({
-      categoryKey: key,
-      vSigHash: vSig.substring(0, 50),
-      tag: (node as { tag?: string }).tag,
-      name: (node as { name?: string }).name,
-      childTypes: (node.children ?? []).map(c => c.type + ":" + ((c as { tag?: string }).tag || "")),
-      hoverDiffKeys: Object.keys(node.pseudoStateStyles?.hover || {}),
-    }));
     if (!byCategory.has(key)) byCategory.set(key, []);
     byCategory.get(key)!.push(node);
   }
