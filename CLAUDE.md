@@ -232,3 +232,9 @@ packages/browser-extension/src/background/cdp/
 ```
 
 **ყოველთვის CDP გამოიყენე ვებსაიტის capture-ისთვის. Puppeteer მხოლოდ fallback-ად.**
+
+---
+
+## General LLM Coding Philosophy
+
+ზოგადი ქცევითი წესები (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution) იხილე გლობალურ `~/.claude/CLAUDE.md`-ში — Karpathy-inspired guidelines. ეს ფაილი ავტომატურად ჩაიტვირთება ყველა conversation-ში და ავსებს ამ პროექტის წესებს.

@@ -458,3 +458,163 @@ describe("css-converter: renderedTextWidths preservation", () => {
     expect(pNode!.renderedTextWidths).toEqual([160, 100]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Semantic-placeholder dedup: identical values must NOT duplicate when joined
+// ---------------------------------------------------------------------------
+
+describe("css-converter: identical-value dedup (semantic placeholder fix)", () => {
+  it("mixed-children path: <li> with 2 identical 'List item' values renders once", () => {
+    // Simulates W-10 bug: pricing page <li>Text content: placeholders only</li>
+    // wraps to 2 lines at 1024px → 2 W2WTextNodes. transformW2WTreeText then
+    // replaces both values with "List item" → merge MUST NOT join into
+    // "List item List item".
+    const marker = makeFrame({
+      tag: 'span',
+      classList: ['__w2w-pseudo-marker'],
+      x: 0, y: 0, width: 8, height: 16,
+      quad: [0, 0, 8, 0, 8, 16, 0, 16],
+      styles: { display: 'inline', position: 'static' },
+      children: [makeText('•', { x: 0, y: 0, width: 8, height: 16 })],
+    });
+
+    const text1 = makeText('List item', { x: 16, y: 0, width: 200, height: 18 });
+    const text2 = makeText('List item', { x: 16, y: 20, width: 180, height: 18 });
+
+    const li = makeFrame({
+      tag: 'li',
+      x: 0, y: 0, width: 220, height: 38,
+      quad: [0, 0, 220, 0, 220, 38, 0, 38],
+      styles: { display: 'list-item', fontSize: '14px' },
+      children: [marker, text1, text2],
+    });
+
+    const ul = makeFrame({
+      tag: 'ul',
+      styles: { display: 'block' },
+      children: [li],
+    });
+
+    const result = convertW2WToWireframe(ul as never, { layoutMode: 'autoLayout' });
+    const textNodes = collectTextNodes(result);
+
+    const liText = textNodes.find(t => t.textContent.includes('List item'));
+    expect(liText).toBeDefined();
+    expect(liText!.textContent).toBe('List item');                  // NOT "List item List item"
+    expect(liText!.textContent).not.toContain('List item List');
+    // FILLR metadata preserved for Lines mode
+    expect(liText!.browserLineCount).toBe(2);
+    expect(liText!.renderedTextWidths).toEqual([200, 180]);
+  });
+
+  it("mixed-children path: 3 identical values render once (not tripled)", () => {
+    const marker = makeFrame({
+      tag: 'span',
+      classList: ['__w2w-pseudo-marker'],
+      x: 0, y: 0, width: 8, height: 16,
+      quad: [0, 0, 8, 0, 8, 16, 0, 16],
+      styles: { display: 'inline', position: 'static' },
+      children: [makeText('•', { x: 0, y: 0, width: 8, height: 16 })],
+    });
+
+    const lines = [0, 1, 2].map(i => makeText('List item', {
+      x: 16, y: i * 20, width: 200, height: 18,
+    }));
+
+    const li = makeFrame({
+      tag: 'li',
+      x: 0, y: 0, width: 220, height: 60,
+      quad: [0, 0, 220, 0, 220, 60, 0, 60],
+      styles: { display: 'list-item', fontSize: '14px' },
+      children: [marker, ...lines],
+    });
+
+    const ul = makeFrame({ tag: 'ul', styles: { display: 'block' }, children: [li] });
+
+    const result = convertW2WToWireframe(ul as never, { layoutMode: 'autoLayout' });
+    const textNodes = collectTextNodes(result);
+
+    const liText = textNodes.find(t => t.textContent.includes('List item'));
+    expect(liText).toBeDefined();
+    expect(liText!.textContent).toBe('List item');
+    expect(liText!.browserLineCount).toBe(3);
+  });
+
+  it("text-coalesce path: <p> with 3 identical 'Body text...' values renders once", () => {
+    // Simulates pricing page <p> Body text paragraph wrapping to 3 lines at 1024px,
+    // semantic mode → all 3 become identical placeholders.
+    const lines = [0, 1, 2].map(i => makeText('Body text paragraph with sample content.', {
+      x: 0, y: i * 20, width: 400, height: 18,
+    }));
+
+    const p = makeFrame({
+      tag: 'p',
+      x: 0, y: 0, width: 400, height: 60,
+      quad: [0, 0, 400, 0, 400, 60, 0, 60],
+      styles: { display: 'block', fontSize: '16px' },
+      children: lines,
+    });
+
+    const result = convertW2WToWireframe(p as never, { layoutMode: 'autoLayout' });
+    const pNode = findNode(result, (n) => n.tag === 'p' && n.type === 'text');
+
+    expect(pNode).toBeDefined();
+    expect(pNode!.textContent).toBe('Body text paragraph with sample content.');
+    expect(pNode!.browserLineCount).toBe(3);
+
+    // styledSegments must NOT carry duplicate entries — text.ts auto-inserts
+    // separator spaces between segments, which would resurrect the duplication.
+    const segs = pNode!.styledSegments as Array<{ text: string }> | undefined;
+    if (segs && segs.length > 0) {
+      expect(segs.length).toBe(1);
+      expect(segs[0].text).toBe('Body text paragraph with sample content.');
+    }
+  });
+
+  it("text-coalesce path: <h1> 'Page Title Page Title' bug — must dedup", () => {
+    const lines = [0, 1].map(i => makeText('Page Title', {
+      x: 0, y: i * 32, width: 200, height: 28,
+      font: '700 28px Inter',
+    }));
+
+    const h1 = makeFrame({
+      tag: 'h1',
+      x: 0, y: 0, width: 220, height: 64,
+      quad: [0, 0, 220, 0, 220, 64, 0, 64],
+      styles: { display: 'block', fontSize: '28px' },
+      children: lines,
+    });
+
+    const result = convertW2WToWireframe(h1 as never, { layoutMode: 'autoLayout' });
+    const h1Node = findNode(result, (n) => n.tag === 'h1' && n.type === 'text');
+
+    expect(h1Node).toBeDefined();
+    expect(h1Node!.textContent).toBe('Page Title');
+    expect(h1Node!.browserLineCount).toBe(2);
+
+    const segs = h1Node!.styledSegments as Array<{ text: string }> | undefined;
+    if (segs && segs.length > 0) {
+      expect(segs.length).toBe(1);
+    }
+  });
+
+  it("regression: different values still join with space (lorem/website mode)", () => {
+    // Lorem mode: per-line random words must STILL join, not dedup.
+    const text1 = makeText('Lorem ipsum dolor', { x: 0, y: 0, width: 100, height: 18 });
+    const text2 = makeText('sit amet consectetur', { x: 0, y: 20, width: 120, height: 18 });
+
+    const p = makeFrame({
+      tag: 'p',
+      x: 0, y: 0, width: 200, height: 40,
+      quad: [0, 0, 200, 0, 200, 40, 0, 40],
+      styles: { display: 'block', fontSize: '16px' },
+      children: [text1, text2],
+    });
+
+    const result = convertW2WToWireframe(p as never, { layoutMode: 'autoLayout' });
+    const pNode = findNode(result, (n) => n.tag === 'p' && n.type === 'text');
+
+    expect(pNode).toBeDefined();
+    expect(pNode!.textContent).toBe('Lorem ipsum dolor sit amet consectetur');
+  });
+});
