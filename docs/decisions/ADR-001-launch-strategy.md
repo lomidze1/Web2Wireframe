@@ -1,10 +1,13 @@
 # ADR-001: Launch Strategy — Path A+ (Import-First, AI Deferred to Q3)
 
-**Status:** Accepted
+**Status:** ⚠️ SUPERSEDED by [LAUNCH-STRATEGY-2026.md](./LAUNCH-STRATEGY-2026.md)
 **Date:** 2026-05-03
 **Deciders:** Giorgi Lomidze (sole founder)
 **Supersedes:** None
+**Superseded by:** [LAUNCH-STRATEGY-2026.md](./LAUNCH-STRATEGY-2026.md) — Path A++ Single-Tier Strategy ($15 Paid only, no Q3 AI promise)
 **Related:** [docs/plans/PAYMENT-SYSTEM.md](../plans/PAYMENT-SYSTEM.md)
+
+> ⚠️ **NOTE:** This ADR documented the initial Path A+ recommendation (3-tier pricing with Q3 AI promise). After further deliberation, the founder pivoted to a simpler single-tier approach. **See [LAUNCH-STRATEGY-2026.md](./LAUNCH-STRATEGY-2026.md) for the FINAL decision.** This document is preserved for historical context only.
 
 ---
 
