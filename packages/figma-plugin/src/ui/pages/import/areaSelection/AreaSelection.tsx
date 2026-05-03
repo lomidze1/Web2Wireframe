@@ -12,6 +12,7 @@ import { transformFramesData, transformW2WTreeText } from "../../../shared/trans
 import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import SettingsPanel from "../../../components/settingsPanel";
+import { buildFontDownloads } from "../../../../utils/fontDownload";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -302,6 +303,10 @@ export default function AreaSelection() {
     pluginFont: string;
     pluginFontOptions: string[];
   } | null>(null);
+  // Extracted fonts from the captured file — fed into FontFallbackModal so the
+  // "Download fonts (.zip)" button can appear when fonts are missing locally.
+  // Mirrors the pattern used by Web.tsx and HTML.tsx.
+  const [extractedFonts, setExtractedFonts] = useState<unknown[]>([]);
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
@@ -354,6 +359,12 @@ export default function AreaSelection() {
       }
 
       if (msg.type === "fonts-not-available") {
+        // [E] UI (AreaSelection): fonts-not-available received
+        console.log("[W2W-FONT-TRACE] E: UI (AreaSelection) received fonts-not-available", {
+          missingFonts: msg.data?.missingFonts,
+          pluginFontOptions: msg.data?.pluginFontOptions,
+          extractedFontsLength: extractedFonts.length,
+        });
         // Clear safety timeout — sandbox responded
         if (renderTimeoutRef.current) {
           clearTimeout(renderTimeoutRef.current);
@@ -412,6 +423,10 @@ export default function AreaSelection() {
   ) => {
     // Collapse settings panel during import
     settings.collapseSettings();
+
+    // Surface the captured fonts list so FontFallbackModal can offer the
+    // "Download fonts (.zip)" button if any are missing on the user's machine.
+    setExtractedFonts(captureResult.fonts || []);
 
     // Cancel any pending reset from previous import
     if (resetTimeoutRef.current) {
@@ -711,6 +726,8 @@ export default function AreaSelection() {
         defaultMapping={fontModalData?.defaultMapping || {}}
         pluginFont={fontModalData?.pluginFont || "Montserrat"}
         pluginFontOptions={fontModalData?.pluginFontOptions || []}
+        fontDownloads={buildFontDownloads(fontModalData?.missingFonts || [], extractedFonts)}
+        extractedFonts={extractedFonts as Array<{ family: string; style?: string; weight?: string; format?: string; src?: string; fontBase64?: string; fontMimeType?: string }>}
         onChoice={handleFontFallbackChoice}
       />
 

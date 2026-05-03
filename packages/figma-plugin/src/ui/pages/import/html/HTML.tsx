@@ -87,6 +87,12 @@ export default function HTML() {
       }
 
       if (msg.type === "fonts-not-available") {
+        // [E] UI (HTML): fonts-not-available received
+        console.log("[W2W-FONT-TRACE] E: UI (HTML) received fonts-not-available", {
+          missingFonts: msg.data?.missingFonts,
+          pluginFontOptions: msg.data?.pluginFontOptions,
+          extractedFontsLength: extractedFonts.length,
+        });
         setFontModalData(msg.data);
         setShowFontModal(true);
       }

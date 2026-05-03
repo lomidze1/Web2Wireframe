@@ -25,7 +25,22 @@ interface FontFallbackModalProps {
   pluginFontOptions: string[];
   fallbackChains?: Record<string, string[]>;
   fontDownloads?: FontDownloadInfo[];
-  extractedFonts?: Array<{ family: string; style?: string; weight?: string; format?: string; src?: string; fontBase64?: string; fontMimeType?: string }>;
+  extractedFonts?: Array<{
+    family?: string;
+    fontFamily?: string;
+    style?: string;
+    weight?: string;
+    format?: string;
+    src?: string;
+    fontBase64?: string;
+    fontMimeType?: string;
+    /** Real family name read from the SFNT `name` table on the server.
+     *  When present, "Use original fonts" maps the CSS-declared family to
+     *  this name so the post-render rebind action can match it against
+     *  what Figma will actually have installed. */
+    realFamily?: string;
+    realSubfamily?: string;
+  }>;
   onChoice: (choice: FontFallbackChoice, fontMapping: FontMapping) => void;
 }
 
@@ -43,6 +58,15 @@ export default function FontFallbackModal({
   const [showPluginDropdowns, setShowPluginDropdowns] = useState(false);
   const [showOriginalSection, setShowOriginalSection] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  /** Live ZIP-creation progress (0..100) while downloading, otherwise null. */
+  const [zipProgress, setZipProgress] = useState<number | null>(null);
+  /** Inline notice shown beneath the download button.
+   *  - "warning" → ZIP delivered but missing some fonts (partial failure)
+   *  - "error"   → download itself failed entirely (no ZIP delivered) */
+  const [downloadNotice, setDownloadNotice] = useState<
+    | { kind: "warning" | "error"; message: string }
+    | null
+  >(null);
   // Per-font mapping: initialize each missing font to pluginFont
   const [fontMapping, setFontMapping] = useState<FontMapping>(() => {
     const initial: FontMapping = {};
@@ -51,6 +75,17 @@ export default function FontFallbackModal({
     }
     return initial;
   });
+
+  // [G] Modal render — fires every render while open. Useful for verifying
+  // the modal is reaching the rendering path with correct props.
+  if (isOpen) {
+    console.log("[W2W-FONT-TRACE] G: FontFallbackModal render (open)", {
+      missingFontsCount: missingFonts.length,
+      missingFonts,
+      fontDownloadsCount: fontDownloads?.length ?? 0,
+      extractedFontsLength: extractedFonts?.length ?? 0,
+    });
+  }
 
   if (!isOpen) return null;
 
@@ -84,22 +119,64 @@ export default function FontFallbackModal({
   };
 
   const handleOriginalApply = () => {
-    // Identity mapping: each font maps to itself (original names preserved)
-    // main.ts will render with Inter but create Text Styles with original names
+    // Map each missing CSS-declared family to its **real** family name from
+    // the SFNT `name` table when the API supplied one. Anti-piracy aliased
+    // sites (paulstamatiou.com → "PSC", "PSA", etc.) declare CSS short
+    // codes but the actual installed font carries a different family
+    // ("PPCirka", "Averta Std"). The marker we'll later stamp onto each
+    // text node must hold the real name so that, post-install,
+    // `loadFontAsync({ family: realName })` actually resolves.
+    //
+    // Identity fallback when realFamily is absent (Google Fonts, Roboto,
+    // etc. — CSS family already matches the installed name).
     const mapping: FontMapping = {};
     for (const font of missingFonts) {
-      mapping[font] = font;
+      const ef = extractedFonts?.find(
+        (e) => (e.fontFamily ?? e.family) === font,
+      );
+      mapping[font] = ef?.realFamily || font;
     }
     onChoice("continue", mapping);
   };
 
   const handleDownloadFonts = async () => {
+    // [H] Download click — entry point parameters
+    console.log("[W2W-FONT-TRACE] H: handleDownloadFonts entry", {
+      fontDownloadsCount: fontDownloads?.length ?? 0,
+      extractedFontsLength: extractedFonts?.length ?? 0,
+      missingFontsCount: missingFonts.length,
+    });
+
     if (!fontDownloads || fontDownloads.length === 0) return;
     setIsDownloading(true);
+    setDownloadNotice(null);
+    setZipProgress(0);
     try {
       const entries = buildFontDownloadEntries(fontDownloads, extractedFonts);
-      if (entries.length === 0) return;
-      const blob = await createFontsZipBlob(entries);
+
+      // [I] ZIP entries built
+      console.log("[W2W-FONT-TRACE] I: buildFontDownloadEntries result", {
+        entriesCount: entries.length,
+        entries: entries.map((e) => ({
+          family: e.family,
+          fileName: e.fileName,
+          url: e.url,
+          hasFontBase64: Boolean(e.fontBase64),
+          fontMimeType: e.fontMimeType,
+        })),
+      });
+
+      if (entries.length === 0) {
+        setDownloadNotice({
+          kind: "error",
+          message: "No font files were available to download.",
+        });
+        return;
+      }
+      const { blob, skippedEntries } = await createFontsZipBlob(
+        entries,
+        (percent) => setZipProgress(percent)
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -108,10 +185,29 @@ export default function FontFallbackModal({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch {
-      // Download failed silently
+
+      // Surface partial failures so the user isn't left wondering why a font is
+      // missing from their ZIP.
+      if (skippedEntries.length > 0) {
+        setDownloadNotice({
+          kind: "warning",
+          message: `${skippedEntries.length} font file${
+            skippedEntries.length === 1 ? "" : "s"
+          } could not be packaged (skipped).`,
+        });
+      }
+    } catch (err) {
+      // [W2W-FONT-TRACE] surface the underlying error so we can diagnose
+      // ZIP failures (network, CORS, sandbox restrictions) instead of
+      // showing the user a generic "try again" message with no signal.
+      console.error("[W2W-FONT-TRACE] handleDownloadFonts threw:", err);
+      setDownloadNotice({
+        kind: "error",
+        message: "Download failed. Please try again.",
+      });
     } finally {
       setIsDownloading(false);
+      setZipProgress(null);
     }
   };
 
@@ -136,7 +232,7 @@ export default function FontFallbackModal({
             ))}
           </p>
 
-          <div class={styles.variablesOptions}>
+          <div class={`${styles.variablesOptions} ${styles.fontFallbackOptions}`}>
             {/* Option 1: Use CSS fallback fonts */}
             <button
               class={styles.variablesOption}
@@ -217,8 +313,24 @@ export default function FontFallbackModal({
                       onClick={handleDownloadFonts}
                       disabled={isDownloading}
                     >
-                      {isDownloading ? "Downloading..." : "Download fonts (.zip)"}
+                      {isDownloading
+                        ? zipProgress != null
+                          ? `Downloading... ${zipProgress}%`
+                          : "Downloading..."
+                        : "Download fonts (.zip)"}
                     </button>
+                  )}
+                  {downloadNotice && (
+                    <div
+                      class={
+                        downloadNotice.kind === "error"
+                          ? styles.fontDownloadError
+                          : styles.fontDownloadWarning
+                      }
+                      role="status"
+                    >
+                      {downloadNotice.message}
+                    </div>
                   )}
                   <button
                     class={styles.fontApplyBtn}

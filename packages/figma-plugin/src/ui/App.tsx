@@ -177,6 +177,15 @@ function AppContent() {
           setPage("import");
           setImportTab("extension");
         }}
+        onRebindFontsClick={() => {
+          // Sandbox handles `rebind-original-fonts`: walks selection (or page
+          // if empty), re-applies any text node that carries the
+          // `w2w_original_font` marker, and reports a toast via figma.notify.
+          parent.postMessage(
+            { pluginMessage: { type: "rebind-original-fonts" } },
+            "*",
+          );
+        }}
       />
 
       {/* Modals */}

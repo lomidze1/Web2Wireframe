@@ -30,6 +30,9 @@ src/
     Home/
     HowItWorks/
     Pricing/
+    Checkout/            # (TBD) Flitt checkout entry, Success, Cancel
+    Account/             # (TBD) Manage subscription, view usage, cancel
+    Credits/             # (TBD) Buy Credit Packs (Pro plan only)
     Docs/                # Complex: sidebar, breadcrumb, search, 30+ sub-pages
     Support/
     Terms&conditions/
@@ -54,9 +57,28 @@ src/
 - Global styles in `src/styles/global.scss`
 - No inline styles
 
+## Payment Flow (Flitt)
+
+**Checkout entry points:**
+- Plugin → opens `/checkout?plan=plus&fid=<figmaUserId>` for subscription
+- Plugin → opens `/credits?fid=<figmaUserId>&pack=small` for one-time Credit Pack
+- Plugin → opens `/account?fid=<figmaUserId>&t=<signedToken>` for Manage Subscription
+
+**Frontend responsibilities:**
+- Validate query params, display product summary
+- Call API `POST /api/checkout/create` (or `/api/checkout/credits`) → receive `checkoutUrl`
+- Redirect user to Flitt-hosted checkout page (`pay.flitt.com/...`)
+- On return: Success/Cancel pages display result, suggest closing tab to return to plugin
+
+**No payment SDK on frontend** — all Flitt API calls happen server-side (`packages/api`). Frontend never sees secret_key.
+
+**`checkoutLinks` in `src/data/links.ts`:** old Pricing page links (currently `"#"`). Replace with route-based links: `/checkout?plan=plus`, etc.
+
 ## Warnings
 
 - ეს არის **React** (არა Preact, როგორც Plugin_Frontend)
 - Docs/ folder ძალიან კომპლექსურია — ფრთხილად ცვლილებებთან
-- No environment variables needed (static site)
+- Environment variables: `VITE_API_URL` (already exists), `VITE_CHECKOUT_BASE` if needed
 - No test framework configured
+- **Flitt checkout link generation lives on backend** — frontend just opens `checkoutUrl` returned by API. NEVER call Flitt directly from browser.
+- **Privacy/Terms pages must mention Flitt** when payment system goes live (PCI-DSS Level 1, no card data on our servers)

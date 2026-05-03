@@ -45,6 +45,14 @@ import {
   buildFontsNotAvailableMessage,
   buildPluginModeFontMapping,
 } from "./utils/fontUtils";
+import {
+  prePassConvertFrames,
+  isPlaceholderTree,
+} from "./utils/preprocessFrames";
+import {
+  rebindOriginalFonts,
+  collectTextNodesIn,
+} from "./rendering/rebindFonts";
 
 // ============================================================================
 // Main Plugin Function
@@ -127,6 +135,25 @@ export default function () {
       const effectiveColorMode = colorMode || "plugin";
       const effectiveFontMode = fontMode || "plugin";
 
+      // ----------------------------------------------------------------------
+      // PRE-PASS: Convert W2W content-script `capturedData.frame` →
+      // WireframeNode `tree` for every frame BEFORE any sandbox code reads
+      // `frame.tree`. Without this, the font availability check below
+      // (collectAllFonts) and `websiteFont` derivation see only placeholder
+      // (null/{}) trees and silently fall back to defaults — the symptom
+      // was that Web/HTML/AreaSelection imports never opened the font
+      // fallback modal, even when the page used unavailable fonts.
+      //
+      // Idempotent + side-effect-free for legacy frames (no capturedData).
+      // The duplicate FIX A loop inside executeRender remains as a safety
+      // net but is now a no-op for content-script-format frames (its
+      // guard checks isPlaceholderTree, so populated trees are skipped).
+      // ----------------------------------------------------------------------
+      prePassConvertFrames(frames as Parameters<typeof prePassConvertFrames>[0], {
+        layoutMode: (layoutMode || "autoLayout") as "absolute" | "autoLayout",
+        interactionMode: (interactionMode || "none") as "none" | "variants",
+      });
+
       // Determine font family based on fontMode
       const websiteFont = frames[0]?.tree?.fontFamily || "Inter";
       const websiteFontList = frames[0]?.tree?.fontFamilyList || [];
@@ -207,8 +234,13 @@ export default function () {
       // tree wouldn't carry capturedData.frame (legacy prepareFramesForRendering
       // path doesn't set it).
       // -----------------------------------------------------------------------
+      // Safety net for legacy callers that bypass the top-level pre-pass
+      // (none today — but guards future regressions). The pre-pass at the
+      // entry of the message handler already converted every frame whose
+      // tree was a placeholder; here we only reconvert if a placeholder is
+      // still present, so this loop is a no-op in the common path.
       for (const frameData of frames) {
-        if (frameData.capturedData?.frame) {
+        if (frameData.capturedData?.frame && isPlaceholderTree(frameData.tree)) {
           try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const capturedFrame = frameData.capturedData.frame as any;
@@ -391,6 +423,7 @@ export default function () {
         textMode: textMode || "semantic",
         variableStyleMap,
         fontMapping,
+        originalFontNames,
         assetMode: assetMode || "placeholders",
         assetsMap,
         interactionMode: interactionMode || "none",
@@ -779,6 +812,14 @@ export default function () {
       // Pre-render font availability check
       const allFonts = collectAllFonts(frames);
 
+      // [A] Sandbox: font check entry
+      const allFontsArray = Array.from(allFonts);
+      console.log("[W2W-FONT-TRACE] A: sandbox font check entry", {
+        effectiveFontMode,
+        allFontsCount: allFontsArray.length,
+        allFontsSample: allFontsArray.slice(0, 10),
+      });
+
       if (effectiveFontMode === "website") {
         const { missing } = await checkFontsAvailability(allFonts);
 
@@ -791,19 +832,45 @@ export default function () {
           // Deduplicate
           const uniqueOptions = Array.from(new Set(pluginFontOptions));
 
+          // [B] Sandbox: missing fonts detected
+          console.log("[W2W-FONT-TRACE] B: missing fonts detected", {
+            missing,
+            pluginFont: pluginFont || "Montserrat",
+            uniqueOptions,
+          });
+
           const message = buildFontsNotAvailableMessage(
             missing,
             pluginFont || "Montserrat",
             uniqueOptions
           );
 
+          // [C] Sandbox: posting fonts-not-available message to UI
+          console.log("[W2W-FONT-TRACE] C: posting message to UI", {
+            type: message.type,
+            data: message.data,
+          });
+
           pendingRenderData = { data, executeRender, missingFonts: missing };
           figma.ui.postMessage(message);
           return; // Wait for user choice via font-fallback-choice message
         }
+
+        // [B'] Sandbox: website mode but no missing fonts → skip modal
+        console.log("[W2W-FONT-TRACE] B': website mode but 0 missing fonts — modal skipped", {
+          allFontsCount: allFontsArray.length,
+        });
       } else {
         // Plugin mode: map all fonts to pluginFont automatically
         const pluginFontMapping = buildPluginModeFontMapping(allFonts, pluginFont || "Montserrat");
+
+        // [D] Sandbox: skip branch — plugin mode auto-maps all fonts; modal never shows
+        console.log("[W2W-FONT-TRACE] D: plugin-mode branch (modal NOT shown)", {
+          effectiveFontMode,
+          pluginFont: pluginFont || "Montserrat",
+          mappingSize: Object.keys(pluginFontMapping).length,
+        });
+
         await executeRender(initialFontFamily, pluginFontMapping);
         return;
       }
@@ -821,6 +888,61 @@ export default function () {
           },
         });
       }
+    }
+
+    // Handle "Re-apply original fonts" footer action.
+    // Smart scope: walk the active selection if non-empty, else the whole
+    // current page. Reports a toast with rebound / total / still-missing.
+    if (msg.type === "rebind-original-fonts") {
+      try {
+        const selection = figma.currentPage.selection;
+        const scope =
+          selection.length > 0
+            ? collectTextNodesIn(selection as unknown as SceneNode[])
+            : (figma.currentPage.findAll((n) => n.type === "TEXT") as TextNode[]);
+
+        if (scope.length === 0) {
+          figma.notify("Re-apply fonts: nothing to scan in this scope.");
+          return;
+        }
+
+        const result = await rebindOriginalFonts(scope);
+        const cumulative = result.previouslyRebound + result.rebound;
+
+        if (result.total === 0 && result.previouslyRebound === 0) {
+          figma.notify("Re-apply fonts: no marked text found.");
+        } else if (result.total === 0 && result.previouslyRebound > 0) {
+          // All markers cleared in earlier passes — nothing new to do, but
+          // the user has accumulated rebinds in this scope. Show that
+          // instead of the misleading "no marked text found".
+          figma.notify(`All ${result.previouslyRebound} font(s) already re-applied.`);
+        } else if (
+          result.rebound === result.total &&
+          result.skippedMixed === 0 &&
+          result.previouslyRebound === 0
+        ) {
+          figma.notify(`Re-applied ${result.rebound} text node(s) to original fonts.`);
+        } else {
+          const parts = [
+            result.previouslyRebound > 0
+              ? `Re-applied ${result.rebound} new (${cumulative} total)`
+              : `Re-applied ${result.rebound} / ${result.total}`,
+          ];
+          if (result.stillMissing.length > 0) {
+            const list = result.stillMissing.slice(0, 3).join(", ");
+            const more = result.stillMissing.length > 3 ? ` (+${result.stillMissing.length - 3} more)` : "";
+            parts.push(`still missing: ${list}${more}`);
+          }
+          if (result.skippedMixed > 0) {
+            parts.push(`${result.skippedMixed} mixed-style skipped`);
+          }
+          figma.notify(parts.join(" — "));
+        }
+      } catch (err) {
+        logger.warn("rebind-original-fonts handler failed", { error: err });
+        figma.notify("Re-apply fonts failed. Check console for details.", { error: true });
+      }
+      return;
     }
 
     // Handle save-config message

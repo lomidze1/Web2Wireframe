@@ -110,6 +110,22 @@ export async function extractPage(): Promise<ExtractPageResult> {
     //    background-image: url(*.svg) so the plugin renders them as vectors.
     await inlineSvgMarkup(frame);
 
+    // [W2W-VERIFY] === instrumentation: collect font strings from CSS ===
+    const __verifyFonts = new Set<string>();
+    const __walk = (n: W2WFrameNode | W2WTextNode | W2WSVGNode): void => {
+      if (n.type === 'TEXT' && n.font) __verifyFonts.add(n.font);
+      if (n.type === 'FRAME' && n.children) n.children.forEach(__walk);
+    };
+    __walk(frame);
+    console.log(
+      `%c[W2W-VERIFY-CONTENT] extractPage() done: ${nodeIndexCounter} text-hosts, ${__verifyFonts.size} unique font strings (from getComputedStyle)`,
+      'color: #2196F3; font-weight: bold',
+    );
+    console.log(
+      '[W2W-VERIFY-CONTENT] Font strings (first 10):',
+      Array.from(__verifyFonts).slice(0, 10),
+    );
+
     return { doc, frame, textHostCount: nodeIndexCounter };
   } catch (err) {
     removePreCaptureStyles();

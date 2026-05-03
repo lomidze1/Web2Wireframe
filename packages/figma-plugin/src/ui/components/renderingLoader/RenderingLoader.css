@@ -183,6 +183,36 @@
   }
 }
 
+/* Auto-dismiss progress bar — visual countdown for the 3s auto-close.
+   Width matches the success-text max-width so the line lives directly under
+   the message. Animation duration must match AUTO_DISMISS_MS in the .tsx. */
+.autoDismissBar {
+  width: 220px;
+  height: 3px;
+  background: rgba(46, 204, 113, 0.18);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.autoDismissFill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #2ecc71 0%, #3dd97f 100%);
+  box-shadow: 0 0 8px rgba(46, 204, 113, 0.4);
+  border-radius: 2px;
+  animation: autoDismissFill 3s linear forwards;
+}
+
+@keyframes autoDismissFill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
 /* Done button - appears on success */
 .doneBtn {
   margin-top: 8px;

@@ -260,6 +260,31 @@ export interface W2WFontEntry {
   src?: string;
   unicodeRange?: string;
   source?: { tabId?: number };
+  /** Base64-encoded font binary, when extracted from browser cache.
+   *  Lets the plugin bundle a "Download fonts (.zip)" archive without
+   *  re-fetching across origins (Figma sandbox CSP would block that).
+   *
+   *  After server-side WOFF2 decompression this is the underlying SFNT
+   *  payload (TTF or OTF) — installable by macOS Font Book / Windows. */
+  fontBase64?: string;
+  /** MIME type that goes with `fontBase64`. */
+  fontMimeType?: string;
+  /** Format of `fontBase64` once normalized. The plugin uses this to pick
+   *  the ZIP entry's file extension (".ttf" / ".otf" / ".woff2" / ".woff").
+   *  When server-side decompression succeeded this is "truetype" or
+   *  "opentype"; only WOFF2-decompression failures or non-decodable inputs
+   *  leave the original "woff2" / "woff" / "unknown" values. */
+  format?: "truetype" | "opentype" | "woff2" | "woff" | "unknown";
+  /** Real Family name read from the SFNT `name` table inside the font
+   *  binary (e.g. "Averta Std" — even when CSS declared "PSA"). Sites
+   *  using anti-piracy aliasing surface different real names than CSS
+   *  ones; both consumers of this shape (filename builder + post-render
+   *  rebind marker) prefer the real name when present. */
+  realFamily?: string;
+  /** Real Subfamily / Style read from the SFNT `name` table — typically
+   *  "Regular", "Bold", "Italic", "Medium Italic", etc. Used to compose
+   *  the ZIP filename (`Family-Subfamily.ttf`). */
+  realSubfamily?: string;
 }
 
 export interface W2WFontVariationAxis {

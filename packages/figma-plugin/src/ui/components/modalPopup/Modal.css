@@ -1042,6 +1042,10 @@
   display: none;
 }
 
+.fontFallbackOptions {
+  padding: 6px 0;
+}
+
 .variablesOption {
   display: flex;
   align-items: flex-start;
@@ -1169,6 +1173,31 @@
 .fontDownloadBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Inline notices shown beneath the font download button (P1 #2).
+   Warning = ZIP delivered but missing some fonts.
+   Error   = download itself failed entirely. */
+.fontDownloadWarning,
+.fontDownloadError {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.fontDownloadWarning {
+  background: rgba(232, 168, 56, 0.12);
+  color: #e8a838;
+  border: 1px solid rgba(232, 168, 56, 0.3);
+}
+
+.fontDownloadError {
+  background: rgba(231, 111, 81, 0.12);
+  color: #e76f51;
+  border: 1px solid rgba(231, 111, 81, 0.3);
 }
 
 /* ============================================================================

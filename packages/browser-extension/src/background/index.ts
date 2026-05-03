@@ -640,16 +640,13 @@ async function handleCapturePage(
       const textNodePairs = textNodes
         .map((n) => ({ backendNodeId: n.backendNodeId, nodeId: nodeIdMap.get(n.backendNodeId)! }))
         .filter((p) => p.nodeId);
-      console.log(`[W2W] Collecting platform fonts for ${textNodePairs.length} text nodes...`);
       const platformFontMap = await collectPlatformFonts(client, textNodePairs);
-      console.log(`[W2W] Platform fonts collected: ${platformFontMap.size} nodes with font data`);
 
       // Collect platform fonts for icon pseudo-elements (Layer #4)
       const childrenMap = buildTreeFromSnapshot(nodes);
       const iconNodes = findIconFontNodes(nodes, childrenMap);
       const iconPlatformFontMap = new Map<number, Array<{ familyName: string; postScriptName: string; isCustomFont: boolean; glyphCount: number }>>();
       if (iconNodes.length > 0) {
-        console.log(`[W2W] Probing platform fonts for ${iconNodes.length} icon pseudo-elements...`);
         for (const iconNode of iconNodes) {
           const fonts = await getPlatformFontForPseudoElement(
             client, iconNode.backendNodeId, iconNode.pseudoType
@@ -658,7 +655,6 @@ async function handleCapturePage(
             iconPlatformFontMap.set(iconNode.backendNodeId, fonts);
           }
         }
-        console.log(`[W2W] Icon platform fonts collected: ${iconPlatformFontMap.size} icons`);
       }
 
       // Runtime fallback: extract pseudo-element content for icon elements
@@ -716,25 +712,30 @@ async function handleCapturePage(
     }
 
     // Extract fonts (once, after all viewports)
-    updateProgress(85, "Extracting fonts...");
-    const fonts = await extractFonts(client, tab.url);
+    // Honor user setting: when `captureFonts` is false, skip extraction entirely.
+    const settings = await getSettings();
+    let fonts: Awaited<ReturnType<typeof extractFonts>> = [];
+    if (settings.captureFonts) {
+      updateProgress(85, "Extracting fonts...");
+      fonts = await extractFonts(client, tab.url);
 
-    // Extract font binary files from browser cache (Page.getResourceContent)
-    updateProgress(87, "Extracting font files...");
-    const fontResourceMap = await buildResourceMap(client);
-    for (const font of fonts) {
-      // Extract URLs from CSS src property
-      const srcUrlRegex = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
-      let match;
-      while ((match = srcUrlRegex.exec(font.src)) !== null) {
-        const fontUrl = match[1];
-        const resource = fontResourceMap.get(fontUrl);
-        if (resource) {
-          const base64 = await getResourceBase64(client, resource.frameId, fontUrl);
-          if (base64) {
-            font.fontBase64 = base64;
-            font.fontMimeType = resource.mimeType;
-            break; // First successful extraction wins
+      // Extract font binary files from browser cache (Page.getResourceContent)
+      updateProgress(87, "Extracting font files...");
+      const fontResourceMap = await buildResourceMap(client);
+      for (const font of fonts) {
+        // Extract URLs from CSS src property
+        const srcUrlRegex = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
+        let match;
+        while ((match = srcUrlRegex.exec(font.src)) !== null) {
+          const fontUrl = match[1];
+          const resource = fontResourceMap.get(fontUrl);
+          if (resource) {
+            const base64 = await getResourceBase64(client, resource.frameId, fontUrl);
+            if (base64) {
+              font.fontBase64 = base64;
+              font.fontMimeType = resource.mimeType;
+              break; // First successful extraction wins
+            }
           }
         }
       }
@@ -758,7 +759,7 @@ async function handleCapturePage(
       : undefined;
 
     // Extract real image assets from browser cache (per frame)
-    const settings = await getSettings();
+    // (settings was loaded earlier for the captureFonts gate; reuse it here.)
     if (settings.captureAssets && frames.length > 0) {
       updateProgress(94, "Extracting images from cache...");
       const resourceMap = await buildResourceMap(client);
@@ -835,6 +836,19 @@ async function handleCapturePageW2W(
     if (!tab.url) throw new Error("Cannot capture this page");
     console.log("[W2W] Starting content script capture for:", tab.url);
 
+    // [W2W-VERIFY] === instrumentation: track CDP usage during this capture ===
+    console.group("%c[W2W-VERIFY] === CAPTURE SESSION START ===", "color: #4CAF50; font-weight: bold");
+    const __verifyStartTime = Date.now();
+    const __verifyCDPCalls = {
+      setViewport: 0,
+      pageReload: 0,
+      getLayoutMetrics: 0,
+      getPlatformFonts: 0,
+      forcePseudoState: 0,
+      hoverDomQuery: 0,
+    };
+    console.log("[W2W-VERIFY] URL:", tab.url);
+
     updateProgress(5, "Connecting to page...");
     client = await createCDPClient(tabId);
 
@@ -848,6 +862,7 @@ async function handleCapturePageW2W(
     const viewports = options.viewports.length > 0 ? options.viewports : [1440];
     const targetHeight = 900;
     const captures: W2WFrameCapture[] = [];
+    console.log("[W2W-VERIFY] Viewports:", viewports);
 
     // Aggregated across all viewports for shared-font filtering
     const aggregatedUsedFamilies = new Set<string>();
@@ -879,8 +894,11 @@ async function handleCapturePageW2W(
         screenOrientation: { angle: 0, type: "landscapePrimary" },
       });
 
+      __verifyCDPCalls.setViewport++;
+
       await client.send("Page.reload", { ignoreCache: false });
       await new Promise((resolve) => setTimeout(resolve, 1500));
+      __verifyCDPCalls.pageReload++;
 
       // Auto-scroll for lazy content
       await autoScrollPage(client);
@@ -889,6 +907,7 @@ async function handleCapturePageW2W(
       const layoutMetrics = await client.send<{
         layoutViewport: { clientWidth: number; clientHeight: number };
       }>("Page.getLayoutMetrics", {});
+      __verifyCDPCalls.getLayoutMetrics++;
 
       const actualLayoutWidth = layoutMetrics.layoutViewport.clientWidth;
       const scrollbarWidth = targetViewport - actualLayoutWidth;
@@ -941,6 +960,10 @@ async function handleCapturePageW2W(
       console.log(
         `[W2W] DOM extracted at ${label}: ${w2wCountNodes(frame)} nodes, ${textHostCount} text hosts`,
       );
+      console.log(
+        `%c[W2W-VERIFY-CONTENT] Content script extracted ${w2wCountNodes(frame)} nodes, ${textHostCount} text-hosts at ${label}`,
+        "color: #2196F3",
+      );
 
       // --- Platform Fonts via CDP (per viewport) ---
       updateProgress(
@@ -961,6 +984,10 @@ async function handleCapturePageW2W(
 
       const fontsByIdx = new Map<number, { familyName: string; postScriptName: string }>();
       if (idxResult.nodeIds.length > 0) {
+        console.log(
+          `%c[W2W-VERIFY-CDP] About to call CSS.getPlatformFontsForNode for ${idxResult.nodeIds.length} text elements at ${label}`,
+          "color: #FF9800",
+        );
         for (const nodeId of idxResult.nodeIds) {
           try {
             const fontsResult = await client.send<{
@@ -990,6 +1017,13 @@ async function handleCapturePageW2W(
                   postScriptName: primaryFont.postScriptName,
                 });
                 aggregatedUsedFamilies.add(primaryFont.familyName.toLowerCase());
+                __verifyCDPCalls.getPlatformFonts++;
+                if (fontsByIdx.size <= 5) {
+                  console.log(
+                    `%c[W2W-VERIFY-CDP] idx=${idx}: platform="${primaryFont.familyName}" (postScript="${primaryFont.postScriptName}", custom=${primaryFont.isCustomFont}, glyphs=${primaryFont.glyphCount})`,
+                    "color: #FF9800",
+                  );
+                }
               }
             }
           } catch {
@@ -1050,12 +1084,14 @@ async function handleCapturePageW2W(
                 "DOM.querySelector",
                 { nodeId: docRoot.root.nodeId, selector },
               );
+              __verifyCDPCalls.hoverDomQuery++;
               if (!qResult.nodeId) continue;
 
               await client.send("CSS.forcePseudoState", {
                 nodeId: qResult.nodeId,
                 forcedPseudoClasses: ["hover"],
               });
+              __verifyCDPCalls.forcePseudoState++;
 
               await new Promise((r) => setTimeout(r, 16));
 
@@ -1068,6 +1104,7 @@ async function handleCapturePageW2W(
                 nodeId: qResult.nodeId,
                 forcedPseudoClasses: [],
               });
+              __verifyCDPCalls.forcePseudoState++;
 
               if (hoverResult?.success && hoverResult.data) {
                 node.hover = hoverResult.data as W2WFrameNode;
@@ -1149,8 +1186,12 @@ async function handleCapturePageW2W(
     }
 
     // --- Font Extraction ---
-    updateProgress(80, "Extracting fonts...");
-    const extractedFonts = await extractFonts(client, tab.url);
+    // Honor user setting: when `captureFonts` is false, skip extraction entirely.
+    let extractedFonts: Awaited<ReturnType<typeof extractFonts>> = [];
+    if (settings.captureFonts) {
+      updateProgress(80, "Extracting fonts...");
+      extractedFonts = await extractFonts(client, tab.url);
+    }
 
     const w2wFonts: W2WCaptureResult["fonts"] = extractedFonts.map((f) => {
       // Clean src: strip url() wrapper for clean URL storage
@@ -1269,7 +1310,6 @@ async function handleCapturePageW2W(
     }
 
     if (missingFontUrls.length > 0) {
-      console.log(`[W2W] ${missingFontUrls.length} fonts missing from cache, fetching via content script...`);
       try {
         const response = await chrome.tabs.sendMessage(tabId, {
           type: "FETCH_FONT_DATA",
@@ -1290,20 +1330,17 @@ async function handleCapturePageW2W(
               };
             }
           }
-          console.log(`[W2W] Content script fetched ${Object.keys(response.data).length} fonts`);
         }
-      } catch (err) {
-        console.warn('[W2W] Content script font fetch failed:', err);
+      } catch {
+        // Content script font fetch failed — degrade silently; missing fonts
+        // are surfaced later via the font fallback modal.
       }
     }
-
-    console.log(`[W2W] Font assets extracted (before filter), total assets: ${Object.keys(assets).length}`);
 
     // --- Filter fonts: keep only actually-used fonts (like h2d) ---
     // aggregatedUsedFamilies unions platform fonts across ALL viewports
     // (responsive designs may use different fonts at different widths).
     const usedFontFamilies = aggregatedUsedFamilies;
-    console.log(`[W2W] Used font families: ${[...usedFontFamilies].join(", ")}`);
 
     if (usedFontFamilies.size > 0) {
       // Filter w2wFonts: keep only entries whose fontFamily matches a used font
@@ -1373,11 +1410,6 @@ async function handleCapturePageW2W(
         }
       }
 
-      console.log(
-        `[W2W] Font filter: kept ${fontUrlsToKeep.size} font files, removed ${removedCount}. ` +
-        `Fonts: ${w2wFonts.length} → ${filteredFonts.length}`
-      );
-
       // Replace w2wFonts with filtered version
       w2wFonts.length = 0;
       w2wFonts.push(...filteredFonts);
@@ -1413,6 +1445,20 @@ async function handleCapturePageW2W(
     console.log(
       `[W2W] Capture complete: ${captures.length} viewport(s), ${totalNodes} total nodes, ${Object.keys(assets).length} assets, ${w2wFonts.length} fonts`,
     );
+
+    // [W2W-VERIFY] === instrumentation: session summary ===
+    const __verifyDuration = Date.now() - __verifyStartTime;
+    console.log("%c[W2W-VERIFY] === SUMMARY ===", "color: #4CAF50; font-weight: bold");
+    console.log(`[W2W-VERIFY] Total time: ${__verifyDuration}ms`);
+    console.log(`[W2W-VERIFY] Viewports captured: ${captures.length}`);
+    console.log(`[W2W-VERIFY] Total nodes: ${totalNodes}`);
+    console.log(`[W2W-VERIFY] Assets: ${Object.keys(assets).length}`);
+    console.log(`[W2W-VERIFY] CSS variables: ${cssVariables.length}`);
+    console.log("%c[W2W-VERIFY] CDP calls breakdown (instrumented sites only):", "color: #FF9800; font-weight: bold");
+    console.table(__verifyCDPCalls);
+    console.log("[W2W-VERIFY] Note: extractFonts/extractCSSVariables/buildResourceMap also use CDP internally — not counted here");
+    console.groupEnd();
+
     return result;
   } finally {
     if (client) {
@@ -1424,6 +1470,8 @@ async function handleCapturePageW2W(
       await client.destroy();
     }
     isCapturing = false;
+    // [W2W-VERIFY] safety: close any open console group on error path
+    try { console.groupEnd(); } catch { /* noop */ }
   }
 }
 
@@ -1629,8 +1677,13 @@ async function handleCaptureElement(
     );
 
     // Extract fonts
-    updateProgress(85, "Extracting fonts...");
-    const fonts = await extractFonts(client, tab.url);
+    // Honor user setting: when `captureFonts` is false, skip extraction entirely.
+    const elSettings = await getSettings();
+    let fonts: Awaited<ReturnType<typeof extractFonts>> = [];
+    if (elSettings.captureFonts) {
+      updateProgress(85, "Extracting fonts...");
+      fonts = await extractFonts(client, tab.url);
+    }
 
     // Format CSS variables
     const cssVariables = rawCSSVariables.map((v) => ({
@@ -1647,7 +1700,6 @@ async function handleCaptureElement(
 
     // Extract real image assets from browser cache
     let frameAssets: Record<string, string> | undefined;
-    const elSettings = await getSettings();
     if (elSettings.captureAssets) {
       updateProgress(94, "Extracting images from cache...");
       const resourceMap = await buildResourceMap(client);
@@ -1819,8 +1871,13 @@ async function handleCaptureElementByBackendId(
     );
 
     // Extract fonts
-    updateProgress(85, "Extracting fonts...");
-    const fonts = await extractFonts(client, tab.url);
+    // Honor user setting: when `captureFonts` is false, skip extraction entirely.
+    const biSettings = await getSettings();
+    let fonts: Awaited<ReturnType<typeof extractFonts>> = [];
+    if (biSettings.captureFonts) {
+      updateProgress(85, "Extracting fonts...");
+      fonts = await extractFonts(client, tab.url);
+    }
 
     // Format CSS variables
     const cssVariables = rawCSSVariables.map((v) => ({
@@ -1837,7 +1894,6 @@ async function handleCaptureElementByBackendId(
 
     // Extract real image assets from browser cache
     let frameAssets2: Record<string, string> | undefined;
-    const biSettings = await getSettings();
     if (biSettings.captureAssets) {
       updateProgress(94, "Extracting images from cache...");
       const resourceMap = await buildResourceMap(client);

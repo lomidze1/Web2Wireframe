@@ -41,7 +41,9 @@ pnpm type-check              # TypeScript validation
 ### Data Flow
 
 ```
-Browser Extension (CDP capture) → API (pendingCDPImports) → Figma Plugin (rendering)
+Browser Extension (Content Script primary + CDP for specific tasks)
+  → API (pendingCDPImports) via POST /api/import-w2w
+  → Figma Plugin (rendering)
 ```
 
 ### Key Architecture Decisions
@@ -71,6 +73,8 @@ Browser Extension (CDP capture) → API (pendingCDPImports) → Figma Plugin (re
 |--------|--------|-----------|
 | `/api/*` | Plugin routes (import, CDP, AI, wireframe, settings, auth) | CORS: figma.com + null; Bearer token auth |
 | `/api/license/*` | License routes (MongoDB-backed) | Bearer token auth |
+| `/api/checkout/*` | Flitt checkout creation (subscriptions + Credit Packs) | Public (validated by figmaUserId in body) |
+| `/api/webhooks/flitt` | Flitt server callback (signature-verified) | Public, SHA1 signature check |
 | `/web/*` | Website routes (support, session) | CORS: web2wireframe.design; express-session |
 | `/auth/figma/*` | Figma OAuth (login, callback) | express-session |
 
@@ -151,7 +155,49 @@ RESEND_API_KEY, SUPPORT_TO_EMAIL, NOREPLY_EMAIL
 FIGMA_CLIENT_ID, FIGMA_CLIENT_SECRET, FIGMA_REDIRECT_URI
 ADMIN_TOKEN, DEV_TOKEN
 CORS_ORIGIN, WEBSITE_ALLOWED_ORIGINS
+FLITT_MERCHANT_ID, FLITT_SECRET_KEY, FLITT_BASE_URL
 ```
+
+## Payment System (Flitt)
+
+**Provider:** Flitt (Georgia/CIS PCI-DSS Level 1 gateway). **მხოლოდ Flitt** — Stripe/Paddle/LemonSqueezy/Polar **არასოდეს** ვახსენოთ კოდში ან დოკუმენტაციაში.
+
+### Plans
+
+| Plan | Imports | AI Generations | ფასი (USD) |
+|------|---------|----------------|-----------|
+| Free | 10 / month | 10 / month | $0 |
+| Plus | unlimited | 30 / month | $12 / month |
+| Pro | unlimited | 200 / month + Credit Packs | $20 / month |
+
+**Counter rules:**
+- Imports counter = URL + Screenshot + HTML + Browser Extension capture
+- AI Generations counter = **მხოლოდ AI page/block generation**
+- Screenshot import = NOT AI generation (don't conflate)
+
+### Credit Packs (Pro extension only)
+- Small: $5 = 25 generations
+- Medium: $10 = 60 generations
+- Large: $20 = 150 generations
+- One-time Flitt payments, no expiration
+
+### User Identity
+- **NO registration, NO login**
+- Plugin reads `figma.currentUser.id` (Figma SDK) → primary key for License
+- Email collected at Flitt checkout (receipts/recovery only)
+
+### Recurring Billing
+- Native Flitt subscriptions (`subscription: "Y"` + `recurring_data`)
+- **Flitt charges automatically** — no custom cron for charging
+- Cancel via Flitt API: `SubscriptionActions({ order_id, action: "stop" })`
+- Webhook = source of truth for license status
+
+### Currency
+- **USD** primary (Flitt supports USD/GEL/EUR)
+
+### Implementation reference
+- Plan: [docs/plans/PAYMENT-SYSTEM.md](docs/plans/PAYMENT-SYSTEM.md)
+- Flitt API ref: see auto-memory `reference_flitt-api.md`
 
 ## Warnings
 
@@ -159,6 +205,9 @@ CORS_ORIGIN, WEBSITE_ALLOWED_ORIGINS
 - **pendingCDPImports = ephemeral** — 10 min TTL, consumed on first read, not persisted
 - **არ შეეხო** @w2w/shared-ის `CDPClientInterface`-ს — ორივე consumer (browser-extension, api) დამოკიდებულია
 - **Production domain:** მხოლოდ `api.web2wireframe.design` (license.web2wireframe.design აღარ არსებობს)
+- **Payment provider = Flitt only** — Stripe/Paddle/LemonSqueezy/Polar/Chargebee **არასოდეს** ვახსენოთ. თუ ძველ კოდს იხილავ მათი ხსენებით, წაშალე
+- **Card data არასოდეს ხვდება ჩვენთან** — Flitt PCI-compliant. rectoken-საც კი არ ვინახავთ (Flitt ფლობს subscription-ს)
+- **Webhook signature verification აუცილებელია** — `/api/webhooks/flitt` ყოველთვის ამოწმოს SHA1 signature
 
 ### Verification After Changes
 
@@ -194,44 +243,79 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up  # Dev (hot re
 
 - Resend - Email delivery
 - MongoDB - Wireframes, settings, licenses
-- Puppeteer - Website rendering (legacy fallback)
-- **Chrome DevTools Protocol** - Website capture (primary)
+- Puppeteer - Website rendering (API-side legacy fallback only — not used by Browser Extension)
+- **Content Script + Chrome DevTools Protocol** - Website capture (hybrid; see CRITICAL section below)
+- **Flitt** - Payment gateway (subscriptions + one-time Credit Packs); see Payment System section
 
 ---
 
-## CRITICAL: CDP Extraction Approach
+## CRITICAL: Hybrid Extraction Approach (Content Script + CDP)
 
 ### მიზანი: 1:1 ხარისხიანი ექსტრაქცია (html.to.design დონეზე)
 
-**არასდროს გამოიყენო მხოლოდ `getComputedStyle()`** - ის კარგავს:
-- Gradients, CSS Variables, Hover/Focus states, Original CSS rules
+**არქიტექტურა არის ჰიბრიდული** — content script primary, CDP კონკრეტული ამოცანებისთვის რომლებიც content script-ში ტექნიკურად შეუძლებელია.
 
-### სწორი მიდგომა: Chrome DevTools Protocol (CDP)
-
-```
-Browser Extension (CDP)  →  API  →  Figma Plugin
-```
-
-#### მთავარი CDP მეთოდები
-
-```typescript
-await client.send("CSS.getMatchedStylesForNode", { nodeId });  // Original rules
-await client.send("CSS.getComputedStyleForNode", { nodeId });  // Fallback only
-await client.send("CSS.getPlatformFontsForNode", { nodeId });
-```
-
-#### Browser Extension CDP Location
+### Primary: Content Script (DOM ექსტრაქციის უმეტესობა)
 
 ```
-packages/browser-extension/src/background/cdp/
-├── client.ts   # chrome.debugger wrapper
-├── css.ts      # getMatchedStylesForNode
-├── dom.ts      # DOM extraction
-├── fonts.ts    # @font-face extraction
-└── assets.ts   # Images, SVGs
+ფაილი: packages/browser-extension/src/content/extractor.ts
 ```
 
-**ყოველთვის CDP გამოიყენე ვებსაიტის capture-ისთვის. Puppeteer მხოლოდ fallback-ად.**
+რას აკეთებს `extractPage()`:
+- DOM tree traversal (recursive `<html>`-დან)
+- 70+ CSS property `getComputedStyle()`-ით
+- Geometry: `getBoundingClientRect()`
+- Text content + line-breaking via `Range.getClientRects()`
+- Pseudo-elements (`::before`, `::after`) — DOM injection ხერხით
+- SVG markup inlining
+
+### Secondary: CDP (კონკრეტული ამოცანებისთვის — გამართლებული)
+
+CDP გამოიყენება **მხოლოდ იქ სადაც content script ვერ მოახერხებს**:
+
+| CDP API | რისთვის | რატომ ვერ აკეთებს content script |
+|---------|---------|-----------------------------------|
+| `Emulation.setDeviceMetricsOverride` + `Page.reload` | Multi-viewport capture | Content script ფიქსირებულ viewport-შია |
+| `Page.getLayoutMetrics` | Scrollbar compensation | `window.innerWidth` არ ითვლის scrollbar offset-ს |
+| `CSS.getPlatformFontsForNode` | რეალურად დარენდერებული ფონტი | `getComputedStyle().fontFamily` მხოლოდ CSS request-ს აბრუნებს, არა fallback-ის შემდგომ რეალურ ფონტს |
+| `CSS.forcePseudoState` | `:hover` state capture | Content script ვერ აიძულებს pseudo-class-ს |
+| `CSS.getStyleSheetText` | Cross-origin stylesheet-ების კითხვა | CORS ბლოკავს content script-ის `cssRules` წვდომას |
+| `Page.getResourceContent` | Font binary file-ების ამოღება cache-დან | CORS ბლოკავს fetch-ს page context-დან |
+| `extractCSSVariables` (CDP-based) | CSS custom properties enum-ი | Per-element iteration ნაცვლად global scope |
+
+### Data Flow
+
+```
+1. User clicks "Capture" → popup sends CAPTURE_PAGE_W2W
+2. Service Worker (CDP): Emulation.setDeviceMetricsOverride + Page.reload (per viewport)
+3. Content Script: extractPage() — full DOM + styles + geometry
+4. Service Worker (CDP): CSS.getPlatformFontsForNode for each text element (data-w2w-idx tagged)
+5. Service Worker (CDP): CSS.forcePseudoState for hover capture
+6. Service Worker (CDP): font binaries + CSS variables + assets
+7. Result: POST /api/import-w2w (NOT /api/import-cdp)
+```
+
+### Browser Extension Code Layout
+
+```
+packages/browser-extension/src/
+├── background/
+│   ├── index.ts          # Service worker: handleCapturePageW2W() — orchestrates content script + CDP
+│   └── cdp/
+│       ├── client.ts     # chrome.debugger wrapper (CDPClient class)
+│       ├── css.ts        # CSS-related CDP helpers
+│       ├── dom.ts        # DOM-related CDP helpers
+│       ├── fonts.ts      # @font-face + binary extraction
+│       └── assets.ts     # Image/SVG resource extraction from cache
+└── content/
+    ├── index.ts          # Message handler (EXTRACT_DOM, EXTRACT_SUBTREE, COLLECT_HOVER_SELECTORS, FETCH_FONT_DATA)
+    ├── extractor.ts      # CORE: extractPage() — DOM traversal (1300+ lines)
+    └── hover-parser.ts   # Local hover selector parser (no @w2w/shared import)
+```
+
+### Legacy CDP-Only Mode (DO NOT USE)
+
+ძველი `handleCapturePage()` ფუნქცია (CDP-only, DOMSnapshot-based) ფიზიკურად კოდშია, მაგრამ **dead code-ია** — popup UI-დან მიუწვდომელია. შენახულია მხოლოდ `old-branch`-ზე შედარებისთვის. **ახალი კოდი ყოველთვის `handleCapturePageW2W()`-ს იყენებს.**
 
 ---
 

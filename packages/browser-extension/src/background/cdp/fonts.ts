@@ -73,7 +73,15 @@ async function getFontFaceFromStylesheets(client: CDPClient, pageUrl?: string): 
 }
 
 /**
- * Get Google Fonts from link tags
+ * Get Google Fonts from link tags.
+ *
+ * Uses URL/URLSearchParams instead of regex so it survives Google Fonts URL
+ * variations:
+ *   - CSS1: ?family=Roboto:400,700 or ?family=Roboto|Open+Sans
+ *   - CSS2 single axis:    ?family=Roboto:wght@400;700
+ *   - CSS2 italic + weight: ?family=Roboto:ital,wght@0,400;1,700
+ *   - CSS2 multi-family:   ?family=Inter&family=Roboto
+ * Parse failures fall back to a console.warn + skip rather than crashing.
  */
 async function getGoogleFonts(client: CDPClient): Promise<ExtractedFont[]> {
   const result = await client.send<{ result: { value: ExtractedFont[] } }>(
@@ -86,22 +94,52 @@ async function getGoogleFonts(client: CDPClient): Promise<ExtractedFont[]> {
 
           for (const link of googleFontLinks) {
             const href = link.href;
-            // Parse Google Fonts URL
-            // Format: https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap
-            const familyMatch = href.match(/family=([^&]+)/);
-            if (familyMatch) {
-              const families = familyMatch[1].split('|');
-              for (const familySpec of families) {
-                // Parse family:wght@400;700 format
-                const [family, variants] = familySpec.split(':');
-                const cleanFamily = family.replace(/\\+/g, ' ');
+            try {
+              const url = new URL(href);
+              // CSS2 supports multiple family= params; CSS1 supports a single
+              // family= with '|'-separated entries. Handle both.
+              const familyParams = url.searchParams.getAll('family');
+              const familySpecs = [];
+              for (const fp of familyParams) {
+                for (const fs of fp.split('|')) {
+                  if (fs) familySpecs.push(fs);
+                }
+              }
 
-                // Extract weights
+              for (const familySpec of familySpecs) {
+                // Format: "Family Name" or "Family Name:axisList@values"
+                const colonIdx = familySpec.indexOf(':');
+                const rawFamily = colonIdx === -1 ? familySpec : familySpec.slice(0, colonIdx);
+                const axisPart = colonIdx === -1 ? '' : familySpec.slice(colonIdx + 1);
+                const cleanFamily = rawFamily.replace(/\\+/g, ' ');
+
+                // Default weight when no axis info present.
                 let weights = ['400'];
-                if (variants) {
-                  const weightsMatch = variants.match(/wght@([\\d;]+)/);
-                  if (weightsMatch) {
-                    weights = weightsMatch[1].split(';');
+                if (axisPart) {
+                  const atIdx = axisPart.indexOf('@');
+                  if (atIdx !== -1) {
+                    // CSS2: tag list followed by '@' then ;-separated value tuples.
+                    const tags = axisPart.slice(0, atIdx).split(',');
+                    const wghtIdx = tags.indexOf('wght');
+                    const tuples = axisPart.slice(atIdx + 1).split(';');
+                    if (wghtIdx !== -1) {
+                      const collected = new Set();
+                      for (const tuple of tuples) {
+                        const parts = tuple.split(',');
+                        const w = parts[wghtIdx];
+                        if (w) collected.add(w.trim());
+                      }
+                      if (collected.size > 0) weights = Array.from(collected);
+                    }
+                  } else {
+                    // CSS1 legacy: comma-separated weights, possibly suffixed
+                    // with 'i' for italic (e.g. "400,700i"). We keep numeric prefix.
+                    const collected = new Set();
+                    for (const part of axisPart.split(',')) {
+                      const num = part.replace(/[^0-9]/g, '');
+                      if (num) collected.add(num);
+                    }
+                    if (collected.size > 0) weights = Array.from(collected);
                   }
                 }
 
@@ -116,6 +154,8 @@ async function getGoogleFonts(client: CDPClient): Promise<ExtractedFont[]> {
                   });
                 }
               }
+            } catch {
+              // Bad URL or unexpected format — skip rather than crash.
             }
           }
           return fonts;

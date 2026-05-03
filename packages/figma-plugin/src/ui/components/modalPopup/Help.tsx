@@ -22,22 +22,22 @@ export default function Help({ isOpen, onClose }: HelpProps) {
     {
       icon: "🛒",
       label: "Buy license",
-      url: "https://web2wireframe.com/pricing",
+      url: "https://web2wireframe.design/pricing",
     },
     {
       icon: "❓",
       label: "Frequently Asked Questions",
-      url: "https://web2wireframe.com/faq",
+      url: "https://web2wireframe.design/faq",
     },
     {
       icon: "💬",
       label: "Contact support",
-      url: "https://web2wireframe.com/support",
+      url: "https://web2wireframe.design/support",
     },
     {
       icon: "📧",
       label: "Email support",
-      url: "mailto:support@web2wireframe.com",
+      url: "mailto:support@web2wireframe.design",
     },
     {
       icon: "✈️",
@@ -52,7 +52,7 @@ export default function Help({ isOpen, onClose }: HelpProps) {
     {
       icon: "📨",
       label: "Contact us",
-      url: "https://web2wireframe.com/contact",
+      url: "https://web2wireframe.design/contact",
     },
   ];
 
