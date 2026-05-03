@@ -337,15 +337,32 @@ export function buildPluginModeFontMapping(
 // ============================================================================
 
 /**
- * Parse font download URLs from CSS @font-face `src` declaration.
- * Ignores data URIs, returns only http/https URLs.
+ * Parse font download URLs from a CSS-like `src` declaration.
+ * Handles two shapes that show up in practice:
+ *   1. Standard CSS:        `url('https://...woff2') format('woff2')`
+ *   2. W2W API cleanSrc:    `https://...woff2` (the `url(...)` wrapper is
+ *                           stripped by the backend before sending)
+ * Ignores data URIs and relative paths — only absolute http/https URLs.
  */
 export function parseFontSrcUrls(src: string): string[] {
   const urls: string[] = [];
-  const regex = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
-  let match;
-  while ((match = regex.exec(src)) !== null) {
+
+  // Pass 1: url('...')-wrapped form
+  const wrappedRegex = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = wrappedRegex.exec(src)) !== null) {
     urls.push(match[1]);
   }
+
+  // Pass 2 (fallback): bare http(s):// URLs anywhere in the string. Only
+  // run when no wrapped URLs were found, so we don't double-emit on
+  // standard CSS input.
+  if (urls.length === 0) {
+    const bareRegex = /https?:\/\/[^\s'"),]+/g;
+    while ((match = bareRegex.exec(src)) !== null) {
+      urls.push(match[0]);
+    }
+  }
+
   return urls;
 }

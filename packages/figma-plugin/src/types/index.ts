@@ -320,6 +320,12 @@ export interface RenderContext {
   missingFont?: string;
   // Multi-font mapping: each missing/website font → its replacement
   fontMapping?: FontMapping;
+  // Original font names from the captured site (identity map of missing
+  // families). Set only when the user picked "Use original fonts" in the
+  // FontFallbackModal. Drives the post-render `w2w_original_font`
+  // pluginData write so a later rebind can swap Inter → original family
+  // once the user installs the .zip-downloaded fonts.
+  originalFontNames?: FontMapping;
   // Asset extraction mode
   assetMode?: "placeholders" | "realAssets";
   // Map from image URL → base64 data URI (for real asset rendering)

@@ -1,5 +1,6 @@
 /** @jsx h */
 import { h } from "preact";
+import { useEffect } from "preact/hooks";
 import styles from "./RenderingLoader.css";
 
 export interface RenderingProgress {
@@ -14,7 +15,22 @@ interface RenderingLoaderProps {
   onClose?: () => void;  // Optional callback to close manually
 }
 
+/** How long the auto-dismiss progress bar runs once a render finishes. Kept
+ *  in sync with the CSS keyframe duration in `RenderingLoader.css`. */
+const AUTO_DISMISS_MS = 3000;
+
 export default function RenderingLoader({ isVisible, progress, onClose }: RenderingLoaderProps) {
+  const isComplete = progress?.isComplete ?? false;
+
+  // When the render completes, auto-dismiss after the progress bar finishes
+  // so the user doesn't have to click Done. Clicking Done early unmounts the
+  // component and the cleanup clears the pending timer.
+  useEffect(() => {
+    if (!isVisible || !isComplete || !onClose) return;
+    const timer = setTimeout(onClose, AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [isVisible, isComplete, onClose]);
+
   if (!isVisible) return null;
 
   // Calculate stroke dashoffset for progress ring (0-100 percent)
@@ -22,7 +38,6 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
   const circumference = 2 * Math.PI * radius;
   const percent = progress?.percent ?? 0;
   const strokeDashoffset = circumference - (percent / 100) * circumference;
-  const isComplete = progress?.isComplete ?? false;
 
   return (
     <div class={styles.overlay}>
@@ -71,6 +86,15 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
       <div class={`${styles.stepText} ${isComplete ? styles.successText : ""}`}>
         {progress?.step || "Preparing..."}
       </div>
+
+      {/* Auto-dismiss progress bar — fills left→right over AUTO_DISMISS_MS so
+          the user gets a visual countdown to the auto-close instead of having
+          to click Done. Done remains as an early-out. */}
+      {isComplete && (
+        <div class={styles.autoDismissBar} role="progressbar" aria-label="Closing in 3 seconds">
+          <div class={styles.autoDismissFill}></div>
+        </div>
+      )}
 
       {/* Done button - only shows when complete */}
       {isComplete && onClose && (

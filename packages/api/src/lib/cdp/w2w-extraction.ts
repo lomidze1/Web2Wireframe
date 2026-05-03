@@ -31,6 +31,7 @@ import {
   w2wFindHoverCandidates,
   attachHoverToDescendants,
 } from "@w2w/shared";
+import { normalizeFontPayload } from "../fonts/decompressFont.js";
 
 import type {
   W2WFrameNode,
@@ -90,6 +91,32 @@ export async function extractWithContentScript(
     domains: ["DOM", "CSS", "Page", "Runtime"],
   });
 
+  // Capture font binaries directly off the network as the page loads them.
+  // `Page.getResourceContent` later in the flow returns "Resource was not
+  // cached" for many sites because Chromium evicts response bodies under
+  // memory pressure, and re-fetching server-side often hits Cloudflare 429
+  // when 20 @font-face rules are pulled in a burst. The listener side-steps
+  // both: bytes are captured the moment the page receives them, no extra
+  // HTTP traffic, no replay required.
+  const networkFontBuffers = new Map<string, { buffer: Buffer; mimeType: string }>();
+  const responseListener = (response: import("puppeteer").HTTPResponse) => {
+    if (!response.ok()) return; // Skip 4xx/5xx — no usable body
+    const url = response.url();
+    const lowerUrl = url.split("?")[0].toLowerCase();
+    const ext = lowerUrl.split(".").pop() || "";
+    const mime = response.headers()["content-type"] || "";
+    const isFontByExt = ext === "woff2" || ext === "woff" || ext === "ttf" || ext === "otf";
+    const isFontByMime = mime.startsWith("font/") || mime.includes("font-");
+    if (!isFontByExt && !isFontByMime) return;
+    response
+      .buffer()
+      .then((buf) => {
+        networkFontBuffers.set(url, { buffer: buf, mimeType: mime || guessMimeFromUrl(url) });
+      })
+      .catch(() => { /* response body may have been discarded */ });
+  };
+  page.on("response", responseListener);
+
   try {
     // --- 1. Viewport Setup ---
     const dprResult = await client.send<{ result: { value: number } }>(
@@ -112,11 +139,35 @@ export async function extractWithContentScript(
     });
 
     // --- 2. Reload + wait for dynamic content ---
-    await client.send("Page.reload", { ignoreCache: false });
+    // ignoreCache=true forces every resource to re-download, including fonts
+    // that the initial page.goto already cached. The response listener
+    // attached above can then capture each font's bytes for the download ZIP.
+    await client.send("Page.reload", { ignoreCache: true });
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // Auto-scroll for lazy content
     await autoScrollPage(client);
+
+    // Force-load every declared @font-face. With `font-display: swap`, faces
+    // that aren't used by visible elements at this viewport stay `unloaded`
+    // and never enter the browser's resource cache — `Page.getResourceContent`
+    // then can't return their bytes when we package the download ZIP. Calling
+    // `face.load()` triggers each binary download eagerly so step 8 below can
+    // pull them straight from cache.
+    await client
+      .send("Runtime.evaluate", {
+        expression: `
+          (async () => {
+            const ps = [];
+            document.fonts.forEach((f) => {
+              if (f.status === 'unloaded') ps.push(f.load().catch(() => {}));
+            });
+            await Promise.all(ps);
+          })()
+        `,
+        awaitPromise: true,
+      })
+      .catch(() => { /* page may not expose document.fonts */ });
 
     // --- 3. Scrollbar compensation ---
     const layoutMetrics = await client.send<{
@@ -439,7 +490,146 @@ export async function extractWithContentScript(
         }
       }
 
-      console.log(`[W2W] Fonts extracted: ${w2wFonts.length} @font-face rules`);
+      // Bind a binary onto each W2WFontEntry. The plugin's "Download fonts
+      // (.zip)" path needs `fontBase64` on the font itself — without it, the
+      // plugin falls back to fetching the URL inside Figma's sandbox, which
+      // CSP blocks for any host outside `api.web2wireframe.design`.
+      //
+      // Three strategies, first match wins:
+      //   1. assets[url]      — already in the browser cache (fastest)
+      //   2. Page.getResourceContent(mainFrameId, url) — bypasses the
+      //      resourceGraph index for fonts that loaded but weren't enumerated
+      //      (font-display: swap with late onload, etc.)
+      //   3. Server-side fetch — no CSP, no CORS in Node. Final safety net for
+      //      fonts the browser never actually cached during render.
+      const bareUrlRegex = /https?:\/\/[^\s'"),]+/g;
+      const mainFrameId = resourceGraph.frameId;
+      let boundCount = 0;
+      let strategy0Count = 0;
+      let strategy3Count = 0;
+      let decompressedCount = 0;
+
+      // Stamp a captured buffer onto the font entry, decompressing WOFF2 →
+      // TTF/OTF along the way so the resulting ZIP is installable on macOS
+      // Font Book and Windows. The original (pre-decompression) bytes still
+      // get mirrored into `assets[url]` keyed by the network URL, since that
+      // map is keyed by URL whose extension implies its content.
+      const stampFont = async (
+        font: W2WFontEntry,
+        url: string,
+        originalBuffer: Buffer,
+        originalMime: string,
+      ) => {
+        const originalContent = originalBuffer.toString("base64");
+        // Mirror raw bytes into the URL-keyed asset map so any consumer
+        // looking up the URL gets the on-the-wire format.
+        assets[url] = {
+          base64Encoded: true,
+          content: originalContent,
+          mimeType: originalMime,
+        };
+        const normalized = await normalizeFontPayload(originalBuffer, url);
+        font.fontBase64 = normalized.buffer.toString("base64");
+        font.fontMimeType = normalized.mimeType;
+        font.format = normalized.format;
+        // Real names from the SFNT `name` table — what the OS Font Book and
+        // Figma's font cache will actually surface after install. Some
+        // foundries stamp "." or other single-char placeholders as an
+        // anti-piracy marker (paulstamatiou's PSC fonts do this); using them
+        // verbatim would yield hidden-file names like `.-Regular.ttf`. We
+        // gate on length ≥ 2 *and* the presence of at least one letter, so
+        // anything purely punctuation/numeric falls back to the CSS family.
+        if (isUsableFontName(normalized.names.family)) {
+          font.realFamily = normalized.names.family;
+        }
+        if (isUsableFontName(normalized.names.subfamily)) {
+          font.realSubfamily = normalized.names.subfamily;
+        }
+        if (normalized.buffer !== originalBuffer) decompressedCount++;
+      };
+
+      for (const font of w2wFonts) {
+        if (!font.src || font.fontBase64) continue;
+        const urls = font.src.match(bareUrlRegex) || [];
+
+        for (const url of urls) {
+          // Strategy 0: live network capture (primary path).
+          // Listener attached at function entry buffers every font response
+          // received during page render — bypasses Chromium body-eviction
+          // and avoids any extra HTTP traffic.
+          const captured = networkFontBuffers.get(url);
+          if (captured) {
+            await stampFont(font, url, captured.buffer, captured.mimeType);
+            strategy0Count++;
+            break;
+          }
+
+          // Strategy 1: assets cache (image-pipeline already populated it).
+          // We have base64 here, not a buffer — round-trip through Buffer so
+          // stampFont can re-detect format and decompress if needed.
+          const asset = assets[url];
+          if (asset?.base64Encoded) {
+            const buf = Buffer.from(asset.content, "base64");
+            await stampFont(font, url, buf, asset.mimeType ?? guessMimeFromUrl(url));
+            break;
+          }
+
+          // Strategy 2: direct CDP fetch from main frame. Often fails with
+          // "Resource was not cached" because Chromium evicts response bodies
+          // under memory pressure — kept as a cheap retry just in case.
+          if (!font.fontBase64 && mainFrameId) {
+            try {
+              const result = await client.send<{ content: string; base64Encoded: boolean }>(
+                "Page.getResourceContent",
+                { frameId: mainFrameId, url },
+              );
+              if (result.content) {
+                const buf = result.base64Encoded
+                  ? Buffer.from(result.content, "base64")
+                  : Buffer.from(result.content);
+                await stampFont(font, url, buf, guessMimeFromUrl(url));
+                break;
+              }
+            } catch {
+              // Fall through to strategy 3.
+            }
+          }
+
+          // Strategy 3: server-side HTTP fetch. Last-resort safety net for
+          // fonts that didn't ride the page (e.g. injected dynamically after
+          // our extraction window). Browser UA + Referer dodge most WAFs.
+          if (!font.fontBase64) {
+            try {
+              const response = await fetch(url, {
+                headers: {
+                  "User-Agent":
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  Accept: "*/*",
+                  Referer: new URL(url).origin + "/",
+                },
+              });
+              if (response.ok) {
+                const buf = Buffer.from(await response.arrayBuffer());
+                await stampFont(font, url, buf, guessMimeFromUrl(url));
+                strategy3Count++;
+                break;
+              }
+            } catch {
+              // Network failure — leave font without binary; the plugin will
+              // surface it as a skipped entry in the ZIP warning.
+            }
+          }
+        }
+
+        if (font.fontBase64) boundCount++;
+      }
+
+      console.log(
+        `[W2W] Fonts extracted: ${w2wFonts.length} @font-face rules, ` +
+        `bound binaries: ${boundCount}/${w2wFonts.length} ` +
+        `(net=${strategy0Count}, fetch=${strategy3Count}, ` +
+        `woff2→ttf/otf decompressed=${decompressedCount})`,
+      );
     }
 
     // --- 9. CSS variables ---
@@ -466,6 +656,7 @@ export async function extractWithContentScript(
       width: viewportWidth,
     };
   } finally {
+    page.off("response", responseListener);
     await client.detach().catch(() => {});
   }
 }
@@ -601,6 +792,22 @@ function categorizeCSSVariable(name: string, value: string): string {
 }
 
 /** Guess MIME type from URL file extension. */
+/**
+ * Whether a parsed SFNT name string is worth surfacing to the consumer.
+ * Some commercial foundries deliberately stamp short placeholders ("." or
+ * "X") as a piracy deterrent. Using such values verbatim produces
+ * surprising filenames (hidden files on Unix) and a marker the rebind
+ * action will pass to `loadFontAsync` only to fail. We require at least
+ * two characters AND one letter — covers Latin / common scripts; anything
+ * shorter or letter-free isn't usable as a font identifier.
+ */
+function isUsableFontName(s: string | undefined): s is string {
+  if (typeof s !== "string") return false;
+  const trimmed = s.trim();
+  if (trimmed.length < 2) return false;
+  return /[A-Za-z]/.test(trimmed);
+}
+
 function guessMimeFromUrl(url: string): string {
   const lower = url.toLowerCase();
   if (lower.includes(".svg")) return "image/svg+xml";

@@ -414,12 +414,18 @@ export function parseJSONFromResponse(text: string): unknown {
 export async function generateWireframeStructure(params: GenerateParams): Promise<GeneratedWireframe> {
   const client = getClient();
   const model = process.env.AI_MODEL || "claude-sonnet-4-20250514";
-  const maxTokens = params.type === "page" ? 8000 : 4000;
+  const maxTokens = params.type === "page" ? 16000 : 6000;
 
   const response = await client.messages.create({
     model,
     max_tokens: maxTokens,
-    system: WIREFRAME_SYSTEM_PROMPT,
+    system: [
+      {
+        type: "text",
+        text: WIREFRAME_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
     messages: [
       {
         role: "user",
@@ -427,6 +433,13 @@ export async function generateWireframeStructure(params: GenerateParams): Promis
       },
     ],
   });
+
+  const u = response.usage;
+  console.log(
+    `[AI] fn=generateWireframe model=${model} ` +
+      `input=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} ` +
+      `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens}`
+  );
 
   const firstBlock = response.content[0];
   if (firstBlock.type !== "text") {
@@ -657,7 +670,13 @@ export async function analyzeScreenshot({ imageBase64, imageWidth, imageHeight, 
     model,
     max_tokens: 12000,
     temperature: 0.2,
-    system: SCREENSHOT_SYSTEM_PROMPT,
+    system: [
+      {
+        type: "text",
+        text: SCREENSHOT_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
     messages: [
       {
         role: "user",
@@ -678,6 +697,13 @@ export async function analyzeScreenshot({ imageBase64, imageWidth, imageHeight, 
       },
     ],
   });
+
+  const u = response.usage;
+  console.log(
+    `[AI] fn=analyzeScreenshot model=${model} ` +
+      `input=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} ` +
+      `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens}`
+  );
 
   const firstBlock = response.content[0];
   if (firstBlock.type !== "text") {
@@ -1028,7 +1054,13 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
     model,
     max_tokens: 12000,
     temperature: 0.2,
-    system: SCREENSHOT_ABSOLUTE_PROMPT,
+    system: [
+      {
+        type: "text",
+        text: SCREENSHOT_ABSOLUTE_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
     messages: [
       {
         role: "user",
@@ -1049,6 +1081,13 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
       },
     ],
   });
+
+  const u = response.usage;
+  console.log(
+    `[AI] fn=analyzeScreenshotAbsolute model=${model} ` +
+      `input=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} ` +
+      `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens}`
+  );
 
   const firstBlock = response.content[0];
   if (firstBlock.type !== "text") {

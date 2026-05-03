@@ -8,6 +8,7 @@ interface FooterProps {
   onPlanClick?: () => void;
   showExtension?: boolean;
   onExtensionClick?: () => void;
+  onRebindFontsClick?: () => void;
 }
 
 export default function Footer({
@@ -16,6 +17,7 @@ export default function Footer({
   onPlanClick,
   showExtension = true,
   onExtensionClick,
+  onRebindFontsClick,
 }: FooterProps) {
   return (
     <div class={styles.footerBar}>
@@ -48,6 +50,31 @@ export default function Footer({
           title="Install browser extension"
         >
           Extension
+        </button>
+      )}
+      {onRebindFontsClick && (
+        <button
+          class={styles.footerIcon}
+          onClick={onRebindFontsClick}
+          title="Re-apply original fonts (after installing the .zip download)"
+          aria-label="Re-apply original fonts"
+        >
+          {/* Type "T" with a circular arrow — re-apply / refresh fonts */}
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M5 6h10" />
+            <path d="M10 6v12" />
+            <path d="M16 4v4h-4" />
+            <path d="M20 12a8 8 0 1 1-2.34-5.66L20 8" />
+          </svg>
         </button>
       )}
       <button class={styles.footerIcon} onClick={onHelpClick} title="Help">

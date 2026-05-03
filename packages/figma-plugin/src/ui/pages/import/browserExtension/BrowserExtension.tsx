@@ -170,6 +170,12 @@ export default function BrowserExtension() {
       }
 
       if (msg.type === "fonts-not-available") {
+        // [E] UI (BrowserExtension): fonts-not-available received
+        console.log("[W2W-FONT-TRACE] E: UI (BrowserExtension) received fonts-not-available", {
+          missingFonts: msg.data?.missingFonts,
+          pluginFontOptions: msg.data?.pluginFontOptions,
+          pendingFontsLength: pendingData?.fonts?.length ?? 0,
+        });
         setFontModalData(msg.data);
         setShowFontModal(true);
       }

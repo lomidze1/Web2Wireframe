@@ -677,6 +677,37 @@ export async function createTextNode(
     }
   }
 
+  // Stash the family the user wants on this text node so the post-render
+  // "Re-apply fonts" action can swap Inter → that family once the user
+  // installs the fonts they downloaded via the FontFallbackModal.
+  //
+  // Critical: write the VALUE of `originalFontNames[node.fontFamily]`, not
+  // the key. The map carries CSS-declared family → real (SFNT-stamped)
+  // family. For anti-piracy aliased sites the CSS key ("PSC") doesn't match
+  // anything installable; only the real value ("PPCirka-Light") will let
+  // a later `loadFontAsync({family: marker})` succeed. When the API
+  // couldn't extract a real name the modal sends an identity entry, so we
+  // get the CSS family back — current behavior preserved.
+  //
+  // Icon fonts are never rebinded — their glyphs only render correctly
+  // with the source font and don't have a usable installable form.
+  if (
+    context?.fontMode === "website" &&
+    context.originalFontNames &&
+    node.fontFamily &&
+    !isIconFont(node.fontFamily) &&
+    usedFontFamily !== node.fontFamily
+  ) {
+    const markerName = context.originalFontNames[node.fontFamily];
+    if (markerName) {
+      try {
+        textNode.setPluginData("w2w_original_font", markerName);
+      } catch {
+        // setPluginData unavailable in some test environments; non-fatal.
+      }
+    }
+  }
+
   // Pre-load segment-weight candidates against the resolved usedFontFamily.
   // Tracking which styles actually loaded lets segment processing pick the
   // first AVAILABLE candidate (avoiding Semibold-not-loaded → setRangeFontName
