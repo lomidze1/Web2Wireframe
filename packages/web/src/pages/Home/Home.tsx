@@ -5,7 +5,6 @@ import styles from "./Home.module.scss";
 type ComparisonRow = {
   feature: string;
   free: string;
-  plus: string;
   pro: string;
 };
 
@@ -34,14 +33,15 @@ const featureGroups: FeatureGroup[] = [
   {
     title: "Analyze",
     subtitle: "Automatically detect layout and structure.",
-    items: ["AI layout detection", "AI block parsing", "Block-level structure"],
+    items: ["Layout detection", "Block-level structure", "Hover state capture"],
   },
   {
     title: "Output",
     subtitle: "Clean, editable Figma-ready results.",
     items: [
-      "Clean & Editable Wireframe",
-      "AI wireframe generation (Pro)",
+      "Clean & editable wireframes",
+      "Multi-viewport export",
+      "Styles & assets included (Pro)",
     ],
   },
 ];
@@ -70,33 +70,15 @@ const steps: Step[] = [
 ];
 
 const comparisonRows: ComparisonRow[] = [
-  {
-    feature: "Colors",
-    free: "Plugin only",
-    plus: "Full access",
-    pro: "Full access",
-  },
-  {
-    feature: "Fonts",
-    free: "Plugin only",
-    plus: "Full access",
-    pro: "Full access",
-  },
-  {
-    feature: "Viewports",
-    free: "Only: 1920, 1440",
-    plus: "Full access",
-    pro: "Full access",
-  },
-  {
-    feature: "Text Content",
-    free: "Placeholders only",
-    plus: "Full access",
-    pro: "Full access",
-  },
-  { feature: "Styles & Assets", free: "No", plus: "Included", pro: "Included" },
-  { feature: "AI Generation", free: "No", plus: "No", pro: "Yes" },
-  { feature: "Support", free: "Community", plus: "Standard", pro: "Priority" },
+  { feature: "Imports per month", free: "10", pro: "Unlimited" },
+  { feature: "Colors", free: "Plugin only", pro: "Full access" },
+  { feature: "Fonts", free: "Plugin only", pro: "Full access" },
+  { feature: "Viewports", free: "Only: 1920, 1440", pro: "Full access" },
+  { feature: "Text Content", free: "Placeholders only", pro: "Full access" },
+  { feature: "Styles & Assets", free: "No", pro: "Included" },
+  { feature: "Hover state capture", free: "No", pro: "Yes" },
+  { feature: "Font binary download", free: "No", pro: "Yes" },
+  { feature: "Support", free: "Community", pro: "Priority" },
 ];
 
 const lovePoints: string[] = [
@@ -176,8 +158,8 @@ const Home = (): ReactElement => (
                   </svg>
                 </span>
                 <div>
-                  <strong>Layout-first AI</strong>
-                  <p>Understands structure, not screenshots.</p>
+                  <strong>Layout-first parsing</strong>
+                  <p>Understands structure, not just pixels.</p>
                 </div>
               </li>
               <li>
@@ -298,14 +280,12 @@ const Home = (): ReactElement => (
           <div className={`${styles.tableHead} ${styles.tableRow}`}>
             <span>Feature</span>
             <span>Free</span>
-            <span>Plus</span>
             <span>Pro</span>
           </div>
           {comparisonRows.map((row) => (
             <div key={row.feature} className={styles.tableRow}>
               <span>{row.feature}</span>
               <span>{row.free}</span>
-              <span>{row.plus}</span>
               <span>{row.pro}</span>
             </div>
           ))}
@@ -354,7 +334,7 @@ const Home = (): ReactElement => (
             </div>
             <a
               className="btn btn-primary"
-              href={checkoutLinks.proYearly}
+              href={checkoutLinks.pro}
               target="_blank"
               rel="noreferrer"
             >

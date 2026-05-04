@@ -54,6 +54,7 @@ export type {
   LicensePlan,
   LicenseStatus,
   License,
+  LicenseSubscription,
 } from "./types";
 
 export { DEFAULT_CAPTURE_OPTIONS } from "./types";

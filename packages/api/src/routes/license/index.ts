@@ -1,209 +1,150 @@
 import { Router, type Request, type Response } from "express";
-import { License, PLAN_LIMITS } from "../../models/License.js";
+import { type ILicense, PLAN_LIMITS } from "../../models/License.js";
+import { licenseService } from "../../services/licenseService.js";
+import { mongoConnected } from "../../state.js";
 
 const router = Router();
 
-// ============================================================================
-// Auth middleware for license routes
-// ============================================================================
-
-const DEV_TOKEN = process.env.DEV_TOKEN;
-const DEV_USER_ID = process.env.DEV_USER_ID ?? "dev-user";
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
-
-function licenseAuth(req: Request, res: Response, next: () => void): void {
-  if (!DEV_TOKEN) {
-    res.status(503).json({ error: "Server auth not configured" });
-    return;
+/** Common guard: License routes need a live MongoDB. Without it Mongoose
+ * buffers operations and eventually throws "buffering timed out", which
+ * surfaces to the plugin as an opaque 500. Fail fast with 503 instead. */
+function requireMongo(_req: Request, res: Response): boolean {
+  if (!mongoConnected) {
+    res.status(503).json({
+      error: "License database unavailable",
+      hint: "MongoDB is not connected. Start mongo (docker compose up mongo -d).",
+    });
+    return false;
   }
-  const authHeader = req.header("Authorization");
-  const token = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice("Bearer ".length)
-    : undefined;
-
-  if (!token || token !== DEV_TOKEN) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  (req as Request & { userId?: string }).userId = DEV_USER_ID;
-  next();
-}
-
-function adminAuth(req: Request, res: Response, next: () => void): void {
-  if (!ADMIN_TOKEN) {
-    res.status(503).json({ error: "Server auth not configured" });
-    return;
-  }
-  const authHeader = req.header("Authorization");
-  const token = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice("Bearer ".length)
-    : undefined;
-
-  if (!token || token !== ADMIN_TOKEN) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  next();
+  return true;
 }
 
 // ============================================================================
-// Helper: get or create license
+// Serialization
 // ============================================================================
 
-async function getOrCreateLicense(userId: string) {
-  let license = await License.findOne({ userId });
-  if (!license) {
-    license = await License.create({ userId });
-  }
+interface SerializedLicense {
+  figmaUserId: string;
+  email: string | null;
+  plan: "free" | "pro";
+  status: "active" | "canceled" | "expired";
+  cycleStartedAt: string;
+  cycleEndsAt: string;
+  usage: {
+    imports: number;
+    periodStartedAt: string;
+  };
+  limits: {
+    // null over JSON for "unlimited" — Pro users see no cap.
+    imports: number | null;
+  };
+  subscription: {
+    flittOrderId: string;
+    activatedAt: string;
+    nextBillingAt: string;
+    canceledAt: string | null;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
-  // Reset daily usage if needed
-  const today = new Date().toISOString().slice(0, 10);
-  if (license.usage.lastResetDate !== today) {
-    license.usage.importsToday = 0;
-    license.usage.aiGenerationsToday = 0;
-    license.usage.lastResetDate = today;
-    await license.save();
-  }
-
-  return license;
+function serialize(license: ILicense): SerializedLicense {
+  const limit = PLAN_LIMITS[license.plan].imports;
+  return {
+    figmaUserId: license.figmaUserId,
+    email: license.email,
+    plan: license.plan,
+    status: license.status,
+    cycleStartedAt: license.cycleStartedAt.toISOString(),
+    cycleEndsAt: license.cycleEndsAt.toISOString(),
+    usage: {
+      imports: license.usage.imports,
+      periodStartedAt: license.usage.periodStartedAt.toISOString(),
+    },
+    limits: {
+      imports: Number.isFinite(limit) ? limit : null,
+    },
+    subscription: license.subscription
+      ? {
+          flittOrderId: license.subscription.flittOrderId,
+          activatedAt: license.subscription.activatedAt.toISOString(),
+          nextBillingAt: license.subscription.nextBillingAt.toISOString(),
+          canceledAt:
+            license.subscription.canceledAt?.toISOString() ?? null,
+        }
+      : null,
+    createdAt: license.createdAt.toISOString(),
+    updatedAt: license.updatedAt.toISOString(),
+  };
 }
 
 // ============================================================================
 // Routes
 // ============================================================================
 
-// GET /api/license/me — get or create license for user
-router.get("/me", licenseAuth, async (req: Request, res: Response) => {
+/**
+ * GET /api/license/me?figmaUserId=<id>
+ *
+ * Public read. The figmaUserId is its own bearer credential — anyone who
+ * knows the id can read the license, but cannot mutate it. (Worst case:
+ * snooping a public Figma file's user list reveals 10/month free quotas.)
+ */
+router.get("/me", async (req: Request, res: Response) => {
+  if (!requireMongo(req, res)) return;
   try {
-    const userId = (req as Request & { userId?: string }).userId ?? DEV_USER_ID;
-    const license = await getOrCreateLicense(userId);
+    const figmaUserId = req.query.figmaUserId;
+    if (typeof figmaUserId !== "string" || !figmaUserId) {
+      res.status(400).json({ error: "figmaUserId query parameter is required" });
+      return;
+    }
+    const license = await licenseService.getOrCreate(figmaUserId);
+    res.json(serialize(license));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Server error";
+    console.error("[License] /me error:", err);
+    res.status(500).json({
+      error: message,
+      stack:
+        process.env.NODE_ENV === "production" || !(err instanceof Error)
+          ? undefined
+          : err.stack,
+    });
+  }
+});
+
+/**
+ * POST /api/license/use-import
+ *
+ * Atomically increments imports.usage. Returns 403 when the Free monthly
+ * quota has been exhausted; the plugin opens the QuotaExceededModal in
+ * response.
+ *
+ * Auth: figmaUserId in body for now. Phase 4 will add HMAC plugin token
+ * verification.
+ */
+router.post("/use-import", async (req: Request, res: Response) => {
+  if (!requireMongo(req, res)) return;
+  try {
+    const { figmaUserId } = req.body as { figmaUserId?: string };
+    if (!figmaUserId) {
+      res.status(400).json({ error: "figmaUserId is required" });
+      return;
+    }
+    const result = await licenseService.useImport(figmaUserId);
+    if ("error" in result) {
+      res.status(403).json({
+        error: "limit_exceeded",
+        upgradeUrl: "/api/checkout/create",
+      });
+      return;
+    }
     res.json({
-      userId: license.userId,
-      plan: license.plan,
-      status: license.status,
-      expiresAt: license.expiresAt?.toISOString(),
-      limits: license.limits,
-      usage: {
-        importsToday: license.usage.importsToday,
-        aiGenerationsToday: license.usage.aiGenerationsToday,
-      },
-      updatedAt: license.updatedAt,
+      ok: true,
+      remaining: Number.isFinite(result.remaining) ? result.remaining : null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Server error";
-    res.status(500).json({ error: message });
-  }
-});
-
-// POST /api/license/activate — set plan
-router.post("/activate", licenseAuth, async (req: Request, res: Response) => {
-  try {
-    const { plan } = req.body as { plan?: string };
-
-    if (!plan || !["free", "plus", "pro"].includes(plan)) {
-      res.status(400).json({ error: "Invalid plan" });
-      return;
-    }
-
-    const userId = (req as Request & { userId?: string }).userId ?? DEV_USER_ID;
-    const license = await getOrCreateLicense(userId);
-    const planKey = plan as keyof typeof PLAN_LIMITS;
-
-    license.plan = planKey;
-    license.status = "active";
-    license.limits = { ...PLAN_LIMITS[planKey] };
-    await license.save();
-
-    res.json(license);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Server error";
-    res.status(500).json({ error: message });
-  }
-});
-
-// POST /api/license/use-import — increment import usage
-router.post("/use-import", licenseAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as Request & { userId?: string }).userId ?? DEV_USER_ID;
-    const license = await getOrCreateLicense(userId);
-
-    if (license.usage.importsToday >= license.limits.importsPerDay) {
-      res.status(429).json({ error: "Daily import limit reached" });
-      return;
-    }
-
-    license.usage.importsToday += 1;
-    await license.save();
-
-    res.json({ remaining: license.limits.importsPerDay - license.usage.importsToday });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Server error";
-    res.status(500).json({ error: message });
-  }
-});
-
-// POST /api/license/use-ai — increment AI usage
-router.post("/use-ai", licenseAuth, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as Request & { userId?: string }).userId ?? DEV_USER_ID;
-    const license = await getOrCreateLicense(userId);
-
-    if (license.usage.aiGenerationsToday >= license.limits.aiGenerationsPerDay) {
-      res.status(429).json({ error: "Daily AI generation limit reached" });
-      return;
-    }
-
-    license.usage.aiGenerationsToday += 1;
-    await license.save();
-
-    res.json({ remaining: license.limits.aiGenerationsPerDay - license.usage.aiGenerationsToday });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Server error";
-    res.status(500).json({ error: message });
-  }
-});
-
-// POST /api/admin/set-license — admin override
-router.post("/admin/set", adminAuth, async (req: Request, res: Response) => {
-  try {
-    const { userId, plan, status, expiresAt } = req.body as {
-      userId?: string;
-      plan?: string;
-      status?: string;
-      expiresAt?: string;
-    };
-
-    if (!userId) {
-      res.status(400).json({ error: "userId is required" });
-      return;
-    }
-
-    if (!plan || !["free", "plus", "pro"].includes(plan)) {
-      res.status(400).json({ error: "Invalid plan" });
-      return;
-    }
-
-    if (!status || !["trial", "active", "expired", "canceled"].includes(status)) {
-      res.status(400).json({ error: "Invalid status" });
-      return;
-    }
-
-    const license = await getOrCreateLicense(userId);
-    const planKey = plan as keyof typeof PLAN_LIMITS;
-
-    license.plan = planKey;
-    license.status = status as "trial" | "active" | "expired" | "canceled";
-    license.limits = { ...PLAN_LIMITS[planKey] };
-    if (expiresAt) {
-      license.expiresAt = new Date(expiresAt);
-    }
-    await license.save();
-
-    res.json(license);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Server error";
+    console.error("[License] /use-import error:", err);
     res.status(500).json({ error: message });
   }
 });

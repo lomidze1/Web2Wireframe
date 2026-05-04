@@ -162,24 +162,25 @@ FLITT_MERCHANT_ID, FLITT_SECRET_KEY, FLITT_BASE_URL
 
 **Provider:** Flitt (Georgia/CIS PCI-DSS Level 1 gateway). **მხოლოდ Flitt** — Stripe/Paddle/LemonSqueezy/Polar **არასოდეს** ვახსენოთ კოდში ან დოკუმენტაციაში.
 
-### Plans
+### Plans (Single-tier launch — June 16, 2026)
 
-| Plan | Imports | AI Generations | ფასი (USD) |
-|------|---------|----------------|-----------|
-| Free | 10 / month | 10 / month | $0 |
-| Plus | unlimited | 30 / month | $12 / month |
-| Pro | unlimited | 200 / month + Credit Packs | $20 / month |
+| Plan | Imports | ფასი (USD) |
+|------|---------|-----------|
+| Free | 10 / month | $0 |
+| Pro | unlimited | $16 / month |
+
+**Pricing rationale:**
+- $16 covers Flitt's 4% commission (net ≈ $15.36) — round whole-dollar pricing for simplicity
+- USD only globally; **EU VAT NOT collected at launch** (Terms disclaimer + non-EU seller posture); revisit at ~$30K/year EU revenue
+- **No refunds**, cancel-anytime; cancellation = end-of-period (Pro until cycleEndsAt, then Free)
+- **No trial** — Free tier IS the trial (10 imports/month forever)
+- **Quota-exceeded UX:** hard block + upgrade modal on 11th import attempt
 
 **Counter rules:**
 - Imports counter = URL + Screenshot + HTML + Browser Extension capture
-- AI Generations counter = **მხოლოდ AI page/block generation**
-- Screenshot import = NOT AI generation (don't conflate)
-
-### Credit Packs (Pro extension only)
-- Small: $5 = 25 generations
-- Medium: $10 = 60 generations
-- Large: $20 = 150 generations
-- One-time Flitt payments, no expiration
+- Screenshot import counts as a regular import (uses Anthropic AI internally, but billed as 1 import)
+- Counters reset monthly via **lazy reset** (no cron; on every license read, if `now >= cycleEndsAt` → reset)
+- AI Generation tab does **not** exist in launch — code is on `ai-generation-backup` branch
 
 ### User Identity
 - **NO registration, NO login**
@@ -196,7 +197,8 @@ FLITT_MERCHANT_ID, FLITT_SECRET_KEY, FLITT_BASE_URL
 - **USD** primary (Flitt supports USD/GEL/EUR)
 
 ### Implementation reference
-- Plan: [docs/plans/PAYMENT-SYSTEM.md](docs/plans/PAYMENT-SYSTEM.md)
+- Strategy: [docs/decisions/LAUNCH-STRATEGY-2026.md](docs/decisions/LAUNCH-STRATEGY-2026.md)
+- Plan: [docs/plans/PAYMENT-SYSTEM.md](docs/plans/PAYMENT-SYSTEM.md) (single-tier $16, finalized 2026-05-04)
 - Flitt API ref: see auto-memory `reference_flitt-api.md`
 
 ## Warnings

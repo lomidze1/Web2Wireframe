@@ -10,11 +10,11 @@
 
 ## 📋 TL;DR
 
-**საბოლოო გადაწყვეტილება:** ბაზარზე გავდივართ **მხოლოდ Import ფუნქციით** (URL→Figma wireframe). **2 plan: Free + Paid $15/mo**. AI Generation **ამოღებულია launch-დან** — code-ი შენახულია ცალკე branch-ზე და მომავალში 3-4 თვეში გადაწყდება.
+**საბოლოო გადაწყვეტილება:** ბაზარზე გავდივართ **მხოლოდ Import ფუნქციით** (URL→Figma wireframe). **2 plan: Free + Paid $16/mo**. AI Generation **ამოღებულია launch-დან** — code-ი შენახულია ცალკე branch-ზე და მომავალში 3-4 თვეში გადაწყდება.
 
 ```
 Free:  10 imports/თვე — $0
-Paid:  Unlimited imports — $15/მო (შესაძლოა annual discount)
+Paid:  Unlimited imports — $16/მო (შესაძლოა annual discount)
 ```
 
 ---
@@ -30,7 +30,7 @@ Paid:  Unlimited imports — $15/მო (შესაძლოა annual discoun
 5. **AI cost validation:** რეალური per-gen cost = $0.04 (Sonnet 4.6), ჩემი თეორიული $0.08 estimate ნახევარი
 6. **3-Perspective Analysis:** Engineering A, CEO B, Designer A (2:1 ვერდიქტი Path A-ის სასარგებლოდ)
 7. **Initial recommendation Path A+:** Drop AI tab, promise Q3 AI on pricing page
-8. **Final pivot to Path A++ (current decision):** Drop AI entirely, single-tier $15, no Q3 promise, evaluate AI 3-4 months post-launch
+8. **Final pivot to Path A++ (current decision):** Drop AI entirely, single-tier $16, no Q3 promise, evaluate AI 3-4 months post-launch
 
 ---
 
@@ -238,7 +238,7 @@ const maxTokens = params.type === "page" ? 8000 : 4000;  // ← TOO LOW
 - ⚠️ "Coming soon" promise creates expectation
 - ⚠️ Q3 binding commitment
 
-### **Path A++ (FINAL CHOICE): Single-Tier $15, No AI, No Promise**
+### **Path A++ (FINAL CHOICE): Single-Tier $16, No AI, No Promise**
 - ✅ Maximum simplicity
 - ✅ Solo founder friendly
 - ✅ Honest brand (promise nothing)
@@ -257,7 +257,7 @@ const maxTokens = params.type === "page" ? 8000 : 4000;  // ← TOO LOW
 Free:  10 imports/თვე — $0
        basic features
 
-Paid:  $15/მო monthly
+Paid:  $16/მო monthly
        Annual discount option (TBD: $10-12/mo annual)
        ∞ imports
        Multi-viewport (1920/1440/1024/768/375)
@@ -279,14 +279,14 @@ Paid:  $15/მო monthly
 | Promise debt | Pro = "Coming soon AI" | Promise nothing |
 | Brand alignment | Mixed (AI mention) | Pure scalpel |
 
-### 7.3 Competitive Position at $15
+### 7.3 Competitive Position at $16
 
-| Competitor | Price | W2W $15 vs |
+| Competitor | Price | W2W $16 vs |
 |-----------|-------|------------|
-| h2d annual | $12/mo | +$3 (no commitment) |
-| h2d monthly | $18/mo | -$3 (cheaper monthly) |
-| Anima starter | $20+/seat | -$5+ |
-| Mureal | $5/mo | +$10 (different category) |
+| h2d annual | $12/mo | +$4 (no commitment) |
+| h2d monthly | $18/mo | -$2 (cheaper monthly) |
+| Anima starter | $20+/seat | -$4+ |
+| Mureal | $5/mo | +$11 (different category) |
 
 **Sweet spot:** competitive monthly, comparable to h2d annual without lock-in.
 
@@ -501,7 +501,7 @@ Paid:  $15/მო monthly
 - Component Library Composition pattern documented (founder LinkedIn quotes)
 - 3 parallel expert agents analyzed: Engineering A, CEO B (with checkpoint), Designer A
 - ADR-001 written (Path A+: Drop AI tab, promise Q3 AI)
-- **User pivot:** prefer single-tier $15, no Q3 promise → Path A++
+- **User pivot:** prefer single-tier $16, no Q3 promise → Path A++
 - THIS DOCUMENT created as final source of truth
 
 ### Time Investment This Session
@@ -528,7 +528,7 @@ Paid:  $15/მო monthly
 5. Return to dev for AI cleanup (next session)
 
 **Long-term commitment:**
-- Launch June 16 with single-tier $15
+- Launch June 16 with single-tier $16
 - 3-4 month re-evaluation checkpoint for AI
 - Build next plugin in parallel for portfolio diversification
 

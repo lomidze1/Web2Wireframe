@@ -18,6 +18,14 @@ import { optionalAuth } from "./middleware/auth.js";
 // License routes (MongoDB-backed, formerly License_Backend)
 import licenseRoutes from "./routes/license/index.js";
 
+// Checkout / webhook / cancel routes (Flitt payment integration)
+import checkoutRoutes, {
+  webhookRouter,
+  cancelRouter,
+} from "./routes/checkout/index.js";
+import authTokenRoutes from "./routes/plugin/auth-token.js";
+import adminLicenseRoutes from "./routes/admin/license.js";
+
 // Website route modules (formerly Website_Backend)
 import websiteSupportRoutes from "./routes/website/support.js";
 import websiteFigmaAuthRoutes from "./routes/website/figmaAuth.js";
@@ -112,9 +120,18 @@ pluginRouter.use(
 // Public plugin routes (no auth)
 pluginRouter.use("/api", pluginAuthRoutes);
 pluginRouter.use("/api", pluginDefaultsRoutes);
+pluginRouter.use("/api/auth", authTokenRoutes);
 
 // License routes (direct MongoDB — no more proxy)
 pluginRouter.use("/api/license", licenseRoutes);
+
+// Flitt payment routes
+pluginRouter.use("/api/checkout", checkoutRoutes);
+pluginRouter.use("/api/webhooks", webhookRouter);
+pluginRouter.use("/api/subscription", cancelRouter);
+
+// Admin endpoints (curl-driven, ADMIN_TOKEN-protected)
+pluginRouter.use("/api/admin/license", adminLicenseRoutes);
 
 // Functional plugin routes (optional auth)
 pluginRouter.use("/api", optionalAuth, pluginImportRoutes);

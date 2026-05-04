@@ -1,0 +1,48 @@
+.page {
+  min-height: calc(100vh - 200px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 1rem;
+}
+
+.card {
+  max-width: 520px;
+  margin: 0 auto;
+  text-align: center;
+  padding: 3rem 2rem;
+  border-radius: 16px;
+  background: var(--bg-elevated, #ffffff);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+
+  h1 {
+    margin: 1rem 0;
+    font-size: 1.75rem;
+  }
+
+  p {
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+    color: var(--text-secondary, #555);
+  }
+
+  .icon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--accent-soft, #e8f5e9);
+    color: var(--accent, #2e7d32);
+    font-size: 2rem;
+    font-weight: 700;
+  }
+
+  .subtle {
+    margin-top: 1.5rem;
+    font-size: 0.875rem;
+    color: var(--text-tertiary, #888);
+  }
+}

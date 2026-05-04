@@ -18,7 +18,7 @@
   flex: 1;
   cursor: pointer;
   transition: all 0.2s ease;
-  min-height: 180px;
+  min-height: 150px;
   position: relative;
   overflow: hidden;
 }
@@ -289,7 +289,9 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
   font-size: 12px;
   font-weight: 600;
 }

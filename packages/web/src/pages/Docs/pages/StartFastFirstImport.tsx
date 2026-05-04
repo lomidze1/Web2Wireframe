@@ -79,7 +79,7 @@ const StartFastFirstImport = (): ReactElement => (
     </figure>
     <p>
       Related:{" "}
-      <a href="/docs/ai-generation/overview">AI Generation Overview</a>
+      <a href="/docs/import-methods/web-import">Web Import</a>
     </p>
 
     <h3>Next steps after import</h3>
@@ -87,7 +87,6 @@ const StartFastFirstImport = (): ReactElement => (
     <ul>
       <li>Edit and refine the structure</li>
       <li>Save it to your Library for reuse</li>
-      <li>Try AI Generation for new layouts</li>
       <li>Experiment with different import methods</li>
     </ul>
     <p>

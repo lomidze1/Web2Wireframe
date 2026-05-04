@@ -163,10 +163,7 @@ export async function rebindOriginalFonts(
     chars?: string;
   }> = [];
 
-  console.log(
-    `%c[W2W-REBIND] Starting rebind on ${nodes.length} candidate text node(s)`,
-    "color:#4caf50;font-weight:bold",
-  );
+  // (rebind progress logging silenced for figmaUserId debug session)
 
   for (const node of nodes) {
     const originalFamily = node.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
@@ -253,44 +250,8 @@ export async function rebindOriginalFonts(
   // mid-run. We log per-node results as a plain JSON-stringified array
   // instead — same data, no API surface gamble.
   // ------------------------------------------------------------------
-  if (total > 0) {
-    console.log(
-      `%c[W2W-REBIND] Per-node results (${total} marked):`,
-      "color:#2196f3;font-weight:bold",
-    );
-    for (const r of perNode) {
-      console.log(
-        `  ${r.outcome.padEnd(13)} family="${r.family}" reqStyle="${r.requestedStyle}"` +
-          (r.appliedStyle ? ` applied="${r.appliedStyle}"` : "") +
-          ` attempts=${r.attemptsTried}` +
-          (r.firstError ? ` error="${r.firstError.slice(0, 80)}"` : "") +
-          (r.chars ? ` chars="${r.chars}"` : ""),
-      );
-    }
-
-    // Group by outcome so the high-level pattern jumps out at a glance.
-    const byOutcome: Record<string, number> = {};
-    const familiesByOutcome: Record<string, Set<string>> = {};
-    for (const r of perNode) {
-      byOutcome[r.outcome] = (byOutcome[r.outcome] || 0) + 1;
-      if (!familiesByOutcome[r.outcome]) familiesByOutcome[r.outcome] = new Set();
-      familiesByOutcome[r.outcome].add(r.family);
-    }
-    console.log(
-      `%c[W2W-REBIND] Outcome summary:`,
-      "color:#2196f3;font-weight:bold",
-      JSON.stringify(byOutcome),
-    );
-    for (const [outcome, families] of Object.entries(familiesByOutcome)) {
-      console.log(
-        `  ${outcome}: families = [${Array.from(families).sort().join(", ")}]`,
-      );
-    }
-  }
-  console.log(
-    `%c[W2W-REBIND] Done. rebound=${rebound} stillMissing=${stillMissing.size} skippedMixed=${skippedMixed} total=${total} previouslyRebound=${previouslyRebound}`,
-    "color:#4caf50;font-weight:bold",
-  );
+  // (per-node + summary logging silenced for figmaUserId debug session)
+  void perNode;
 
   return {
     rebound,

@@ -41,16 +41,25 @@
 }
 
 .modalClose {
-  background: none;
-  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   color: var(--text);
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 18px;
-  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.2s ease;
 }
 
 .modalClose:hover {
-  color: var(--accent);
+  background: rgba(255, 107, 107, 0.2);
+  border-color: rgba(255, 107, 107, 0.4);
+  color: #ff6b6b;
 }
 
 .modalContent {
@@ -59,7 +68,18 @@
   flex-direction: column;
   gap: 10px;
   min-height: 0;
-  overflow: hidden;
+  /* Vertical scroll when content overflows (e.g. error notice + summary +
+   * cards), with the scrollbar visually hidden — same pattern as the rest
+   * of the plugin's panels. Padding-right reserves space so the rightmost
+   * border-radius of inner cards doesn't touch the modal edge mid-scroll. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+  padding-right: 2px;
+}
+
+.modalContent::-webkit-scrollbar {
+  display: none; /* Chromium / Safari */
 }
 
 /* Plan Modal */
@@ -148,19 +168,24 @@
   background: rgba(255, 255, 255, 0.16);
 }
 
+/* Plan card grid — single Pro card at launch, so center it. If we ever
+ * add a second tier, switch back to a 2-column grid. */
 .planCards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  justify-content: center;
+  margin: 4px 0;
 }
 
 .planCard {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.04);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
   overflow: hidden;
   transition:
     transform 0.18s ease,
@@ -170,89 +195,142 @@
 }
 
 .planCard:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.3);
+  transform: translateY(-3px);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.32);
   border-color: rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.06);
 }
 
 .planCardHeader {
-  padding: 10px 12px;
+  padding: 18px 16px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.05);
   font-weight: 800;
-  font-size: 14px;
+  font-size: 18px;
   color: var(--text);
-  letter-spacing: 0.6px;
+  letter-spacing: 0.4px;
+  text-align: center;
 }
 
+/* Pro tier — premium look: stronger accent gradient + glow border */
 .planCardPro {
-  border-color: rgba(244, 162, 97, 0.6);
-  background: rgba(244, 162, 97, 0.08);
+  border-color: rgba(244, 162, 97, 0.7);
+  background:
+    radial-gradient(
+      120% 80% at 50% 0%,
+      rgba(244, 162, 97, 0.18),
+      rgba(244, 162, 97, 0.04) 60%,
+      rgba(244, 162, 97, 0.02) 100%
+    );
+  box-shadow:
+    0 0 0 1px rgba(244, 162, 97, 0.25),
+    0 8px 22px rgba(244, 162, 97, 0.12);
 }
 
 .planCardPro .planCardHeader {
-  border-bottom-color: rgba(244, 162, 97, 0.25);
-  background: rgba(244, 162, 97, 0.18);
+  border-bottom-color: rgba(244, 162, 97, 0.3);
+  background: linear-gradient(
+    180deg,
+    rgba(244, 162, 97, 0.28),
+    rgba(244, 162, 97, 0.14)
+  );
   color: var(--accent);
+  font-size: 20px;
+  letter-spacing: 0.6px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .planCardPro:hover {
-  border-color: rgba(244, 162, 97, 0.85);
-  box-shadow: 0 14px 30px rgba(244, 162, 97, 0.2);
+  border-color: rgba(244, 162, 97, 1);
+  box-shadow:
+    0 0 0 1px rgba(244, 162, 97, 0.55),
+    0 18px 38px rgba(244, 162, 97, 0.28);
 }
 
 .planList {
-  padding: 10px 12px 12px 22px;
+  padding: 14px 18px 12px;
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 12px;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  list-style: none;
 }
 
 .planListItem {
-  line-height: 1.4;
+  position: relative;
+  padding-left: 22px;
+  line-height: 1.45;
+}
+
+/* Accent checkmark in front of every feature */
+.planListItem::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(244, 162, 97, 0.18);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .planCardBtn {
-  width: 80%;
-  margin-inline: auto;
-  margin-bottom: 10px;
-  margin-top: auto;
-  padding: 8px 12px;
-  border-radius: 10px;
+  display: block;
+  width: calc(100% - 24px);
+  margin: 6px 12px 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.18);
   color: #1c2f3a;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.18s ease;
   text-decoration: none;
   text-align: center;
-  display: block;
 }
 
-.planCardBtn:hover {
+.planCardBtn:hover:not(:disabled) {
   border-color: var(--accent);
   background: rgba(255, 255, 255, 0.26);
+  transform: translateY(-1px);
+}
+
+.planCardBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .planCardBtnPro {
-  border-color: rgba(244, 162, 97, 0.8);
+  border-color: rgba(244, 162, 97, 0.9);
   background: linear-gradient(
     180deg,
-    rgba(244, 162, 97, 0.95),
-    rgba(244, 162, 97, 0.8)
+    rgba(244, 162, 97, 1) 0%,
+    rgba(232, 142, 78, 1) 100%
   );
   color: #1c2f3a;
+  box-shadow: 0 6px 14px rgba(244, 162, 97, 0.3);
 }
 
-.planCardBtnPro:hover {
+.planCardBtnPro:hover:not(:disabled) {
   border-color: rgba(244, 162, 97, 1);
-  box-shadow: 0 8px 18px rgba(244, 162, 97, 0.35);
+  background: linear-gradient(
+    180deg,
+    rgba(248, 178, 122, 1) 0%,
+    rgba(244, 162, 97, 1) 100%
+  );
+  box-shadow: 0 10px 22px rgba(244, 162, 97, 0.45);
+  transform: translateY(-1px);
 }
 
 .planCtaLink {

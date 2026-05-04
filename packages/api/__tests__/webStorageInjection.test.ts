@@ -1,8 +1,28 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 
 // Use random port to avoid EADDRINUSE conflicts
 process.env.API_PORT = "0";
+
+// Bypass the license gate — these tests focus on webStorage round-trip,
+// not on quota enforcement.
+vi.mock("../src/middleware/licenseGate.js", () => ({
+  requireImportAllowance: (
+    _req: unknown,
+    _res: unknown,
+    next: () => void,
+  ) => next(),
+}));
+vi.mock("../src/services/licenseService.js", () => ({
+  licenseService: {
+    useImport: vi.fn().mockResolvedValue({ ok: true, remaining: 9 }),
+    getOrCreate: vi.fn(),
+    applySubscriptionActivation: vi.fn(),
+    applyRecurringCharge: vi.fn(),
+    applyFailedCharge: vi.fn(),
+    applySubscriptionCancel: vi.fn(),
+  },
+}));
 
 const { default: app } = await import("../src/index.js");
 
@@ -50,7 +70,7 @@ describe("POST /api/import-cdp — webStorage round-trip", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
 
-    const pending = await request(app).get("/api/pending-import");
+    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
     expect(pending.body.success).toBe(true);
     expect(pending.body.webStorage).toEqual(webStorage);
     expect(pending.body.cdpMetadata.hasWebStorage).toBe(true);
@@ -66,7 +86,7 @@ describe("POST /api/import-cdp — webStorage round-trip", () => {
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import");
+    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
     expect(pending.body.webStorage).toEqual({ localStorage: {}, sessionStorage: {} });
     expect(pending.body.cdpMetadata.hasWebStorage).toBe(false);
   });

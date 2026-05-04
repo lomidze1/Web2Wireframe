@@ -38,7 +38,7 @@ const Footer = (): ReactElement => (
             Start Free
           </a>
           <a href="#">Install Browser Extension</a>
-          <a href={checkoutLinks.proMonthly} target="_blank" rel="noreferrer">
+          <a href={checkoutLinks.pro} target="_blank" rel="noreferrer">
             Get Pro
           </a>
         </div>

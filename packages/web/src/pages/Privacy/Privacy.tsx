@@ -95,13 +95,54 @@ const Privacy = (): ReactElement => {
         ),
       },
       {
+        id: "payment-data",
+        title: "Payment Data",
+        content: (
+          <>
+            <p>
+              Subscription payments are processed by{" "}
+              <a
+                href="https://flitt.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Flitt
+              </a>
+              , a PCI-DSS Level 1 payment gateway. Card data is collected,
+              processed, and stored exclusively by Flitt — Web2Wireframe never
+              receives or stores card numbers, CVCs, or expiration dates.
+            </p>
+            <p>
+              We retain payment metadata necessary for tax and accounting
+              compliance: order ID, transaction ID, charged amount, currency,
+              status, billing email, and the Figma user ID associated with the
+              subscription. This information is retained for the period
+              required by Georgian accounting law (typically 7 years).
+            </p>
+          </>
+        ),
+      },
+      {
+        id: "tax-notice",
+        title: "Tax Notice",
+        content: (
+          <p>
+            Web2Wireframe is operated from outside the European Union.
+            Customers are responsible for any local taxes (such as VAT)
+            applicable in their own jurisdiction. Prices displayed in the
+            Service and on our website are exclusive of such taxes.
+          </p>
+        ),
+      },
+      {
         id: "retention",
         title: "Data Retention",
         content: (
           <p>
             We keep data only as long as needed for the purposes described in
             this Policy or as required by law. Support records may be retained
-            to help resolve ongoing issues.
+            to help resolve ongoing issues. Payment metadata is retained for
+            the period required by accounting law (see Payment Data above).
           </p>
         ),
       },

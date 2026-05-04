@@ -31,6 +31,9 @@
     "name": "web2wireframe",
     "main": "src/main.ts",
     "ui": "src/ui/index.tsx",
+    "permissions": [
+      "currentuser"
+    ],
     "networkAccess": {
       "allowedDomains": [
         "https://api.web2wireframe.design"

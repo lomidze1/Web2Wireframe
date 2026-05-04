@@ -13,6 +13,7 @@ import {
 } from "../../utils/styleUtils.js";
 import { validateUrl } from "../../utils/urlValidation.js";
 import { mongoConnected } from "../../state.js";
+import { requireImportAllowance } from "../../middleware/licenseGate.js";
 
 const router = Router();
 
@@ -29,7 +30,7 @@ const router = Router();
  * - pluginColors: object - Custom plugin color overrides
  * - pluginFont: string - Custom plugin font (e.g., "Montserrat", "Arial")
  */
-router.post("/import-url", async (req: Request, res: Response) => {
+router.post("/import-url", requireImportAllowance, async (req: Request, res: Response) => {
   try {
     const {
       userId,
@@ -199,7 +200,7 @@ router.post("/import-url", async (req: Request, res: Response) => {
  * - pluginColors: object
  * - pluginFont: string
  */
-router.post("/import-html", async (req: Request, res: Response) => {
+router.post("/import-html", requireImportAllowance, async (req: Request, res: Response) => {
   try {
     const {
       htmlCode,

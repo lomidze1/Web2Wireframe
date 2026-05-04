@@ -2,8 +2,6 @@
 import { h } from "preact";
 import { useState, useEffect, useCallback } from "preact/hooks";
 
-// Import main pages
-import AIGenerationPage from "./pages/aiGeneration/AIGenerationPage";
 // Import sub-pages
 import Web from "./pages/import/web";
 import Screenshot from "./pages/import/screenshot";
@@ -15,10 +13,12 @@ import BrowserExtension from "./pages/import/browserExtension";
 import Settings from "./components/modalPopup/Settings";
 import Help from "./components/modalPopup/Help";
 import Plan from "./components/modalPopup/planPopup/Plan";
+import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
+
+import { onQuotaExceeded } from "./shared/quotaEvents";
 
 // Components
 import Footer from "./components/footer";
-import TopNav from "./components/topNav";
 import SubHeader from "./components/subHeader";
 
 // Import Config Context
@@ -41,7 +41,6 @@ const CSS_VARS_TO_CHECK = [
   "--main-gradient",
 ];
 
-type Page = "import" | "ai";
 type ImportTab = "web" | "screenshot" | "html" | "area" | "extension";
 
 export default function App() {
@@ -53,13 +52,19 @@ export default function App() {
 }
 
 function AppContent() {
-  const [page, setPage] = useState<Page>("import");
   const [importTab, setImportTab] = useState<ImportTab>("web");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsPanel, setSettingsPanel] =
     useState<SettingsPanel>("configuration");
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isPlanOpen, setIsPlanOpen] = useState(false);
+  const [isQuotaExceededOpen, setIsQuotaExceededOpen] = useState(false);
+
+  // Listen for quota-exceeded events dispatched by import API callers
+  // (see shared/quotaEvents.ts → isQuotaExceeded).
+  useEffect(() => {
+    return onQuotaExceeded(() => setIsQuotaExceededOpen(true));
+  }, []);
 
   const { setOpenSettingsCallback } = useConfig();
 
@@ -153,28 +158,19 @@ function AppContent() {
 
   return (
     <div class={styles.app}>
-      {/* Header - Main Navigation */}
-      <TopNav currentPage={page} onPageChange={setPage} />
-
-      {/* Sub Header - Only for Import page */}
-      {page === "import" && (
-        <SubHeader currentTab={importTab} onTabChange={setImportTab} />
-      )}
+      {/* Sub Header */}
+      <SubHeader currentTab={importTab} onTabChange={setImportTab} />
 
       {/* Content Area */}
-      <div class={importStyles.content}>
-        {page === "import" && renderImportContent()}
-        {page === "ai" && <AIGenerationPage />}
-      </div>
+      <div class={importStyles.content}>{renderImportContent()}</div>
 
       {/* Footer Bar */}
       <Footer
         onSettingsClick={() => setIsSettingsOpen(true)}
         onHelpClick={() => setIsHelpOpen(true)}
         onPlanClick={() => setIsPlanOpen(true)}
-        showExtension={page === "import"}
+        showExtension={true}
         onExtensionClick={() => {
-          setPage("import");
           setImportTab("extension");
         }}
         onRebindFontsClick={() => {
@@ -196,6 +192,14 @@ function AppContent() {
       />
       <Help isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
       <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
+      <QuotaExceededModal
+        isOpen={isQuotaExceededOpen}
+        onClose={() => setIsQuotaExceededOpen(false)}
+        onUpgrade={() => {
+          setIsQuotaExceededOpen(false);
+          setIsPlanOpen(true);
+        }}
+      />
     </div>
   );
 }

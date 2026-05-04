@@ -87,12 +87,6 @@ export default function HTML() {
       }
 
       if (msg.type === "fonts-not-available") {
-        // [E] UI (HTML): fonts-not-available received
-        console.log("[W2W-FONT-TRACE] E: UI (HTML) received fonts-not-available", {
-          missingFonts: msg.data?.missingFonts,
-          pluginFontOptions: msg.data?.pluginFontOptions,
-          extractedFontsLength: extractedFonts.length,
-        });
         setFontModalData(msg.data);
         setShowFontModal(true);
       }
@@ -177,6 +171,7 @@ export default function HTML() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          figmaUserId: config.figmaUserId,
           htmlCode: trimmedHTML,
           cssCode: cssCode.trim() || undefined,
           viewports: settings.localViewports.map(Number),
@@ -186,6 +181,12 @@ export default function HTML() {
           pluginColors: config.pluginColors,
         }),
       });
+
+      const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
+      if (await isQuotaExceeded(response)) {
+        setImportState({ status: "idle", message: "" });
+        return;
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -262,7 +263,6 @@ export default function HTML() {
 
       sendToFigma(renderData, settings.localCssVariablesMode);
     } catch (error) {
-      console.error("HTML import error:", error);
       setImportState({
         status: "error",
         message:

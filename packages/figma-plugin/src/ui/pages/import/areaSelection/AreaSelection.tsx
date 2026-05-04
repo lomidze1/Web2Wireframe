@@ -359,12 +359,6 @@ export default function AreaSelection() {
       }
 
       if (msg.type === "fonts-not-available") {
-        // [E] UI (AreaSelection): fonts-not-available received
-        console.log("[W2W-FONT-TRACE] E: UI (AreaSelection) received fonts-not-available", {
-          missingFonts: msg.data?.missingFonts,
-          pluginFontOptions: msg.data?.pluginFontOptions,
-          extractedFontsLength: extractedFonts.length,
-        });
         // Clear safety timeout — sandbox responded
         if (renderTimeoutRef.current) {
           clearTimeout(renderTimeoutRef.current);
@@ -593,7 +587,6 @@ export default function AreaSelection() {
       // Render directly using inline settings (no modal)
       processAndRender(unifiedResult);
     } catch (error) {
-      console.error("Import error:", error);
       setShowRenderingLoader(false);
       setRenderingProgress(undefined);
       setImportState({

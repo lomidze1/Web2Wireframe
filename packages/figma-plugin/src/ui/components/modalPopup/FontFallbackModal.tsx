@@ -76,17 +76,6 @@ export default function FontFallbackModal({
     return initial;
   });
 
-  // [G] Modal render — fires every render while open. Useful for verifying
-  // the modal is reaching the rendering path with correct props.
-  if (isOpen) {
-    console.log("[W2W-FONT-TRACE] G: FontFallbackModal render (open)", {
-      missingFontsCount: missingFonts.length,
-      missingFonts,
-      fontDownloadsCount: fontDownloads?.length ?? 0,
-      extractedFontsLength: extractedFonts?.length ?? 0,
-    });
-  }
-
   if (!isOpen) return null;
 
   const handleFallback = () => {
@@ -140,31 +129,12 @@ export default function FontFallbackModal({
   };
 
   const handleDownloadFonts = async () => {
-    // [H] Download click — entry point parameters
-    console.log("[W2W-FONT-TRACE] H: handleDownloadFonts entry", {
-      fontDownloadsCount: fontDownloads?.length ?? 0,
-      extractedFontsLength: extractedFonts?.length ?? 0,
-      missingFontsCount: missingFonts.length,
-    });
-
     if (!fontDownloads || fontDownloads.length === 0) return;
     setIsDownloading(true);
     setDownloadNotice(null);
     setZipProgress(0);
     try {
       const entries = buildFontDownloadEntries(fontDownloads, extractedFonts);
-
-      // [I] ZIP entries built
-      console.log("[W2W-FONT-TRACE] I: buildFontDownloadEntries result", {
-        entriesCount: entries.length,
-        entries: entries.map((e) => ({
-          family: e.family,
-          fileName: e.fileName,
-          url: e.url,
-          hasFontBase64: Boolean(e.fontBase64),
-          fontMimeType: e.fontMimeType,
-        })),
-      });
 
       if (entries.length === 0) {
         setDownloadNotice({
@@ -196,11 +166,7 @@ export default function FontFallbackModal({
           } could not be packaged (skipped).`,
         });
       }
-    } catch (err) {
-      // [W2W-FONT-TRACE] surface the underlying error so we can diagnose
-      // ZIP failures (network, CORS, sandbox restrictions) instead of
-      // showing the user a generic "try again" message with no signal.
-      console.error("[W2W-FONT-TRACE] handleDownloadFonts threw:", err);
+    } catch {
       setDownloadNotice({
         kind: "error",
         message: "Download failed. Please try again.",

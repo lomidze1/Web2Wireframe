@@ -1,0 +1,224 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import express from "express";
+import request from "supertest";
+
+// ============================================================================
+// Mocks BEFORE importing the route module
+// ============================================================================
+
+const mockVerifyCallback = vi.fn();
+const mockApplyActivation = vi.fn();
+const mockApplyRecurring = vi.fn();
+const mockApplyFailedCharge = vi.fn();
+const mockWebhookEventCreate = vi.fn();
+
+vi.mock("../src/services/flittService.js", () => ({
+  createSubscriptionCheckout: vi.fn(),
+  cancelSubscription: vi.fn(),
+  verifyCallback: (...args: unknown[]) => mockVerifyCallback(...args),
+}));
+
+vi.mock("../src/services/licenseService.js", () => ({
+  licenseService: {
+    getOrCreate: vi.fn(),
+    applySubscriptionActivation: (...args: unknown[]) =>
+      mockApplyActivation(...args),
+    applyRecurringCharge: (...args: unknown[]) =>
+      mockApplyRecurring(...args),
+    applyFailedCharge: (...args: unknown[]) =>
+      mockApplyFailedCharge(...args),
+    applySubscriptionCancel: vi.fn(),
+  },
+}));
+
+vi.mock("../src/models/WebhookEvent.js", () => ({
+  WebhookEvent: {
+    create: (...args: unknown[]) => mockWebhookEventCreate(...args),
+  },
+}));
+
+vi.mock("../src/config/env.js", () => ({
+  config: {
+    flitt: {
+      merchantId: "1549901",
+      secretKey: "test",
+      baseUrl: "https://pay.flitt.test",
+    },
+    website: { baseUrl: "https://web2wireframe.test" },
+  },
+}));
+
+const { webhookRouter } = await import("../src/routes/checkout/index.js");
+
+function makeApp() {
+  const app = express();
+  app.use(express.json());
+  app.use("/api/webhooks", webhookRouter);
+  return app;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockWebhookEventCreate.mockResolvedValue({});
+});
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function approvedPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    order_id: "w2w_pro_u_1_123",
+    order_status: "approved",
+    amount: 1600,
+    currency: "USD",
+    payment_id: "pay_abc",
+    sender_email: "user@example.com",
+    merchant_data: JSON.stringify({ figmaUserId: "u-1", plan: "pro" }),
+    signature: "sig",
+    ...overrides,
+  };
+}
+
+// ============================================================================
+// Signature verification
+// ============================================================================
+
+describe("POST /api/webhooks/flitt — signature", () => {
+  it("returns 200 + does NOT touch DB when signature is invalid", async () => {
+    mockVerifyCallback.mockReturnValue(false);
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload());
+    expect(res.status).toBe(200);
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 even with empty body (must not 4xx Flitt)", async () => {
+    const res = await request(makeApp()).post("/api/webhooks/flitt").send({});
+    expect(res.status).toBe(200);
+  });
+});
+
+// ============================================================================
+// Idempotency
+// ============================================================================
+
+describe("POST /api/webhooks/flitt — idempotency", () => {
+  it("dedupes a duplicate webhook (same payment_id) without invoking the service", async () => {
+    mockVerifyCallback.mockReturnValue(true);
+    // Simulate Mongo duplicate-key error on second insert.
+    mockWebhookEventCreate.mockRejectedValueOnce(
+      Object.assign(new Error("dup key"), { code: 11000 }),
+    );
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload());
+    expect(res.status).toBe(200);
+    expect(res.body.deduped).toBe(true);
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+  });
+
+  it("uses payment_id as the dedup key when present", async () => {
+    mockVerifyCallback.mockReturnValue(true);
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ payment_id: "pay_xyz" }));
+    expect(mockWebhookEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionId: "pay_xyz" }),
+    );
+  });
+
+  it("falls back to order_id+order_status when payment_id is absent", async () => {
+    mockVerifyCallback.mockReturnValue(true);
+    const payload = approvedPayload();
+    delete (payload as Record<string, unknown>).payment_id;
+    await request(makeApp()).post("/api/webhooks/flitt").send(payload);
+    expect(mockWebhookEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionId: "w2w_pro_u_1_123_approved" }),
+    );
+  });
+});
+
+// ============================================================================
+// merchant_data parsing
+// ============================================================================
+
+describe("POST /api/webhooks/flitt — merchant_data", () => {
+  it("returns 200 without service call when figmaUserId is missing", async () => {
+    mockVerifyCallback.mockReturnValue(true);
+    const payload = approvedPayload({
+      merchant_data: JSON.stringify({ plan: "pro" }), // no figmaUserId
+    });
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(payload);
+    expect(res.status).toBe(200);
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+  });
+
+  it("tolerates malformed merchant_data without crashing", async () => {
+    mockVerifyCallback.mockReturnValue(true);
+    const payload = approvedPayload({ merchant_data: "{not json" });
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(payload);
+    expect(res.status).toBe(200);
+  });
+});
+
+// ============================================================================
+// order_status branching
+// ============================================================================
+
+describe("POST /api/webhooks/flitt — order_status branching", () => {
+  beforeEach(() => {
+    mockVerifyCallback.mockReturnValue(true);
+  });
+
+  it("approved without parent_order_id → applySubscriptionActivation", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload());
+    expect(mockApplyActivation).toHaveBeenCalledWith({
+      figmaUserId: "u-1",
+      email: "user@example.com",
+      flittOrderId: "w2w_pro_u_1_123",
+    });
+    expect(mockApplyRecurring).not.toHaveBeenCalled();
+  });
+
+  it("approved with parent_order_id → applyRecurringCharge", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({ parent_order_id: "w2w_pro_u_1_orig", payment_id: "pay_renew" }),
+      );
+    expect(mockApplyRecurring).toHaveBeenCalledWith({ figmaUserId: "u-1" });
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+  });
+
+  it("declined → applyFailedCharge", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ order_status: "declined", payment_id: "pay_decl" }));
+    expect(mockApplyFailedCharge).toHaveBeenCalledWith({ figmaUserId: "u-1" });
+  });
+
+  it("expired → applyFailedCharge", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ order_status: "expired", payment_id: "pay_exp" }));
+    expect(mockApplyFailedCharge).toHaveBeenCalledWith({ figmaUserId: "u-1" });
+  });
+
+  it("reversed → no service call (logged only)", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ order_status: "reversed", payment_id: "pay_rev" }));
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+    expect(mockApplyRecurring).not.toHaveBeenCalled();
+    expect(mockApplyFailedCharge).not.toHaveBeenCalled();
+  });
+});

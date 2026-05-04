@@ -59,7 +59,7 @@ import {
 // ============================================================================
 
 export default function () {
-  showUI({ width: 410, height: 610 });
+  showUI({ width: 410, height: 560 });
 
   // Pending render state for font fallback popup flow
   let pendingRenderData: {
@@ -70,10 +70,8 @@ export default function () {
 
   // Listen for messages from UI
   figma.ui.onmessage = async (msg) => {
-    // Relay debug logs from UI iframe to sandbox console
+    // Relay debug logs from UI iframe — silenced.
     if (msg.type === "debug-log") {
-      // relay UI debug to sandbox console
-      console.log(msg.data);
       return;
     }
     // Handle font fallback choice from popup
@@ -96,8 +94,6 @@ export default function () {
           const primaryFont = Object.values(fontMapping)[0] || "Inter";
           await executeRender(primaryFont, fontMapping);
         }
-      } else {
-        console.warn("font-fallback-choice received but no pendingRenderData");
       }
       return;
     }
@@ -812,14 +808,6 @@ export default function () {
       // Pre-render font availability check
       const allFonts = collectAllFonts(frames);
 
-      // [A] Sandbox: font check entry
-      const allFontsArray = Array.from(allFonts);
-      console.log("[W2W-FONT-TRACE] A: sandbox font check entry", {
-        effectiveFontMode,
-        allFontsCount: allFontsArray.length,
-        allFontsSample: allFontsArray.slice(0, 10),
-      });
-
       if (effectiveFontMode === "website") {
         const { missing } = await checkFontsAvailability(allFonts);
 
@@ -832,44 +820,19 @@ export default function () {
           // Deduplicate
           const uniqueOptions = Array.from(new Set(pluginFontOptions));
 
-          // [B] Sandbox: missing fonts detected
-          console.log("[W2W-FONT-TRACE] B: missing fonts detected", {
-            missing,
-            pluginFont: pluginFont || "Montserrat",
-            uniqueOptions,
-          });
-
           const message = buildFontsNotAvailableMessage(
             missing,
             pluginFont || "Montserrat",
             uniqueOptions
           );
 
-          // [C] Sandbox: posting fonts-not-available message to UI
-          console.log("[W2W-FONT-TRACE] C: posting message to UI", {
-            type: message.type,
-            data: message.data,
-          });
-
           pendingRenderData = { data, executeRender, missingFonts: missing };
           figma.ui.postMessage(message);
           return; // Wait for user choice via font-fallback-choice message
         }
-
-        // [B'] Sandbox: website mode but no missing fonts → skip modal
-        console.log("[W2W-FONT-TRACE] B': website mode but 0 missing fonts — modal skipped", {
-          allFontsCount: allFontsArray.length,
-        });
       } else {
         // Plugin mode: map all fonts to pluginFont automatically
         const pluginFontMapping = buildPluginModeFontMapping(allFonts, pluginFont || "Montserrat");
-
-        // [D] Sandbox: skip branch — plugin mode auto-maps all fonts; modal never shows
-        console.log("[W2W-FONT-TRACE] D: plugin-mode branch (modal NOT shown)", {
-          effectiveFontMode,
-          pluginFont: pluginFont || "Montserrat",
-          mappingSize: Object.keys(pluginFontMapping).length,
-        });
 
         await executeRender(initialFontFamily, pluginFontMapping);
         return;
@@ -879,7 +842,6 @@ export default function () {
       } catch (error) {
         // Outer catch: handles errors outside executeRender's try/catch
         // (e.g., data destructuring, font check, executeRender call itself)
-        console.error("[W2W Sandbox] Unhandled render error:", error);
         figma.ui.postMessage({
           type: "wireframe-error",
           data: {
@@ -974,6 +936,29 @@ export default function () {
           data: { config: null },
         });
       }
+    }
+
+    // Handle get-current-user message — primary identity source for License
+    // lookups. Sandbox is the only context with access to figma.currentUser;
+    // UI consumes this via ConfigContext.figmaUserId.
+    //
+    // NOTE: figma.currentUser requires the "currentuser" permission in the
+    // figma-plugin section of package.json. Without it, accessing the
+    // property throws synchronously.
+    if (msg.type === "get-current-user") {
+      let userId: string | null = null;
+      try {
+        // SOLE debug log — verifies the sandbox really sees the Figma user.
+        console.log("[W2W] figma.currentUser:", figma.currentUser);
+        userId = figma.currentUser?.id ?? null;
+        console.log("[W2W] figma.currentUser.id =", userId);
+      } catch (err) {
+        console.log("[W2W] figma.currentUser threw:", err);
+      }
+      figma.ui.postMessage({
+        type: "current-user",
+        data: { userId },
+      });
     }
   };
 }

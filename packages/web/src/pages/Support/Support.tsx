@@ -9,13 +9,8 @@ const supportPlans = [
     badge: "Free",
   },
   {
-    title: "Standard",
-    desc: "Email support with faster responses during business hours.",
-    badge: "Plus",
-  },
-  {
     title: "Priority",
-    desc: "Priority queue with hands-on help for Pro customers.",
+    desc: "Priority queue with hands-on help for Pro customers (24h response).",
     badge: "Pro",
   },
 ];
