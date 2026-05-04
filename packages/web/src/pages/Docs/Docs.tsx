@@ -16,10 +16,6 @@ import ImportHTML from "./pages/ImportHTML";
 import ImportAreaCapture from "./pages/ImportAreaCapture";
 import BrowserExtensionOverview from "./pages/BrowserExtensionOverview";
 import BrowserExtensionImport from "./pages/BrowserExtensionImport";
-import AIGenerationOverview from "./pages/AIGenerationOverview";
-import AIGenerationPage from "./pages/AIGenerationPage";
-import AIGenerationBlock from "./pages/AIGenerationBlock";
-import AIGenerationPricing from "./pages/AIGenerationPricing";
 import PricingOverview from "./pages/PricingOverview";
 import PricingPurchase from "./pages/PricingPurchase";
 import PricingAdditional from "./pages/PricingAdditional";
@@ -100,26 +96,6 @@ const Docs = (): ReactElement => {
         <Route
           path="/browser-extension/import-with-extension"
           element={<BrowserExtensionImport />}
-        />
-        <Route
-          path="/ai-generation"
-          element={<Navigate to="/docs/ai-generation/overview" replace />}
-        />
-        <Route
-          path="/ai-generation/overview"
-          element={<AIGenerationOverview />}
-        />
-        <Route
-          path="/ai-generation/page-generation"
-          element={<AIGenerationPage />}
-        />
-        <Route
-          path="/ai-generation/block-generation"
-          element={<AIGenerationBlock />}
-        />
-        <Route
-          path="/ai-generation/pricing"
-          element={<AIGenerationPricing />}
         />
         <Route
           path="/pricing"

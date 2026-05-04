@@ -1,5 +1,5 @@
-// AI Wireframe Generator — Claude API integration
-// Builds prompts, calls Anthropic API, validates and parses JSON output
+// Screenshot AI Analyzer — Claude Vision API integration
+// Analyzes screenshots, validates and parses JSON output for the Screenshot import flow.
 
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -7,8 +7,6 @@ import Anthropic from "@anthropic-ai/sdk";
 // Types
 // ============================================================================
 
-type GenerateType = "page" | "block";
-type Density = "balanced" | "detailed";
 type TextMode = "lorem" | "semantic" | "website";
 
 type LayoutType =
@@ -44,16 +42,6 @@ type ElementType =
 type AbsoluteElementType = ElementType | "section-bg";
 
 type ImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
-
-export interface GenerateParams {
-  type: GenerateType;
-  pageType?: string;
-  blockType?: string;
-  sections?: string[];
-  density: Density;
-  viewportWidth: number;
-  notes?: string;
-}
 
 export interface SectionPadding {
   top: number;
@@ -160,168 +148,6 @@ export const VALID_ELEMENT_TYPES: readonly string[] = [
   "badge", "list", "avatar", "stat", "grid", "accordion",
 ];
 
-export const VALID_PAGE_TYPES: readonly string[] = [
-  "home", "about", "pricing", "contact", "blog",
-  "login", "register", "faq", "landing", "portfolio",
-  "dashboard", "settings", "404",
-];
-
-export const VALID_BLOCK_TYPES: readonly string[] = [
-  "hero", "features", "pricing", "faq", "testimonials",
-  "team", "contact", "cta", "stats", "footer",
-  "header", "newsletter", "gallery", "blog-list",
-];
-
-// ============================================================================
-// System prompt
-// ============================================================================
-
-export const WIREFRAME_SYSTEM_PROMPT = `You are a wireframe layout generator for a Figma plugin. You generate structured JSON
-that describes wireframe layouts for web pages and UI blocks.
-
-OUTPUT FORMAT:
-Return a JSON object with this exact structure:
-
-{
-  "totalHeight": <number>,
-  "sections": [
-    {
-      "name": "<Section Name>",
-      "sectionType": "<hero|features|pricing|faq|...>",
-      "height": <number>,
-      "background": "<background|surface|accent|transparent>",
-      "layout": "<center-stacked|two-column|three-column-grid|four-column-grid|sidebar-left|sidebar-right>",
-      "padding": { "top": <n>, "right": <n>, "bottom": <n>, "left": <n> },
-      "gap": <number>,
-      "elements": [
-        {
-          "type": "<heading|subheading|paragraph|button|button-group|image|icon|card|input|nav-links|logo|divider|badge|list|avatar|stat>",
-          ... type-specific fields ...
-        }
-      ]
-    }
-  ]
-}
-
-ELEMENT TYPES AND THEIR FIELDS:
-
-heading:
-  { "type": "heading", "text": "...", "level": 1|2|3|4, "align": "left|center|right" }
-
-subheading:
-  { "type": "subheading", "text": "...", "align": "left|center|right" }
-
-paragraph:
-  { "type": "paragraph", "text": "...", "align": "left|center|right", "maxWidth": <number|null> }
-
-button:
-  { "type": "button", "text": "...", "variant": "primary|secondary|outline|ghost", "size": "sm|md|lg" }
-
-button-group:
-  { "type": "button-group", "direction": "horizontal|vertical", "buttons": [
-    { "text": "...", "variant": "primary|secondary|outline", "size": "sm|md|lg" }
-  ]}
-
-image:
-  { "type": "image", "width": "full|half|third|quarter|<number>", "aspectRatio": "16:9|4:3|1:1|3:2", "rounded": true|false }
-
-card:
-  { "type": "card", "elements": [ ...nested elements... ], "padding": <number>, "rounded": true|false, "shadow": true|false, "background": "surface|background|transparent" }
-
-input:
-  { "type": "input", "label": "...", "placeholder": "...", "inputType": "text|email|password|textarea" }
-
-nav-links:
-  { "type": "nav-links", "links": ["Home", "About", "Pricing", "Contact"], "direction": "horizontal|vertical" }
-
-logo:
-  { "type": "logo", "size": "sm|md|lg" }
-
-divider:
-  { "type": "divider" }
-
-badge:
-  { "type": "badge", "text": "...", "variant": "accent|surface|secondary" }
-
-list:
-  { "type": "list", "items": ["Item 1", "Item 2", ...], "style": "bullet|numbered|check|none" }
-
-avatar:
-  { "type": "avatar", "size": "sm|md|lg" }
-
-stat:
-  { "type": "stat", "value": "99%", "label": "Uptime" }
-
-icon:
-  { "type": "icon", "size": "sm|md|lg" }
-
-LAYOUT RULES:
-- "center-stacked": All elements vertically centered, stacked
-- "two-column": Split into left/right columns (use nested arrays or specify column assignment)
-- "three-column-grid": 3 equal columns, typically for cards/features
-- "four-column-grid": 4 equal columns
-
-BACKGROUND COLOR ROLES:
-- "background" = page background (light gray)
-- "surface" = card/container background (blue-gray)
-- "accent" = emphasis background (light blue)
-- "transparent" = no background, inherits parent
-
-DENSITY GUIDE:
-- "balanced": Essential elements only, generous whitespace, standard spacing
-- "detailed": More elements, denser layout, additional sub-elements, less whitespace
-
-VIEWPORT GUIDE:
-- 1920px: Extra wide desktop, max-width containers recommended
-- 1440px: Standard desktop
-- 1024px: Tablet landscape — reduce columns (3→2, 4→2)
-- 768px: Tablet portrait — stack columns, reduce padding
-- 375px: Mobile — single column, compact spacing, smaller text
-
-IMPORTANT:
-- Generate realistic placeholder text (not lorem ipsum unless told otherwise)
-- Match the density level exactly
-- All heights must be reasonable (a hero section = 500-700px, not 2000px)
-- Sections should feel like a real website wireframe
-- Only include the requested sections
-- Respond ONLY with JSON, no explanation`;
-
-// ============================================================================
-// Prompt builder
-// ============================================================================
-
-/**
- * Build user prompt for Claude API
- */
-export function buildUserPrompt({ type, pageType, blockType, sections, density, viewportWidth, notes }: GenerateParams): string {
-  if (type === "page") {
-    let prompt = `Generate a wireframe layout for a "${pageType}" page.
-Viewport width: ${viewportWidth}px
-Density: ${density}`;
-    if (sections && sections.length > 0) {
-      prompt += `\nSections to include (in order): ${sections.join(", ")}`;
-    }
-    if (notes) {
-      prompt += `\nSpecial requirements: ${notes}`;
-    }
-    prompt += "\n\nReturn the complete JSON structure.";
-    return prompt;
-  }
-
-  if (type === "block") {
-    let prompt = `Generate a wireframe layout for a single "${blockType}" block/section.
-Viewport width: ${viewportWidth}px
-Density: ${density}`;
-    if (notes) {
-      prompt += `\nSpecial requirements: ${notes}`;
-    }
-    prompt += "\n\nReturn the complete JSON structure with a single section.";
-    return prompt;
-  }
-
-  throw new Error(`Invalid type: ${type}. Must be "page" or "block".`);
-}
-
 // ============================================================================
 // Validation
 // ============================================================================
@@ -402,90 +228,6 @@ export function parseJSONFromResponse(text: string): unknown {
   }
   // Otherwise try parsing the whole text as JSON
   return JSON.parse(text.trim());
-}
-
-// ============================================================================
-// Core API call
-// ============================================================================
-
-/**
- * Call Claude API and return parsed simplified JSON
- */
-export async function generateWireframeStructure(params: GenerateParams): Promise<GeneratedWireframe> {
-  const client = getClient();
-  const model = process.env.AI_MODEL || "claude-sonnet-4-20250514";
-  const maxTokens = params.type === "page" ? 16000 : 6000;
-
-  const response = await client.messages.create({
-    model,
-    max_tokens: maxTokens,
-    system: [
-      {
-        type: "text",
-        text: WIREFRAME_SYSTEM_PROMPT,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    messages: [
-      {
-        role: "user",
-        content: buildUserPrompt(params),
-      },
-    ],
-  });
-
-  const u = response.usage;
-  console.log(
-    `[AI] fn=generateWireframe model=${model} ` +
-      `input=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} ` +
-      `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens}`
-  );
-
-  const firstBlock = response.content[0];
-  if (firstBlock.type !== "text") {
-    throw new Error("Unexpected response content type from Claude API");
-  }
-  const content = firstBlock.text;
-  return parseJSONFromResponse(content) as GeneratedWireframe;
-}
-
-// ============================================================================
-// Retry wrapper
-// ============================================================================
-
-/**
- * Generate with retry on validation failure or API error
- */
-export async function generateWithRetry(params: GenerateParams, maxRetries: number = 1): Promise<GeneratedWireframe> {
-  let lastError: ApiError | ValidationError | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await generateWireframeStructure(params);
-      const validation = validateSimplifiedFormat(result);
-
-      if (validation.success) {
-        return result;
-      }
-
-      // Validation failed — log and retry
-      const err: ValidationError = new Error(`Validation failed: ${validation.errors.join(", ")}`);
-      err.validationErrors = validation.errors;
-      lastError = err;
-      console.warn(`[AI] Attempt ${attempt + 1} validation failed:`, validation.errors);
-    } catch (err) {
-      lastError = err as ApiError;
-      console.warn(`[AI] Attempt ${attempt + 1} error:`, (err as Error).message);
-
-      // Don't retry on auth errors or invalid API key
-      const apiErr = err as ApiError;
-      if (apiErr.status === 401 || apiErr.status === 403) {
-        throw err;
-      }
-    }
-  }
-
-  throw lastError ?? new Error("Generation failed with no error details");
 }
 
 // ============================================================================

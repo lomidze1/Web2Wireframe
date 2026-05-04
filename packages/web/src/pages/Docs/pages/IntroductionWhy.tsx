@@ -10,9 +10,10 @@ const IntroductionWhy = (): ReactElement => (
       Web2Wireframe is built to remove friction from the early stages of design
       and product work. Instead of rebuilding layouts from scratch, it gives
       you a structured starting point based on real websites. By combining
-      AI-powered generation with reusable wireframe libraries, Web2Wireframe
-      helps you move faster, stay consistent, and focus on UX decisions rather
-      than repetitive setup work.
+      multi-method import (URL, screenshot, HTML, area capture, browser
+      extension) with reusable wireframe libraries, Web2Wireframe helps you
+      move faster, stay consistent, and focus on UX decisions rather than
+      repetitive setup work.
     </p>
 
     <h3>Key benefits</h3>
