@@ -259,26 +259,37 @@ export type ColorRole =
 // License types
 // ============================================================================
 
-/** License plan tier */
-export type LicensePlan = "free" | "plus" | "pro";
+/** License plan tier (single-tier launch — see docs/decisions/LAUNCH-STRATEGY-2026.md) */
+export type LicensePlan = "free" | "pro";
 
-/** License status */
-export type LicenseStatus = "trial" | "active" | "expired" | "canceled";
+/** License status. No "trial" — Free is the trial. */
+export type LicenseStatus = "active" | "canceled" | "expired";
 
-/** License response */
+/** Subscription metadata (Pro plans only; null for Free). */
+export interface LicenseSubscription {
+  flittOrderId: string;
+  activatedAt: string;
+  nextBillingAt: string;
+  canceledAt: string | null;
+}
+
+/** License response (server → client). Dates are ISO strings. */
 export interface License {
-  userId: string;
+  figmaUserId: string;
+  email: string | null;
   plan: LicensePlan;
   status: LicenseStatus;
-  expiresAt?: string;
-  limits: {
-    importsPerDay: number;
-    aiGenerationsPerDay: number;
-  };
+  cycleStartedAt: string;
+  cycleEndsAt: string;
   usage: {
-    importsToday: number;
-    aiGenerationsToday: number;
+    imports: number;
+    periodStartedAt: string;
   };
+  limits: {
+    imports: number; // Pro = Infinity (serialized as null over JSON)
+  };
+  subscription: LicenseSubscription | null;
+  createdAt: string;
   updatedAt: string;
 }
 

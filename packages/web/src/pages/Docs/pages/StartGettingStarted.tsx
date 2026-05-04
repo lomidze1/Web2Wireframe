@@ -10,12 +10,13 @@ const StartGettingStarted = (): ReactElement => (
     <p>
       When you open Web2Wireframe for the first time, the plugin launches into
       its main workspace inside Figma. This is the central area where all
-      imports, AI generation, and library actions begin.
+      imports and library actions begin.
     </p>
     <p>
       Nothing is generated automatically at this stage. Web2Wireframe waits
-      for your input so you can decide how you want to start — whether by
-      importing existing content or generating wireframes using AI.
+      for your input so you can decide how you want to start — by choosing an
+      import method (URL, screenshot, HTML, area capture, or browser
+      extension).
     </p>
     <p>
       This approach ensures you stay in full control from the very beginning.
@@ -40,7 +41,6 @@ const StartGettingStarted = (): ReactElement => (
     <p>From the main screen, you can:</p>
     <ul>
       <li>Choose an import method</li>
-      <li>Access AI Generation features</li>
       <li>Open your Library</li>
       <li>Adjust basic settings before starting</li>
     </ul>
@@ -52,10 +52,10 @@ const StartGettingStarted = (): ReactElement => (
       <div
         className={styles.imagePlaceholder}
         role="img"
-        aria-label="Main screen with Import, AI Generation, and Library entry points"
+        aria-label="Main screen with Import and Library entry points"
       />
       <figcaption className={styles.imageCaption}>
-        Main screen entry points for Import, AI Generation, and Library.
+        Main screen entry points for Import and Library.
       </figcaption>
     </figure>
     <p>
@@ -70,14 +70,14 @@ const StartGettingStarted = (): ReactElement => (
     </p>
     <ol>
       <li>Open the plugin inside your Figma file</li>
-      <li>Choose how you want to start (Import or AI Generation)</li>
+      <li>Choose an import method</li>
       <li>Adjust settings if needed</li>
       <li>Generate the wireframe</li>
       <li>Edit and reuse the result</li>
     </ol>
     <p>
       This workflow is designed for iteration. You can repeat it multiple
-      times, regenerate wireframes, or switch methods as your ideas evolve.
+      times, re-import wireframes, or switch methods as your ideas evolve.
     </p>
     <figure className={styles.imageBlock}>
       <div

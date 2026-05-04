@@ -122,6 +122,7 @@ export default function Screenshot() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          figmaUserId: config.figmaUserId,
           imageBase64: imagePreview,
           imageWidth: dimensions.width,
           imageHeight: dimensions.height,
@@ -132,6 +133,12 @@ export default function Screenshot() {
           colorMode: settings.localColorMode,
         }),
       });
+
+      const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
+      if (await isQuotaExceeded(response)) {
+        setIsGenerating(false);
+        return;
+      }
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));

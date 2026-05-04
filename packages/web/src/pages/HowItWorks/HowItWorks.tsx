@@ -13,9 +13,6 @@ import iconWebsiteUrl from "../../assets/how-it-work/card-icons/website-url-icon
 import iconScreenshot from "../../assets/how-it-work/card-icons/screenshot-icon.png";
 import iconHTML from "../../assets/how-it-work/card-icons/html-icon.png";
 import iconAreaSelection from "../../assets/how-it-work/card-icons/area-selection-icon.png";
-// 3. AI Generated Feature Icons
-import aiGeneratingPageIcon from "../../assets/how-it-work/card-icons/ai-generating-page-icon.png";
-import aiGeneratingBlockIcon from "../../assets/how-it-work/card-icons/ai-generating-block-icon.png";
 
 // Card Cover images
 // 1. Cover images for Configuration Cards
@@ -27,9 +24,6 @@ import urlCardCover from "../../assets/how-it-work/card-cover/url-card-cover.png
 import screenshotCardCover from "../../assets/how-it-work/card-cover/screenshot-card-cover.png";
 import htmlCardCover from "../../assets/how-it-work/card-cover/html-card-cover.png";
 import areaCardCover from "../../assets/how-it-work/card-cover/area-card-cover.png";
-// 3. Cover images for AI Features
-import aiPageGenerateCover from "../../assets/how-it-work/card-cover/ai-page-generate-cover.png";
-import aiBlockGenerateCover from "../../assets/how-it-work/card-cover/ai-block-generate-cover.png";
 
 // Card Details images :
 // 1. Configuration details
@@ -48,12 +42,6 @@ import htmlCodeImport1 from "../../assets/how-it-work/card-details/html-import-1
 import htmlCodeImport2 from "../../assets/how-it-work/card-details/html-import-2.png";
 import areaSelectionImport1 from "../../assets/how-it-work/card-details/area-selection-import-1.png";
 import areaSelectionImport2 from "../../assets/how-it-work/card-details/area-selection-import-2.png";
-
-// 3. AI generated details
-import aiPageGenerating1 from "../../assets/how-it-work/card-details/ai-page-generating-1.png";
-import aiPageGenerating2 from "../../assets/how-it-work/card-details/ai-page-generating-2.png";
-import aiBlockGenerating1 from "../../assets/how-it-work/card-details/ai-block-generating-1.png";
-import aiBlockGenerating2 from "../../assets/how-it-work/card-details/ai-block-generating-2.png";
 
 type Card = {
   id: string;
@@ -196,41 +184,6 @@ const sections: Section[] = [
             "Click Generate Wireframe to create an editable Figma layout.",
           ],
           screenshots: [areaSelectionImport1, areaSelectionImport2],
-        },
-      },
-    ],
-  },
-  {
-    id: "ai-generation",
-    number: "03",
-    title: "AI Generation",
-    subtitle:
-      "Generate page and block wireframes using AI-assisted structure detection and reusable templates.",
-    cards: [
-      {
-        id: "generate-full-page",
-        icon: aiGeneratingPageIcon,
-        cardImage: aiPageGenerateCover,
-        title: "Generate Full Page",
-        description:
-          "Create structured wireframes for complete pages like landing, home, or pricing.",
-        details: {
-          howToUse:
-            "Create a complete page wireframe by selecting density, viewport, and page type. The AI builds a full layout with logical section flow and responsive structure, ready for editing in Figma.",
-          screenshots: [aiPageGenerating1, aiPageGenerating2],
-        },
-      },
-      {
-        id: "generate-block",
-        icon: aiGeneratingBlockIcon,
-        cardImage: aiBlockGenerateCover,
-        title: "Generate Block",
-        description:
-          "Generate individual UI blocks such as headers, testimonials, or pricing sections.",
-        details: {
-          howToUse:
-            "Create a focused wireframe block by selecting density, viewport, and block type.The AI generates a clean, reusable section designed to seamlessly fit into full page layouts.",
-          screenshots: [aiBlockGenerating1, aiBlockGenerating2],
         },
       },
     ],

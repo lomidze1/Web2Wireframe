@@ -53,8 +53,8 @@
   font-size: 12px;
   font-family: "Courier New", monospace;
   resize: none;
-  min-height: 50px;
-  max-height: 80px;
+  min-height: 80px;
+  max-height: 100px;
 }
 
 .codeTextarea::placeholder {
@@ -274,7 +274,9 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
   font-size: 12px;
   font-weight: 600;
 }
@@ -479,6 +481,10 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }

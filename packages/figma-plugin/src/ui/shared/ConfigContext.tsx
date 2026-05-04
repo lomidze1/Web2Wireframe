@@ -31,6 +31,10 @@ export interface PluginConfig {
   cssVariablesDefault: "styles" | "direct";
   layoutModeDefault: "autoLayout" | "absolute";
   interactionMode: "none" | "variants";
+  // Figma user identity (re-emitted by sandbox on every plugin open;
+  // primary key for License lookups). Not persisted to clientStorage —
+  // sandbox always overwrites with the live `figma.currentUser?.id`.
+  figmaUserId: string | null;
 }
 
 // Default plugin colors - Minimalist 5-color wireframe palette
@@ -75,6 +79,8 @@ export const DEFAULT_CONFIG: PluginConfig = {
   cssVariablesDefault: "direct",
   layoutModeDefault: "autoLayout",
   interactionMode: "none",
+  // Figma user id starts null until sandbox responds to `get-current-user`.
+  figmaUserId: null,
 };
 
 // Available viewport options
@@ -137,7 +143,10 @@ function deepMergeConfig(defaults: PluginConfig, saved: Partial<PluginConfig>): 
 // Debounce timer for saving config
 let saveTimer: number | null = null;
 
-// Send message to Figma backend to save config (debounced)
+// Send message to Figma backend to save config (debounced).
+// `figmaUserId` is excluded from persistence — it's re-emitted by the sandbox
+// on every plugin open as the live `figma.currentUser?.id`, so persisting a
+// stale value would cause confusion if the user signs into a different account.
 function saveConfigToBackend(config: PluginConfig): void {
   // Debounce to prevent rapid successive saves
   if (saveTimer !== null) {
@@ -145,8 +154,9 @@ function saveConfigToBackend(config: PluginConfig): void {
   }
 
   saveTimer = window.setTimeout(() => {
+    const { figmaUserId: _omit, ...persistable } = config;
     parent.postMessage(
-      { pluginMessage: { type: "save-config", data: { config } } },
+      { pluginMessage: { type: "save-config", data: { config: persistable } } },
       "*"
     );
     saveTimer = null;
@@ -168,15 +178,20 @@ export function ConfigProvider({
     ((panel: SettingsPanel) => void) | null
   >(null);
 
-  // Load config from Figma backend on mount
+  // Load config from Figma backend on mount + request the current Figma user id
   useEffect(() => {
     // Request config from Figma backend
     parent.postMessage(
       { pluginMessage: { type: "load-config" } },
       "*"
     );
+    // Request the live figma.currentUser.id from the sandbox
+    parent.postMessage(
+      { pluginMessage: { type: "get-current-user" } },
+      "*"
+    );
 
-    // Listen for config-loaded response from backend
+    // Listen for sandbox responses
     const handleMessage = (event: MessageEvent) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
@@ -184,11 +199,24 @@ export function ConfigProvider({
       if (msg.type === "config-loaded") {
         const savedConfig = msg.data?.config;
         if (savedConfig) {
-          // Deep merge saved config with defaults
-          const mergedConfig = deepMergeConfig(DEFAULT_CONFIG, savedConfig);
-          setConfig(mergedConfig);
+          // Deep merge saved config with defaults. Preserve any
+          // figmaUserId that may have already arrived via the parallel
+          // `current-user` message — the saved config never persists it
+          // (see saveConfigToBackend), so we must not let the merge
+          // clobber the live value to null. Without this guard, the Plan
+          // modal sticks on "Identifying Figma user…" whenever
+          // `config-loaded` arrives after `current-user`.
+          setConfig((prev) => ({
+            ...deepMergeConfig(DEFAULT_CONFIG, savedConfig),
+            figmaUserId: prev.figmaUserId,
+          }));
         }
         setIsConfigLoaded(true);
+      }
+
+      if (msg.type === "current-user") {
+        const userId: string | null = msg.data?.userId ?? null;
+        setConfig((prev) => ({ ...prev, figmaUserId: userId }));
       }
     };
 

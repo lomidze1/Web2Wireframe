@@ -1,4 +1,4 @@
-export type SupportPlan = "Free" | "Plus" | "Pro";
+export type SupportPlan = "Free" | "Pro";
 
 export interface SupportTicket {
   name: string;

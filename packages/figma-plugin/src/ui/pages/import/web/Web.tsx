@@ -87,12 +87,6 @@ export default function Web() {
       }
 
       if (msg.type === "fonts-not-available") {
-        // [E] UI (Web): fonts-not-available received
-        console.log("[W2W-FONT-TRACE] E: UI (Web) received fonts-not-available", {
-          missingFonts: msg.data?.missingFonts,
-          pluginFontOptions: msg.data?.pluginFontOptions,
-          extractedFontsLength: extractedFonts.length,
-        });
         setFontModalData(msg.data);
         setShowFontModal(true);
       }
@@ -200,6 +194,7 @@ export default function Web() {
         },
         body: JSON.stringify({
           userId: `figma-user-${Date.now()}`, // Temporary user ID
+          figmaUserId: config.figmaUserId,
           sourceUrl: normalizedUrl,
           viewports: settings.localViewports.map(Number),
           colorMode: settings.localColorMode,        // "plugin" | "website"
@@ -208,6 +203,12 @@ export default function Web() {
           pluginColors: config.pluginColors, // Send full 6-color palette
         }),
       });
+
+      const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
+      if (await isQuotaExceeded(response)) {
+        setImportState({ status: "idle", message: "" });
+        return;
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -287,7 +288,6 @@ export default function Web() {
       // Always use the user's configured CSS variables mode from settings
       sendToFigma(renderData, settings.localCssVariablesMode);
     } catch (error) {
-      console.error("Import error:", error);
       setImportState({
         status: "error",
         message:

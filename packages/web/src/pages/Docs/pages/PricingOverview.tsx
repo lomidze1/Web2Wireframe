@@ -12,45 +12,37 @@ const PricingOverview = (): ReactElement => (
       designed for users who rely on the product regularly and need more
       flexibility, scale, and control.
     </p>
-    <p>Paid plans typically include:</p>
+    <p>The Pro plan typically includes:</p>
     <ul>
-      <li>Extended access to AI Generation for pages and blocks</li>
-      <li>
-        Full use of advanced generation options and structure customization
-      </li>
-      <li>
-        Increased ability to reuse and manage wireframes in the library
-      </li>
-      <li>A smoother workflow for ongoing projects and teams</li>
+      <li>Unlimited URL, Screenshot, HTML, and Browser Extension imports</li>
+      <li>Full styling: colors, fonts, and all viewports</li>
+      <li>Real text content, hover state capture, and assets</li>
+      <li>Font binary download (ZIP + auto-install)</li>
+      <li>Priority email support</li>
     </ul>
     <p>Paid features focus on productivity and scale, not on restricting core functionality.</p>
     <figure className={styles.imageBlock}>
       <div
         className={styles.imagePlaceholder}
         role="img"
-        aria-label="Free versus Paid feature highlights"
+        aria-label="Free versus Pro feature highlights"
       />
       <figcaption className={styles.imageCaption}>
-        Free vs Paid feature highlights.
+        Free vs Pro feature highlights.
       </figcaption>
     </figure>
-    <p>
-      Related:{" "}
-      <a href="/docs/ai-generation/pricing">AI Generation Pricing & Availability</a>
-    </p>
 
     <h3>Available plan types</h3>
     <p>
-      Web2Wireframe is designed around a simple plan structure that grows with
-      your needs.
+      Web2Wireframe ships with a simple, two-tier plan structure.
     </p>
-    <p>Common plan types include:</p>
+    <p>Plan types:</p>
     <ul>
-      <li>Free - for exploration, testing, and occasional use</li>
-      <li>Paid plans - for regular use, advanced workflows, and larger projects</li>
+      <li>Free — 10 imports per month, for exploration and occasional use</li>
+      <li>Pro $16/month — unlimited imports and full features</li>
     </ul>
     <p>
-      Additional plan options may be introduced over time as new features
+      Additional options may be introduced over time as new features
       become available.
     </p>
     <figure className={styles.imageBlock}>
@@ -64,20 +56,20 @@ const PricingOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Why paid plans exist</h3>
+    <h3>Why the paid plan exists</h3>
     <p>
-      Paid plans exist to support the ongoing development and maintenance of
-      Web2Wireframe. Advanced features such as AI Generation and library
-      management require infrastructure and continuous improvement.
+      The Pro plan supports the ongoing development and maintenance of
+      Web2Wireframe. Advanced features such as multi-viewport capture, hover
+      state extraction, and font handling require infrastructure and
+      continuous improvement.
     </p>
-    <p>By offering paid plans, Web2Wireframe can:</p>
+    <p>By offering the Pro plan, Web2Wireframe can:</p>
     <ul>
-      <li>Maintain reliable AI-powered features</li>
       <li>Improve performance and stability</li>
       <li>Add new capabilities over time</li>
       <li>Support long-term product growth</li>
     </ul>
-    <p>Paid plans ensure the product remains sustainable while keeping core features accessible.</p>
+    <p>Pro keeps the product sustainable while leaving core features accessible on Free.</p>
 
     <h3>Comparison between free and paid plans</h3>
     <p>
@@ -110,8 +102,8 @@ const PricingOverview = (): ReactElement => (
       Web2Wireframe.
     </p>
     <ul>
-      <li>Choose the Free plan if you are exploring the product or using it occasionally</li>
-      <li>Choose a Paid plan if you generate wireframes frequently or rely on AI Generation</li>
+      <li>Choose the Free plan if you are exploring the product or running fewer than 10 imports per month</li>
+      <li>Choose the Pro plan if you import websites frequently and need full styling, viewports, and assets</li>
       <li>Consider upgrading when Web2Wireframe becomes part of your regular workflow</li>
     </ul>
     <p>

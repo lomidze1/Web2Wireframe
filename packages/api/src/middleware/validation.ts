@@ -18,7 +18,7 @@ export const supportTicketSchema = z.object({
     .string()
     .min(10, "Message must be at least 10 characters")
     .max(5000, "Message must be less than 5000 characters"),
-  selectedPlan: z.enum(["Free", "Plus", "Pro"]).optional(),
+  selectedPlan: z.enum(["Free", "Pro"]).optional(),
   figmaUserId: z.string().max(255).optional(),
 });
 

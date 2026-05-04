@@ -24,13 +24,11 @@ export default function SubHeader({ currentTab, onTabChange }: SubHeaderProps) {
         </button>
         <button
           class={
-            currentTab === "screenshot"
-              ? styles.navButtonActive
-              : styles.navButton
+            currentTab === "area" ? styles.navButtonActive : styles.navButton
           }
-          onClick={() => onTabChange("screenshot")}
+          onClick={() => onTabChange("area")}
         >
-          Screenshot
+          Area Selection
         </button>
         <button
           class={
@@ -42,11 +40,13 @@ export default function SubHeader({ currentTab, onTabChange }: SubHeaderProps) {
         </button>
         <button
           class={
-            currentTab === "area" ? styles.navButtonActive : styles.navButton
+            currentTab === "screenshot"
+              ? styles.navButtonActive
+              : styles.navButton
           }
-          onClick={() => onTabChange("area")}
+          onClick={() => onTabChange("screenshot")}
         >
-          Area Selection
+          Screenshot
         </button>
       </div>
     </div>

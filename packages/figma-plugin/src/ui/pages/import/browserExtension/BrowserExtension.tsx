@@ -64,7 +64,19 @@ export default function BrowserExtension() {
    */
   const checkForPendingImport = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/pending-import`);
+      // Don't poll until figmaUserId is available — quota gate requires it.
+      if (!config.figmaUserId) return;
+      const response = await fetch(
+        `${API_URL}/api/pending-import?figmaUserId=${encodeURIComponent(config.figmaUserId)}`,
+      );
+
+      const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
+      if (await isQuotaExceeded(response)) {
+        stopPolling();
+        setImportState({ status: "idle", message: "" });
+        return;
+      }
+
       const data = await response.json();
 
       if (data.success && data.hasPending) {
@@ -97,8 +109,7 @@ export default function BrowserExtension() {
         );
         sendToFigma(transformedFrames, newPendingData);
       }
-    } catch (error) {
-      console.error("Error checking for pending import:", error);
+    } catch {
       // Don't show error to user, just continue polling
     }
   };
@@ -170,12 +181,6 @@ export default function BrowserExtension() {
       }
 
       if (msg.type === "fonts-not-available") {
-        // [E] UI (BrowserExtension): fonts-not-available received
-        console.log("[W2W-FONT-TRACE] E: UI (BrowserExtension) received fonts-not-available", {
-          missingFonts: msg.data?.missingFonts,
-          pluginFontOptions: msg.data?.pluginFontOptions,
-          pendingFontsLength: pendingData?.fonts?.length ?? 0,
-        });
         setFontModalData(msg.data);
         setShowFontModal(true);
       }

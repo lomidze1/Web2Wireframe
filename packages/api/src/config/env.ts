@@ -60,6 +60,24 @@ const licenseServiceToken = requireEnv(
   "License proxy routes will be disabled in development."
 );
 
+// Flitt — payment processor (single-tier launch). All payment flows go
+// through the Flitt-hosted checkout; we never see card data. Sandbox/live
+// switch is implicit via the merchant_id + secret_key pair.
+const flittMerchantId = requireEnv(
+  "FLITT_MERCHANT_ID",
+  "Checkout/webhook routes will be disabled in development without this."
+);
+const flittSecretKey = requireEnv(
+  "FLITT_SECRET_KEY",
+  "Checkout/webhook routes will be disabled in development without this."
+);
+const flittBaseUrl = devDefault("FLITT_BASE_URL", "https://pay.flitt.com");
+
+const websiteBaseUrl = devDefault(
+  "WEBSITE_BASE_URL",
+  "http://localhost:5173",
+);
+
 export const config = {
   server: {
     port: parseInt(process.env.PORT || "3001", 10),
@@ -100,8 +118,17 @@ export const config = {
     serviceUrl: licenseServiceUrl,
     token: licenseServiceToken,
   },
+  flitt: {
+    merchantId: flittMerchantId,
+    secretKey: flittSecretKey,
+    baseUrl: flittBaseUrl,
+  },
+  website: {
+    baseUrl: websiteBaseUrl,
+  },
   features: {
     figmaOAuthEnabled: Boolean(figmaClientId && figmaClientSecret),
     licenseProxyEnabled: Boolean(licenseServiceUrl && licenseServiceToken),
+    flittEnabled: Boolean(flittMerchantId && flittSecretKey),
   },
 };

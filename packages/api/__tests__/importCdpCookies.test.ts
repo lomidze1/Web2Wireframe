@@ -1,8 +1,30 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 
 // Use random port to avoid EADDRINUSE conflicts
 process.env.API_PORT = "0";
+
+// Bypass the license gate — these tests focus on CDP capture round-trip
+// behavior, not on quota enforcement (which is covered separately).
+vi.mock("../src/middleware/licenseGate.js", () => ({
+  requireImportAllowance: (
+    _req: unknown,
+    _res: unknown,
+    next: () => void,
+  ) => next(),
+}));
+
+// pending-import inlines licenseService.useImport — also bypass for tests.
+vi.mock("../src/services/licenseService.js", () => ({
+  licenseService: {
+    useImport: vi.fn().mockResolvedValue({ ok: true, remaining: 9 }),
+    getOrCreate: vi.fn(),
+    applySubscriptionActivation: vi.fn(),
+    applyRecurringCharge: vi.fn(),
+    applyFailedCharge: vi.fn(),
+    applySubscriptionCancel: vi.fn(),
+  },
+}));
 
 const { default: app } = await import("../src/index.js");
 
@@ -50,7 +72,7 @@ describe("POST /api/import-cdp — cookie handling", () => {
     expect(res.body.success).toBe(true);
 
     // Fetch the pending import to verify round-trip
-    const pending = await request(app).get("/api/pending-import");
+    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
     expect(pending.body.success).toBe(true);
     expect(pending.body.hasPending).toBe(true);
     expect(pending.body.cookies).toEqual(cookies);
@@ -67,7 +89,7 @@ describe("POST /api/import-cdp — cookie handling", () => {
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import");
+    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
     expect(pending.body.cookies).toEqual([]);
     expect(pending.body.cdpMetadata.hasCookies).toBe(false);
   });
@@ -83,7 +105,7 @@ describe("POST /api/import-cdp — cookie handling", () => {
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import");
+    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
     expect(pending.body.cookies).toEqual([]);
     expect(pending.body.cdpMetadata.hasCookies).toBe(false);
   });
@@ -111,7 +133,7 @@ describe("POST /api/import-cdp — webStorage handling", () => {
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import");
+    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
     expect(pending.body.webStorage).toEqual(webStorage);
     expect(pending.body.cdpMetadata.hasWebStorage).toBe(true);
   });
@@ -126,7 +148,7 @@ describe("POST /api/import-cdp — webStorage handling", () => {
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import");
+    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
     expect(pending.body.webStorage).toEqual({ localStorage: {}, sessionStorage: {} });
     expect(pending.body.cdpMetadata.hasWebStorage).toBe(false);
   });
@@ -155,7 +177,7 @@ describe("POST /api/import-cdp → GET /api/pending-import round-trip", () => {
         timestamp: 1700000000000,
       });
 
-    const pending = await request(app).get("/api/pending-import");
+    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
 
     expect(pending.body.success).toBe(true);
     expect(pending.body.hasPending).toBe(true);

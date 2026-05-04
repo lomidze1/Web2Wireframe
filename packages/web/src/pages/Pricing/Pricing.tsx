@@ -20,49 +20,35 @@ const plans: Plan[] = [
     period: "/forever",
     summary: "Best for quick exploration and basic wireframe imports.",
     features: [
+      "10 imports per month",
       "Colors: plugin only",
       "Fonts: plugin only",
       "Viewports: 1920, 1440 only",
       "Text content: placeholders only",
       "Styles & assets: not included",
-      "AI generation: not available",
       "Support: Community",
     ],
     cta: "Start Free",
     link: "https://www.figma.com/community",
   },
   {
-    name: "Plus",
-    price: "$12",
+    name: "Pro",
+    price: "$16",
     period: "/month",
     summary:
-      "Unlimited imports with full styling, text content, and clean components.",
+      "Unlimited imports with full styling, real text content, and assets.",
     features: [
+      "Unlimited imports",
       "Full color & font access",
-      "All viewports included",
+      "All viewports (1920 / 1440 / 1024 / 768 / 375)",
       "Real text content",
       "Styles & assets included",
-      "Clean, structured components",
-      "No AI generation",
-      "Support: Standard",
+      "Hover state capture",
+      "Font binary download (ZIP + auto-install)",
+      "Priority email support (24h response)",
     ],
-    cta: "Get Plus",
-    link: checkoutLinks.proMonthly,
-  },
-  {
-    name: "Pro",
-    price: "$20",
-    period: "/month",
-    summary:
-      "Everything in Plus, with AI-powered wireframe generation.",
-    features: [
-      "Everything in Plus",
-      "AI-powered generation",
-      "Priority support queue",
-      "Best for teams, agencies, and power users",
-    ],
-    cta: "Get Pro",
-    link: checkoutLinks.proYearly,
+    cta: "Install Plugin",
+    link: checkoutLinks.pro,
     highlight: true,
   },
 ];
@@ -77,8 +63,8 @@ const Pricing = (): ReactElement => (
             Conversion-focused plans. Upgrade when you need more fidelity.
           </h1>
           <p>
-            Start free, then unlock images, assets, and multi-page captures with
-            Pro.
+            Start free, then unlock unlimited imports, full styling, and
+            assets with Pro.
           </p>
         </div>
       </div>

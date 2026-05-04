@@ -119,38 +119,6 @@ export const docsNavigation: DocsTopic[] = [
     ],
   },
   {
-    id: "ai-generation",
-    title: "AI Generation",
-    icon: "✨",
-    path: "/docs/ai-generation/overview",
-    pages: [
-      {
-        id: "overview",
-        title: "AI Generation Overview",
-        path: "overview",
-        source: "AIGenerationOverview",
-      },
-      {
-        id: "page-generation",
-        title: "Page Generation (Generate Page)",
-        path: "page-generation",
-        source: "AIGenerationPage",
-      },
-      {
-        id: "block-generation",
-        title: "Block Generation (Generate Block)",
-        path: "block-generation",
-        source: "AIGenerationBlock",
-      },
-      {
-        id: "pricing",
-        title: "AI Generation Pricing & Availability",
-        path: "pricing",
-        source: "AIGenerationPricing",
-      },
-    ],
-  },
-  {
     id: "pricing",
     title: "Pricing & Plans",
     icon: "💳",

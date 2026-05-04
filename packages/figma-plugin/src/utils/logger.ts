@@ -28,25 +28,9 @@ class Logger {
     return `[${timestamp}] [${level}] ${message}${contextStr}`;
   }
 
-  private log(level: LogLevel, message: string, context?: LogContext): void {
-    const formattedMessage = this.formatMessage(level, message, context);
-
-    switch (level) {
-      case LogLevel.DEBUG:
-        if (this.isDevelopment) {
-          console.log(formattedMessage);
-        }
-        break;
-      case LogLevel.INFO:
-        console.log(formattedMessage);
-        break;
-      case LogLevel.WARN:
-        console.warn(formattedMessage);
-        break;
-      case LogLevel.ERROR:
-        console.error(formattedMessage);
-        break;
-    }
+  private log(_level: LogLevel, _message: string, _context?: LogContext): void {
+    // Logger silenced for figmaUserId debug session — all logger.* calls
+    // are no-ops. Single targeted console.log lives in main.ts.
   }
 
   /**

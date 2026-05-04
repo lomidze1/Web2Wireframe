@@ -317,12 +317,6 @@ export function buildFontDownloads(
   extractedFonts?: unknown[]
 ): FontDownloadInfo[] | undefined {
   if (!extractedFonts || extractedFonts.length === 0) {
-    // [F] buildFontDownloads early exit (no extracted fonts)
-    console.log("[W2W-FONT-TRACE] F: buildFontDownloads early exit", {
-      missingFontsCount: missingFonts.length,
-      extractedFontsLength: extractedFonts?.length ?? 0,
-      result: undefined,
-    });
     return undefined;
   }
 
@@ -372,30 +366,5 @@ export function buildFontDownloads(
     }
   }
 
-  const result = downloads.length > 0 ? downloads : undefined;
-
-  // [F] buildFontDownloads result
-  console.log("[W2W-FONT-TRACE] F: buildFontDownloads result", {
-    missingFonts,
-    extractedFontsLength: extractedFonts.length,
-    // Read both shapes (`family` legacy, `fontFamily` W2W API) so the
-    // log isn't misleading on the W2W path.
-    extractedFontFamilies: extractedFonts
-      .map((ef) => {
-        const f = ef as { family?: string; fontFamily?: string };
-        return f.family || f.fontFamily;
-      })
-      .filter(Boolean),
-    extractedFontSrcSample: extractedFonts
-      .slice(0, 3)
-      .map((ef) => (ef as { src?: string }).src),
-    downloadsCount: downloads.length,
-    downloads: downloads.map((d) => ({
-      family: d.family,
-      urlsCount: d.urls.length,
-      isGoogleFont: d.isGoogleFont,
-    })),
-  });
-
-  return result;
+  return downloads.length > 0 ? downloads : undefined;
 }

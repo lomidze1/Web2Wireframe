@@ -16,6 +16,7 @@ import {
 import { validateUrl } from "../../utils/urlValidation.js";
 import { pendingCDPImports } from "../../state.js";
 import { convertAssetsForFigma } from "../../lib/cdp/convertImage.js";
+import { requireImportAllowance } from "../../middleware/licenseGate.js";
 
 const router = Router();
 
@@ -30,7 +31,7 @@ const router = Router();
  * - captureData: CaptureResult from Browser Extension
  * - timestamp: number
  */
-router.post("/import-cdp", async (req: Request, res: Response) => {
+router.post("/import-cdp", requireImportAllowance, async (req: Request, res: Response) => {
   try {
     const { captureData, cookies, webStorage, timestamp } = req.body;
 
@@ -129,6 +130,10 @@ router.post("/import-cdp", async (req: Request, res: Response) => {
  * - capturedData: W2WCaptureResult | W2WMultiCaptureResult
  * - timestamp: number
  */
+// /api/import-w2w is the Browser Extension's queue write — extension
+// has no access to figmaUserId, so this endpoint stays public. The
+// license gate fires when the Plugin retrieves the capture via
+// GET /api/pending-import (which is figmaUserId-aware).
 router.post("/import-w2w", async (req: Request, res: Response) => {
   try {
     const { capturedData, timestamp } = req.body;
@@ -333,7 +338,29 @@ router.get("/pending-import", async (req: Request, res: Response) => {
     });
   }
 
-  // Remove from pending (one-time fetch)
+  // We have a real capture to deliver — gate on the user's import quota.
+  // Polling with no pending data does NOT increment usage; only the
+  // consumption of an actual capture does.
+  const fromQuery = req.query?.figmaUserId;
+  const figmaUserId = typeof fromQuery === "string" ? fromQuery : null;
+  if (!figmaUserId) {
+    return res.status(400).json({
+      success: false,
+      error: "figmaUserId query parameter is required",
+    });
+  }
+  const { licenseService } = await import("../../services/licenseService.js");
+  const gate = await licenseService.useImport(figmaUserId);
+  if ("error" in gate) {
+    return res.status(403).json({
+      success: false,
+      error: "limit_exceeded",
+      upgradeUrl: "/api/checkout/create",
+    });
+  }
+
+  // Remove from pending (one-time fetch — only after the gate passes so
+  // a quota-exceeded user can re-poll after upgrading).
   pendingCDPImports.delete(latestId!);
 
   // Convert AVIF/WebP assets to JPEG for Figma compatibility (sharp on server)

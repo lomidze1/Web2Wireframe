@@ -58,10 +58,8 @@ src/
       transformData.ts
     pages/
       import/           # web/, screenshot/, html/, areaSelection/, browserExtension/
-      aiGeneration/     # block + page modes
       library/          # myLibrary/, community/
     components/
-      topNav/           # Main navigation
       subHeader/        # Import tab switcher
       footer/           # Settings/Help/Plan
       modalPopup/       # Settings, Help, Purchase, FontFallback, LayoutChoice
@@ -96,28 +94,29 @@ src/
 ## License & Payment Integration (Flitt)
 
 **User identity:**
-- Plugin sandbox (`main.ts`) reads `figma.currentUser.id` and posts it to UI via `figma.ui.postMessage({ type: "current-user", figmaUserId })`
-- UI stores in ConfigContext or shared module → ALL API calls include figmaUserId in body/query
-- ⚠️ **Currently NOT implemented** — primary blocker for payment flow
+- Plugin sandbox (`main.ts`) reads `figma.currentUser.id` and responds to `get-current-user` with `figma.ui.postMessage({ type: "current-user", data: { userId } })`
+- UI stores in `ConfigContext.figmaUserId` → ALL API calls include figmaUserId in body/query
+- ✅ Implemented (Phase 0 of payment system).
 
-**API client:**
-- `src/ui/shared/licenseClient.ts` — fetches `/api/license/me?figmaUserId=<ID>`
-- Returns `{ plan, status, limits, usage, creditsBalance, cycleEndsAt }`
-- Bearer token auth (HMAC-signed plugin token)
+**API client (`src/ui/shared/licenseClient.ts`):**
+- `fetchMyLicense(figmaUserId)` → `GET /api/license/me?figmaUserId=<ID>`
+- `createCheckout(figmaUserId)` → `POST /api/checkout/create` → returns `{ checkoutUrl, orderId }`
+- `issueCancelToken(figmaUserId)` → `POST /api/auth/issue-cancel-token` → 5-min HMAC token
+- License shape: `{ plan, status, cycleStartedAt, cycleEndsAt, usage: { imports, periodStartedAt }, limits: { imports }, subscription, ... }` (limits.imports = `null` for unlimited Pro)
 
-**Limit gates (TBD):**
-- Before import action → check `usage.imports < limits.imports`
-- Before AI generation → check `usage.aiGenerations < limits.aiGenerations OR creditsBalance > 0`
-- If gate fails → show Purchase modal with upgrade options
+**Limit gates (server-side enforcement):**
+- Backend middleware `requireImportAllowance` gates every import endpoint (URL/HTML/Screenshot/CDP/W2W)
+- Browser extension capture goes through `/api/import-w2w` (public) → plugin polls `/api/pending-import?figmaUserId=<id>` (gated at consume time, not on every poll)
+- On 403 → plugin's `isQuotaExceeded(response)` helper dispatches `w2w:quota-exceeded` event → App.tsx shows `QuotaExceededModal`
+- `Get Pro` in modal → opens Plan modal → checkout flow (see web/CLAUDE.md)
 
-**Purchase modal (`src/ui/components/modalPopup/Purchase.tsx`):**
-- Currently 29-line stub — needs real implementation
-- On upgrade click → opens `https://web2wireframe.design/checkout?plan=<plan>&fid=<figmaUserId>` in browser
-- After return → poll `/api/license/me` for plan update
+**Plan modal (`src/ui/components/modalPopup/planPopup/Plan.tsx`):**
+- Shows current plan + monthly usage; for Pro: next billing date and "Manage Subscription" button
+- "Get Pro" button → calls `createCheckout` → `window.open(checkoutUrl, "_blank")` → polls `/api/license/me` every 5s for 5min → notifies on plan=pro
 
-**Manage Subscription:**
-- Footer or Settings has button → opens `https://web2wireframe.design/account?fid=<ID>&t=<signedToken>`
-- `signedToken` = HMAC-SHA256 of `{figmaUserId, exp}` with AUTH_SECRET (server validates on Account page)
+**Manage Subscription (Pro only):**
+- Plan modal "Manage Subscription" button → calls `issueCancelToken` → opens `https://web2wireframe.design/account?fid=<ID>&t=<token>` in browser
+- AUTH_SECRET stays in backend; sandbox doesn't hold prod secrets
 
 **No Flitt SDK in plugin** — all checkout URLs come from backend.
 

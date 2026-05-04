@@ -1,0 +1,221 @@
+import { Router, type Request, type Response } from "express";
+import {
+  createSubscriptionCheckout,
+  cancelSubscription,
+  verifyCallback,
+} from "../../services/flittService.js";
+import { licenseService } from "../../services/licenseService.js";
+import { verifyToken } from "../../middleware/auth.js";
+import { config } from "../../config/env.js";
+import { WebhookEvent } from "../../models/WebhookEvent.js";
+
+const router = Router();
+
+// ============================================================================
+// POST /api/checkout/create
+// ----------------------------------------------------------------------------
+// Plugin → backend → Flitt. Returns the hosted checkout URL.
+// Public: figmaUserId in body is the bearer credential (consistent with
+// /api/license/me). Worst-case abuse = attacker creates a Pro subscription
+// invoice for someone else; the victim still has to enter their card to
+// complete the payment, so it's harmless beyond UX confusion.
+// ============================================================================
+
+router.post("/create", async (req: Request, res: Response) => {
+  try {
+    const { figmaUserId, returnUrl } = req.body as {
+      figmaUserId?: string;
+      returnUrl?: string;
+    };
+    if (!figmaUserId || typeof figmaUserId !== "string") {
+      res.status(400).json({ error: "figmaUserId is required" });
+      return;
+    }
+
+    const result = await createSubscriptionCheckout({ figmaUserId, returnUrl });
+    if (!result.ok) {
+      res.status(502).json({ error: result.error });
+      return;
+    }
+    res.json({ checkoutUrl: result.checkoutUrl, orderId: result.orderId });
+  } catch (err) {
+    console.error("[Checkout] /create error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+export default router;
+
+// ============================================================================
+// Webhook router (mounted separately so it can opt OUT of auth/CORS where
+// needed). Flitt POSTs JSON to this endpoint after every charge attempt.
+// ============================================================================
+
+export const webhookRouter = Router();
+
+webhookRouter.post("/flitt", async (req: Request, res: Response) => {
+  // ALWAYS return 200 (or short-circuit early) — anything else triggers
+  // Flitt's retry storm. Log internally; don't surface details.
+  try {
+    const payload = req.body as Record<string, unknown>;
+    if (!payload || typeof payload !== "object") {
+      console.warn("[Flitt webhook] empty body");
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    if (!verifyCallback(payload, config.flitt.secretKey)) {
+      console.warn(
+        "[Flitt webhook] signature verification failed",
+        { order_id: payload.order_id },
+      );
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    // Idempotency dedup. Prefer transaction_id; fall back to order_id +
+    // order_status (covers approved retries vs. declined retries
+    // separately, which is what we want).
+    const transactionId =
+      typeof payload.payment_id === "string"
+        ? payload.payment_id
+        : `${payload.order_id ?? "unknown"}_${payload.order_status ?? "unknown"}`;
+    const orderId = String(payload.order_id ?? "unknown");
+    const orderStatus = String(payload.order_status ?? "unknown");
+
+    try {
+      await WebhookEvent.create({
+        transactionId,
+        orderId,
+        orderStatus,
+      });
+    } catch (err) {
+      // Duplicate key means we already processed this event — return 200.
+      const code = (err as { code?: number }).code;
+      if (code === 11000) {
+        res.status(200).json({ received: true, deduped: true });
+        return;
+      }
+      throw err;
+    }
+
+    // Parse merchant_data → figmaUserId + plan.
+    let merchantData: { figmaUserId?: string; plan?: string } = {};
+    if (typeof payload.merchant_data === "string") {
+      try {
+        merchantData = JSON.parse(payload.merchant_data);
+      } catch (err) {
+        console.warn("[Flitt webhook] merchant_data parse failed", err);
+      }
+    }
+    const figmaUserId = merchantData.figmaUserId;
+
+    if (!figmaUserId) {
+      console.warn("[Flitt webhook] missing figmaUserId in merchant_data");
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    // Branch on order_status. parent_order_id is set on recurring renewals
+    // (charge #2, #3, …); absence means initial activation.
+    if (orderStatus === "approved") {
+      const parentOrderId = payload.parent_order_id;
+      if (parentOrderId && typeof parentOrderId === "string") {
+        await licenseService.applyRecurringCharge({ figmaUserId });
+      } else {
+        const email =
+          typeof payload.sender_email === "string"
+            ? payload.sender_email
+            : null;
+        await licenseService.applySubscriptionActivation({
+          figmaUserId,
+          email,
+          flittOrderId: orderId,
+        });
+      }
+    } else if (orderStatus === "declined" || orderStatus === "expired") {
+      await licenseService.applyFailedCharge({ figmaUserId });
+    } else {
+      // reversed / refund / processing — log only for now; manual
+      // intervention via Flitt dashboard for chargebacks/refunds.
+      console.log(
+        `[Flitt webhook] unhandled order_status="${orderStatus}" for ${figmaUserId}`,
+      );
+    }
+
+    res.status(200).json({ received: true });
+  } catch (err) {
+    console.error("[Flitt webhook] handler error:", err);
+    // Still return 200 — internal failures shouldn't trigger Flitt retries
+    // (they'd just fail the same way). Operator should monitor logs.
+    res.status(200).json({ received: true });
+  }
+});
+
+// ============================================================================
+// POST /api/subscription/cancel
+// ----------------------------------------------------------------------------
+// Website → backend. Body: { figmaUserId, token }.
+// `token` is HMAC-signed by /api/auth/issue-cancel-token (5-min TTL),
+// proving the cancel request originated from the plugin.
+// ============================================================================
+
+export const cancelRouter = Router();
+
+cancelRouter.post("/cancel", async (req: Request, res: Response) => {
+  try {
+    const { figmaUserId, token } = req.body as {
+      figmaUserId?: string;
+      token?: string;
+    };
+    if (!figmaUserId || !token) {
+      res.status(400).json({ error: "figmaUserId and token are required" });
+      return;
+    }
+    const secret = process.env.AUTH_SECRET;
+    if (!secret) {
+      console.error("[Cancel] AUTH_SECRET env var is not set");
+      res.status(500).json({ error: "Server auth not configured" });
+      return;
+    }
+
+    let payload;
+    try {
+      payload = verifyToken(token, secret);
+    } catch (err) {
+      res.status(401).json({ error: `Invalid token: ${(err as Error).message}` });
+      return;
+    }
+    if (payload.userId !== figmaUserId) {
+      res.status(401).json({ error: "Token does not match figmaUserId" });
+      return;
+    }
+
+    const license = await licenseService.getOrCreate(figmaUserId);
+    if (license.plan !== "pro" || !license.subscription) {
+      res.status(404).json({ error: "No active Pro subscription" });
+      return;
+    }
+
+    const flittResult = await cancelSubscription(
+      license.subscription.flittOrderId,
+    );
+    if (!flittResult.ok) {
+      console.error("[Cancel] Flitt rejected cancel:", flittResult.error);
+      res.status(502).json({ error: flittResult.error });
+      return;
+    }
+
+    const updated = await licenseService.applySubscriptionCancel({
+      figmaUserId,
+    });
+
+    res.json({
+      ok: true,
+      accessUntil: updated?.cycleEndsAt.toISOString() ?? null,
+    });
+  } catch (err) {
+    console.error("[Cancel] handler error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});

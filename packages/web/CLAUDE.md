@@ -30,9 +30,8 @@ src/
     Home/
     HowItWorks/
     Pricing/
-    Checkout/            # (TBD) Flitt checkout entry, Success, Cancel
-    Account/             # (TBD) Manage subscription, view usage, cancel
-    Credits/             # (TBD) Buy Credit Packs (Pro plan only)
+    Checkout/            # CheckoutSuccess + CheckoutCancel (no checkout entry — flow starts in plugin)
+    Account/             # Manage subscription page (cancel-only at launch)
     Docs/                # Complex: sidebar, breadcrumb, search, 30+ sub-pages
     Support/
     Terms&conditions/
@@ -59,20 +58,25 @@ src/
 
 ## Payment Flow (Flitt)
 
-**Checkout entry points:**
-- Plugin → opens `/checkout?plan=plus&fid=<figmaUserId>` for subscription
-- Plugin → opens `/credits?fid=<figmaUserId>&pack=small` for one-time Credit Pack
-- Plugin → opens `/account?fid=<figmaUserId>&t=<signedToken>` for Manage Subscription
+**Plans:** Free (10 imports/month) · Pro $16/month · USD only · no VAT collected at launch.
 
-**Frontend responsibilities:**
-- Validate query params, display product summary
-- Call API `POST /api/checkout/create` (or `/api/checkout/credits`) → receive `checkoutUrl`
-- Redirect user to Flitt-hosted checkout page (`pay.flitt.com/...`)
-- On return: Success/Cancel pages display result, suggest closing tab to return to plugin
+**Checkout flow** — Pro upgrade starts INSIDE the plugin (needs `figma.currentUser.id`):
+1. Plugin sandbox emits `current-user` → UI knows `figmaUserId`
+2. User clicks "Get Pro" in Plan modal → UI calls `POST /api/checkout/create` with `figmaUserId`
+3. Backend signs Flitt request, returns `checkoutUrl` (pay.flitt.com)
+4. UI opens `checkoutUrl` in new browser tab and starts polling `/api/license/me` every 5s
+5. User completes payment on Flitt → Flitt redirects browser to `/checkout/success` AND POSTs server-callback to `/api/webhooks/flitt`
+6. Webhook handler activates the Pro license; polling detects the change → toast in plugin
+
+**Cancel flow** — initiated from plugin, completed on website:
+1. Plugin "Manage Subscription" → calls `POST /api/auth/issue-cancel-token` (5-min HMAC token)
+2. UI opens `https://web2wireframe.design/account?fid=<id>&t=<token>` in new tab
+3. Account page reads license, shows "Cancel" button → `POST /api/subscription/cancel { figmaUserId, token }`
+4. Backend verifies HMAC + calls `Flitt.SubscriptionActions stop` → sets `status=canceled`; plan stays `pro` until `cycleEndsAt` (lazy downgrade)
 
 **No payment SDK on frontend** — all Flitt API calls happen server-side (`packages/api`). Frontend never sees secret_key.
 
-**`checkoutLinks` in `src/data/links.ts`:** old Pricing page links (currently `"#"`). Replace with route-based links: `/checkout?plan=plus`, etc.
+**`checkoutLinks` in `src/data/links.ts`:** Pricing page CTAs deep-link to the Figma Community plugin listing (checkout requires `figmaUserId`, only available inside the plugin).
 
 ## Warnings
 

@@ -62,7 +62,7 @@
 .contentNav {
   display: flex;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 12px 12px;
   background: var(--bg, #264653);
   overflow-x: auto;
   justify-content: space-between;

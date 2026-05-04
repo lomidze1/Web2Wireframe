@@ -11,10 +11,10 @@ const IntroductionWhatIs = (): ReactElement => (
     </p>
     <p>
       Web2Wireframe is a Figma plugin that converts websites into clean,
-      structured wireframes in seconds. It combines AI-powered generation,
-      reusable wireframe libraries, and a growing community to help you move
-      from existing websites to editable Figma layouts faster and more
-      consistently.
+      structured wireframes in seconds. It combines multi-method import (URL,
+      screenshot, HTML, area capture, browser extension), reusable wireframe
+      libraries, and a growing community to help you move from existing
+      websites to editable Figma layouts faster and more consistently.
     </p>
 
     <h3>What problem it solves</h3>

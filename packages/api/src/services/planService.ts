@@ -73,5 +73,5 @@ async function lookupFigmaUserSubscription(
 }
 
 export const isPlanTier = (value: string): value is SupportPlan => {
-  return ["Free", "Plus", "Pro"].includes(value);
+  return ["Free", "Pro"].includes(value);
 };

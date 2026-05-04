@@ -58,7 +58,7 @@ const Terms = (): ReactElement => {
               Service.
             </li>
             <li>
-              "Plan" means a Free, Plus, or Pro subscription tier.
+              "Plan" means a Free or Pro subscription tier.
             </li>
           </ol>
         ),
@@ -154,13 +154,17 @@ const Terms = (): ReactElement => {
         content: (
           <>
             <p>
-              Paid plans include Plus ($12/month) and Pro ($20/month). Your
-              subscription auto-renews unless canceled before the end of your
-              billing period.
+              The paid plan is Pro ($16/month). Your subscription
+              auto-renews unless canceled before the end of your billing
+              period; cancellation takes effect at the end of the current
+              cycle.
             </p>
             <p>
-              Payments are processed through an external checkout or payment
-              provider. Taxes may apply based on your location.
+              Payments are processed by Flitt, a PCI-DSS Level 1 payment
+              gateway. Card data is handled exclusively by Flitt — Web2Wireframe
+              never receives or stores card details. Prices are exclusive of
+              any local taxes (e.g. VAT) for which you may be responsible in
+              your jurisdiction.
             </p>
           </>
         ),
@@ -171,13 +175,21 @@ const Terms = (): ReactElement => {
         content: (
           <>
             <p>
-              You may cancel at any time. Cancellation takes effect at the end
-              of the current billing period, and access continues until then.
+              You may cancel your subscription at any time from the plugin's
+              "Manage Subscription" link. Cancellation takes effect at the end
+              of the current billing period — your Pro access continues until
+              then, after which the account reverts to the Free tier.
             </p>
             <p>
-              Fees are generally non-refundable except where required by law or
-              expressly stated in a written refund policy. For billing
-              questions, contact <a href="/support">/support</a>.
+              <strong>All fees are non-refundable.</strong> We do not offer
+              prorated refunds for unused time, partial cycles, or unused
+              imports. If you believe a charge was made in error or you have a
+              billing dispute, contact{" "}
+              <a href="mailto:billing@web2wireframe.design">
+                billing@web2wireframe.design
+              </a>{" "}
+              and we'll investigate. Statutory refund rights under your local
+              law (where applicable) are not affected by this policy.
             </p>
           </>
         ),

@@ -14,13 +14,23 @@ vi.mock("../src/lib/htmlExtractor.js", async (importOriginal) => {
   };
 });
 
+// Bypass the license gate — these tests focus on import validation/flow,
+// not on quota enforcement (which is covered separately).
+vi.mock("../src/middleware/licenseGate.js", () => ({
+  requireImportAllowance: (
+    _req: unknown,
+    _res: unknown,
+    next: () => void,
+  ) => next(),
+}));
+
 const { default: app } = await import("../src/index.js");
 
 describe("POST /api/import-html — validation", () => {
   it("returns 400 when htmlCode is missing", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ cssCode: "h1 { color: red; }" });
+      .send({ figmaUserId: "test-user", cssCode: "h1 { color: red; }" });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
@@ -30,7 +40,7 @@ describe("POST /api/import-html — validation", () => {
   it("returns 400 when htmlCode is empty string", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "   " });
+      .send({ figmaUserId: "test-user", htmlCode: "   " });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
@@ -40,7 +50,7 @@ describe("POST /api/import-html — validation", () => {
   it("returns 400 when htmlCode is not a string", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: 123 });
+      .send({ figmaUserId: "test-user", htmlCode: 123 });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
@@ -49,7 +59,7 @@ describe("POST /api/import-html — validation", () => {
   it("returns 400 for invalid colorMode", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "<h1>Test</h1>", colorMode: "invalid-mode" });
+      .send({ figmaUserId: "test-user", htmlCode: "<h1>Test</h1>", colorMode: "invalid-mode" });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
@@ -59,7 +69,7 @@ describe("POST /api/import-html — validation", () => {
   it("returns 400 for invalid typographyMode", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "<h1>Test</h1>", typographyMode: "bad" });
+      .send({ figmaUserId: "test-user", htmlCode: "<h1>Test</h1>", typographyMode: "bad" });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
@@ -69,7 +79,7 @@ describe("POST /api/import-html — validation", () => {
   it("returns 400 for invalid textMode", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "<h1>Test</h1>", textMode: "unknown" });
+      .send({ figmaUserId: "test-user", htmlCode: "<h1>Test</h1>", textMode: "unknown" });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
@@ -94,7 +104,7 @@ describe("POST /api/import-html — success flow", () => {
   it("returns correct success response structure", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "<h1>Hello</h1>" });
+      .send({ figmaUserId: "test-user", htmlCode: "<h1>Hello</h1>" });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -110,7 +120,7 @@ describe("POST /api/import-html — success flow", () => {
   it("uses default values when optional fields are omitted", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "<p>Defaults</p>" });
+      .send({ figmaUserId: "test-user", htmlCode: "<p>Defaults</p>" });
 
     expect(res.status).toBe(200);
     // Check mockCreateWireframeDataFromHTMLW2W was called with defaults
@@ -124,7 +134,7 @@ describe("POST /api/import-html — success flow", () => {
   it("merges custom pluginColors with defaults", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({
+      .send({ figmaUserId: "test-user",
         htmlCode: "<h1>Colors</h1>",
         pluginColors: { main: "#ff0000", text: "#00ff00" },
       });
@@ -144,7 +154,7 @@ describe("POST /api/import-html — success flow", () => {
   it("passes cssCode through buildFullPage into extraction", async () => {
     await request(app)
       .post("/api/import-html")
-      .send({
+      .send({ figmaUserId: "test-user",
         htmlCode: "<div>Styled</div>",
         cssCode: "div { color: red; }",
       });
@@ -170,7 +180,7 @@ describe("POST /api/import-html — success flow", () => {
 
     const res = await request(app)
       .post("/api/import-html")
-      .send({
+      .send({ figmaUserId: "test-user",
         htmlCode: "<h1>Multi</h1>",
         viewports: [1440, 768, 375],
       });
@@ -187,7 +197,7 @@ describe("POST /api/import-html — success flow", () => {
   it("returns correct localStyles structure", async () => {
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "<p>Styles</p>" });
+      .send({ figmaUserId: "test-user", htmlCode: "<p>Styles</p>" });
 
     expect(res.status).toBe(200);
     const { localStyles } = res.body;
@@ -218,7 +228,7 @@ describe("POST /api/import-html — success flow", () => {
 
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "<h1>Empty</h1>" });
+      .send({ figmaUserId: "test-user", htmlCode: "<h1>Empty</h1>" });
 
     expect(res.status).toBe(500);
     expect(res.body.success).toBe(false);
@@ -232,7 +242,7 @@ describe("POST /api/import-html — success flow", () => {
 
     const res = await request(app)
       .post("/api/import-html")
-      .send({ htmlCode: "<h1>Crash</h1>" });
+      .send({ figmaUserId: "test-user", htmlCode: "<h1>Crash</h1>" });
 
     expect(res.status).toBe(500);
     expect(res.body.success).toBe(false);

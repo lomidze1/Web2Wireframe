@@ -53,7 +53,7 @@ const Header = (): ReactElement => {
         <div className={styles.actions}>
           <a
             className="btn btn-primary"
-            href={checkoutLinks.proMonthly}
+            href={checkoutLinks.pro}
             target="_blank"
             rel="noreferrer"
           >
