@@ -223,12 +223,15 @@ export default function Settings({
                   >
                     Layout Mode
                   </button>
-                  <button
-                    class={`${styles.termSidebarBtn} ${activeTermTab === "interactions" ? styles.termSidebarBtnActive : ""}`}
-                    onClick={() => setActiveTermTab("interactions")}
-                  >
-                    Interactions
-                  </button>
+                  {/* Interactions sidebar button — TEMPORARILY HIDDEN FOR LAUNCH (2026-05-12). Restore by removing `false &&` wrapper. */}
+                  {false && (
+                    <button
+                      class={`${styles.termSidebarBtn} ${activeTermTab === "interactions" ? styles.termSidebarBtnActive : ""}`}
+                      onClick={() => setActiveTermTab("interactions")}
+                    >
+                      Interactions
+                    </button>
+                  )}
                 </div>
                 <div class={styles.termSidebarContent}>
                 {/* Viewports Tab */}
@@ -492,8 +495,8 @@ export default function Settings({
                   </div>
                 )}
 
-                {/* Interactions Tab */}
-                {activeTermTab === "interactions" && (
+                {/* Interactions Tab — TEMPORARILY HIDDEN FOR LAUNCH (2026-05-12). Restore by removing `false &&`. */}
+                {false && activeTermTab === "interactions" && (
                   <div class={styles.accordionList}>
                     <details class={styles.accordion} open>
                       <summary>None</summary>
@@ -1396,84 +1399,86 @@ export default function Settings({
                   )}
                 </div>
 
-                {/* Interactions - Collapsible */}
-                <div
-                  class={`${styles.configSection} ${!collapsed.interactions ? styles.configSectionActive : ""}`}
-                >
-                  <button
-                    type="button"
-                    class={styles.configTitleCollapsible}
-                    aria-expanded={!collapsed.interactions}
-                    onClick={() => toggleCollapse("interactions")}
+                {/* Interactions - Collapsible — TEMPORARILY HIDDEN FOR LAUNCH (2026-05-12). Restore by removing `false &&` wrapper. */}
+                {false && (
+                  <div
+                    class={`${styles.configSection} ${!collapsed.interactions ? styles.configSectionActive : ""}`}
                   >
-                    <span>Interactions</span>
-                    <span
-                      class={`${styles.collapseArrow} ${collapsed.interactions ? "" : styles.collapseArrowOpen}`}
-                      aria-hidden="true"
+                    <button
+                      type="button"
+                      class={styles.configTitleCollapsible}
+                      aria-expanded={!collapsed.interactions}
+                      onClick={() => toggleCollapse("interactions")}
                     >
-                      ▾
-                    </span>
-                  </button>
-                  {!collapsed.interactions && (
-                    <Fragment>
-                      <div class={styles.configSubtitle}>
-                        Choose whether to capture interactive states as Figma
-                        component variants.
-                      </div>
-                      <div class={styles.configOptions}>
-                        <label
-                          class={`${styles.radioItem} ${
-                            config.interactionMode === "none"
-                              ? styles.radioItemActive
-                              : ""
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="config-interaction-mode"
-                            value="none"
-                            checked={config.interactionMode === "none"}
-                            onChange={() =>
-                              updateConfig({ interactionMode: "none" })
-                            }
-                          />
-                          <div class={styles.radioLabel}>
-                            <strong>None</strong>
-                            <span>
-                              Import elements as plain frames without
-                              interactive states or component variants.
-                            </span>
-                          </div>
-                        </label>
-                        <label
-                          class={`${styles.radioItem} ${
-                            config.interactionMode === "variants"
-                              ? styles.radioItemActive
-                              : ""
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="config-interaction-mode"
-                            value="variants"
-                            checked={config.interactionMode === "variants"}
-                            onChange={() =>
-                              updateConfig({ interactionMode: "variants" })
-                            }
-                          />
-                          <div class={styles.radioLabel}>
-                            <strong>Interactive States</strong>
-                            <span>
-                              Capture hover, focus, active, and focus-visible
-                              states as Figma component set variants with
-                              prototype interactions.
-                            </span>
-                          </div>
-                        </label>
-                      </div>
-                    </Fragment>
-                  )}
-                </div>
+                      <span>Interactions</span>
+                      <span
+                        class={`${styles.collapseArrow} ${collapsed.interactions ? "" : styles.collapseArrowOpen}`}
+                        aria-hidden="true"
+                      >
+                        ▾
+                      </span>
+                    </button>
+                    {!collapsed.interactions && (
+                      <Fragment>
+                        <div class={styles.configSubtitle}>
+                          Choose whether to capture interactive states as Figma
+                          component variants.
+                        </div>
+                        <div class={styles.configOptions}>
+                          <label
+                            class={`${styles.radioItem} ${
+                              config.interactionMode === "none"
+                                ? styles.radioItemActive
+                                : ""
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="config-interaction-mode"
+                              value="none"
+                              checked={config.interactionMode === "none"}
+                              onChange={() =>
+                                updateConfig({ interactionMode: "none" })
+                              }
+                            />
+                            <div class={styles.radioLabel}>
+                              <strong>None</strong>
+                              <span>
+                                Import elements as plain frames without
+                                interactive states or component variants.
+                              </span>
+                            </div>
+                          </label>
+                          <label
+                            class={`${styles.radioItem} ${
+                              config.interactionMode === "variants"
+                                ? styles.radioItemActive
+                                : ""
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="config-interaction-mode"
+                              value="variants"
+                              checked={config.interactionMode === "variants"}
+                              onChange={() =>
+                                updateConfig({ interactionMode: "variants" })
+                              }
+                            />
+                            <div class={styles.radioLabel}>
+                              <strong>Interactive States</strong>
+                              <span>
+                                Capture hover, focus, active, and focus-visible
+                                states as Figma component set variants with
+                                prototype interactions.
+                              </span>
+                            </div>
+                          </label>
+                        </div>
+                      </Fragment>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
