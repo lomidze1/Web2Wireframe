@@ -1,6 +1,16 @@
 /**
- * CDP Captured Data Types
- * These types represent the data structure captured from websites using Chrome DevTools Protocol
+ * Extension-local types — intentionally NOT in @w2w/shared.
+ *
+ * This module mixes chrome.runtime-specific shapes (ExtensionMessage,
+ * ExtensionSettings, BackendResponse, SelectionBounds, STORAGE_KEYS-keyed
+ * payloads) with CDP capture types. The chrome.* shapes have no meaning
+ * outside the Manifest V3 service-worker context, so they cannot move to
+ * @w2w/shared without polluting Node/Figma consumers.
+ *
+ * For types that DO have parity with @w2w/shared (CDPNode, FigmaColor,
+ * FigmaFill, ExtractedFont, ...), prefer the @w2w/shared version when
+ * authoring new code in the extension. The local copies remain only to
+ * avoid a high-risk refactor before launch.
  */
 
 // CDP DOM Node representation

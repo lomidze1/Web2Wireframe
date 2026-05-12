@@ -1,10 +1,11 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { License, type ILicense } from "../../models/License.js";
 
 const router = Router();
 
 // ============================================================================
-// Admin auth — Bearer ADMIN_TOKEN
+// Admin auth — Bearer ADMIN_TOKEN (constant-time comparison)
 // ============================================================================
 
 function adminAuth(req: Request, res: Response, next: NextFunction): void {
@@ -18,7 +19,14 @@ function adminAuth(req: Request, res: Response, next: NextFunction): void {
   const token = header?.startsWith("Bearer ")
     ? header.slice("Bearer ".length)
     : null;
-  if (!token || token !== expected) {
+  if (!token) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  // Constant-time compare to avoid timing-oracle attacks on ADMIN_TOKEN.
+  const a = Buffer.from(token, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }

@@ -35,6 +35,27 @@ import { errorHandler } from "./middleware/errorHandler.js";
 const app = express();
 
 // ============================================================================
+// Production startup safety checks
+// ============================================================================
+// Fail fast at boot if critical secrets are missing in production, instead of
+// silently falling back to predictable defaults (which would allow session
+// forgery, admin-token guessing, and HMAC token forgery).
+if (process.env.NODE_ENV === "production") {
+  const required = [
+    "AUTH_SECRET",
+    "SESSION_SECRET",
+    "ADMIN_TOKEN",
+    "CORS_ORIGIN",
+  ];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables in production: ${missing.join(", ")}`
+    );
+  }
+}
+
+// ============================================================================
 // Global middleware
 // ============================================================================
 
@@ -74,11 +95,27 @@ setInterval(() => {
 // ============================================================================
 
 const pluginRouter = express.Router();
+const isProduction = process.env.NODE_ENV === "production";
 const corsOrigin = process.env.CORS_ORIGIN;
+
+// Production safety: refuse to boot with wildcard/credentialed CORS.
+// Browsers reject `Access-Control-Allow-Origin: *` + `credentials: true`,
+// and accepting unknown origins with credentialed cookies is a CSRF vector.
+if (isProduction && (!corsOrigin || corsOrigin === "*")) {
+  throw new Error(
+    "CORS_ORIGIN must be set to an explicit comma-separated host list in production " +
+      "(wildcard '*' is incompatible with credentials: true)."
+  );
+}
+
 const allowedOriginHosts = (corsOrigin ?? "")
   .split(",")
   .map((o) => o.trim())
   .filter((o) => o.length > 0 && o !== "*");
+
+// Dev-only wildcard. Production paths can never reach this branch because
+// of the guard above.
+const allowAllOrigins = !isProduction && (!corsOrigin || corsOrigin === "*");
 
 pluginRouter.use(
   cors({
@@ -89,9 +126,7 @@ pluginRouter.use(
         callback(null, true);
         return;
       }
-      // Wildcard CORS — allow all origins (dev convenience).
-      // In production, CORS_ORIGIN should list explicit hosts.
-      if (!corsOrigin || corsOrigin === "*") {
+      if (allowAllOrigins) {
         callback(null, true);
         return;
       }
@@ -171,16 +206,23 @@ websiteRouter.use(
   })
 );
 
+// Production safety: refuse to boot without a configured session secret.
+// A predictable secret allows session-cookie forgery.
+if (isProduction && !process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET must be set in production");
+}
+const sessionSecret = process.env.SESSION_SECRET || "dev-session-secret";
+
 websiteRouter.use(
   session({
     name: "w2w_session",
-    secret: process.env.SESSION_SECRET || "dev-session-secret",
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   })

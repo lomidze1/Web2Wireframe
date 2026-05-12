@@ -1,5 +1,9 @@
 /**
- * Extension Constants
+ * Extension-local constants — intentionally NOT in @w2w/shared.
+ *
+ * STORAGE_KEYS, DEFAULT_SETTINGS, API_ENDPOINTS, API_URL are chrome.storage
+ * and runtime-config shapes that exist only inside the extension. They
+ * must not be imported by @w2w/api or the figma-plugin.
  */
 
 // API Endpoints

@@ -32,9 +32,100 @@ export interface License {
   updatedAt: string;
 }
 
-// Plugin → API auth. Phase 4+ should swap this for an HMAC-signed
-// per-install plugin token. For now this is a shared dev/staging fallback.
-const DEV_TOKEN = "dev-token";
+// ============================================================================
+// HMAC install-token state
+// ============================================================================
+// Plugin → API auth uses a backend-issued HMAC-SHA256 token bound to the
+// caller's figmaUserId. The token is requested from `/api/auth/init` on
+// plugin start (or after figmaUserId becomes available) and stored in
+// module-local memory. It expires after 24h; callers should re-run
+// `initAuth()` on expiry (handled implicitly when a 401 propagates back).
+//
+// Replaces the previous hardcoded `DEV_TOKEN = "dev-token"` which shipped
+// in the plugin bundle and provided no cryptographic binding to the user.
+interface AuthState {
+  token: string;
+  expiresAt: number; // epoch ms
+  figmaUserId: string;
+}
+
+let authState: AuthState | null = null;
+let pendingAuthInit: Promise<AuthState> | null = null;
+
+/**
+ * Exchange the live figmaUserId for an HMAC-signed install token. Safe to
+ * call multiple times: concurrent callers share the in-flight request, and
+ * a cached non-expired token is returned immediately.
+ */
+export async function initAuth(
+  figmaUserId: string,
+  signal?: AbortSignal,
+): Promise<AuthState> {
+  if (!figmaUserId) {
+    throw new Error("initAuth: figmaUserId is required");
+  }
+  // Reuse a still-valid token for the same user (60-second safety margin).
+  const now = Date.now();
+  if (
+    authState &&
+    authState.figmaUserId === figmaUserId &&
+    authState.expiresAt - 60_000 > now
+  ) {
+    return authState;
+  }
+  if (pendingAuthInit) return pendingAuthInit;
+
+  pendingAuthInit = (async () => {
+    const response = await fetch(`${API_BASE_URL}/api/auth/init`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ figmaUserId }),
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Auth init failed (${response.status})`);
+    }
+    const data = (await response.json()) as {
+      success: boolean;
+      token: string;
+      expiresAt: string;
+      userId: string;
+    };
+    if (!data.success || !data.token) {
+      throw new Error("Auth init returned no token");
+    }
+    authState = {
+      token: data.token,
+      expiresAt: new Date(data.expiresAt).getTime(),
+      figmaUserId: data.userId,
+    };
+    return authState;
+  })();
+
+  try {
+    return await pendingAuthInit;
+  } finally {
+    pendingAuthInit = null;
+  }
+}
+
+/**
+ * Returns the current auth header value, ensuring a valid token is held
+ * for the given figmaUserId. Lazily initializes auth on first call.
+ */
+async function authHeader(
+  figmaUserId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const state = await initAuth(figmaUserId, signal);
+  return `Bearer ${state.token}`;
+}
+
+/** Test helper — resets cached auth state so unit tests start clean. */
+export function __resetAuthForTests(): void {
+  authState = null;
+  pendingAuthInit = null;
+}
 
 // ============================================================================
 // /api/license/me
@@ -50,7 +141,7 @@ export async function fetchMyLicense(
   const url = withFigmaUserId(`${API_BASE_URL}/api/license/me`, figmaUserId);
   const response = await fetch(url, {
     method: "GET",
-    headers: { Authorization: `Bearer ${DEV_TOKEN}` },
+    headers: { Authorization: await authHeader(figmaUserId, signal) },
     signal,
   });
   if (!response.ok) {
@@ -77,7 +168,10 @@ export async function createCheckout(
   }
   const response = await fetch(`${API_BASE_URL}/api/checkout/create`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: await authHeader(figmaUserId, signal),
+    },
     body: JSON.stringify({ figmaUserId }),
     signal,
   });
@@ -113,7 +207,10 @@ export async function issueCancelToken(
     `${API_BASE_URL}/api/auth/issue-cancel-token`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: await authHeader(figmaUserId, signal),
+      },
       body: JSON.stringify({ figmaUserId }),
       signal,
     },
