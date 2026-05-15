@@ -7,6 +7,7 @@ import {
   buildFontDownloadEntries,
   createFontsZipBlob,
 } from "../../../utils/fontDownload";
+import { useModal } from "../../hooks/useModal";
 
 export type FontFallbackChoice = "fallback" | "plugin" | "continue";
 
@@ -75,6 +76,18 @@ export default function FontFallbackModal({
     }
     return initial;
   });
+
+  // Esc / explicit close defaults to the CSS-fallback path (safest default —
+  // never blocks the wireframe render).
+  const handleEscape = () => {
+    const mapping: FontMapping = {};
+    for (const font of missingFonts) {
+      const chain = fallbackChains?.[font];
+      mapping[font] = chain && chain.length > 0 ? chain[0] : pluginFont;
+    }
+    onChoice("fallback", mapping);
+  };
+  const { modalRef } = useModal({ isOpen, onClose: handleEscape });
 
   if (!isOpen) return null;
 
@@ -183,9 +196,25 @@ export default function FontFallbackModal({
 
   return (
     <div class={styles.modalOverlay}>
-      <div class={`${styles.modal} ${styles.variablesModal}`}>
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="font-fallback-title"
+        class={`${styles.modal} ${styles.variablesModal}`}
+      >
         <div class={styles.modalHeader}>
-          <span>Fonts Not Available</span>
+          <h2 id="font-fallback-title" class={styles.modalTitle}>
+            Fonts Not Available
+          </h2>
+          <button
+            type="button"
+            class={styles.modalClose}
+            onClick={handleEscape}
+            aria-label="Use CSS fallback fonts and close"
+          >
+            ×
+          </button>
         </div>
         <div class={styles.modalContent}>
           <p class={styles.variablesDescription}>

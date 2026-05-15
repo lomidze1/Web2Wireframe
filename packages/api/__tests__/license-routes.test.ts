@@ -95,6 +95,9 @@ describe("GET /api/license/me", () => {
           activatedAt: new Date("2026-05-04T10:00:00Z"),
           nextBillingAt: new Date("2026-06-03T10:00:00Z"),
           canceledAt: null,
+          lastChargeAt: null,
+          lastFailedAt: null,
+          failureCount: 0,
         },
       }),
     );
@@ -105,6 +108,53 @@ describe("GET /api/license/me", () => {
     expect(res.body.plan).toBe("pro");
     expect(res.body.limits.imports).toBe(null);
     expect(res.body.subscription.flittOrderId).toBe("w2w_pro_u_1");
+  });
+
+  it("exposes failureCount and lastFailedAt on subscription", async () => {
+    const failedAt = new Date("2026-05-03T11:00:00Z");
+    mockGetOrCreate.mockResolvedValue(
+      fakeLicense({
+        plan: "pro",
+        subscription: {
+          flittOrderId: "w2w_pro_u_2",
+          activatedAt: new Date("2026-04-04T10:00:00Z"),
+          nextBillingAt: new Date("2026-05-04T10:00:00Z"),
+          canceledAt: null,
+          lastChargeAt: new Date("2026-04-04T10:00:00Z"),
+          lastFailedAt: failedAt,
+          failureCount: 3,
+        },
+      }),
+    );
+    const res = await request(makeApp()).get(
+      "/api/license/me?figmaUserId=u-1",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.subscription.failureCount).toBe(3);
+    expect(res.body.subscription.lastFailedAt).toBe(failedAt.toISOString());
+  });
+
+  it("defaults failureCount to 0 and lastFailedAt to null on fresh sub", async () => {
+    mockGetOrCreate.mockResolvedValue(
+      fakeLicense({
+        plan: "pro",
+        subscription: {
+          flittOrderId: "w2w_pro_u_3",
+          activatedAt: new Date("2026-05-04T10:00:00Z"),
+          nextBillingAt: new Date("2026-06-03T10:00:00Z"),
+          canceledAt: null,
+          lastChargeAt: null,
+          lastFailedAt: null,
+          failureCount: 0,
+        },
+      }),
+    );
+    const res = await request(makeApp()).get(
+      "/api/license/me?figmaUserId=u-1",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.subscription.failureCount).toBe(0);
+    expect(res.body.subscription.lastFailedAt).toBe(null);
   });
 
   it("returns 500 when service throws", async () => {

@@ -2,6 +2,7 @@
 import { h } from "preact";
 import { useState, useEffect, useRef } from "preact/hooks";
 import styles from "./Web.css";
+import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
@@ -302,11 +303,19 @@ export default function Web() {
     <div class={styles.webContainer}>
       {/* URL Input */}
       <div class={styles.inputGroup}>
+        <label class="srOnly" for="w2w-url-input">
+          Website URL
+        </label>
         <input
-          type="text"
+          id="w2w-url-input"
+          type="url"
           class={styles.urlInput}
           placeholder="https://www.website.com/"
           value={url}
+          aria-invalid={importState.status === "error"}
+          aria-describedby={
+            importState.status === "error" ? "w2w-url-error" : undefined
+          }
           onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
           onBlur={() => {
             const trimmed = url.trim();
@@ -323,21 +332,27 @@ export default function Web() {
         />
       </div>
 
-      {/* Status Message */}
+      {/* Status Message — live region so screen readers announce updates */}
       {importState.message && (
         <div
-          class={`${styles.statusMessage} ${
+          id={importState.status === "error" ? "w2w-url-error" : undefined}
+          role={importState.status === "error" ? "alert" : "status"}
+          aria-live={
+            importState.status === "error" ? "assertive" : "polite"
+          }
+          aria-atomic="true"
+          class={`${importStyles.statusMessage} ${
             importState.status === "loading"
-              ? styles.loading
+              ? importStyles.loading
               : importState.status === "success"
-                ? styles.success
+                ? importStyles.success
                 : importState.status === "error"
-                  ? styles.error
+                  ? importStyles.error
                   : ""
           }`}
         >
           {importState.status === "loading" && (
-            <span class={styles.spinner}></span>
+            <span class={importStyles.spinner} aria-hidden="true"></span>
           )}
           <span>{importState.message}</span>
         </div>
@@ -345,8 +360,8 @@ export default function Web() {
 
       {/* Settings Box */}
       <SettingsPanel
-        styles={styles}
-        containerClassName={styles.settingsBox}
+        styles={importStyles}
+        containerClassName={importStyles.settingsBox}
         isExpanded={settings.isExpanded}
         toggleExpanded={settings.toggleExpanded}
         localViewports={settings.localViewports}
@@ -372,7 +387,11 @@ export default function Web() {
       />
 
       {/* Import Button */}
-      <button class={styles.importBtn} onClick={handleImport} disabled={isDisabled}>
+      <button
+        class={`${importStyles.btnPrimary} ${styles.importBtn}`}
+        onClick={handleImport}
+        disabled={isDisabled}
+      >
         {importState.status === "loading" ? "Importing..." : "Import"}
       </button>
 

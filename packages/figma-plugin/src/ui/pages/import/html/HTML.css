@@ -2,8 +2,8 @@
 .htmlContainer {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
+  gap: var(--space-3);
+  padding: var(--space-3);
 }
 
 /* Code Section */
@@ -21,7 +21,7 @@
 
 /* Code Label */
 .codeLabel {
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 600;
   color: var(--accent);
   text-transform: uppercase;
@@ -32,10 +32,10 @@
   background: none;
   border: none;
   color: var(--accent);
-  font-size: 14px;
+  font-size: var(--font-lg);
   cursor: pointer;
-  padding: 4px 8px;
-  transition: all 0.2s ease;
+  padding: var(--space-1) var(--space-2);
+  transition: var(--transition-normal);
 }
 
 .maximizeBtn:hover {
@@ -45,20 +45,20 @@
 
 /* Code Textarea */
 .codeTextarea {
-  padding: 10px 12px;
+  padding: 10px var(--space-3);
   border-radius: 6px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.05);
   color: var(--text);
-  font-size: 12px;
-  font-family: "Courier New", monospace;
+  font-size: var(--font-sm);
+  font-family: var(--font-mono);
   resize: none;
   min-height: 80px;
   max-height: 100px;
 }
 
 .codeTextarea::placeholder {
-  color: #9fb2bc;
+  color: var(--text-tertiary);
 }
 
 .codeTextarea:hover {
@@ -67,339 +67,9 @@
 }
 
 .codeTextarea:focus {
-  outline: none;
   border-color: var(--accent);
   background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 0 2px rgba(244, 162, 97, 0.3);
-}
-
-/* Settings Box */
-.settingsBox {
-  border: 2px solid var(--border-accent);
-  border-radius: 8px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-/* Setting Row */
-.settingRow {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-  font-size: 13px;
-}
-
-.settingRow:last-child {
-  margin-bottom: 0;
-}
-
-/* Setting Label */
-.settingLabel {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* Dropdown */
-.dropdown {
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  font-size: 12px;
-  font-family: "Open Sans", sans-serif;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.6)' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 16px;
-  padding-right: 28px;
-}
-
-.dropdown:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.dropdown option {
-  background: var(--bg);
-  color: var(--text);
-}
-
-/* HTML Create Button */
-.htmlCreateBtn {
-  width: 100%;
-  padding: 10px;
-  border-radius: 6px;
-  border: none;
-  background: linear-gradient(135deg, var(--accent, #f4a261) 0%, #e89450 100%);
-  color: #1c2f3a;
-  font-weight: 700;
-  cursor: pointer;
-  font-family: "Montserrat", sans-serif;
-  font-size: 13px;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(244, 162, 97, 0.25);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.htmlCreateBtn:not(:disabled):hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(244, 162, 97, 0.35);
-}
-
-.htmlCreateBtn:not(:disabled):active {
-  transform: translateY(0) scale(0.98);
-}
-
-.htmlCreateBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-/* Settings Header */
-.settingsHeader {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 8px;
-}
-
-/* Settings Footer */
-.settingsFooter {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* Reset Button */
-.resetBtn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.resetBtn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.resetBtnDisabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.resetBtnDisabled:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-/* Configure Button */
-.configureBtn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(42, 157, 143, 0.4);
-  background: rgba(42, 157, 143, 0.1);
-  color: var(--secondary);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.configureBtn:hover {
-  border-color: var(--secondary);
-  background: rgba(42, 157, 143, 0.2);
-}
-
-/* Save as Default Button */
-.saveDefaultBtn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(42, 157, 143, 0.5);
-  background: rgba(42, 157, 143, 0.15);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.saveDefaultBtn:hover {
-  border-color: var(--accent);
-  background: rgba(42, 157, 143, 0.25);
-}
-
-.saveDefaultBtnDisabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.saveDefaultBtnDisabled:hover {
-  border-color: rgba(42, 157, 143, 0.5);
-  background: rgba(42, 157, 143, 0.15);
-}
-
-/* Checkbox Group */
-.checkboxGroup {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.checkboxItem {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.02);
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.checkboxItem:hover {
-  border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.checkboxItem.checked {
-  border-color: var(--secondary);
-  background: rgba(42, 157, 143, 0.15);
-}
-
-.checkboxItem input[type="checkbox"] {
-  accent-color: var(--secondary);
-}
-
-/* Collapse Toggle Button */
-.collapseToggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  margin-top: 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--muted, #9fb2bc);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.collapseToggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(244, 162, 97, 0.05);
-}
-
-.collapseToggle.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(244, 162, 97, 0.05);
-}
-
-.collapseArrow {
-  font-size: 10px;
-  transition: transform 0.2s ease;
-}
-
-.collapseArrow.expanded {
-  transform: rotate(180deg);
-}
-
-/* Collapsible Content */
-.collapsibleContent {
-  margin-top: 10px;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  animation: slideDown 0.2s ease-out;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Status Message */
-.statusMessage {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  animation: slideDown 0.2s ease-out;
-}
-
-.statusMessage.loading {
-  background: rgba(42, 157, 143, 0.12);
-  border: 1px solid rgba(42, 157, 143, 0.3);
-  color: var(--secondary, #2a9d8f);
-}
-
-.statusMessage.success {
-  background: rgba(46, 213, 115, 0.12);
-  border: 1px solid rgba(46, 213, 115, 0.3);
-  color: #2ed573;
-}
-
-.statusMessage.error {
-  background: rgba(255, 107, 107, 0.12);
-  border: 1px solid rgba(255, 107, 107, 0.3);
-  color: #ff6b6b;
-}
-
-/* Loading Spinner */
-.spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.3);
 }
 
 /* Expand Overlay */
@@ -415,7 +85,7 @@
   z-index: 999;
   display: flex;
   flex-direction: column;
-  padding: 20px;
+  padding: var(--space-5);
   animation: fadeIn 0.2s ease-out;
 }
 
@@ -423,12 +93,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
   flex-shrink: 0;
 }
 
 .expandLabel {
-  font-size: 13px;
+  font-size: var(--font-md);
   font-weight: 600;
   color: var(--accent);
   text-transform: uppercase;
@@ -438,7 +108,7 @@
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: var(--text);
-  font-size: 16px;
+  font-size: var(--font-xl);
   width: 32px;
   height: 32px;
   border-radius: 6px;
@@ -446,38 +116,37 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .expandCloseBtn:hover {
-  background: rgba(255, 107, 107, 0.2);
-  border-color: rgba(255, 107, 107, 0.4);
-  color: #ff6b6b;
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--error);
 }
 
 .expandTextarea {
   flex: 1;
   width: 100%;
-  padding: 14px 16px;
-  border-radius: 8px;
+  padding: 14px var(--space-4);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
-  font-size: 13px;
-  font-family: "Courier New", monospace;
+  font-size: var(--font-md);
+  font-family: var(--font-mono);
   resize: none;
   line-height: 1.5;
 }
 
 .expandTextarea:focus {
-  outline: none;
   border-color: var(--accent);
   background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 0 2px rgba(244, 162, 97, 0.3);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.3);
 }
 
 .expandTextarea::placeholder {
-  color: #9fb2bc;
+  color: var(--text-tertiary);
 }
 
 @keyframes fadeIn {

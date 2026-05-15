@@ -2,6 +2,7 @@
 import { h } from "preact";
 import { useState, useRef, useEffect, useCallback } from "preact/hooks";
 import styles from "./Screenshot.css";
+import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import SettingsPanel from "../../../components/settingsPanel";
@@ -81,12 +82,6 @@ export default function Screenshot() {
         setImagePreview(event.target?.result as string);
       };
       reader.readAsDataURL(file);
-    }
-  };
-
-  const handleAreaClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
     }
   };
 
@@ -176,25 +171,36 @@ export default function Screenshot() {
 
   return (
     <div class={styles.screenshotContainer}>
-      {/* Image Upload Area */}
-      <div
-        class={`${styles.imageUploadArea} ${
-          imagePreview ? styles.hasImage : ""
-        }`}
-        onClick={handleAreaClick}
-      >
+      {/* Image Upload Area — label + visually-hidden input keeps keyboard
+          and screen-reader access (Tab focuses input, Space/Enter opens
+          picker, label click also triggers it). Delete button is rendered
+          outside the label so its click doesn't re-open the picker. */}
+      <div class={styles.uploadWrapper}>
         {imagePreview && (
-          <button class={styles.deleteBtn} onClick={handleDelete}>
+          <button
+            type="button"
+            class={styles.deleteBtn}
+            onClick={handleDelete}
+            aria-label="Remove uploaded image"
+          >
             ✕
           </button>
         )}
-        <input
-          type="file"
-          ref={fileInputRef}
-          class={styles.hiddenInput}
-          accept="image/*"
-          onChange={handleImageUpload}
-        />
+        <label
+          class={`${styles.imageUploadArea} ${
+            imagePreview ? styles.hasImage : ""
+          }`}
+        >
+          <input
+            type="file"
+            ref={fileInputRef}
+            class="srOnly"
+            accept="image/*"
+            aria-label={
+              imagePreview ? "Replace uploaded image" : "Upload screenshot image"
+            }
+            onChange={handleImageUpload}
+          />
         {imagePreview ? (
           <img
             src={imagePreview}
@@ -203,21 +209,22 @@ export default function Screenshot() {
           />
         ) : (
           <div class={styles.uploadContent}>
-            <div class={styles.uploadIcon}>📸</div>
+            <div class={styles.uploadIcon} aria-hidden="true">
+              📸
+            </div>
             <div>
-              <div style={{ fontWeight: 600 }}>Click to upload screenshot</div>
-              <div style={{ fontSize: "11px", marginTop: "4px" }}>
-                or drag and drop
-              </div>
+              <div class={styles.uploadHeading}>Click to upload screenshot</div>
+              <div class={styles.uploadCaption}>or drag and drop</div>
             </div>
           </div>
         )}
+        </label>
       </div>
 
       {/* Settings */}
       <SettingsPanel
-        styles={styles}
-        containerClassName={styles.screenshotSettings}
+        styles={importStyles}
+        containerClassName={importStyles.settingsBox}
         isExpanded={settings.isExpanded}
         toggleExpanded={settings.toggleExpanded}
         localViewports={settings.localViewports}
@@ -255,11 +262,15 @@ export default function Screenshot() {
       />
 
       {/* Error Display */}
-      {error && <p class={styles.errorText}>{error}</p>}
+      {error && (
+        <p class={styles.errorText} role="alert" aria-live="assertive">
+          {error}
+        </p>
+      )}
 
       {/* Generate Button */}
       <button
-        class={styles.screenshotBtn}
+        class={importStyles.btnPrimary}
         onClick={handleGenerate}
         disabled={!imagePreview || isGenerating}
       >

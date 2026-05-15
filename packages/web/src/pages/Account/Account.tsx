@@ -8,6 +8,8 @@ interface Subscription {
   activatedAt: string;
   nextBillingAt: string;
   canceledAt: string | null;
+  lastFailedAt: string | null;
+  failureCount: number;
 }
 
 interface AccountLicense {
@@ -34,6 +36,12 @@ function formatDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function getFailureSeverity(count: number): "info" | "warning" | "urgent" {
+  if (count >= 4) return "urgent";
+  if (count >= 2) return "warning";
+  return "info";
 }
 
 const Account = (): ReactElement => {
@@ -104,10 +112,34 @@ const Account = (): ReactElement => {
     }
   }
 
+  const failureCount = license?.subscription?.failureCount ?? 0;
+  const failureSeverity = getFailureSeverity(failureCount);
+  const failureSeverityClass = {
+    info: styles.failedPaymentBannerInfo,
+    warning: styles.failedPaymentBannerWarning,
+    urgent: styles.failedPaymentBannerUrgent,
+  }[failureSeverity];
+
   return (
     <div className={styles.page}>
       <div className="container">
         <div className={styles.card}>
+          {license && failureCount > 0 && (
+            <div
+              data-severity={failureSeverity}
+              className={`${styles.failedPaymentBanner} ${failureSeverityClass}`}
+            >
+              <div>
+                ⚠️ Last payment attempt failed ({failureCount}{" "}
+                {failureCount === 1 ? "attempt" : "attempts"}).
+              </div>
+              <div>
+                Update your payment method by {formatDate(license.cycleEndsAt)}{" "}
+                to keep Pro access.
+              </div>
+            </div>
+          )}
+
           <h1>Manage subscription</h1>
 
           {isLoading && <p>Loading…</p>}

@@ -1,5 +1,5 @@
 /** @jsx h */
-import { h } from "preact";
+import { h, Fragment } from "preact";
 import { useState, useEffect, useCallback } from "preact/hooks";
 
 // Import sub-pages
@@ -157,12 +157,21 @@ function AppContent() {
   };
 
   return (
-    <div class={styles.app}>
+    <Fragment>
+    <div class={styles.app} data-w2w-app="true">
       {/* Sub Header */}
       <SubHeader currentTab={importTab} onTabChange={setImportTab} />
 
-      {/* Content Area */}
-      <div class={importStyles.content}>{renderImportContent()}</div>
+      {/* Content Area — labelled by the active tab in SubHeader */}
+      <div
+        class={importStyles.content}
+        role="tabpanel"
+        id={`panel-${importTab}`}
+        aria-labelledby={`tab-${importTab}`}
+        tabIndex={0}
+      >
+        {renderImportContent()}
+      </div>
 
       {/* Footer Bar */}
       <Footer
@@ -183,23 +192,26 @@ function AppContent() {
           );
         }}
       />
-
-      {/* Modals */}
-      <Settings
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        initialPanel={settingsPanel}
-      />
-      <Help isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
-      <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
-      <QuotaExceededModal
-        isOpen={isQuotaExceededOpen}
-        onClose={() => setIsQuotaExceededOpen(false)}
-        onUpgrade={() => {
-          setIsQuotaExceededOpen(false);
-          setIsPlanOpen(true);
-        }}
-      />
     </div>
+
+    {/* Modals — rendered as siblings of the app root so the `inert`
+        attribute applied to [data-w2w-app="true"] (by useModal) doesn't
+        accidentally disable the modal's own controls. */}
+    <Settings
+      isOpen={isSettingsOpen}
+      onClose={() => setIsSettingsOpen(false)}
+      initialPanel={settingsPanel}
+    />
+    <Help isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+    <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
+    <QuotaExceededModal
+      isOpen={isQuotaExceededOpen}
+      onClose={() => setIsQuotaExceededOpen(false)}
+      onUpgrade={() => {
+        setIsQuotaExceededOpen(false);
+        setIsPlanOpen(true);
+      }}
+    />
+    </Fragment>
   );
 }

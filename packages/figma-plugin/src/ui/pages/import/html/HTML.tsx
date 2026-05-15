@@ -2,6 +2,7 @@
 import { h } from "preact";
 import { useState, useEffect, useRef } from "preact/hooks";
 import styles from "./HTML.css";
+import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
@@ -308,12 +309,21 @@ export default function HTML() {
       {/* HTML Code Section */}
       <div class={styles.codeSection}>
         <div class={styles.codeLabelRow}>
-          <div class={styles.codeLabel}>HTML</div>
-          <button class={styles.maximizeBtn} title="Maximize" onClick={() => setExpandedField("html")}>
+          <label class={styles.codeLabel} for="w2w-html-code" id="w2w-html-label">
+            HTML
+          </label>
+          <button
+            type="button"
+            class={styles.maximizeBtn}
+            aria-label="Expand HTML editor"
+            title="Maximize"
+            onClick={() => setExpandedField("html")}
+          >
             ⛶
           </button>
         </div>
         <textarea
+          id="w2w-html-code"
           class={styles.codeTextarea}
           placeholder="Type or paste HTML code here."
           value={htmlCode}
@@ -325,12 +335,21 @@ export default function HTML() {
       {/* CSS Code Section */}
       <div class={styles.codeSection}>
         <div class={styles.codeLabelRow}>
-          <div class={styles.codeLabel}>CSS (optional)</div>
-          <button class={styles.maximizeBtn} title="Maximize" onClick={() => setExpandedField("css")}>
+          <label class={styles.codeLabel} for="w2w-css-code" id="w2w-css-label">
+            CSS (optional)
+          </label>
+          <button
+            type="button"
+            class={styles.maximizeBtn}
+            aria-label="Expand CSS editor"
+            title="Maximize"
+            onClick={() => setExpandedField("css")}
+          >
             ⛶
           </button>
         </div>
         <textarea
+          id="w2w-css-code"
           class={styles.codeTextarea}
           placeholder="Type or paste CSS code here. (optional)"
           value={cssCode}
@@ -339,21 +358,26 @@ export default function HTML() {
         />
       </div>
 
-      {/* Status Message */}
+      {/* Status Message — live region so screen readers announce updates */}
       {importState.message && (
         <div
-          class={`${styles.statusMessage} ${
+          role={importState.status === "error" ? "alert" : "status"}
+          aria-live={
+            importState.status === "error" ? "assertive" : "polite"
+          }
+          aria-atomic="true"
+          class={`${importStyles.statusMessage} ${
             importState.status === "loading"
-              ? styles.loading
+              ? importStyles.loading
               : importState.status === "success"
-                ? styles.success
+                ? importStyles.success
                 : importState.status === "error"
-                  ? styles.error
+                  ? importStyles.error
                   : ""
           }`}
         >
           {importState.status === "loading" && (
-            <span class={styles.spinner}></span>
+            <span class={importStyles.spinner} aria-hidden="true"></span>
           )}
           <span>{importState.message}</span>
         </div>
@@ -361,8 +385,8 @@ export default function HTML() {
 
       {/* Settings */}
       <SettingsPanel
-        styles={styles}
-        containerClassName={styles.settingsBox}
+        styles={importStyles}
+        containerClassName={importStyles.settingsBox}
         isExpanded={settings.isExpanded}
         toggleExpanded={settings.toggleExpanded}
         localViewports={settings.localViewports}
@@ -392,7 +416,7 @@ export default function HTML() {
 
       {/* Generate Button */}
       <button
-        class={styles.htmlCreateBtn}
+        class={importStyles.btnPrimary}
         onClick={handleGenerate}
         disabled={isDisabled}
       >
@@ -433,8 +457,10 @@ export default function HTML() {
               {expandedField === "html" ? "HTML" : "CSS (optional)"}
             </span>
             <button
+              type="button"
               class={styles.expandCloseBtn}
               onClick={() => setExpandedField(null)}
+              aria-label="Close expanded editor"
               title="Close"
             >
               ✕

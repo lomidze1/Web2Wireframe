@@ -8,6 +8,8 @@ export interface LicenseSubscription {
   activatedAt: string;
   nextBillingAt: string;
   canceledAt: string | null;
+  lastFailedAt: string | null;
+  failureCount: number;
 }
 
 export interface License {

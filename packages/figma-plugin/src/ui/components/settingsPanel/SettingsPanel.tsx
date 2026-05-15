@@ -161,25 +161,21 @@ export default function SettingsPanel({
       {!hideViewports && (
         <div class={styles.settingRow}>
           <div class={styles.settingLabel}>
-            <span>📐</span>
+            <span aria-hidden="true">📐</span>
             <span>Viewports</span>
           </div>
-          <div class={styles.checkboxGroup}>
+          <div class={styles.checkboxGroup} role="group" aria-label="Viewports">
             {VIEWPORT_OPTIONS.map((opt) => (
               <label
                 key={opt.value}
                 class={`${styles.checkboxItem} ${
                   localViewports.includes(opt.value) ? styles.checked : ""
                 }`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  toggleViewport(opt.value);
-                }}
               >
                 <input
                   type="checkbox"
                   checked={localViewports.includes(opt.value)}
-                  readOnly
+                  onChange={() => toggleViewport(opt.value)}
                 />
                 {opt.label}
               </label>
@@ -341,7 +337,7 @@ export default function SettingsPanel({
           {setLayoutMode && (
             <div class={styles.settingRow}>
               <div class={styles.settingLabel}>
-                <span>📐</span>
+                <span aria-hidden="true">📐</span>
                 <span>Layout Mode</span>
               </div>
               <select
