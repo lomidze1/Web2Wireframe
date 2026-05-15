@@ -142,9 +142,9 @@ describe("GET /api/license/me", () => {
         },
       }),
     );
-    const res = await request(makeApp()).get(
-      "/api/license/me?figmaUserId=u-1",
-    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
     expect(res.status).toBe(200);
     expect(res.body.subscription.failureCount).toBe(3);
     expect(res.body.subscription.lastFailedAt).toBe(failedAt.toISOString());
@@ -165,9 +165,9 @@ describe("GET /api/license/me", () => {
         },
       }),
     );
-    const res = await request(makeApp()).get(
-      "/api/license/me?figmaUserId=u-1",
-    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
     expect(res.status).toBe(200);
     expect(res.body.subscription.failureCount).toBe(0);
     expect(res.body.subscription.lastFailedAt).toBe(null);
