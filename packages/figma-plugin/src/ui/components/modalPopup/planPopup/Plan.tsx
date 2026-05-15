@@ -10,6 +10,7 @@ import {
   type License,
 } from "../../../shared/licenseClient";
 import { useConfig } from "../../../shared/ConfigContext";
+import { useModal } from "../../../hooks/useModal";
 
 interface PlanProps {
   isOpen: boolean;
@@ -32,9 +33,13 @@ function formatDate(iso: string): string {
   }
 }
 
-export default function Plan({ isOpen, onClose }: PlanProps) {
-  if (!isOpen) return null;
+function getFailureSeverity(count: number): "info" | "warning" | "urgent" {
+  if (count >= 4) return "urgent";
+  if (count >= 2) return "warning";
+  return "info";
+}
 
+export default function Plan({ isOpen, onClose }: PlanProps) {
   const { config } = useConfig();
   const figmaUserId = config.figmaUserId;
 
@@ -44,6 +49,8 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   const [isCheckoutPending, setIsCheckoutPending] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   const [isCancelPending, setIsCancelPending] = useState(false);
+
+  const { modalRef } = useModal({ isOpen, onClose });
 
   const pollTimerRef = useRef<number | null>(null);
   const pollStartRef = useRef<number | null>(null);
@@ -161,6 +168,13 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
     ? license.status[0].toUpperCase() + license.status.slice(1)
     : "—";
   const isPro = license?.plan === "pro";
+  const failureCount = license?.subscription?.failureCount ?? 0;
+  const failureSeverity = getFailureSeverity(failureCount);
+  const failureSeverityClass = {
+    info: styles.planFailedPaymentBannerInfo,
+    warning: styles.planFailedPaymentBannerWarning,
+    urgent: styles.planFailedPaymentBannerUrgent,
+  }[failureSeverity];
   const limitText =
     license == null
       ? ""
@@ -168,26 +182,65 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
         ? `${license.usage.imports} imports this cycle (unlimited)`
         : `${license.usage.imports}/${license.limits.imports} imports this month`;
 
+  if (!isOpen) return null;
+
   return (
     <div class={styles.modalOverlay} onClick={onClose}>
-      <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plan-title"
+        class={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div class={styles.modalHeader}>
-          <span>Your Plan</span>
-          <button class={styles.modalClose} onClick={onClose}>
+          <h2 id="plan-title" class={styles.modalTitle}>Your Plan</h2>
+          <button
+            type="button"
+            class={styles.modalClose}
+            onClick={onClose}
+            aria-label="Close plan"
+          >
             ×
           </button>
         </div>
         <div class={styles.modalContent}>
+          {license && failureCount > 0 && (
+            <div
+              data-severity={failureSeverity}
+              class={`${styles.planFailedPaymentBanner} ${failureSeverityClass}`}
+            >
+              <div>
+                ⚠️ Last payment attempt failed ({failureCount}{" "}
+                {failureCount === 1 ? "attempt" : "attempts"}).
+              </div>
+              <div>
+                Update your payment method by {formatDate(license.cycleEndsAt)}{" "}
+                to keep Pro access. Use "Manage Subscription" below.
+              </div>
+            </div>
+          )}
           <div class={styles.planSummary}>
             <span class={styles.planLabel}>Current plan</span>
             <span class={styles.planBadge}>{planLabel}</span>
           </div>
 
           {!figmaUserId && (
-            <div class={styles.planNotice}>Identifying Figma user…</div>
+            <div class={styles.planNotice} role="status" aria-live="polite">
+              Identifying Figma user…
+            </div>
           )}
-          {isLoading && <div class={styles.planNotice}>Loading license…</div>}
-          {error && <div class={styles.planError}>{error}</div>}
+          {isLoading && (
+            <div class={styles.planNotice} role="status" aria-live="polite">
+              Loading license…
+            </div>
+          )}
+          {error && (
+            <div class={styles.planError} role="alert" aria-live="assertive">
+              {error}
+            </div>
+          )}
 
           {license && (
             <div class={styles.planMeta}>
@@ -195,6 +248,12 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                 <span>Status</span>
                 <span class={styles.planMetaValue}>{statusLabel}</span>
               </div>
+              {isPro && license.email && (
+                <div class={styles.planMetaRow}>
+                  <span>Billing email</span>
+                  <span class={styles.planMetaValue}>{license.email}</span>
+                </div>
+              )}
               <div class={styles.planMetaRow}>
                 <span>Usage</span>
                 <span class={styles.planMetaValue}>{limitText}</span>
@@ -219,7 +278,9 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
           )}
 
           {checkoutMessage && (
-            <div class={styles.planNotice}>{checkoutMessage}</div>
+            <div class={styles.planNotice} role="status" aria-live="polite">
+              {checkoutMessage}
+            </div>
           )}
 
           {!isPro && (

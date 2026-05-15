@@ -37,7 +37,18 @@
   justify-content: space-between;
   margin-bottom: 10px;
   font-weight: 700;
-  font-size: 14px;
+  font-size: var(--font-lg);
+}
+
+/* Modal title — used inside .modalHeader. Strips h2 defaults so promoting
+   header span → h2 doesn't break visual layout. */
+.modalTitle {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
 }
 
 .modalClose {
@@ -53,13 +64,33 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .modalClose:hover {
-  background: rgba(255, 107, 107, 0.2);
-  border-color: rgba(255, 107, 107, 0.4);
-  color: #ff6b6b;
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--error);
+}
+
+.modalClose:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* HtmlWarningModal — error row entries */
+.warningErrorRow {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.warningErrorMore {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: var(--space-1) 0;
 }
 
 .modalContent {
@@ -96,7 +127,7 @@
 
 .planLabel {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
@@ -108,17 +139,47 @@
   font-weight: 700;
   font-size: 12px;
   letter-spacing: 0.4px;
-  background: rgba(244, 162, 97, 0.1);
+  background: rgba(var(--accent-rgb), 0.1);
 }
 
 .planNotice {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .planError {
   font-size: 12px;
   color: #ffb3b3;
+}
+
+.planFailedPaymentBanner {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.planFailedPaymentBannerInfo {
+  border-color: rgba(255, 213, 79, 0.6);
+  background: rgba(255, 248, 225, 0.18);
+  color: #ffd54f;
+}
+
+.planFailedPaymentBannerWarning {
+  border-color: rgba(255, 152, 0, 0.7);
+  background: rgba(255, 152, 0, 0.12);
+  color: #ff9800;
+}
+
+.planFailedPaymentBannerUrgent {
+  border-color: rgba(244, 67, 54, 0.8);
+  background: rgba(244, 67, 54, 0.14);
+  color: #f44336;
+  font-weight: 700;
 }
 
 .planMeta {
@@ -130,7 +191,7 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .planMetaRow {
@@ -146,7 +207,7 @@
 
 .planDescription {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -214,25 +275,25 @@
 
 /* Pro tier — premium look: stronger accent gradient + glow border */
 .planCardPro {
-  border-color: rgba(244, 162, 97, 0.7);
+  border-color: rgba(var(--accent-rgb), 0.7);
   background:
     radial-gradient(
       120% 80% at 50% 0%,
-      rgba(244, 162, 97, 0.18),
-      rgba(244, 162, 97, 0.04) 60%,
-      rgba(244, 162, 97, 0.02) 100%
+      rgba(var(--accent-rgb), 0.18),
+      rgba(var(--accent-rgb), 0.04) 60%,
+      rgba(var(--accent-rgb), 0.02) 100%
     );
   box-shadow:
-    0 0 0 1px rgba(244, 162, 97, 0.25),
-    0 8px 22px rgba(244, 162, 97, 0.12);
+    0 0 0 1px rgba(var(--accent-rgb), 0.25),
+    0 8px 22px rgba(var(--accent-rgb), 0.12);
 }
 
 .planCardPro .planCardHeader {
-  border-bottom-color: rgba(244, 162, 97, 0.3);
+  border-bottom-color: rgba(var(--accent-rgb), 0.3);
   background: linear-gradient(
     180deg,
-    rgba(244, 162, 97, 0.28),
-    rgba(244, 162, 97, 0.14)
+    rgba(var(--accent-rgb), 0.28),
+    rgba(var(--accent-rgb), 0.14)
   );
   color: var(--accent);
   font-size: 20px;
@@ -241,10 +302,10 @@
 }
 
 .planCardPro:hover {
-  border-color: rgba(244, 162, 97, 1);
+  border-color: rgba(var(--accent-rgb), 1);
   box-shadow:
-    0 0 0 1px rgba(244, 162, 97, 0.55),
-    0 18px 38px rgba(244, 162, 97, 0.28);
+    0 0 0 1px rgba(var(--accent-rgb), 0.55),
+    0 18px 38px rgba(var(--accent-rgb), 0.28);
 }
 
 .planList {
@@ -276,7 +337,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(244, 162, 97, 0.18);
+  background: rgba(var(--accent-rgb), 0.18);
   color: var(--accent);
   font-size: 11px;
   font-weight: 800;
@@ -290,12 +351,12 @@
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.18);
-  color: #1c2f3a;
+  color: var(--accent-fg);
   font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.5px;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: var(--transition-fast);
   text-decoration: none;
   text-align: center;
 }
@@ -312,24 +373,24 @@
 }
 
 .planCardBtnPro {
-  border-color: rgba(244, 162, 97, 0.9);
+  border-color: rgba(var(--accent-rgb), 0.9);
   background: linear-gradient(
     180deg,
-    rgba(244, 162, 97, 1) 0%,
+    rgba(var(--accent-rgb), 1) 0%,
     rgba(232, 142, 78, 1) 100%
   );
-  color: #1c2f3a;
-  box-shadow: 0 6px 14px rgba(244, 162, 97, 0.3);
+  color: var(--accent-fg);
+  box-shadow: 0 6px 14px rgba(var(--accent-rgb), 0.3);
 }
 
 .planCardBtnPro:hover:not(:disabled) {
-  border-color: rgba(244, 162, 97, 1);
+  border-color: rgba(var(--accent-rgb), 1);
   background: linear-gradient(
     180deg,
     rgba(248, 178, 122, 1) 0%,
-    rgba(244, 162, 97, 1) 100%
+    rgba(var(--accent-rgb), 1) 100%
   );
-  box-shadow: 0 10px 22px rgba(244, 162, 97, 0.45);
+  box-shadow: 0 10px 22px rgba(var(--accent-rgb), 0.45);
   transform: translateY(-1px);
 }
 
@@ -338,18 +399,18 @@
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--accent);
-  background: rgba(244, 162, 97, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
   color: var(--accent);
   font-size: 12px;
   font-weight: 700;
   text-align: center;
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .planCtaLink:hover {
   background: var(--accent);
-  color: #1c2f3a;
+  color: var(--accent-fg);
 }
 
 .planActions {
@@ -369,17 +430,17 @@
   cursor: pointer;
   font-weight: 600;
   font-size: 12px;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .planPrimaryBtn {
   background: var(--accent);
   border-color: var(--accent);
-  color: #1c2f3a;
+  color: var(--accent-fg);
 }
 
 .planPrimaryBtn:hover {
-  box-shadow: 0 6px 16px rgba(244, 162, 97, 0.25);
+  box-shadow: 0 6px 16px rgba(var(--accent-rgb), 0.25);
 }
 
 .planSecondaryBtn:hover {
@@ -406,7 +467,7 @@
   cursor: pointer;
   text-align: center;
   font-weight: 600;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
   font-size: 14px;
 }
 
@@ -417,13 +478,13 @@
 
 .navBtnActive {
   background: var(--accent);
-  color: #1c2f3a;
+  color: var(--accent-fg);
   border-color: var(--accent);
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
 }
 
 .navBtnActive:hover {
-  color: #1c2f3a;
+  color: var(--accent-fg);
 }
 
 /* Terminology Sidebar Layout */
@@ -446,13 +507,13 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--muted);
+  color: var(--text-secondary);
   cursor: pointer;
   font-weight: 600;
-  font-family: "Montserrat", sans-serif;
+  font-family: var(--font-display);
   font-size: 11px;
   text-align: left;
-  transition: all 0.15s ease;
+  transition: var(--transition-fast);
   line-height: 1.3;
 }
 
@@ -531,7 +592,7 @@
 .accordion summary::after {
   content: "▸";
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   transition: transform 0.2s ease;
 }
 
@@ -541,7 +602,7 @@
 
 .accordion .accordionContent {
   margin-top: 8px;
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.45;
 }
 
@@ -572,7 +633,7 @@
 
 .configSubtitle {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .configOptions {
@@ -636,7 +697,7 @@
 
 .radioLabel span {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 /* Color Grid */
@@ -655,11 +716,19 @@
 }
 
 .colorPickerHeader {
+  width: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  text-align: left;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
   margin-bottom: 8px;
+  padding: 0;
 }
 
 .colorPickerHeader:hover {
@@ -668,7 +737,7 @@
 
 .colorPickerSubtitle {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
@@ -722,7 +791,7 @@
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   font-size: 12px;
-  font-family: "Montserrat", sans-serif;
+  font-family: var(--font-display);
 }
 
 .colorInput:focus {
@@ -737,13 +806,13 @@
   padding: 10px 16px;
   font-size: 13px;
   font-weight: 600;
-  font-family: "Montserrat", sans-serif;
-  color: var(--muted, #94a3b8);
+  font-family: var(--font-display);
+  color: var(--text-secondary);
   background: transparent;
   border: 1px dashed var(--border, #e2e8f0);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .resetColorsBtn:hover {
@@ -771,7 +840,7 @@
   background-size: 16px;
   color: var(--text);
   font-size: 14px;
-  font-family: "Montserrat", sans-serif;
+  font-family: var(--font-display);
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -786,7 +855,6 @@
 }
 
 .fontSelect:focus {
-  outline: none;
   border-color: var(--accent);
 }
 
@@ -815,13 +883,12 @@
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   font-size: 12px;
-  font-family: "Open Sans", sans-serif;
+  font-family: var(--font-body);
   cursor: pointer;
   margin-top: 4px;
 }
 
 .dropdown:focus {
-  outline: none;
   border-color: var(--accent);
 }
 
@@ -839,7 +906,7 @@
 .videoHeader h2 {
   font-size: 13px;
   font-weight: 500;
-  color: var(--muted);
+  color: var(--text-secondary);
   margin-bottom: 10px;
 }
 
@@ -855,9 +922,9 @@
   border-radius: 10px;
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: #1c2f3a;
+  color: var(--accent-fg);
   font-weight: 700;
-  font-family: "Montserrat", sans-serif;
+  font-family: var(--font-display);
   cursor: pointer;
   text-decoration: none;
   transition:
@@ -965,11 +1032,11 @@
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.04);
-  color: var(--muted);
+  color: var(--text-secondary);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .resetBtn:hover {
@@ -996,7 +1063,7 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
   border-radius: 8px;
   text-align: left;
 }
@@ -1044,7 +1111,7 @@
 }
 .helpTagline {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text-secondary);
   text-align: center;
 }
 .helpOtherProducts {
@@ -1059,7 +1126,7 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
   text-decoration: none;
 }
 .helpOtherProducts:hover {
@@ -1069,7 +1136,7 @@
 }
 .helpMadeBy {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1101,7 +1168,7 @@
 
 .variablesDescription {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   margin: 0 0 12px 0;
   line-height: 1.4;
   flex-shrink: 0;
@@ -1170,7 +1237,7 @@
 
 .variablesOptionContent span {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
@@ -1182,7 +1249,7 @@
   border-radius: 8px;
   border: none;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1204,7 +1271,7 @@
 .fontMappingLabel {
   min-width: 100px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1212,7 +1279,7 @@
 
 .fontMappingArrow {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
@@ -1225,7 +1292,7 @@
 .originalFontHint {
   display: block;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.4;
   margin-bottom: 8px;
 }
@@ -1290,7 +1357,7 @@
 
 .importOptionsUrl {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   margin-bottom: 16px;
   padding: 8px 12px;
   background: rgba(var(--bg-rgb), 0.5);
@@ -1335,10 +1402,10 @@
   background: rgba(var(--bg-rgb), 0.5);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  color: var(--muted);
+  color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .importOptionsBtn:hover {
@@ -1364,7 +1431,7 @@
 
 .importOptionsHint {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text-secondary);
   margin-top: 6px;
   line-height: 1.4;
 }
@@ -1383,11 +1450,11 @@
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  color: var(--muted);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .importOptionsCancelBtn:hover {
@@ -1401,11 +1468,11 @@
   background: var(--accent);
   border: none;
   border-radius: 8px;
-  color: white;
+  color: var(--accent-fg);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .importOptionsConfirmBtn:hover {
@@ -1442,7 +1509,7 @@
 .unifiedOptionLabel {
   font-size: 11px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -1459,7 +1526,7 @@
   background-size: 16px;
   color: var(--text);
   font-size: 13px;
-  font-family: "Montserrat", sans-serif;
+  font-family: var(--font-display);
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -1474,7 +1541,6 @@
 }
 
 .unifiedDropdown:focus {
-  outline: none;
   border-color: var(--accent);
 }
 
@@ -1510,7 +1576,7 @@
 
 .unifiedDontShowAgain span {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -1564,7 +1630,7 @@
   width: 12px;
   left: 3px;
   bottom: 3px;
-  background-color: var(--muted);
+  background-color: var(--text-secondary);
   transition: 0.2s;
   border-radius: 50%;
 }
@@ -1581,7 +1647,7 @@
 .dontShowAgainHint {
   display: block;
   font-size: 12px;
-  color: var(--ai-text-primary);
+  color: var(--text);
   text-align: center;
   margin-top: 2px;
   opacity: 0.7;
@@ -1589,7 +1655,7 @@
   strong {
     font-size: 15px;
     font-weight: 400;
-    color: var(--ai-accent-orange);
+    color: var(--accent);
   }
 }
 
@@ -1598,8 +1664,14 @@
    ============================================================================ */
 
 .configTitleCollapsible {
+  width: 100%;
+  font-family: inherit;
   font-weight: 700;
-  font-size: 14px;
+  font-size: var(--font-lg);
+  color: inherit;
+  background: transparent;
+  border: none;
+  text-align: left;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1614,7 +1686,7 @@
 
 .collapseArrow {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   transition: transform 0.2s ease;
   transform: rotate(-90deg);
 }
@@ -1626,7 +1698,7 @@
 /* Active state for expanded sections */
 .configSectionActive {
   border-left: 2px solid var(--accent);
-  background: rgba(244, 162, 97, 0.04);
+  background: rgba(var(--accent-rgb), 0.04);
 }
 
 /* ============================================================================
@@ -1658,7 +1730,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted);
+  color: var(--text-secondary);
   transition: color 0.2s ease;
 }
 
@@ -1684,7 +1756,7 @@
 .importOptionsToggleText {
   flex: 1;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
   font-weight: 500;
   transition: color 0.2s ease;
 }
@@ -1726,7 +1798,7 @@
   width: 14px;
   left: 3px;
   bottom: 3px;
-  background-color: var(--muted);
+  background-color: var(--text-secondary);
   transition: 0.2s;
   border-radius: 50%;
 }
@@ -1769,11 +1841,11 @@
   font-size: 11px;
   font-weight: 600;
   background: var(--accent);
-  color: white;
+  color: var(--accent-fg);
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-normal);
 }
 
 .applyColorsBtn:hover:not(:disabled) {
@@ -1829,7 +1901,7 @@
 
 .colorReferenceTable th {
   font-weight: 600;
-  color: var(--muted);
+  color: var(--text-secondary);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1846,7 +1918,7 @@
 }
 
 .colorReferenceTable td:last-child {
-  color: var(--muted);
+  color: var(--text-secondary);
   font-size: 11px;
 }
 

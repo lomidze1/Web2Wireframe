@@ -3,6 +3,7 @@ import { h } from "preact";
 import { useState, useEffect } from "preact/hooks";
 import styles from "./Modal.css";
 import { useConfig } from "../../shared/ConfigContext";
+import { useModal } from "../../hooks/useModal";
 
 // Type exports for consumers
 export type ColorMode = "plugin" | "website";
@@ -89,6 +90,15 @@ export default function ImportOptionsModal({
     }
   }, [isOpen, config]);
 
+  // Esc / overlay close → save "Don't show again" if checked, then cancel.
+  const handleEscape = () => {
+    if (dontShowAgain) {
+      updateConfig({ showImportOptions: false });
+    }
+    onCancel();
+  };
+  const { modalRef } = useModal({ isOpen, onClose: handleEscape });
+
   if (!isOpen) return null;
 
   const handleConfirm = () => {
@@ -127,11 +137,24 @@ export default function ImportOptionsModal({
 
   return (
     <div class={styles.modalOverlay}>
-      <div class={`${styles.modal} ${styles.unifiedImportModal}`}>
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-options-title"
+        class={`${styles.modal} ${styles.unifiedImportModal}`}
+      >
         {/* Header */}
         <div class={styles.modalHeader}>
-          <span>Import Options</span>
-          <button class={styles.modalClose} onClick={handleCancel}>
+          <h2 id="import-options-title" class={styles.modalTitle}>
+            Import Options
+          </h2>
+          <button
+            type="button"
+            class={styles.modalClose}
+            onClick={handleCancel}
+            aria-label="Cancel import options"
+          >
             &times;
           </button>
         </div>

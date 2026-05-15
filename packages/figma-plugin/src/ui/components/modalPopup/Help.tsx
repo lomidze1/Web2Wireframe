@@ -1,7 +1,7 @@
 /** @jsx h */
 import { h } from "preact";
 import styles from "./Modal.css";
-// import modalStyles from "../shared/ModalShared.css";
+import { useModal } from "../../hooks/useModal";
 
 interface HelpProps {
   isOpen: boolean;
@@ -16,6 +16,7 @@ interface HelpLink {
 }
 
 export default function Help({ isOpen, onClose }: HelpProps) {
+  const { modalRef } = useModal({ isOpen, onClose });
   if (!isOpen) return null;
 
   const helpLinks: HelpLink[] = [
@@ -67,12 +68,21 @@ export default function Help({ isOpen, onClose }: HelpProps) {
   return (
     <div class={styles.modalOverlay} onClick={onClose}>
       <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="help-title"
         class={`${styles.modal} ${styles.helpModal}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div class={styles.modalHeader}>
-          <span>Need help?</span>
-          <button class={styles.modalClose} onClick={onClose}>
+          <h2 id="help-title" class={styles.modalTitle}>Need help?</h2>
+          <button
+            type="button"
+            class={styles.modalClose}
+            onClick={onClose}
+            aria-label="Close help"
+          >
             ×
           </button>
         </div>
@@ -80,11 +90,14 @@ export default function Help({ isOpen, onClose }: HelpProps) {
           <div class={styles.helpLinks}>
             {helpLinks.map((link, index) => (
               <button
+                type="button"
                 key={index}
                 class={styles.helpLinkItem}
                 onClick={() => handleLinkClick(link)}
               >
-                <span class={styles.helpLinkIcon}>{link.icon}</span>
+                <span class={styles.helpLinkIcon} aria-hidden="true">
+                  {link.icon}
+                </span>
                 <span class={styles.helpLinkLabel}>{link.label}</span>
               </button>
             ))}

@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: center;
   gap: 20px;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   animation: fadeIn 0.2s ease-out;
 }
 
@@ -47,9 +47,9 @@
 
 /* Progress arc - smooth transition */
 .progressArc {
-  stroke: var(--accent, #f4a261);
+  stroke: var(--accent);
   transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-  filter: drop-shadow(0 0 8px rgba(244, 162, 97, 0.4));
+  filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), 0.4));
 }
 
 /* Complete state - green arc */
@@ -108,7 +108,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent, #f4a261);
+  background: var(--accent);
   animation: bounce 1.2s ease-in-out infinite;
 }
 
@@ -139,7 +139,7 @@
 .stepText {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text, #ffffff);
+  color: var(--text);
   text-align: center;
   font-family: "Montserrat", sans-serif;
   letter-spacing: 0.3px;
@@ -166,7 +166,7 @@
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(244, 162, 97, 0.1) 0%,
+    rgba(var(--accent-rgb), 0.1) 0%,
     transparent 70%
   );
   animation: pulse 2s ease-in-out infinite;

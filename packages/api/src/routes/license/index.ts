@@ -43,6 +43,8 @@ interface SerializedLicense {
     activatedAt: string;
     nextBillingAt: string;
     canceledAt: string | null;
+    lastFailedAt: string | null;
+    failureCount: number;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -71,6 +73,9 @@ function serialize(license: ILicense): SerializedLicense {
           nextBillingAt: license.subscription.nextBillingAt.toISOString(),
           canceledAt:
             license.subscription.canceledAt?.toISOString() ?? null,
+          lastFailedAt:
+            license.subscription.lastFailedAt?.toISOString() ?? null,
+          failureCount: license.subscription.failureCount,
         }
       : null,
     createdAt: license.createdAt.toISOString(),

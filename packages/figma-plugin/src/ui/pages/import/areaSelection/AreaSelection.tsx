@@ -3,6 +3,7 @@ import { h } from "preact";
 import { useState, useRef, useEffect } from "preact/hooks";
 import { decode } from "@msgpack/msgpack";
 import styles from "./AreaSelection.css";
+import importStyles from "../Import.css";
 import { useConfig } from "../../../shared/ConfigContext";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import RenderingLoader, {
@@ -652,21 +653,26 @@ export default function AreaSelection() {
         </div>
       </div>
 
-      {/* Status Message */}
+      {/* Status Message — live region so screen readers announce updates */}
       {importState.message && (
         <div
-          class={`${styles.statusMessage} ${
+          role={importState.status === "error" ? "alert" : "status"}
+          aria-live={
+            importState.status === "error" ? "assertive" : "polite"
+          }
+          aria-atomic="true"
+          class={`${importStyles.statusMessage} ${
             importState.status === "loading"
-              ? styles.loading
+              ? importStyles.loading
               : importState.status === "success"
-                ? styles.success
+                ? importStyles.success
                 : importState.status === "error"
-                  ? styles.error
+                  ? importStyles.error
                   : ""
           }`}
         >
           {importState.status === "loading" && (
-            <span class={styles.spinner}></span>
+            <span class={importStyles.spinner} aria-hidden="true"></span>
           )}
           <span>{importState.message}</span>
         </div>
@@ -674,8 +680,8 @@ export default function AreaSelection() {
 
       {/* More Options (inline settings panel) */}
       <SettingsPanel
-        styles={styles}
-        containerClassName={styles.settingsBox}
+        styles={importStyles}
+        containerClassName={importStyles.settingsBox}
         hideViewports={true}
         isExpanded={settings.isExpanded}
         toggleExpanded={settings.toggleExpanded}
@@ -703,7 +709,7 @@ export default function AreaSelection() {
 
       {/* Generate Button */}
       <button
-        class={styles.areaGenerate}
+        class={`${importStyles.btnPrimary} ${styles.areaGenerate}`}
         onClick={handleGenerate}
         disabled={isDisabled}
       >

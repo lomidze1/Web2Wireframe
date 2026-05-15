@@ -14,9 +14,10 @@
   --panel: #2f5667;
   --panel-rgb: 47, 86, 103;
   --accent: #f4a261;
+  --accent-rgb: 244, 162, 97;
   --accent-hover: #e89450;
+  --accent-fg: #1c2f3a;
   --secondary: #2a9d8f;
-  --muted: #b8c6cf;
   --text: #ffffff;
   --text-secondary: #b8c6cf;
   --text-tertiary: #9fb2bc;
@@ -29,22 +30,60 @@
   --border-color: rgba(255, 255, 255, 0.06);
 
   /* Status Colors */
-  --success-color: #22c55e;
+  --success: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.12);
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.12);
+  --warning: #f59e0b;
+  --info: #3b82f6;
   --disabled-color: #4a5568;
+  /* Legacy alias kept temporarily for deprecation sweep */
+  --success-color: var(--success);
 
   /* Border Radius */
+  --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Type scale */
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 14px;
+  --font-xl: 16px;
+  --font-2xl: 18px;
+
+  /* Font stacks */
+  --font-display: "Montserrat", sans-serif;
+  --font-body: "Open Sans", sans-serif;
+  --font-mono: "Courier New", monospace;
 
   /* Shadows */
-  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.48);
+  --shadow-accent: 0 2px 8px rgba(244, 162, 97, 0.25);
 
   /* Transitions */
-  --transition-fast: 0.2s ease-in-out;
-  --transition-normal: 0.3s ease-in-out;
-  --transition-slow: 0.5s ease-out;
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
+  /* Z-index scale */
+  --z-footer: 100;
+  --z-overlay: 1000;
+  --z-modal: 4000;
 
   /* Main Background - solid color for reliability */
   --main-gradient: #264653;
@@ -104,16 +143,50 @@
    CSS Modules hash class names.
    ============================================ */
 
-/* Base Button Reset - applies to all buttons */
+/* Base Button Reset - applies to all buttons.
+   NOTE: outline removed in default state but RESTORED on :focus-visible
+   below — keyboard users must always see where focus is. */
 button {
   font-family: inherit;
   cursor: pointer;
   border: none;
-  outline: none;
-  transition: all var(--transition-fast, 0.2s ease-in-out);
+  transition: all var(--transition-fast);
 }
 
 button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* ============================================
+   Global Focus Indicators (WCAG 2.4.7)
+   ============================================
+   Apply a consistent accent outline whenever the user navigates with
+   keyboard. Components may override per-component to keep visual rhythm
+   (e.g., inset offset on tabs) but they must NEVER set outline: none on
+   :focus-visible without an alternative high-contrast indicator. */
+
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Visually-hidden helper for screen-reader-only labels */
+.srOnly {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
 }

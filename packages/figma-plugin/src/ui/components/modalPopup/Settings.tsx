@@ -9,6 +9,7 @@ import {
   PLUGIN_FONT_OPTIONS,
   DEFAULT_PLUGIN_FONT,
 } from "../../shared/ConfigContext";
+import { useModal } from "../../hooks/useModal";
 
 interface SettingsProps {
   isOpen: boolean;
@@ -82,6 +83,7 @@ export default function Settings({
   const { config, updateConfig } = useConfig();
   const [collapsed, setCollapsed] =
     useState<CollapsibleState>(safeGetCollapsed);
+  const { modalRef } = useModal({ isOpen, onClose });
 
   const toggleCollapse = (section: keyof CollapsibleState) => {
     setCollapsed((prev) => {
@@ -125,10 +127,22 @@ export default function Settings({
 
   return (
     <div class={styles.modalOverlay} onClick={onClose}>
-      <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        class={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div class={styles.modalHeader}>
-          <span>Assist</span>
-          <button class={styles.modalClose} onClick={onClose}>
+          <h2 id="settings-title" class={styles.modalTitle}>Assist</h2>
+          <button
+            type="button"
+            class={styles.modalClose}
+            onClick={onClose}
+            aria-label="Close settings"
+          >
             ✕
           </button>
         </div>
@@ -514,24 +528,31 @@ export default function Settings({
                 <div
                   class={`${styles.configSection} ${!collapsed.viewports ? styles.configSectionActive : ""}`}
                 >
-                  <div
+                  <button
+                    type="button"
                     class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.viewports}
                     onClick={() => toggleCollapse("viewports")}
                   >
                     <span>Viewports</span>
                     <span
                       class={`${styles.collapseArrow} ${collapsed.viewports ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
                     >
                       ▾
                     </span>
-                  </div>
+                  </button>
                   {!collapsed.viewports && (
                     <Fragment>
                       <div class={styles.configSubtitle}>
                         Select default viewport sizes for wireframe generation.
                         You can choose multiple sizes.
                       </div>
-                      <div class={styles.checkboxGrid}>
+                      <div
+                        class={styles.checkboxGrid}
+                        role="group"
+                        aria-label="Default viewports"
+                      >
                         {VIEWPORT_OPTIONS.map((opt) => (
                           <label
                             key={opt.value}
@@ -540,15 +561,11 @@ export default function Settings({
                                 ? styles.checked
                                 : ""
                             }`}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              toggleViewport(opt.value);
-                            }}
                           >
                             <input
                               type="checkbox"
                               checked={config.viewports.includes(opt.value)}
-                              readOnly
+                              onChange={() => toggleViewport(opt.value)}
                             />
                             {opt.label}
                           </label>
@@ -562,17 +579,20 @@ export default function Settings({
                 <div
                   class={`${styles.configSection} ${!collapsed.colors ? styles.configSectionActive : ""}`}
                 >
-                  <div
+                  <button
+                    type="button"
                     class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.colors}
                     onClick={() => toggleCollapse("colors")}
                   >
                     <span>Colors</span>
                     <span
                       class={`${styles.collapseArrow} ${collapsed.colors ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
                     >
                       ▾
                     </span>
-                  </div>
+                  </button>
                   {!collapsed.colors && (
                     <Fragment>
                       <div class={styles.configSubtitle}>
@@ -604,8 +624,10 @@ export default function Settings({
                         {/* Color Picker Grid - shown when Plugin Colors is selected */}
                         {config.colorMode === "plugin" && (
                           <div class={styles.colorPickerSection}>
-                            <div
+                            <button
+                              type="button"
                               class={styles.colorPickerHeader}
+                              aria-expanded={!collapsed.pluginColors}
                               onClick={() => toggleCollapse("pluginColors")}
                             >
                               <span class={styles.colorPickerSubtitle}>
@@ -614,10 +636,11 @@ export default function Settings({
                               </span>
                               <span
                                 class={`${styles.collapseArrow} ${collapsed.pluginColors ? "" : styles.collapseArrowOpen}`}
+                                aria-hidden="true"
                               >
                                 ▾
                               </span>
-                            </div>
+                            </button>
                             {!collapsed.pluginColors && (
                               <div class={styles.colorGrid}>
                                 {/* Text Color (dark) */}
@@ -894,17 +917,20 @@ export default function Settings({
                 <div
                   class={`${styles.configSection} ${!collapsed.fonts ? styles.configSectionActive : ""}`}
                 >
-                  <div
+                  <button
+                    type="button"
                     class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.fonts}
                     onClick={() => toggleCollapse("fonts")}
                   >
                     <span>Fonts</span>
                     <span
                       class={`${styles.collapseArrow} ${collapsed.fonts ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
                     >
                       ▾
                     </span>
-                  </div>
+                  </button>
                   {!collapsed.fonts && (
                     <Fragment>
                       <div class={styles.configSubtitle}>
@@ -936,8 +962,10 @@ export default function Settings({
                         {/* Font Picker - shown when Plugin Fonts is selected */}
                         {config.fontMode === "plugin" && (
                           <div class={styles.colorPickerSection}>
-                            <div
+                            <button
+                              type="button"
                               class={styles.colorPickerHeader}
+                              aria-expanded={!collapsed.pluginFonts}
                               onClick={() => toggleCollapse("pluginFonts")}
                             >
                               <span class={styles.colorPickerSubtitle}>
@@ -946,10 +974,11 @@ export default function Settings({
                               </span>
                               <span
                                 class={`${styles.collapseArrow} ${collapsed.pluginFonts ? "" : styles.collapseArrowOpen}`}
+                                aria-hidden="true"
                               >
                                 ▾
                               </span>
-                            </div>
+                            </button>
                             {!collapsed.pluginFonts && (
                               <div class={styles.fontPickerContent}>
                                 <select
@@ -1041,17 +1070,20 @@ export default function Settings({
                 <div
                   class={`${styles.configSection} ${!collapsed.text ? styles.configSectionActive : ""}`}
                 >
-                  <div
+                  <button
+                    type="button"
                     class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.text}
                     onClick={() => toggleCollapse("text")}
                   >
                     <span>Text</span>
                     <span
                       class={`${styles.collapseArrow} ${collapsed.text ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
                     >
                       ▾
                     </span>
-                  </div>
+                  </button>
                   {!collapsed.text && (
                     <Fragment>
                       <div class={styles.configSubtitle}>
@@ -1137,17 +1169,20 @@ export default function Settings({
                 <div
                   class={`${styles.configSection} ${!collapsed.assets ? styles.configSectionActive : ""}`}
                 >
-                  <div
+                  <button
+                    type="button"
                     class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.assets}
                     onClick={() => toggleCollapse("assets")}
                   >
                     <span>Assets</span>
                     <span
                       class={`${styles.collapseArrow} ${collapsed.assets ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
                     >
                       ▾
                     </span>
-                  </div>
+                  </button>
                   {!collapsed.assets && (
                     <Fragment>
                       <div class={styles.configSubtitle}>
@@ -1211,17 +1246,20 @@ export default function Settings({
                 <div
                   class={`${styles.configSection} ${!collapsed.cssVariables ? styles.configSectionActive : ""}`}
                 >
-                  <div
+                  <button
+                    type="button"
                     class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.cssVariables}
                     onClick={() => toggleCollapse("cssVariables")}
                   >
                     <span>CSS Variables</span>
                     <span
                       class={`${styles.collapseArrow} ${collapsed.cssVariables ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
                     >
                       ▾
                     </span>
-                  </div>
+                  </button>
                   {!collapsed.cssVariables && (
                     <Fragment>
                       <div class={styles.configSubtitle}>
@@ -1285,17 +1323,20 @@ export default function Settings({
                 <div
                   class={`${styles.configSection} ${!collapsed.layoutMode ? styles.configSectionActive : ""}`}
                 >
-                  <div
+                  <button
+                    type="button"
                     class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.layoutMode}
                     onClick={() => toggleCollapse("layoutMode")}
                   >
                     <span>Layout Mode</span>
                     <span
                       class={`${styles.collapseArrow} ${collapsed.layoutMode ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
                     >
                       ▾
                     </span>
-                  </div>
+                  </button>
                   {!collapsed.layoutMode && (
                     <Fragment>
                       <div class={styles.configSubtitle}>
@@ -1359,17 +1400,20 @@ export default function Settings({
                 <div
                   class={`${styles.configSection} ${!collapsed.interactions ? styles.configSectionActive : ""}`}
                 >
-                  <div
+                  <button
+                    type="button"
                     class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.interactions}
                     onClick={() => toggleCollapse("interactions")}
                   >
                     <span>Interactions</span>
                     <span
                       class={`${styles.collapseArrow} ${collapsed.interactions ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
                     >
                       ▾
                     </span>
-                  </div>
+                  </button>
                   {!collapsed.interactions && (
                     <Fragment>
                       <div class={styles.configSubtitle}>

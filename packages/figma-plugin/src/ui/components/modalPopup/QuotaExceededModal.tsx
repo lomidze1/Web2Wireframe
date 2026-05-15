@@ -1,6 +1,7 @@
 /** @jsx h */
 import { h } from "preact";
 import styles from "./Modal.css";
+import { useModal } from "../../hooks/useModal";
 
 interface QuotaExceededModalProps {
   isOpen: boolean;
@@ -18,13 +19,28 @@ export default function QuotaExceededModal({
   onUpgrade,
   onClose,
 }: QuotaExceededModalProps) {
+  const { modalRef } = useModal({ isOpen, onClose });
   if (!isOpen) return null;
   return (
     <div class={styles.modalOverlay} onClick={onClose}>
-      <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="quota-title"
+        class={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div class={styles.modalHeader}>
-          <span>Free quota reached</span>
-          <button class={styles.modalClose} onClick={onClose}>
+          <h2 id="quota-title" class={styles.modalTitle}>
+            Free quota reached
+          </h2>
+          <button
+            type="button"
+            class={styles.modalClose}
+            onClick={onClose}
+            aria-label="Close upgrade prompt"
+          >
             ×
           </button>
         </div>

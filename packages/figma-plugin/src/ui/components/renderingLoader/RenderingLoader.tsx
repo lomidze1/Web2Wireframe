@@ -40,8 +40,16 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
   const strokeDashoffset = circumference - (percent / 100) * circumference;
 
   return (
-    <div class={styles.overlay}>
-      <div class={`${styles.loaderContainer} ${isComplete ? styles.complete : ""}`}>
+    <div
+      class={styles.overlay}
+      role="dialog"
+      aria-modal="true"
+      aria-label={isComplete ? "Wireframe creation complete" : "Creating wireframe"}
+    >
+      <div
+        class={`${styles.loaderContainer} ${isComplete ? styles.complete : ""}`}
+        aria-hidden="true"
+      >
         {/* SVG Circular Progress */}
         <svg class={styles.progressRing} viewBox="0 0 100 100">
           {/* Background track */}
@@ -82,8 +90,13 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
         </div>
       </div>
 
-      {/* Status text */}
-      <div class={`${styles.stepText} ${isComplete ? styles.successText : ""}`}>
+      {/* Status text — announces progress steps to screen readers */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        class={`${styles.stepText} ${isComplete ? styles.successText : ""}`}
+      >
         {progress?.step || "Preparing..."}
       </div>
 

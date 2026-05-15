@@ -82,3 +82,34 @@
   font-size: 0.875rem;
   color: var(--text-tertiary, #888);
 }
+
+.failedPaymentBanner {
+  padding: 0.875rem 1rem;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  border: 1px solid;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-bottom: 1rem;
+}
+
+.failedPaymentBannerInfo {
+  border-color: var(--warning, #ffd54f);
+  background: var(--warning-soft, #fff8e1);
+  color: #b88500;
+}
+
+.failedPaymentBannerWarning {
+  border-color: #ff9800;
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.failedPaymentBannerUrgent {
+  border-color: var(--error, #f44336);
+  background: var(--error-soft, #ffebee);
+  color: #c62828;
+  font-weight: 700;
+}

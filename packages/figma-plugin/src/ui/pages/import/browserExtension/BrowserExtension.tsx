@@ -290,8 +290,12 @@ export default function BrowserExtension() {
       <div class={styles.extensionContainer}>
         <div class={styles.extensionTitle}>Waiting for Capture</div>
 
-        <div class={styles.extensionDescription}>
-          <span class={styles.spinner}></span>
+        <div
+          class={styles.extensionDescription}
+          role="status"
+          aria-live="polite"
+        >
+          <span class={styles.spinner} aria-hidden="true"></span>
           {importState.message}
         </div>
 

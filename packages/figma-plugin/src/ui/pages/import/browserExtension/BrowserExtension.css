@@ -7,36 +7,36 @@
   justify-content: center;
   align-items: center;
   text-align: center;
-  padding: 20px;
+  padding: var(--space-3);
 }
 
 /* Extension Title */
 .extensionTitle {
-  font-size: 18px;
+  font-size: var(--font-2xl);
   font-weight: 700;
-  font-family: "Montserrat", sans-serif;
+  font-family: var(--font-display);
   color: var(--accent);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 /* Extension Description */
 .extensionDescription {
-  font-size: 13px;
-  color: var(--muted);
+  font-size: var(--font-md);
+  color: var(--text-secondary);
   line-height: 1.5;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 /* Extension Benefits */
 .extensionBenefits {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
   text-align: left;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 12px;
-  margin-bottom: 16px;
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 .extensionBenefits ul {
@@ -51,39 +51,39 @@
 
 .extensionBenefits li::before {
   content: "✓ ";
-  color: var(--accent);
+  color: var(--success);
   font-weight: 700;
   margin-right: 6px;
 }
 
 /* Extension Subtext */
 .extensionSubtext {
-  font-size: 11px;
-  color: var(--muted);
-  margin-bottom: 16px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-4);
 }
 
 /* Extension Button */
 .extensionBtn {
   width: 100%;
   max-width: 280px;
-  padding: 12px 20px;
+  padding: var(--space-3) var(--space-5);
   border-radius: 6px;
   border: none;
-  background: var(--accent, #f4a261);
-  color: #1c2f3a;
+  background: var(--accent);
+  color: var(--accent-fg);
   font-weight: 700;
   cursor: pointer;
-  font-family: "Montserrat", sans-serif;
-  font-size: 14px;
-  transition: background 0.2s ease;
-  box-shadow: 0 1px 4px rgba(244, 162, 97, 0.25);
+  font-family: var(--font-display);
+  font-size: var(--font-lg);
+  transition: background var(--transition-normal);
+  box-shadow: 0 1px 4px rgba(var(--accent-rgb), 0.25);
 }
 
 /* No hover change - button is always active style */
 .extensionBtn:hover {
-  background: var(--accent, #f4a261);
-  color: #1c2f3a;
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
 .extensionBtn:active {
@@ -103,7 +103,7 @@
 .extensionBtnSecondary {
   background: transparent;
   border: 1px solid var(--border);
-  color: var(--muted);
+  color: var(--text-secondary);
   box-shadow: none;
 }
 
@@ -118,7 +118,7 @@
   display: inline-block;
   width: 14px;
   height: 14px;
-  margin-right: 8px;
+  margin-right: var(--space-2);
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -135,9 +135,9 @@
 /* Shortcut Toast */
 .shortcutToast {
   position: relative;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 500;
   text-align: center;
   background: rgba(42, 157, 143, 0.15);
