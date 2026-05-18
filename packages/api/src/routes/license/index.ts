@@ -1,7 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { type ILicense, PLAN_LIMITS } from "../../models/License.js";
 import { licenseService } from "../../services/licenseService.js";
-import { authenticatePlugin } from "../../middleware/auth.js";
+import { authenticatePlugin, verifyToken } from "../../middleware/auth.js";
+import { authRateLimiter } from "../../middleware/rateLimit.js";
 import { mongoConnected } from "../../state.js";
 
 const router = Router();
@@ -137,6 +138,64 @@ router.post(
       });
     } catch (err) {
       console.error("[License] /use-import error:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+/**
+ * POST /api/license/by-token
+ *
+ * Read-only license lookup for the website Account ("Manage Subscription")
+ * page. That page is opened from the plugin with a short-lived HMAC token
+ * (issued by /api/auth/issue-cancel-token) bound to the caller's verified
+ * Figma id. We verify that token and that it matches the supplied
+ * figmaUserId — the same proof /api/subscription/cancel requires — instead
+ * of an HMAC Bearer header the browser page does not hold.
+ *
+ * Public route (token-in-body); throttled by authRateLimiter.
+ */
+router.post(
+  "/by-token",
+  authRateLimiter,
+  async (req: Request, res: Response) => {
+    if (!requireMongo(req, res)) return;
+
+    const { figmaUserId, token } = req.body as {
+      figmaUserId?: unknown;
+      token?: unknown;
+    };
+    if (typeof figmaUserId !== "string" || typeof token !== "string") {
+      res.status(400).json({ error: "figmaUserId and token are required" });
+      return;
+    }
+
+    const secret = process.env.AUTH_SECRET;
+    if (!secret) {
+      console.error("[License] AUTH_SECRET env var is not set");
+      res.status(500).json({ error: "Server auth not configured" });
+      return;
+    }
+
+    let payload;
+    try {
+      payload = verifyToken(token, secret);
+    } catch (err) {
+      res
+        .status(401)
+        .json({ error: `Invalid token: ${(err as Error).message}` });
+      return;
+    }
+    if (payload.userId !== figmaUserId) {
+      res.status(401).json({ error: "Token does not match figmaUserId" });
+      return;
+    }
+
+    try {
+      const license = await licenseService.getOrCreate(figmaUserId);
+      res.json(serialize(license));
+    } catch (err) {
+      console.error("[License] /by-token error:", err);
       res.status(500).json({ error: "Server error" });
     }
   },

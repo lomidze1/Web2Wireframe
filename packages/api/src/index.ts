@@ -36,45 +36,12 @@ import websiteSupportRoutes from "./routes/website/support.js";
 import websiteFigmaAuthRoutes from "./routes/website/figmaAuth.js";
 import websiteSessionRoutes from "./routes/website/session.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { assertProductionSecrets } from "./config/startupChecks.js";
 
 const app = express();
 
-// ============================================================================
-// Production startup safety checks
-// ============================================================================
-// Fail fast at boot if critical secrets are missing in production, instead of
-// silently falling back to predictable defaults (which would allow session
-// forgery, admin-token guessing, and HMAC token forgery).
-if (process.env.NODE_ENV === "production") {
-  const required = [
-    "AUTH_SECRET",
-    "SESSION_SECRET",
-    "ADMIN_TOKEN",
-    "CORS_ORIGIN",
-  ];
-  const missing = required.filter((k) => !process.env[k]);
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required environment variables in production: ${missing.join(", ")}`
-    );
-  }
-  // Presence is not enough — a deploy that copied .env.example verbatim would
-  // boot with a globally-known secret. Reject the known placeholder values.
-  const PLACEHOLDERS = new Set([
-    "change-me-in-production",
-    "admin-token",
-    "dev-token",
-    "dev-session-secret",
-  ]);
-  const placeholder = ["AUTH_SECRET", "SESSION_SECRET", "ADMIN_TOKEN"].filter(
-    (k) => PLACEHOLDERS.has((process.env[k] ?? "").trim()),
-  );
-  if (placeholder.length > 0) {
-    throw new Error(
-      `Refusing to start: ${placeholder.join(", ")} still set to a placeholder value`,
-    );
-  }
-}
+// Fail fast at boot if critical secrets are missing or weak in production.
+assertProductionSecrets(process.env);
 
 // ============================================================================
 // Global middleware

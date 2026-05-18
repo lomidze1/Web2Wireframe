@@ -73,10 +73,10 @@ export const generateSupportEmailHtml = (data: {
     <body>
       <div class="container">
         <div class="header">
-          <h2>[Support Ticket] ${data.topic}</h2>
-          <p style="margin: 8px 0 0 0; color: #5a6072;">From: <strong>${
-            data.name
-          }</strong></p>
+          <h2>[Support Ticket] ${escapeHtml(data.topic)}</h2>
+          <p style="margin: 8px 0 0 0; color: #5a6072;">From: <strong>${escapeHtml(
+            data.name,
+          )}</strong></p>
         </div>
 
         <div class="section">

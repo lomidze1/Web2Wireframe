@@ -6,9 +6,11 @@ vi.mock("../src/config/env.js", () => ({
   config: { email: { resendApiKey: "", noreplyEmail: "noreply@test" } },
 }));
 
-const { generateExpiryReminderHtml, generateExpiryReminderText } = await import(
-  "../src/services/emailService.js"
-);
+const {
+  generateExpiryReminderHtml,
+  generateExpiryReminderText,
+  generateSupportEmailHtml,
+} = await import("../src/services/emailService.js");
 
 const data = {
   email: "user@example.com",
@@ -38,5 +40,36 @@ describe("generateExpiryReminderText", () => {
     expect(text).toContain("https://web2wireframe.test/renew?uid=u-1");
     expect(text.toLowerCase()).toContain("expire");
     expect(text).not.toContain("<");
+  });
+});
+
+describe("generateSupportEmailHtml — HTML injection (M1)", () => {
+  const base = {
+    name: "Jane Doe",
+    email: "jane@example.com",
+    topic: "Billing question",
+    message: "Hello there",
+    plan: "free",
+    planVerified: true,
+    timestamp: "2026-05-18T10:00:00Z",
+    ipAddress: "1.2.3.4",
+  };
+
+  it("escapes a <script> payload in the topic field", () => {
+    const html = generateSupportEmailHtml({
+      ...base,
+      topic: "<script>alert('xss')</script>",
+    });
+    expect(html).not.toContain("<script>alert('xss')</script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("escapes HTML in the name field", () => {
+    const html = generateSupportEmailHtml({
+      ...base,
+      name: "<img src=x onerror=alert(1)>",
+    });
+    expect(html).not.toContain("<img src=x onerror=alert(1)>");
+    expect(html).toContain("&lt;img");
   });
 });

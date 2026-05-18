@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { config } from "../config/env.js";
 import { PLAN_PRICES } from "../models/License.js";
 
@@ -90,18 +90,23 @@ export function verifyCallback(
   const provided = payload.signature;
   if (typeof provided !== "string" || provided.length === 0) return false;
 
+  // Reject canonicalization injection: Flitt joins signed values with a
+  // literal `|`. A field value containing `|` could make two distinct
+  // payloads produce the same signing string. Flitt's own webhook fields
+  // never contain `|`, so any value that does is a tampering attempt.
+  // (`response_signature_string` is Flitt's debug echo of the concat string
+  // itself and is excluded from signing — skip it.)
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === "signature" || key === "response_signature_string") continue;
+    if (typeof value === "string" && value.includes("|")) return false;
+  }
+
   const expected = flittSign(payload, secretKey);
 
-  // Constant-time-ish compare: lengths must match and we walk the whole
-  // string. Node's `crypto.timingSafeEqual` would be stricter but requires
-  // equal-length Buffers; for our use case length-check + bitwise XOR is
-  // sufficient (signatures are always 40 hex chars).
+  // Constant-time comparison. timingSafeEqual requires equal-length buffers,
+  // which the length check below guarantees.
   if (provided.length !== expected.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < expected.length; i += 1) {
-    mismatch |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return mismatch === 0;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
 }
 
 // ============================================================================

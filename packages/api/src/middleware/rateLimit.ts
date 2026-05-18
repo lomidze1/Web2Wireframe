@@ -1,16 +1,13 @@
 import rateLimit from "express-rate-limit";
 import { config } from "../config/env.js";
 
-/** Key requests by client IP, accounting for a single trusted proxy hop. */
-const ipKeyGenerator = (req: {
-  headers: Record<string, unknown>;
-  ip?: string;
-}): string =>
-  (req.headers["x-forwarded-for"] as string | undefined)
-    ?.split(",")[0]
-    .trim() ||
-  req.ip ||
-  "unknown";
+/**
+ * Key requests by client IP. `req.ip` honors the configured `trust proxy`
+ * hop count, so a client-supplied `x-forwarded-for` header cannot shift the
+ * rate-limit bucket (which raw-header parsing would have allowed).
+ */
+export const ipKeyGenerator = (req: { ip?: string }): string =>
+  req.ip ?? "unknown";
 
 /** Rate limiting is a production concern — skip it for local development. */
 const skipInDevelopment = (): boolean =>

@@ -143,6 +143,28 @@ describe("verifyCallback", () => {
       ),
     ).toBe(true);
   });
+
+  it("rejects a payload whose field value contains the | separator (H2)", () => {
+    // Flitt joins signed values with a literal `|`. A value containing `|`
+    // lets two distinct payloads collide on the signing string — reject it
+    // before trusting the signature, even though it is correctly signed here.
+    const params = { order_id: "x|y", amount: 1600 };
+    const signature = flittSign(params, "test");
+    expect(verifyCallback({ ...params, signature }, "test")).toBe(false);
+  });
+
+  it("still accepts response_signature_string that contains | (debug echo)", () => {
+    // response_signature_string is Flitt's echo of the concat string and is
+    // excluded from signing — its `|` must not trip the H2 guard.
+    const params = { order_id: "x", amount: 1600 };
+    const signature = flittSign(params, "test");
+    expect(
+      verifyCallback(
+        { ...params, signature, response_signature_string: "test|1600|x" },
+        "test",
+      ),
+    ).toBe(true);
+  });
 });
 
 // ============================================================================

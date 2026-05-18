@@ -1,13 +1,9 @@
 import type { Request } from "express";
 
-export const getClientIp = (req: Request): string => {
-  return (
-    (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ||
-    (req.headers["x-real-ip"] as string) ||
-    req.ip ||
-    "unknown"
-  );
-};
+// `req.ip` honors the configured `trust proxy` hop count. Reading raw
+// `x-forwarded-for` / `x-real-ip` headers instead would let a client spoof
+// the recorded IP (e.g. to poison support-ticket forensics).
+export const getClientIp = (req: Request): string => req.ip ?? "unknown";
 
 export const getUserAgent = (req: Request): string => {
   return req.headers["user-agent"] || "unknown";

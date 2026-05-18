@@ -123,14 +123,17 @@ router.post(
     try {
       const { figmaUserId, plan, status, cycleEndsAt, email } =
         req.body as {
-          figmaUserId?: string;
+          figmaUserId?: unknown;
           plan?: string;
           status?: string;
           cycleEndsAt?: string;
           email?: string | null;
         };
 
-      if (!figmaUserId) {
+      // Must be a non-empty string — an object like {"$ne": null} would turn
+      // the findOneAndUpdate filter into a NoSQL operator query matching an
+      // arbitrary license.
+      if (typeof figmaUserId !== "string" || figmaUserId.length === 0) {
         res.status(400).json({ error: "figmaUserId is required" });
         return;
       }

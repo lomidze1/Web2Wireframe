@@ -25,13 +25,20 @@ export const errorHandler = (
 ) => {
   const statusCode = err.statusCode || 500;
   const message = err.message || "Internal server error";
+  const isDev = process.env.NODE_ENV === "development";
 
   console.error(`[${new Date().toISOString()}] Error: ${message}`, err.stack);
 
+  // 5xx messages can carry internal detail (DB errors, library internals,
+  // file paths). Outside development, return a generic string; 4xx messages
+  // are intentional/operational and safe to surface.
+  const clientMessage =
+    statusCode >= 500 && !isDev ? "Internal server error" : message;
+
   res.status(statusCode).json({
     success: false,
-    error: message,
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+    error: clientMessage,
+    ...(isDev && { stack: err.stack }),
   });
 };
 

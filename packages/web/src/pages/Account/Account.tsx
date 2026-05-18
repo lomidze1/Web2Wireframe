@@ -62,9 +62,11 @@ const Account = (): ReactElement => {
       setIsLoading(false);
       return;
     }
-    fetch(
-      `${API_URL}/api/license/me?figmaUserId=${encodeURIComponent(figmaUserId)}`,
-    )
+    fetch(`${API_URL}/api/license/by-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ figmaUserId, token }),
+    })
       .then(async (res) => {
         if (!res.ok) throw new Error(`License request failed (${res.status})`);
         return (await res.json()) as AccountLicense;
