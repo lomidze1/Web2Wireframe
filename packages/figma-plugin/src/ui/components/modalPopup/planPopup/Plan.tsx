@@ -95,7 +95,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   async function handleGetPro(): Promise<void> {
     if (!figmaUserId || isCheckoutPending) return;
     setIsCheckoutPending(true);
-    setCheckoutMessage("Opening Flitt checkout…");
+    setCheckoutMessage("Opening secure checkout…");
     preCheckoutRef.current = license
       ? { plan: license.plan, cycleEndsAt: license.cycleEndsAt }
       : null;
@@ -247,7 +247,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                 </div>
               )}
               <div class={styles.planMetaRow}>
-                <span>Figma user ID</span>
+                <span>Account ID</span>
                 <span class={styles.planMetaValue}>{license.figmaUserId}</span>
               </div>
             </div>
@@ -268,7 +268,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               </div>
               <div class={styles.planCards}>
                 <div class={`${styles.planCard} ${styles.planCardPro}`}>
-                  <div class={styles.planCardHeader}>PRO — $16 / 1 month</div>
+                  <div class={styles.planCardHeader}>PRO — $16 / 30 days</div>
                   <ul class={styles.planList}>
                     <li class={styles.planListItem}>Unlimited imports</li>
                     <li class={styles.planListItem}>
@@ -277,6 +277,9 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                     <li class={styles.planListItem}>Real text content</li>
                     <li class={styles.planListItem}>Styles & assets included</li>
                     <li class={styles.planListItem}>Priority email support</li>
+                    <li class={styles.planListItem}>
+                      One-time payment — no auto-renewal
+                    </li>
                   </ul>
                   <button
                     type="button"
@@ -298,7 +301,9 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               onClick={handleGetPro}
               disabled={!figmaUserId || isCheckoutPending}
             >
-              {isCheckoutPending ? "Waiting for payment…" : "Renew Pro — $16"}
+              {isCheckoutPending
+                ? "Waiting for payment…"
+                : "Buy 30 more days — $16"}
             </button>
           )}
         </div>

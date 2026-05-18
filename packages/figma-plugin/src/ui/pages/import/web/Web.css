@@ -13,11 +13,19 @@
   gap: 6px;
 }
 
+/* URL section label — matches the HTML/CSS section labels */
+.urlLabel {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
 /* URL Input */
 .urlInput {
   width: 100%;
   padding: 10px var(--space-3);
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
@@ -27,7 +35,7 @@
 }
 
 .urlInput::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .urlInput:hover,
@@ -35,7 +43,3 @@
   border-color: var(--accent);
 }
 
-/* Import Button — layout override for shared .btnPrimary */
-.importBtn {
-  margin-top: auto;
-}

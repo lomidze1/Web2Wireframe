@@ -6,6 +6,12 @@
 **Session:** 2026-05-01 → 2026-05-03 (multi-day strategic session)
 **Launch Target:** **June 16, 2026**
 
+> **Progress (2026-05-18):** Payment system implemented — launch ships the
+> **one-time $16 / 30-day** model (`docs/plans/PAYMENT-SYSTEM.md`). AI Generation
+> removed; `ai-generation-backup` branch created. Plugin UI overhaul + Figma
+> OAuth-verified identity done. Remaining: Flitt sandbox testing + Figma/Chrome
+> store submissions — see `docs/PRE-LAUNCH-CHECKLIST.md`.
+
 ---
 
 ## 📋 TL;DR
@@ -253,6 +259,11 @@ const maxTokens = params.type === "page" ? 8000 : 4000;  // ← TOO LOW
 
 ### 7.1 Pricing Structure
 
+> **Launch implementation note (2026-05-18):** launch ships as a **one-time
+> $16 / 30-day** purchase (manual renew), not monthly recurring. Native Flitt
+> recurring subscriptions are fully coded but parked until Flitt grants
+> subscription access — see `docs/plans/PAYMENT-SYSTEM.md` §2.4.
+
 ```
 Free:  10 imports/თვე — $0
        basic features
@@ -423,11 +434,10 @@ Paid:  $16/მო monthly
 ## 📚 11. References & Sources
 
 ### Documentation Created This Session
-- `docs/plans/PAYMENT-SYSTEM.md` — payment system implementation plan (will need update for single-tier)
+- `docs/plans/PAYMENT-SYSTEM.md` — payment system implementation plan (implemented)
 - `~/.claude/projects/-Users-giorgi-Desktop-Web2Wireframe/memory/project_payment-system.md` — cross-session context
 - `~/.claude/projects/-Users-giorgi-Desktop-Web2Wireframe/memory/reference_flitt-api.md` — Flitt API verified reference
 - `~/.claude/plans/agile-mapping-thacker.md` — Plan Mode approved plan
-- `docs/decisions/ADR-001-launch-strategy.md` — initial Path A+ decision (now superseded by this doc)
 - **THIS DOCUMENT** — `docs/decisions/LAUNCH-STRATEGY-2026.md` — final source of truth
 
 ### Competitor Research Sources
@@ -538,4 +548,4 @@ Paid:  $16/მო monthly
 
 ---
 
-*This document supersedes ADR-001-launch-strategy.md. The previous ADR (Path A+) is preserved for historical context.*
+*Final source of truth for launch strategy. The earlier Path A+ draft (ADR-001) has been removed — its content is fully captured above.*

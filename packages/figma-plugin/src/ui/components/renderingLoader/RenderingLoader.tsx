@@ -1,6 +1,6 @@
 /** @jsx h */
 import { h } from "preact";
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import styles from "./RenderingLoader.css";
 
 export interface RenderingProgress {
@@ -22,6 +22,9 @@ const AUTO_DISMISS_MS = 3000;
 export default function RenderingLoader({ isVisible, progress, onClose }: RenderingLoaderProps) {
   const isComplete = progress?.isComplete ?? false;
 
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const doneBtnRef = useRef<HTMLButtonElement>(null);
+
   // When the render completes, auto-dismiss after the progress bar finishes
   // so the user doesn't have to click Done. Clicking Done early unmounts the
   // component and the cleanup clears the pending timer.
@@ -30,6 +33,17 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
     const timer = setTimeout(onClose, AUTO_DISMISS_MS);
     return () => clearTimeout(timer);
   }, [isVisible, isComplete, onClose]);
+
+  // Move focus into the overlay when it opens so keyboard/screen-reader users
+  // land on the dialog instead of staying on the page behind it.
+  useEffect(() => {
+    if (isVisible) overlayRef.current?.focus();
+  }, [isVisible]);
+
+  // Once the render finishes, shift focus to the Done button.
+  useEffect(() => {
+    if (isVisible && isComplete) doneBtnRef.current?.focus();
+  }, [isVisible, isComplete]);
 
   if (!isVisible) return null;
 
@@ -41,6 +55,8 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
 
   return (
     <div
+      ref={overlayRef}
+      tabIndex={-1}
       class={styles.overlay}
       role="dialog"
       aria-modal="true"
@@ -97,7 +113,7 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
         aria-atomic="true"
         class={`${styles.stepText} ${isComplete ? styles.successText : ""}`}
       >
-        {progress?.step || "Preparing..."}
+        {progress?.step || "Preparing…"}
       </div>
 
       {/* Auto-dismiss progress bar — fills left→right over AUTO_DISMISS_MS so
@@ -111,7 +127,12 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
 
       {/* Done button - only shows when complete */}
       {isComplete && onClose && (
-        <button class={styles.doneBtn} onClick={onClose}>
+        <button
+          ref={doneBtnRef}
+          type="button"
+          class={styles.doneBtn}
+          onClick={onClose}
+        >
           Done
         </button>
       )}

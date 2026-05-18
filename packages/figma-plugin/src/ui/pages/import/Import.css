@@ -14,7 +14,7 @@
   width: 100%;
   padding: 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   background: linear-gradient(
     135deg,
     var(--accent) 0%,
@@ -85,7 +85,7 @@
 .dropdown {
   width: 100%;
   padding: var(--space-2) 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
@@ -127,7 +127,7 @@
 /* Reset Button */
 .resetBtn {
   padding: var(--space-1) 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-secondary);
@@ -154,7 +154,7 @@
 /* Configure Button */
 .configureBtn {
   padding: var(--space-1) 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid rgba(42, 157, 143, 0.4);
   background: rgba(42, 157, 143, 0.1);
   color: var(--secondary);
@@ -171,7 +171,7 @@
 /* Save as Default Button */
 .saveDefaultBtn {
   padding: var(--space-1) 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid rgba(42, 157, 143, 0.5);
   background: rgba(42, 157, 143, 0.15);
   color: var(--accent);
@@ -205,7 +205,7 @@
   align-items: center;
   gap: var(--space-1);
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid var(--border-light);
   background: rgba(255, 255, 255, 0.02);
   cursor: pointer;
@@ -235,10 +235,10 @@
   justify-content: space-between;
   padding: var(--space-2) 10px;
   margin-top: var(--space-2);
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid var(--border-light);
   background: rgba(255, 255, 255, 0.03);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: var(--font-sm);
   font-weight: 500;
   cursor: pointer;
@@ -286,7 +286,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: 10px var(--space-3);
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   font-size: var(--font-sm);
   font-weight: 500;
   animation: slideDown 0.2s ease-out;
@@ -294,17 +294,17 @@
 .statusMessage.loading {
   background: rgba(42, 157, 143, 0.12);
   border: 1px solid rgba(42, 157, 143, 0.3);
-  color: var(--secondary);
+  color: var(--loading-text);
 }
 .statusMessage.success {
   background: var(--success-bg);
   border: 1px solid rgba(34, 197, 94, 0.3);
-  color: var(--success);
+  color: var(--success-text);
 }
 .statusMessage.error {
   background: var(--error-bg);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  color: var(--error);
+  color: var(--error-text);
 }
 
 /* Loading Spinner */

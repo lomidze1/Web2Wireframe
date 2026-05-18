@@ -94,7 +94,7 @@
   background: rgba(var(--bg-rgb), 0.7);
   width: 36px;
   height: 36px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: none;
   color: var(--text);
   cursor: pointer;

@@ -7,7 +7,7 @@
  * because it needs access to Figma API for creating styles.
  */
 
-import type { ColorMode, FontMode, TextMode } from "../components/modalPopup/ImportOptionsModal";
+import type { ColorMode, FontMode, TextMode } from "./types";
 
 /**
  * Semantic placeholder text based on HTML tag type.

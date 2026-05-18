@@ -172,7 +172,7 @@ export default function () {
       const executeRender = async (fontFamily: string, fontMapping?: FontMapping, originalFontNames?: FontMapping) => {
 
 
-      figma.notify("Creating wireframe...", { timeout: 2000 });
+      figma.notify("Creating wireframe…", { timeout: 2000 });
 
       // Send initial progress to UI
       figma.ui.postMessage({
@@ -261,7 +261,7 @@ export default function () {
         });
 
         if (effectiveColorMode === "plugin") {
-          figma.notify("Creating plugin color styles...", { timeout: 1500 });
+          figma.notify("Creating plugin color styles…", { timeout: 1500 });
           try {
             // Nest plugin styles under `{hostname}/Plugin` so multi-site
             // imports in Plugin Colors mode don't collide (e.g. importing
@@ -290,7 +290,7 @@ export default function () {
           }
         } else {
           // Website color mode: unified variable-first style creation
-          figma.notify("Creating website color styles...", { timeout: 1500 });
+          figma.notify("Creating website color styles…", { timeout: 1500 });
 
           try {
             const result = await createUnifiedWebsiteColorStyles(
@@ -581,7 +581,7 @@ export default function () {
 
         for (let i = 0; i < frames.length; i++) {
           const viewportWidth = frames[i].viewportWidth;
-          figma.notify(`Processing viewport ${i + 1}/${frames.length}...`, {
+          figma.notify(`Processing viewport ${i + 1}/${frames.length}…`, {
             timeout: 1000,
           });
 
@@ -631,7 +631,7 @@ export default function () {
         }
 
         // Wrap frame(s) in a Section
-        figma.notify("Grouping frames in Section...", { timeout: 1000 });
+        figma.notify("Grouping frames in Section…", { timeout: 1000 });
 
         figma.ui.postMessage({
           type: "render-progress",
@@ -902,7 +902,7 @@ export default function () {
         }
       } catch (err) {
         logger.warn("rebind-original-fonts handler failed", { error: err });
-        figma.notify("Re-apply fonts failed. Check console for details.", { error: true });
+        figma.notify("Couldn't re-apply fonts. Please try again.", { error: true });
       }
       return;
     }

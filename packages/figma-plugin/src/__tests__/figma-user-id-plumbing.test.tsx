@@ -102,10 +102,10 @@ describe("licenseClient.fetchMyLicense", () => {
     expect(licenseUrl.startsWith(API_BASE_URL)).toBe(true);
   });
 
-  it("throws on non-2xx response", async () => {
+  it("throws a user-facing message on non-2xx response", async () => {
     mockLicenseFetch(new Response("", { status: 500 }));
     await expect(fetchMyLicense("u-1")).rejects.toThrow(
-      /License request failed/,
+      /Something went wrong on our side/,
     );
   });
 });

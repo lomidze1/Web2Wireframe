@@ -431,7 +431,7 @@ export default function AreaSelection() {
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({
-      step: "Preparing wireframe data...",
+      step: "Preparing wireframe data…",
       percent: 0,
     });
     setImportState({ status: "loading", message: "" });
@@ -493,7 +493,7 @@ export default function AreaSelection() {
     }
 
     // Send to Figma main thread with all options from inline settings
-    renderingProgressRef.current = { step: "Preparing wireframe data...", percent: 0 };
+    renderingProgressRef.current = { step: "Preparing wireframe data…", percent: 0 };
     parent.postMessage(
       {
         pluginMessage: {
@@ -554,7 +554,7 @@ export default function AreaSelection() {
       return;
     }
 
-    setImportState({ status: "loading", message: "Processing file..." });
+    setImportState({ status: "loading", message: "Importing the file…" });
 
     try {
       // 1. Read file as ArrayBuffer
@@ -567,22 +567,24 @@ export default function AreaSelection() {
 
       if (fileName.endsWith(".json")) {
         // JSON file - parse directly
-        setImportState({ status: "loading", message: "Parsing JSON..." });
+        setImportState({ status: "loading", message: "Parsing JSON…" });
         const text = new TextDecoder().decode(arrayBuffer);
         rawData = JSON.parse(text);
       } else {
         // .w2w file - decompress and decode MessagePack
-        setImportState({ status: "loading", message: "Decompressing..." });
+        setImportState({ status: "loading", message: "Decompressing…" });
         const decompressedData = await decompressGzip(arrayBuffer);
 
-        setImportState({ status: "loading", message: "Decoding data..." });
+        setImportState({ status: "loading", message: "Decoding data…" });
         rawData = decode(decompressedData) as MultiFrameCaptureResult | SingleViewportCaptureResult;
       }
 
       // Convert to unified multi-frame format (handles both old single-viewport and new multi-frame format)
       const unifiedResult = toUnifiedFormat(rawData);
       if (!unifiedResult) {
-        throw new Error("Invalid file format - expected wireframe data with tree structure");
+        throw new Error(
+          "This file isn't a valid Web2Wireframe capture. Please upload a .w2w or .json file exported from the extension.",
+        );
       }
 
       // Render directly using inline settings (no modal)
@@ -707,15 +709,13 @@ export default function AreaSelection() {
         openSettings={settings.openSettings}
       />
 
-      {/* Generate Button */}
+      {/* Import Button */}
       <button
-        class={`${importStyles.btnPrimary} ${styles.areaGenerate}`}
+        class={importStyles.btnPrimary}
         onClick={handleGenerate}
         disabled={isDisabled}
       >
-        {importState.status === "loading"
-          ? "Processing..."
-          : "Generate Wireframe"}
+        {importState.status === "loading" ? "Importing…" : "Import"}
       </button>
 
       {/* Font Fallback Modal */}

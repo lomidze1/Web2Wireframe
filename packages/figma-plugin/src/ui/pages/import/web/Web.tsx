@@ -6,6 +6,7 @@ import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
 import { authHeader } from "../../../shared/licenseClient";
+import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
@@ -123,7 +124,7 @@ export default function Web() {
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({
-      step: "Creating wireframe...",
+      step: "Creating wireframe…",
       percent: 0,
     });
     setImportState({ status: "loading", message: "" });
@@ -183,7 +184,7 @@ export default function Web() {
     }
     const normalizedUrl = validation.url;
 
-    setImportState({ status: "loading", message: "Importing website..." });
+    setImportState({ status: "loading", message: "Importing the website…" });
 
     // Collapse settings panel so user can see loading status
     settings.collapseSettings();
@@ -217,7 +218,9 @@ export default function Web() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(
-          errorData.error || errorData.details || `HTTP ${response.status}`
+          errorData.error ||
+            errorData.details ||
+            httpErrorMessage(response.status)
         );
       }
 
@@ -294,8 +297,7 @@ export default function Web() {
     } catch (error) {
       setImportState({
         status: "error",
-        message:
-          error instanceof Error ? error.message : "Failed to import website",
+        message: toUserMessage(error, "Failed to import website"),
       });
     }
   };
@@ -306,7 +308,7 @@ export default function Web() {
     <div class={styles.webContainer}>
       {/* URL Input */}
       <div class={styles.inputGroup}>
-        <label class="srOnly" for="w2w-url-input">
+        <label class={styles.urlLabel} for="w2w-url-input">
           Website URL
         </label>
         <input
@@ -391,11 +393,11 @@ export default function Web() {
 
       {/* Import Button */}
       <button
-        class={`${importStyles.btnPrimary} ${styles.importBtn}`}
+        class={importStyles.btnPrimary}
         onClick={handleImport}
         disabled={isDisabled}
       >
-        {importState.status === "loading" ? "Importing..." : "Import"}
+        {importState.status === "loading" ? "Importing…" : "Import"}
       </button>
 
       {/* Font Fallback Modal */}

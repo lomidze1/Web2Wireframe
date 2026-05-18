@@ -1,22 +1,17 @@
-/* Extension Container */
+/* Extension Container — left-aligned column, matching the other import tabs */
 .extensionContainer {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  height: 100%;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
+  gap: var(--space-3);
   padding: var(--space-3);
 }
 
 /* Extension Title */
 .extensionTitle {
-  font-size: var(--font-2xl);
+  font-size: var(--font-xl);
   font-weight: 700;
   font-family: var(--font-display);
-  color: var(--accent);
-  margin-bottom: var(--space-2);
+  color: var(--text);
 }
 
 /* Extension Description */
@@ -24,19 +19,21 @@
   font-size: var(--font-md);
   color: var(--text-secondary);
   line-height: 1.5;
-  margin-bottom: var(--space-3);
+}
+
+.extensionDescription strong {
+  color: var(--text);
+  font-weight: 700;
 }
 
 /* Extension Benefits */
 .extensionBenefits {
   font-size: var(--font-sm);
   color: var(--text-secondary);
-  text-align: left;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   padding: var(--space-3);
-  margin-bottom: var(--space-4);
 }
 
 .extensionBenefits ul {
@@ -50,8 +47,8 @@
 }
 
 .extensionBenefits li::before {
-  content: "✓ ";
-  color: var(--success);
+  content: "• ";
+  color: var(--accent);
   font-weight: 700;
   margin-right: 6px;
 }
@@ -60,43 +57,64 @@
 .extensionSubtext {
   font-size: var(--font-xs);
   color: var(--text-secondary);
-  margin-bottom: var(--space-4);
 }
 
-/* Extension Button */
+/* Pairing code callout shown while waiting for a capture */
+.pairingBox {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+
+.pairingLabel {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.pairingCode {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  font-family: var(--font-display);
+  letter-spacing: 3px;
+  color: var(--accent);
+  margin-top: var(--space-1);
+}
+
+/* Extension Button — shares the primary CTA look used across import tabs */
 .extensionBtn {
   width: 100%;
-  max-width: 280px;
-  padding: var(--space-3) var(--space-5);
-  border-radius: 6px;
+  padding: 10px;
+  border-radius: var(--radius-input);
   border: none;
-  background: var(--accent);
+  background: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    var(--accent-hover) 100%
+  );
   color: var(--accent-fg);
   font-weight: 700;
   cursor: pointer;
   font-family: var(--font-display);
-  font-size: var(--font-lg);
-  transition: background var(--transition-normal);
-  box-shadow: 0 1px 4px rgba(var(--accent-rgb), 0.25);
+  font-size: var(--font-md);
+  transition: all var(--transition-fast);
 }
 
-/* No hover change - button is always active style */
-.extensionBtn:hover {
-  background: var(--accent);
-  color: var(--accent-fg);
+.extensionBtn:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.35);
 }
 
-.extensionBtn:active {
-  transform: scale(0.98);
+.extensionBtn:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
 }
 
 /* Extension Actions Container */
 .extensionActions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
   width: 100%;
-  max-width: 280px;
 }
 
 /* Secondary Button Style */
@@ -107,10 +125,11 @@
   box-shadow: none;
 }
 
-.extensionBtnSecondary:hover {
+.extensionBtnSecondary:not(:disabled):hover {
   background: rgba(255, 255, 255, 0.05);
   color: var(--text);
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: var(--accent);
+  box-shadow: none;
 }
 
 /* Spinner Animation */
@@ -129,51 +148,5 @@
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-/* Shortcut Toast */
-.shortcutToast {
-  position: relative;
-  padding: var(--space-2) var(--space-3);
-  border-radius: 6px;
-  font-size: var(--font-sm);
-  font-weight: 500;
-  text-align: center;
-  background: rgba(42, 157, 143, 0.15);
-  color: var(--accent);
-  border: 1px solid rgba(42, 157, 143, 0.3);
-  animation: toastFadeIn 0.2s ease-out;
-  overflow: hidden;
-}
-
-.shortcutToast::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 2px;
-  width: 0;
-  background: var(--accent);
-  animation: toastProgress 3s linear forwards;
-}
-
-@keyframes toastFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes toastProgress {
-  from {
-    width: 0;
-  }
-  to {
-    width: 100%;
   }
 }

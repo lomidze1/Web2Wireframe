@@ -46,7 +46,7 @@
 /* Code Textarea */
 .codeTextarea {
   padding: 10px var(--space-3);
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.05);
   color: var(--text);
@@ -58,7 +58,7 @@
 }
 
 .codeTextarea::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .codeTextarea:hover {
@@ -111,7 +111,7 @@
   font-size: var(--font-xl);
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -146,7 +146,7 @@
 }
 
 .expandTextarea::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 @keyframes fadeIn {

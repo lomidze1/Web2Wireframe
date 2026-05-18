@@ -136,43 +136,53 @@ export default function Settings({
         onClick={(e) => e.stopPropagation()}
       >
         <div class={styles.modalHeader}>
-          <h2 id="settings-title" class={styles.modalTitle}>Assist</h2>
+          <h2 id="settings-title" class={styles.modalTitle}>Settings</h2>
           <button
             type="button"
             class={styles.modalClose}
             onClick={onClose}
             aria-label="Close settings"
           >
-            ✕
+            ×
           </button>
         </div>
 
         {/* Panel Navigation */}
         <div class={styles.navRow}>
           <button
+            type="button"
             class={`${styles.navBtn} ${
               activePanel === "terminology" ? styles.navBtnActive : ""
             }`}
+            aria-pressed={activePanel === "terminology"}
             onClick={() => setActivePanel("terminology")}
           >
             Terminology
           </button>
           <button
+            type="button"
             class={`${styles.navBtn} ${
               activePanel === "config" ? styles.navBtnActive : ""
             }`}
+            aria-pressed={activePanel === "config"}
             onClick={() => setActivePanel("config")}
           >
             Configuration
           </button>
-          <button
-            class={`${styles.navBtn} ${
-              activePanel === "tutorials" ? styles.navBtnActive : ""
-            }`}
-            onClick={() => setActivePanel("tutorials")}
-          >
-            Tutorials
-          </button>
+          {/* Tutorials panel — TEMPORARILY HIDDEN FOR LAUNCH: tutorial videos
+              are not recorded yet. Restore by removing the `false &&` wrapper. */}
+          {false && (
+            <button
+              type="button"
+              class={`${styles.navBtn} ${
+                activePanel === "tutorials" ? styles.navBtnActive : ""
+              }`}
+              aria-pressed={activePanel === "tutorials"}
+              onClick={() => setActivePanel("tutorials")}
+            >
+              Tutorials
+            </button>
+          )}
         </div>
 
         <div class={styles.modalContent}>

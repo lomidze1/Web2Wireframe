@@ -33,7 +33,7 @@ export default function QuotaExceededModal({
       >
         <div class={styles.modalHeader}>
           <h2 id="quota-title" class={styles.modalTitle}>
-            Free quota reached
+            You've reached your free limit
           </h2>
           <button
             type="button"

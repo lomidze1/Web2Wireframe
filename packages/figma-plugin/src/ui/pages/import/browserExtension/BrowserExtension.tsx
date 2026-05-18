@@ -104,7 +104,7 @@ export default function BrowserExtension() {
         stopPolling();
 
         // Render directly with default config settings (no modal)
-        setImportState({ status: "importing", message: "Creating wireframe..." });
+        setImportState({ status: "importing", message: "Creating wireframe…" });
         const transformedFrames = transformFramesData(
           newPendingData.wireframeData.frames as Parameters<typeof transformFramesData>[0],
           {
@@ -129,7 +129,7 @@ export default function BrowserExtension() {
     setIsPolling(true);
     setImportState({
       status: "waiting",
-      message: "Waiting for Browser Extension capture...",
+      message: "Waiting for a capture from your browser…",
     });
 
     // Fetch a pairing code for the user to enter into the extension.
@@ -242,7 +242,7 @@ export default function BrowserExtension() {
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({
-      step: "Preparing wireframe data...",
+      step: "Preparing wireframe data…",
       percent: 0,
     });
 
@@ -311,28 +311,11 @@ export default function BrowserExtension() {
         </div>
 
         {pairingCode && (
-          <div
-            style={{
-              margin: "12px 0",
-              padding: "12px",
-              borderRadius: "8px",
-              background: "var(--panel, #f1f2f0)",
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontSize: "11px", opacity: 0.7 }}>
+          <div class={styles.pairingBox}>
+            <div class={styles.pairingLabel}>
               Pairing code — enter this in the browser extension
             </div>
-            <div
-              style={{
-                fontSize: "22px",
-                fontWeight: 700,
-                letterSpacing: "3px",
-                marginTop: "4px",
-              }}
-            >
-              {pairingCode}
-            </div>
+            <div class={styles.pairingCode}>{pairingCode}</div>
           </div>
         )}
 
@@ -380,20 +363,24 @@ export default function BrowserExtension() {
   // Default: idle state or modals showing
   return (
     <div class={styles.extensionContainer}>
-      <div class={styles.extensionTitle}>
-        Connect the Plugin with your Browser
+      <div class={styles.extensionTitle}>Connect your browser</div>
+
+      <div class={styles.extensionDescription}>
+        Capture any webpage from your browser — including private, local, and
+        login-protected pages — and it appears here, ready to import into Figma.
       </div>
 
       <div class={styles.extensionDescription}>
-        Capture webpages directly from your browser and they will appear here.
-        Import them into Figma when you want.
+        <strong>How it works:</strong> install the extension, capture a page in
+        your browser, then click “Wait for capture” below and keep this plugin
+        open — your capture lands here automatically.
       </div>
 
       <div class={styles.extensionBenefits}>
         <ul>
           <li>Perfect for private or local webpages</li>
           <li>Pages behind a log-in session</li>
-          <li>Removing banners and more...</li>
+          <li>Removing banners and more…</li>
         </ul>
       </div>
 
@@ -403,7 +390,7 @@ export default function BrowserExtension() {
 
       <div class={styles.extensionActions}>
         <button class={styles.extensionBtn} onClick={startPolling}>
-          Start Listening
+          Wait for capture
         </button>
         <button
           class={`${styles.extensionBtn} ${styles.extensionBtnSecondary}`}

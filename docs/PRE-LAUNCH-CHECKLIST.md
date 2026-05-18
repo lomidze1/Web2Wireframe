@@ -2,6 +2,7 @@
 
 გადახდის (ერთჯერადი $16 → 30 დღე Pro) production-ზე ატვირთვამდე შესასრულებელი ნაბიჯები.
 სტატუსი: `[ ]` = დარჩა, `[x]` = გაკეთდა.
+ბოლო განახლება: 2026-05-18.
 
 ---
 
@@ -26,12 +27,12 @@
 
 ## 2. Plugin API URL (`packages/figma-plugin`)
 
-- [ ] `src/ui/shared/apiConfig.ts` → `API_BASE_URL` შეცვალე
-      `http://localhost:3002` → `https://api.web2wireframe.design`
-      (გააკეთე `npm run build`-ის წინ, **sandbox ტესტის შემდეგ**)
-- [ ] (სურვილისამებრ, ჯერ) 4 დუბლირებული `API_URL` კონსტანტა
-      (`Screenshot.tsx`, `Web.tsx`, `HTML.tsx`, `BrowserExtension.tsx`)
-      `apiConfig.ts`-ის `API_BASE_URL`-ით ჩაანაცვლე → მერე გადართვა 1 ხაზად.
+- [ ] `src/ui/shared/apiConfig.ts` → `USE_PRODUCTION` toggle `false` → `true`
+      (გადართვა 1 ხაზად; `npm run build`-ის წინ, **sandbox ტესტის შემდეგ**.
+      build-ის შემდეგ ისევ `false`-ზე დააბრუნე ლოკალური dev-ისთვის)
+- [x] 4 დუბლირებული `API_URL` კონსტანტა (`Screenshot.tsx`, `Web.tsx`,
+      `HTML.tsx`, `BrowserExtension.tsx`) უკვე `apiConfig.ts`-ის `API_BASE_URL`-ს
+      იყენებს — გადართვა ერთ `USE_PRODUCTION` toggle-ზე დაყვანილია.
 
 ## 3. Web API URL (`packages/web`)
 

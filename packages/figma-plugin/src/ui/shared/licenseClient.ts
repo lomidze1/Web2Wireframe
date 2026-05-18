@@ -1,4 +1,5 @@
 import { API_BASE_URL, withFigmaUserId } from "./apiConfig";
+import { httpErrorMessage } from "./httpErrors";
 
 export type Plan = "free" | "pro";
 export type Status = "active" | "canceled" | "expired";
@@ -188,7 +189,7 @@ export async function requestPairingCode(
     signal,
   });
   if (!response.ok) {
-    throw new Error(`Pairing request failed (${response.status})`);
+    throw new Error(httpErrorMessage(response.status));
   }
   const data = (await response.json()) as { code?: string };
   if (!data.code) {
@@ -215,7 +216,7 @@ export async function fetchMyLicense(
     signal,
   });
   if (!response.ok) {
-    throw new Error(`License request failed (${response.status})`);
+    throw new Error(httpErrorMessage(response.status));
   }
   return (await response.json()) as License;
 }
@@ -250,7 +251,7 @@ export async function createCheckout(
     throw new Error(
       typeof (body as { error?: string }).error === "string"
         ? (body as { error: string }).error
-        : `Checkout request failed (${response.status})`,
+        : httpErrorMessage(response.status),
     );
   }
   return (await response.json()) as CheckoutResponse;
@@ -286,7 +287,7 @@ export async function issueCancelToken(
     },
   );
   if (!response.ok) {
-    throw new Error(`Cancel token request failed (${response.status})`);
+    throw new Error(httpErrorMessage(response.status));
   }
   return (await response.json()) as { token: string; expiresInSeconds: number };
 }

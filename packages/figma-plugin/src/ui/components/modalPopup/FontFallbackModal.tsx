@@ -310,7 +310,7 @@ export default function FontFallbackModal({
                     >
                       {isDownloading
                         ? zipProgress != null
-                          ? `Downloading... ${zipProgress}%`
+                          ? `Downloading… ${zipProgress}%`
                           : "Downloading..."
                         : "Download fonts (.zip)"}
                     </button>

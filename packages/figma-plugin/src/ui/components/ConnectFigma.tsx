@@ -2,6 +2,7 @@
 import { h } from "preact";
 import { useState } from "preact/hooks";
 import { connectFigma } from "../shared/licenseClient";
+import styles from "./ConnectFigma.css";
 
 /**
  * Connection gate shown when no valid plugin token is held. Runs the Figma
@@ -29,54 +30,28 @@ export default function ConnectFigma({
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "12px",
-        height: "100%",
-        padding: "32px",
-        textAlign: "center",
-        boxSizing: "border-box",
-      }}
-    >
-      <h2 style={{ margin: 0, fontSize: "15px" }}>Connect your Figma account</h2>
-      <p style={{ margin: 0, fontSize: "12px", opacity: 0.7, lineHeight: 1.5 }}>
+    <div class={styles.connectScreen}>
+      <h2 class={styles.connectHeading}>Connect your Figma account</h2>
+      <p class={styles.connectText}>
         Web2Wireframe verifies your Figma identity before managing imports and
         your plan. This opens a Figma sign-in page in your browser.
       </p>
 
       {status === "connecting" ? (
-        <p style={{ margin: "8px 0 0", fontSize: "12px", opacity: 0.7 }}>
+        <p class={styles.connectText}>
           Waiting for authorization in your browser…
         </p>
       ) : (
         <button
           type="button"
+          class={styles.connectButton}
           onClick={handleConnect}
-          style={{
-            marginTop: "8px",
-            padding: "8px 20px",
-            fontSize: "12px",
-            fontWeight: 600,
-            cursor: "pointer",
-            border: "none",
-            borderRadius: "6px",
-            background: "var(--accent, #0d99ff)",
-            color: "#fff",
-          }}
         >
           {status === "error" ? "Try again" : "Connect Figma"}
         </button>
       )}
 
-      {status === "error" && (
-        <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#d33" }}>
-          {error}
-        </p>
-      )}
+      {status === "error" && <p class={styles.connectError}>{error}</p>}
     </div>
   );
 }

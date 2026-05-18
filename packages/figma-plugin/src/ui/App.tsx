@@ -91,20 +91,7 @@ function ConnectionGate() {
   }, []);
 
   if (conn === "loading") {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100%",
-          fontSize: "12px",
-          opacity: 0.6,
-        }}
-      >
-        Loading…
-      </div>
-    );
+    return <div class={styles.loadingScreen}>Loading…</div>;
   }
   if (conn === "disconnected") {
     return <ConnectFigma onConnected={() => setConn("connected")} />;
