@@ -48,9 +48,18 @@
   cursor: pointer;
 }
 
-/* Hidden Input */
+/* Native file input — visually hidden but kept in the DOM so it stays
+   keyboard-focusable (the upload area shows :focus-within when it is). */
 .hiddenInput {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Upload Content */

@@ -306,36 +306,43 @@ export default function Web() {
 
   return (
     <div class={styles.webContainer}>
-      {/* URL Input */}
-      <div class={styles.inputGroup}>
+      {/* Title & Instructions */}
+      <div>
         <label class={styles.urlLabel} for="w2w-url-input">
           Website URL
         </label>
-        <input
-          id="w2w-url-input"
-          type="url"
-          class={styles.urlInput}
-          placeholder="https://www.website.com/"
-          value={url}
-          aria-invalid={importState.status === "error"}
-          aria-describedby={
-            importState.status === "error" ? "w2w-url-error" : undefined
-          }
-          onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
-          onBlur={() => {
-            const trimmed = url.trim();
-            if (trimmed && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(trimmed)) {
-              setUrl(`https://${trimmed}`);
-            }
-          }}
-          disabled={importState.status === "loading"}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !isDisabled) {
-              handleImport();
-            }
-          }}
-        />
+        <ul class={styles.webBullets}>
+          <li>Paste a website URL</li>
+          <li>Choose your import options</li>
+          <li>Click Import</li>
+        </ul>
       </div>
+
+      {/* URL Input */}
+      <input
+        id="w2w-url-input"
+        type="url"
+        class={styles.urlInput}
+        placeholder="https://www.website.com/"
+        value={url}
+        aria-invalid={importState.status === "error"}
+        aria-describedby={
+          importState.status === "error" ? "w2w-url-error" : undefined
+        }
+        onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+        onBlur={() => {
+          const trimmed = url.trim();
+          if (trimmed && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(trimmed)) {
+            setUrl(`https://${trimmed}`);
+          }
+        }}
+        disabled={importState.status === "loading"}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !isDisabled) {
+            handleImport();
+          }
+        }}
+      />
 
       {/* Status Message — live region so screen readers announce updates */}
       {importState.message && (

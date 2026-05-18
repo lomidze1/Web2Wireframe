@@ -6,19 +6,37 @@
   padding: var(--space-3);
 }
 
-/* Input Group */
-.inputGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 /* URL section label — matches the HTML/CSS section labels */
 .urlLabel {
   font-size: var(--font-sm);
   font-weight: 600;
   color: var(--accent);
   text-transform: uppercase;
+}
+
+/* Step instructions — mirrors the Area tab's bullet list */
+.webBullets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-2);
+  list-style: none;
+  padding: 0;
+}
+
+.webBullets li {
+  margin-left: var(--space-4);
+  line-height: 1.4;
+  position: relative;
+}
+
+.webBullets li::before {
+  content: "•";
+  position: absolute;
+  left: -12px;
+  color: var(--accent);
 }
 
 /* URL Input */

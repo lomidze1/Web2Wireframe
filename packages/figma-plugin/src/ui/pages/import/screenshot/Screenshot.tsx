@@ -184,7 +184,7 @@ export default function Screenshot() {
           <input
             type="file"
             ref={fileInputRef}
-            class="srOnly"
+            class={styles.hiddenInput}
             accept="image/*"
             aria-label={
               imagePreview ? "Replace uploaded image" : "Upload screenshot image"
