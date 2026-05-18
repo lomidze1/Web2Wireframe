@@ -6,5 +6,7 @@ declare module "express-session" {
     figmaEmail?: string;
     createdAt?: string;
     oauthState?: string;
+    /** Plugin OAuth bridge — nonce the plugin polls /api/auth/figma-exchange with. */
+    pluginNonce?: string;
   }
 }

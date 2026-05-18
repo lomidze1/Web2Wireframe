@@ -398,6 +398,8 @@ export interface ExtensionSettings {
   captureFonts: boolean;
   compressData: boolean;
   defaultViewport: number;
+  /** Pairing code from the Figma plugin — scopes captures to the user. */
+  pairingCode: string;
 }
 
 // Message types for extension communication

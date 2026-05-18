@@ -9,26 +9,19 @@ import {
   DEFAULT_CONFIG,
 } from "../ui/shared/ConfigContext";
 import { API_BASE_URL, withFigmaUserId } from "../ui/shared/apiConfig";
-import { fetchMyLicense, __resetAuthForTests } from "../ui/shared/licenseClient";
+import {
+  fetchMyLicense,
+  applyAuthToken,
+  __resetAuthForTests,
+} from "../ui/shared/licenseClient";
 
-// Mock /api/auth/init responses so fetchMyLicense can transparently
-// acquire an HMAC token before issuing the actual license request.
-function mockAuthInitAnd(licenseResponse: Response): ReturnType<typeof vi.spyOn> {
-  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const url = typeof input === "string" ? input : (input as Request).url;
-    if (url.includes("/api/auth/init")) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          token: "test.token",
-          expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-          userId: "user-abc-123",
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    return licenseResponse.clone();
-  });
+// fetchMyLicense issues a single authed request to /api/license/me. The
+// token is seeded directly via applyAuthToken — the old /api/auth/init
+// exchange is gone (replaced by the verified Figma OAuth flow).
+function mockLicenseFetch(licenseResponse: Response): ReturnType<typeof vi.spyOn> {
+  return vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async () => licenseResponse.clone());
 }
 
 // ============================================================================
@@ -74,6 +67,7 @@ describe("licenseClient.fetchMyLicense", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     __resetAuthForTests();
+    applyAuthToken("test.token", Date.now() + 3_600_000);
   });
 
   afterEach(() => {
@@ -86,7 +80,7 @@ describe("licenseClient.fetchMyLicense", () => {
   });
 
   it("includes figmaUserId in the request URL", async () => {
-    const mockFetch = mockAuthInitAnd(
+    const mockFetch = mockLicenseFetch(
       new Response(
         JSON.stringify({
           userId: "user-abc-123",
@@ -102,15 +96,14 @@ describe("licenseClient.fetchMyLicense", () => {
 
     await fetchMyLicense("user-abc-123");
 
-    // 1st call: /api/auth/init, 2nd call: /api/license/me
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-    const licenseUrl = mockFetch.mock.calls[1][0] as string;
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const licenseUrl = mockFetch.mock.calls[0][0] as string;
     expect(licenseUrl).toContain("figmaUserId=user-abc-123");
     expect(licenseUrl.startsWith(API_BASE_URL)).toBe(true);
   });
 
   it("throws on non-2xx response", async () => {
-    mockAuthInitAnd(new Response("", { status: 500 }));
+    mockLicenseFetch(new Response("", { status: 500 }));
     await expect(fetchMyLicense("u-1")).rejects.toThrow(
       /License request failed/,
     );

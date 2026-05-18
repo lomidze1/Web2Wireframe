@@ -104,15 +104,8 @@ router.get("/me", authenticatePlugin, async (req: Request, res: Response) => {
     const license = await licenseService.getOrCreate(figmaUserId);
     res.json(serialize(license));
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Server error";
     console.error("[License] /me error:", err);
-    res.status(500).json({
-      error: message,
-      stack:
-        process.env.NODE_ENV === "production" || !(err instanceof Error)
-          ? undefined
-          : err.stack,
-    });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
@@ -143,9 +136,8 @@ router.post(
         remaining: Number.isFinite(result.remaining) ? result.remaining : null,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Server error";
       console.error("[License] /use-import error:", err);
-      res.status(500).json({ error: message });
+      res.status(500).json({ error: "Server error" });
     }
   },
 );

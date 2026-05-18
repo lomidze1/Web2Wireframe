@@ -5,6 +5,7 @@ import { render, fireEvent } from "@testing-library/preact";
 import Screenshot from "../ui/pages/import/screenshot/Screenshot";
 
 import { createMockConfigContext } from "./helpers/configMock";
+import { applyAuthToken } from "../ui/shared/licenseClient";
 
 // Mock ConfigContext with full context (needed by useTabSettings)
 const mockContext = createMockConfigContext({
@@ -120,6 +121,8 @@ describe("Screenshot", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
+    // Seed a plugin token so authed import requests can be issued.
+    applyAuthToken("test.token", Date.now() + 3_600_000);
     postMessageSpy = vi.spyOn(window.parent, "postMessage");
     originalImage = globalThis.Image;
     globalThis.Image = MockImage as unknown as typeof Image;

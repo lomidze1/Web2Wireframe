@@ -5,6 +5,8 @@ import styles from "./HTML.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { authHeader } from "../../../shared/licenseClient";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
@@ -20,7 +22,7 @@ import { validateHtml, type HtmlValidationResult } from "../../../../utils/valid
 const TAB_ID = "html";
 const STORAGE_KEY = "w2w_settings_expanded_html";
 
-const API_URL = "http://localhost:3002";
+const API_URL = API_BASE_URL;
 
 interface ImportState {
   status: "idle" | "loading" | "success" | "error";
@@ -170,6 +172,7 @@ export default function HTML() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: authHeader(),
         },
         body: JSON.stringify({
           figmaUserId: config.figmaUserId,

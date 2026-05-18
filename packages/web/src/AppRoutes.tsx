@@ -10,8 +10,9 @@ import Privacy from "./pages/Privacy/Privacy";
 import CheckoutSuccess from "./pages/Checkout/CheckoutSuccess";
 import CheckoutCancel from "./pages/Checkout/CheckoutCancel";
 import Account from "./pages/Account/Account";
+import Renew from "./pages/Renew/Renew";
 
-/** All routes for SSG prerendering. Checkout/Account are dynamic and
+/** All routes for SSG prerendering. Checkout/Account/Renew are dynamic and
  * intentionally excluded — they're query-param-driven and require
  * runtime state, so prerendering provides no benefit. */
 export const staticRoutes = [
@@ -37,6 +38,7 @@ export default function AppRoutes(): ReactElement {
       <Route path="/checkout/success" element={<CheckoutSuccess />} />
       <Route path="/checkout/cancel" element={<CheckoutCancel />} />
       <Route path="/account" element={<Account />} />
+      <Route path="/renew" element={<Renew />} />
     </Routes>
   );
 }

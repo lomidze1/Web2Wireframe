@@ -14,6 +14,8 @@ import {
   validateExtractedColors,
 } from "../../lib/aiGenerator.js";
 import { requireImportAllowance } from "../../middleware/licenseGate.js";
+import { authenticatePlugin } from "../../middleware/auth.js";
+import { importRateLimiter } from "../../middleware/rateLimit.js";
 
 const router = Router();
 
@@ -30,7 +32,7 @@ const router = Router();
  * - pluginFont: string - Plugin font (default: "Inter")
  * - textMode: string - Text handling mode: "website"|"lorem"|"semantic" (default: "website")
  */
-router.post("/import-screenshot", requireImportAllowance, async (req: Request, res: Response) => {
+router.post("/import-screenshot", importRateLimiter, authenticatePlugin, requireImportAllowance, async (req: Request, res: Response) => {
   try {
     const {
       imageBase64,

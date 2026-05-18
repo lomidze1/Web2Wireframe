@@ -58,7 +58,7 @@ const Terms = (): ReactElement => {
               Service.
             </li>
             <li>
-              "Plan" means a Free or Pro subscription tier.
+              "Plan" means a Free or Pro tier.
             </li>
           </ol>
         ),
@@ -149,15 +149,16 @@ const Terms = (): ReactElement => {
         ),
       },
       {
-        id: "subscription-billing",
-        title: "8. Subscription, Billing & Renewal",
+        id: "payment-access",
+        title: "8. Payment & Access",
         content: (
           <>
             <p>
-              The paid plan is Pro ($16/month). Your subscription
-              auto-renews unless canceled before the end of your billing
-              period; cancellation takes effect at the end of the current
-              cycle.
+              The paid plan is Pro. Pro is a one-time purchase: $16 grants 30
+              days of Pro access. Access does not auto-renew and you are not
+              charged automatically — to extend Pro you make another one-time
+              purchase. When the 30 days end without a new purchase, the
+              account reverts to the Free tier.
             </p>
             <p>
               Payments are processed by Flitt, a PCI-DSS Level 1 payment
@@ -170,19 +171,18 @@ const Terms = (): ReactElement => {
         ),
       },
       {
-        id: "cancellations-refunds",
-        title: "9. Cancellations & Refunds",
+        id: "refunds",
+        title: "9. Refunds",
         content: (
           <>
             <p>
-              You may cancel your subscription at any time from the plugin's
-              "Manage Subscription" link. Cancellation takes effect at the end
-              of the current billing period — your Pro access continues until
-              then, after which the account reverts to the Free tier.
+              Because Pro is a one-time purchase with no auto-renewal, there is
+              nothing to cancel — access simply ends when the 30 days are up
+              unless you choose to buy again.
             </p>
             <p>
               <strong>All fees are non-refundable.</strong> We do not offer
-              prorated refunds for unused time, partial cycles, or unused
+              prorated refunds for unused time, partial periods, or unused
               imports. If you believe a charge was made in error or you have a
               billing dispute, contact{" "}
               <a href="mailto:billing@web2wireframe.design">
@@ -421,7 +421,7 @@ const Terms = (): ReactElement => {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <h2>Terms & Conditions</h2>
-            <span>Effective date: 2026-01-17</span>
+            <span>Effective date: 2026-05-16</span>
           </div>
           <nav>
             <ul className={styles.sidebarList}>

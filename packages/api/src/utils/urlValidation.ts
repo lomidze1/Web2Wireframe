@@ -1,6 +1,8 @@
 // URL validation utility for website import
 // Frontend equivalent: Plugin_Frontend/src/utils/urlValidation.ts
 
+import { lookup } from "node:dns/promises";
+
 export const PRIVATE_IP_PATTERNS: readonly RegExp[] = [
   /^10\.\d+\.\d+\.\d+$/,
   /^192\.168\.\d+\.\d+$/,
@@ -157,11 +159,13 @@ export function isPrivateHost(hostname: string): boolean {
   const stripped = hostname.replace(/^\[|\]$/g, "");
   const lower = stripped.toLowerCase();
 
-  // Allow localhost and 127.x.x.x (user's own dev servers) — canonicalize first
-  // so hex/octal/decimal forms (0x7f000001, 2130706433) are also allowed.
+  // localhost / 127.x.x.x are the user's own dev servers — allowed ONLY
+  // outside production. In production they are treated as private so the
+  // server cannot be coerced into reaching loopback admin services (SSRF).
+  // Canonicalize first so hex/octal/decimal forms are also covered.
   const canonical = normalizeIPv4(lower) ?? lower;
   if (lower === "localhost" || /^127\.\d+\.\d+\.\d+$/.test(canonical)) {
-    return false;
+    return process.env.NODE_ENV === "production";
   }
 
   // Block well-known internal hostname suffixes
@@ -176,4 +180,51 @@ export function isPrivateHost(hostname: string): boolean {
   }
 
   return false;
+}
+
+/**
+ * Assert that a URL is safe to fetch server-side. Throws if the URL is not
+ * http(s), points at a private/internal host, or — for hostnames — resolves
+ * to a private IP. The DNS resolution step defeats DNS-rebinding attacks
+ * that string-based host checks alone cannot catch.
+ *
+ * Call this immediately before navigating Puppeteer to a user-supplied URL.
+ */
+export async function assertPublicUrl(rawUrl: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("Invalid URL");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Only HTTP and HTTPS URLs are supported");
+  }
+
+  if (isPrivateHost(parsed.hostname)) {
+    throw new Error("Internal or private addresses are not allowed");
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
+
+  // Literal IPs are already fully vetted by isPrivateHost — no DNS needed.
+  if (hostname.includes(":") || normalizeIPv4(hostname) !== null) return;
+
+  // localhost only reaches here outside production (isPrivateHost above
+  // would have thrown otherwise); it resolves to loopback by definition.
+  if (/^localhost$/i.test(hostname)) return;
+
+  let addresses: { address: string }[];
+  try {
+    addresses = await lookup(hostname, { all: true });
+  } catch {
+    throw new Error("Could not resolve host");
+  }
+
+  for (const { address } of addresses) {
+    if (isPrivateHost(address)) {
+      throw new Error("Host resolves to an internal or private address");
+    }
+  }
 }

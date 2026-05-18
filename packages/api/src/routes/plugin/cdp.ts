@@ -1,12 +1,14 @@
 /**
  * CDP + auth capture routes
- * POST /api/import-cdp
- * POST /api/capture-with-auth
- * GET  /api/pending-import
- * DELETE /api/pending-import
+ * POST   /api/extension-pair    (plugin — issues a pairing code)
+ * POST   /api/import-cdp        (extension — pairing-code scoped)
+ * POST   /api/import-w2w        (extension — pairing-code scoped)
+ * POST   /api/capture-with-auth (extension — pairing-code scoped)
+ * GET    /api/pending-import    (plugin — token scoped)
+ * DELETE /api/pending-import    (plugin — token scoped)
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { Router, Request, Response } from "express";
 import { createWireframeData } from "../../lib/htmlExtractor.js";
 import {
@@ -14,25 +16,90 @@ import {
   createLocalStylesStructure,
 } from "../../utils/styleUtils.js";
 import { validateUrl } from "../../utils/urlValidation.js";
-import { pendingCDPImports } from "../../state.js";
+import {
+  pendingCDPImports,
+  pendingPairings,
+  PAIRING_CODE_TTL_MS,
+} from "../../state.js";
 import { convertAssetsForFigma } from "../../lib/cdp/convertImage.js";
-import { requireImportAllowance } from "../../middleware/licenseGate.js";
+import { authenticatePlugin } from "../../middleware/auth.js";
+import {
+  authRateLimiter,
+  importRateLimiter,
+} from "../../middleware/rateLimit.js";
 
 const router = Router();
+
+// Unambiguous charset — no 0/O, 1/I/L — for human-typed pairing codes.
+const PAIRING_CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+function generatePairingCode(): string {
+  const bytes = randomBytes(6);
+  let code = "";
+  for (let i = 0; i < 6; i += 1) {
+    code += PAIRING_CHARSET[bytes[i] % PAIRING_CHARSET.length];
+  }
+  return code;
+}
+
+/**
+ * Resolve the pairing code on an extension capture request to the figmaUserId
+ * that issued it. Returns null when the code is missing, unknown, or expired.
+ */
+function resolvePairing(req: Request): string | null {
+  const raw = (req.body as { pairingCode?: unknown } | undefined)?.pairingCode;
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  const code = raw.trim().toUpperCase();
+  const entry = pendingPairings.get(code);
+  if (!entry) return null;
+  if (entry.expires <= Date.now()) {
+    pendingPairings.delete(code);
+    return null;
+  }
+  return entry.figmaUserId;
+}
+
+/**
+ * POST /api/extension-pair
+ *
+ * Plugin → backend. Issues a short pairing code bound to the caller's
+ * verified figmaUserId. The user types this code into the browser extension
+ * so its captures land in *their* queue slot, not the global "latest" one.
+ */
+router.post(
+  "/extension-pair",
+  authRateLimiter,
+  authenticatePlugin,
+  (req: Request, res: Response) => {
+    const code = generatePairingCode();
+    pendingPairings.set(code, {
+      figmaUserId: req.userId!,
+      expires: Date.now() + PAIRING_CODE_TTL_MS,
+    });
+    res.json({
+      success: true,
+      code,
+      expiresInSeconds: Math.floor(PAIRING_CODE_TTL_MS / 1000),
+    });
+  },
+);
 
 /**
  * POST /api/import-cdp - Import from Browser Extension (CDP-captured data)
  *
- * This endpoint receives pre-extracted data from the Browser Extension
- * which uses Chrome DevTools Protocol for higher quality extraction.
- * Stores data in memory for Plugin to fetch via GET /api/pending-import.
- *
- * Request body:
- * - captureData: CaptureResult from Browser Extension
- * - timestamp: number
+ * Stores data in memory for the Plugin to fetch via GET /api/pending-import.
+ * Scoped by pairing code — the extension has no plugin token.
  */
-router.post("/import-cdp", requireImportAllowance, async (req: Request, res: Response) => {
+router.post("/import-cdp", importRateLimiter, async (req: Request, res: Response) => {
   try {
+    const figmaUserId = resolvePairing(req);
+    if (!figmaUserId) {
+      return res.status(403).json({
+        success: false,
+        error: "Invalid or expired pairing code",
+      });
+    }
+
     const { captureData, cookies, webStorage, timestamp } = req.body;
 
     if (!captureData || !Array.isArray(captureData.frames)) {
@@ -42,8 +109,6 @@ router.post("/import-cdp", requireImportAllowance, async (req: Request, res: Res
       });
     }
 
-    // CDP data now contains frames array (multi-viewport support)
-    // Each frame has { viewport: { width, height }, tree: ExtractedElement, assets?: Record<string,string> }
     const frames = (captureData.frames || []).map((frame: {
       viewport: { width: number; height: number };
       tree: unknown;
@@ -59,18 +124,14 @@ router.post("/import-cdp", requireImportAllowance, async (req: Request, res: Res
       };
     });
 
-    // Extract viewport widths for response
     const viewports = frames.map((f: { viewportWidth: number }) => f.viewportWidth);
 
-    // Create local styles structure
     const localStyles = createLocalStylesStructure(DEFAULT_PLUGIN_COLORS, {
       primary: "Montserrat",
     });
 
-    // Generate unique import ID
     const importId = `cdp-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-    // Store in pending imports (expires in 10 minutes)
     const safeCookies = cookies || [];
     const safeWebStorage = webStorage || { localStorage: {}, sessionStorage: {} };
 
@@ -102,6 +163,7 @@ router.post("/import-cdp", requireImportAllowance, async (req: Request, res: Res
       data: importData,
       timestamp: Date.now(),
       expires: Date.now() + 10 * 60 * 1000, // 10 minutes
+      figmaUserId,
     });
 
     res.json({
@@ -113,7 +175,7 @@ router.post("/import-cdp", requireImportAllowance, async (req: Request, res: Res
     console.error("[CDP Import] Error:", error);
     res.status(500).json({
       success: false,
-      error: (error as Error).message,
+      error: "Failed to process capture",
       errorCode: "CDP_IMPORT_ERROR",
     });
   }
@@ -126,16 +188,20 @@ router.post("/import-cdp", requireImportAllowance, async (req: Request, res: Res
  * W2WMultiCaptureResult (multi-viewport) from Browser Extension.
  * Pass-through storage — Figma plugin handles CSS→Figma conversion.
  *
- * Request body:
- * - capturedData: W2WCaptureResult | W2WMultiCaptureResult
- * - timestamp: number
+ * Public (the extension has no plugin token) but scoped by pairing code so a
+ * capture lands only in the issuing user's queue slot. The license gate fires
+ * when the Plugin retrieves the capture via GET /api/pending-import.
  */
-// /api/import-w2w is the Browser Extension's queue write — extension
-// has no access to figmaUserId, so this endpoint stays public. The
-// license gate fires when the Plugin retrieves the capture via
-// GET /api/pending-import (which is figmaUserId-aware).
-router.post("/import-w2w", async (req: Request, res: Response) => {
+router.post("/import-w2w", importRateLimiter, async (req: Request, res: Response) => {
   try {
+    const figmaUserId = resolvePairing(req);
+    if (!figmaUserId) {
+      return res.status(403).json({
+        success: false,
+        error: "Invalid or expired pairing code",
+      });
+    }
+
     const { capturedData, timestamp } = req.body;
 
     if (!capturedData) {
@@ -167,10 +233,8 @@ router.post("/import-w2w", async (req: Request, res: Response) => {
 
     const importId = `w2w-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
-    // Shared assets live at top level on both legacy and multi payloads.
     const sharedAssets = capturedData.assets || {};
 
-    // Convert each W2W frame to a WireframeFrame entry for the plugin.
     const frames = frameSlices.map((fs) => ({
       viewportWidth: fs.width || 1440,
       viewportHeight: fs.doc?.innerHeight || 900,
@@ -188,7 +252,6 @@ router.post("/import-w2w", async (req: Request, res: Response) => {
       primary: "Montserrat",
     });
 
-    // Pick a title — multi payloads have per-frame doc.title; take the first.
     const title = frameSlices[0]?.doc?.title || capturedData.doc?.title || "Untitled";
 
     const importData: Record<string, unknown> = {
@@ -217,6 +280,7 @@ router.post("/import-w2w", async (req: Request, res: Response) => {
       data: importData,
       timestamp: Date.now(),
       expires: Date.now() + 10 * 60 * 1000,
+      figmaUserId,
     });
 
     res.json({
@@ -228,7 +292,7 @@ router.post("/import-w2w", async (req: Request, res: Response) => {
     console.error("[W2W Import] Error:", error);
     res.status(500).json({
       success: false,
-      error: (error as Error).message,
+      error: "Failed to process capture",
       errorCode: "W2W_IMPORT_ERROR",
     });
   }
@@ -239,21 +303,25 @@ router.post("/import-w2w", async (req: Request, res: Response) => {
  *
  * Receives cookies from Browser Extension and injects them into Puppeteer
  * before navigating, enabling authenticated page capture via the backend.
- *
- * Request body:
- * - url: string (target URL)
- * - viewports: number[] (viewport widths)
- * - cookies: Array<{ name, value, domain, path, secure, httpOnly, sameSite, expirationDate? }>
+ * Scoped by pairing code.
  */
-router.post("/capture-with-auth", async (req: Request, res: Response) => {
+router.post("/capture-with-auth", importRateLimiter, async (req: Request, res: Response) => {
   try {
+    const figmaUserId = resolvePairing(req);
+    if (!figmaUserId) {
+      return res.status(403).json({
+        success: false,
+        error: "Invalid or expired pairing code",
+      });
+    }
+
     const { url, viewports, cookies, webStorage } = req.body;
 
     if (!url) {
       return res.status(400).json({ success: false, error: "Missing url" });
     }
 
-    // Validate URL
+    // Validate URL (also rejects private/internal hosts — SSRF)
     const urlValidation = validateUrl(url);
     if (!urlValidation.valid) {
       return res.status(400).json({ success: false, error: urlValidation.error });
@@ -261,13 +329,11 @@ router.post("/capture-with-auth", async (req: Request, res: Response) => {
 
     const targetViewports = (viewports && viewports.length > 0) ? viewports : [1440];
 
-    // Use createWireframeData with cookies + webStorage options (Layer #5)
     const result = await createWireframeData(urlValidation.url!, targetViewports, {
       cookies: cookies || [],
       webStorage: webStorage || undefined,
     });
 
-    // Store in pending imports (same pattern as import-cdp)
     const importId = `auth-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
     const localStyles = createLocalStylesStructure(DEFAULT_PLUGIN_COLORS, {
@@ -297,6 +363,7 @@ router.post("/capture-with-auth", async (req: Request, res: Response) => {
       data: importData,
       timestamp: Date.now(),
       expires: Date.now() + 10 * 60 * 1000,
+      figmaUserId,
     });
 
     res.json({
@@ -308,92 +375,103 @@ router.post("/capture-with-auth", async (req: Request, res: Response) => {
     console.error("[Auth Capture] Error:", error);
     res.status(500).json({
       success: false,
-      error: (error as Error).message,
+      error: "Authenticated capture failed",
       errorCode: "AUTH_CAPTURE_ERROR",
     });
   }
 });
 
 /**
- * GET /api/pending-import - Check for pending CDP imports
- * Returns the most recent pending import and removes it from storage.
+ * GET /api/pending-import - Check for the caller's pending capture.
+ * Returns only an entry that belongs to the authenticated user, and removes
+ * it from storage. Polling with nothing pending does NOT consume quota.
  */
-router.get("/pending-import", async (req: Request, res: Response) => {
-  // Find the most recent pending import
-  let latestEntry: { data: Record<string, unknown>; timestamp: number; expires: number } | null = null;
-  let latestId: string | null = null;
+router.get(
+  "/pending-import",
+  authenticatePlugin,
+  async (req: Request, res: Response) => {
+    const figmaUserId = req.userId!;
+    const now = Date.now();
 
-  for (const [id, entry] of pendingCDPImports.entries()) {
-    if (!latestEntry || entry.timestamp > latestEntry.timestamp) {
-      latestEntry = entry;
-      latestId = id;
-    }
-  }
-
-  if (!latestEntry) {
-    return res.json({
-      success: true,
-      hasPending: false,
-      message: "No pending imports from Browser Extension",
-    });
-  }
-
-  // We have a real capture to deliver — gate on the user's import quota.
-  // Polling with no pending data does NOT increment usage; only the
-  // consumption of an actual capture does.
-  const fromQuery = req.query?.figmaUserId;
-  const figmaUserId = typeof fromQuery === "string" ? fromQuery : null;
-  if (!figmaUserId) {
-    return res.status(400).json({
-      success: false,
-      error: "figmaUserId query parameter is required",
-    });
-  }
-  const { licenseService } = await import("../../services/licenseService.js");
-  const gate = await licenseService.useImport(figmaUserId);
-  if ("error" in gate) {
-    return res.status(403).json({
-      success: false,
-      error: "limit_exceeded",
-      upgradeUrl: "/api/checkout/create",
-    });
-  }
-
-  // Remove from pending (one-time fetch — only after the gate passes so
-  // a quota-exceeded user can re-poll after upgrading).
-  pendingCDPImports.delete(latestId!);
-
-  // Convert AVIF/WebP assets to JPEG for Figma compatibility (sharp on server)
-  try {
-    const wireframeData = latestEntry.data.wireframeData as { frames: Array<{ capturedData?: { assets?: Record<string, { base64Encoded: boolean; content: string; mimeType: string }> } }> } | undefined;
-    if (wireframeData?.frames) {
-      for (const frame of wireframeData.frames) {
-        if (frame.capturedData?.assets) {
-          await convertAssetsForFigma(frame.capturedData.assets);
-        }
+    // Most recent non-expired capture belonging to this user.
+    let latestEntry: { data: Record<string, unknown>; timestamp: number } | null = null;
+    let latestId: string | null = null;
+    for (const [id, entry] of pendingCDPImports.entries()) {
+      if (entry.expires <= now) {
+        pendingCDPImports.delete(id);
+        continue;
+      }
+      if (entry.figmaUserId !== figmaUserId) continue;
+      if (!latestEntry || entry.timestamp > latestEntry.timestamp) {
+        latestEntry = entry;
+        latestId = id;
       }
     }
-  } catch (err) {
-    console.warn("[API] Asset conversion warning:", err);
-  }
 
-  res.json({
-    success: true,
-    hasPending: true,
-    ...latestEntry.data,
-  });
-});
+    if (!latestEntry) {
+      return res.json({
+        success: true,
+        hasPending: false,
+        message: "No pending imports from Browser Extension",
+      });
+    }
+
+    // A real capture is ready — gate on the user's import quota.
+    const { licenseService } = await import("../../services/licenseService.js");
+    const gate = await licenseService.useImport(figmaUserId);
+    if ("error" in gate) {
+      return res.status(403).json({
+        success: false,
+        error: "limit_exceeded",
+        upgradeUrl: "/api/checkout/create",
+      });
+    }
+
+    // One-time fetch — delete only after the gate passes so a quota-exceeded
+    // user can re-poll after upgrading.
+    pendingCDPImports.delete(latestId!);
+
+    // Convert AVIF/WebP assets to JPEG for Figma compatibility (sharp on server)
+    try {
+      const wireframeData = latestEntry.data.wireframeData as { frames: Array<{ capturedData?: { assets?: Record<string, { base64Encoded: boolean; content: string; mimeType: string }> } }> } | undefined;
+      if (wireframeData?.frames) {
+        for (const frame of wireframeData.frames) {
+          if (frame.capturedData?.assets) {
+            await convertAssetsForFigma(frame.capturedData.assets);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[API] Asset conversion warning:", err);
+    }
+
+    res.json({
+      success: true,
+      hasPending: true,
+      ...latestEntry.data,
+    });
+  },
+);
 
 /**
- * DELETE /api/pending-import - Clear all pending imports
+ * DELETE /api/pending-import - Clear the caller's own pending imports.
  */
-router.delete("/pending-import", (req: Request, res: Response) => {
-  const count = pendingCDPImports.size;
-  pendingCDPImports.clear();
-  res.json({
-    success: true,
-    message: `Cleared ${count} pending import(s)`,
-  });
-});
+router.delete(
+  "/pending-import",
+  authenticatePlugin,
+  (req: Request, res: Response) => {
+    let count = 0;
+    for (const [id, entry] of pendingCDPImports.entries()) {
+      if (entry.figmaUserId === req.userId) {
+        pendingCDPImports.delete(id);
+        count += 1;
+      }
+    }
+    res.json({
+      success: true,
+      message: `Cleared ${count} pending import(s)`,
+    });
+  },
+);
 
 export default router;

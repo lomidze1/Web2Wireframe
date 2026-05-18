@@ -23,7 +23,7 @@ import puppeteer, { type Browser, type Page, type HTTPRequest } from "puppeteer"
 import type { Protocol } from "devtools-protocol";
 import { extractDOMTreeWithCDP } from "./cdp/index.js";
 import { orchestratePuppeteerViewport } from "./cdp/viewport-orchestration.js";
-import { isPrivateHost } from "../utils/urlValidation.js";
+import { isPrivateHost, assertPublicUrl } from "../utils/urlValidation.js";
 import type {
   ExtractedElement,
   ExtractedFont,
@@ -179,6 +179,8 @@ function findChromePath(): string | undefined {
  * Remap to host.docker.internal so Puppeteer can reach the host machine's dev servers.
  */
 function remapLocalhostForDocker(inputUrl: string): string {
+  // Never remap in production — localhost imports are rejected upstream.
+  if (process.env.NODE_ENV === "production") return inputUrl;
   // Only remap when running inside Docker (host.docker.internal is resolvable)
   if (!process.env.MONGODB_URI?.includes("mongo:")) return inputUrl;
   try {
@@ -191,11 +193,53 @@ function remapLocalhostForDocker(inputUrl: string): string {
   return inputUrl;
 }
 
+/**
+ * Install an SSRF request guard on a page that navigates to a user URL.
+ * The initial URL is vetted by assertPublicUrl(); this guard additionally
+ * aborts any redirect or subresource request to a private/internal host,
+ * so a public page cannot pull data from loopback/metadata addresses.
+ */
+async function installNavigationSsrfGuard(page: Page): Promise<void> {
+  await page.setRequestInterception(true);
+  page.on("request", (req: HTTPRequest) => {
+    const reqUrl = req.url();
+    if (reqUrl.startsWith("data:") || reqUrl === "about:blank") {
+      void req.continue();
+      return;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(reqUrl);
+    } catch {
+      void req.abort();
+      return;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      void req.abort();
+      return;
+    }
+    // Dev-only: localhost imports are remapped to the Docker host.
+    if (
+      process.env.NODE_ENV !== "production" &&
+      parsed.hostname === "host.docker.internal"
+    ) {
+      void req.continue();
+      return;
+    }
+    if (isPrivateHost(parsed.hostname)) {
+      void req.abort();
+      return;
+    }
+    void req.continue();
+  });
+}
+
 export async function renderWebsite(
   url: string,
   viewportWidth: number = 1440,
   options: RenderOptions = {},
 ): Promise<RenderResult> {
+  await assertPublicUrl(url);
   let browser: Browser | undefined;
   const effectiveUrl = remapLocalhostForDocker(url);
   try {
@@ -206,6 +250,7 @@ export async function renderWebsite(
     });
 
     const page = await browser.newPage();
+    await installNavigationSsrfGuard(page);
 
     // Inject cookies if provided (Layer #5: auth forwarding from Browser Extension)
     if (options.cookies && Array.isArray(options.cookies) && options.cookies.length > 0) {
@@ -388,6 +433,7 @@ export async function renderWebsiteW2W(
   viewportWidth: number = 1440,
   options: RenderOptions = {},
 ): Promise<W2WExtractionResult> {
+  await assertPublicUrl(url);
   let browser: Browser | undefined;
   const effectiveUrl = remapLocalhostForDocker(url);
   try {
@@ -398,6 +444,7 @@ export async function renderWebsiteW2W(
     });
 
     const page = await browser.newPage();
+    await installNavigationSsrfGuard(page);
 
     // Inject cookies if provided
     if (options.cookies && Array.isArray(options.cookies) && options.cookies.length > 0) {

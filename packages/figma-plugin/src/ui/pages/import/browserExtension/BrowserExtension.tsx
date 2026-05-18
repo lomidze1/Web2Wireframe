@@ -7,12 +7,14 @@ import { buildFontDownloads } from "../../../../utils/fontDownload";
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import { useConfig } from "../../../shared/ConfigContext";
+import { authHeader, requestPairingCode } from "../../../shared/licenseClient";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
 
-// Backend API URL
-const API_URL = "http://localhost:3002";
+// Backend API URL — single source: apiConfig.ts (toggle USE_PRODUCTION there).
+const API_URL = API_BASE_URL;
 
 // Poll interval in milliseconds
 const POLL_INTERVAL = 2000;
@@ -43,6 +45,9 @@ export default function BrowserExtension() {
   });
   const [pendingData, setPendingData] = useState<PendingData | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  // Pairing code the user enters into the browser extension so its captures
+  // are scoped to this user (see /api/extension-pair).
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
@@ -68,6 +73,7 @@ export default function BrowserExtension() {
       if (!config.figmaUserId) return;
       const response = await fetch(
         `${API_URL}/api/pending-import?figmaUserId=${encodeURIComponent(config.figmaUserId)}`,
+        { headers: { Authorization: authHeader() } },
       );
 
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
@@ -125,6 +131,11 @@ export default function BrowserExtension() {
       status: "waiting",
       message: "Waiting for Browser Extension capture...",
     });
+
+    // Fetch a pairing code for the user to enter into the extension.
+    requestPairingCode()
+      .then(setPairingCode)
+      .catch(() => setPairingCode(null));
 
     // Check immediately
     checkForPendingImport();
@@ -299,10 +310,37 @@ export default function BrowserExtension() {
           {importState.message}
         </div>
 
+        {pairingCode && (
+          <div
+            style={{
+              margin: "12px 0",
+              padding: "12px",
+              borderRadius: "8px",
+              background: "var(--panel, #f1f2f0)",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: "11px", opacity: 0.7 }}>
+              Pairing code — enter this in the browser extension
+            </div>
+            <div
+              style={{
+                fontSize: "22px",
+                fontWeight: 700,
+                letterSpacing: "3px",
+                marginTop: "4px",
+              }}
+            >
+              {pairingCode}
+            </div>
+          </div>
+        )}
+
         <div class={styles.extensionBenefits}>
           <ul>
             <li>Open the website in Chrome</li>
             <li>Click the Web2Wireframe extension icon</li>
+            <li>Enter the pairing code shown above</li>
             <li>Select viewports and click "Capture"</li>
             <li>Click "Send to Figma"</li>
           </ul>

@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import {
-  createSubscriptionCheckout,
+  createOneTimeCheckout,
   cancelSubscription,
   verifyCallback,
 } from "../../services/flittService.js";
@@ -8,6 +8,7 @@ import { licenseService } from "../../services/licenseService.js";
 import { verifyToken } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
+import { PLAN_PRICES } from "../../models/License.js";
 
 const router = Router();
 
@@ -32,7 +33,7 @@ router.post("/create", async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await createSubscriptionCheckout({ figmaUserId, returnUrl });
+    const result = await createOneTimeCheckout({ figmaUserId, returnUrl });
     if (!result.ok) {
       res.status(502).json({ error: result.error });
       return;
@@ -73,6 +74,20 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       return;
     }
 
+    // Required fields — reject malformed/partial webhooks before any state
+    // change. order_status/order_id/amount/merchant_data each drive activation.
+    if (
+      typeof payload.merchant_data !== "string" ||
+      typeof payload.order_id !== "string" ||
+      typeof payload.order_status !== "string" ||
+      payload.amount === undefined ||
+      payload.amount === null
+    ) {
+      console.warn("[Flitt webhook] missing/invalid required fields");
+      res.status(200).json({ received: true });
+      return;
+    }
+
     // Idempotency dedup. Prefer transaction_id; fall back to order_id +
     // order_status (covers approved retries vs. declined retries
     // separately, which is what we want).
@@ -99,8 +114,12 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       throw err;
     }
 
-    // Parse merchant_data → figmaUserId + plan.
-    let merchantData: { figmaUserId?: string; plan?: string } = {};
+    // Parse merchant_data → figmaUserId + plan + recurring flag.
+    let merchantData: {
+      figmaUserId?: string;
+      plan?: string;
+      recurring?: boolean;
+    } = {};
     if (typeof payload.merchant_data === "string") {
       try {
         merchantData = JSON.parse(payload.merchant_data);
@@ -116,31 +135,84 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       return;
     }
 
-    // Branch on order_status. parent_order_id is set on recurring renewals
-    // (charge #2, #3, …); absence means initial activation.
-    if (orderStatus === "approved") {
-      const parentOrderId = payload.parent_order_id;
-      if (parentOrderId && typeof parentOrderId === "string") {
-        await licenseService.applyRecurringCharge({ figmaUserId });
-      } else {
+    // The signed order_id must agree with merchant_data.figmaUserId — its
+    // format is `w2w_pro_<sanitized figmaUserId>_<ts>` (see
+    // buildSubscriptionOrderId). A mismatch means a tampered/forged mapping.
+    const sanitizedUserId = figmaUserId.replace(/[^A-Za-z0-9_-]/g, "");
+    if (!orderId.startsWith(`w2w_pro_${sanitizedUserId}_`)) {
+      console.warn(
+        "[Flitt webhook] order_id does not match merchant_data figmaUserId",
+        { order_id: orderId },
+      );
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    // An approved charge must be for the expected Pro price — a webhook with
+    // a smaller (or absent) amount must never grant Pro access.
+    if (
+      orderStatus === "approved" &&
+      Number(payload.amount) !== PLAN_PRICES.pro.priceCents
+    ) {
+      console.warn(
+        `[Flitt webhook] approved charge with unexpected amount=${String(
+          payload.amount,
+        )} — not granting Pro for ${figmaUserId}`,
+      );
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    // merchant_data.recurring === false marks a one-time purchase. The
+    // subscription branch is parked — re-enabled when Flitt grants
+    // subscriptions. Old webhook payloads have no `recurring` field, so they
+    // fall through to the subscription branch (backward-compatible).
+    const isOneTime = merchantData.recurring === false;
+
+    if (isOneTime) {
+      if (orderStatus === "approved") {
         const email =
           typeof payload.sender_email === "string"
             ? payload.sender_email
             : null;
-        await licenseService.applySubscriptionActivation({
+        await licenseService.applyOneTimePurchase({
           figmaUserId,
           email,
           flittOrderId: orderId,
         });
+      } else {
+        // One-time orders only ever decline once — nothing to track.
+        console.log(
+          `[Flitt webhook] one-time order_status="${orderStatus}" for ${figmaUserId} — logged only`,
+        );
       }
-    } else if (orderStatus === "declined" || orderStatus === "expired") {
-      await licenseService.applyFailedCharge({ figmaUserId });
     } else {
-      // reversed / refund / processing — log only for now; manual
-      // intervention via Flitt dashboard for chargebacks/refunds.
-      console.log(
-        `[Flitt webhook] unhandled order_status="${orderStatus}" for ${figmaUserId}`,
-      );
+      // Subscription path. parent_order_id is set on recurring renewals
+      // (charge #2, #3, …); absence means initial activation.
+      if (orderStatus === "approved") {
+        const parentOrderId = payload.parent_order_id;
+        if (parentOrderId && typeof parentOrderId === "string") {
+          await licenseService.applyRecurringCharge({ figmaUserId });
+        } else {
+          const email =
+            typeof payload.sender_email === "string"
+              ? payload.sender_email
+              : null;
+          await licenseService.applySubscriptionActivation({
+            figmaUserId,
+            email,
+            flittOrderId: orderId,
+          });
+        }
+      } else if (orderStatus === "declined" || orderStatus === "expired") {
+        await licenseService.applyFailedCharge({ figmaUserId });
+      } else {
+        // reversed / refund / processing — log only for now; manual
+        // intervention via Flitt dashboard for chargebacks/refunds.
+        console.log(
+          `[Flitt webhook] unhandled order_status="${orderStatus}" for ${figmaUserId}`,
+        );
+      }
     }
 
     res.status(200).json({ received: true });

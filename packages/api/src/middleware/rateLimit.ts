@@ -1,22 +1,67 @@
 import rateLimit from "express-rate-limit";
 import { config } from "../config/env.js";
 
-export const supportRateLimiter = rateLimit({
-  windowMs: config.rateLimit.windowMs, // 10 minutes
-  max: config.rateLimit.maxRequests, // 5 requests per windowMs
-  message: "Too many support requests, please try again later",
-  standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
-  legacyHeaders: false, // Disable `X-RateLimit-*` headers
-  keyGenerator: (req) => {
-    // Use IP address as key (handles proxies better)
-    return (
-      (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ||
-      req.ip ||
-      "unknown"
-    );
-  },
-  skip: (_req) => {
-    // Skip rate limiting in development
-    return config.server.nodeEnv === "development";
-  },
-});
+/** Key requests by client IP, accounting for a single trusted proxy hop. */
+const ipKeyGenerator = (req: {
+  headers: Record<string, unknown>;
+  ip?: string;
+}): string =>
+  (req.headers["x-forwarded-for"] as string | undefined)
+    ?.split(",")[0]
+    .trim() ||
+  req.ip ||
+  "unknown";
+
+/** Rate limiting is a production concern — skip it for local development. */
+const skipInDevelopment = (): boolean =>
+  config.server.nodeEnv === "development";
+
+function makeLimiter(windowMs: number, max: number, message: string) {
+  return rateLimit({
+    windowMs,
+    max,
+    message,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: ipKeyGenerator,
+    skip: skipInDevelopment,
+  });
+}
+
+export const supportRateLimiter = makeLimiter(
+  config.rateLimit.windowMs,
+  config.rateLimit.maxRequests,
+  "Too many support requests, please try again later",
+);
+
+// Auth surface: OAuth login/callback and the nonce exchange. The exchange is
+// polled (~every 2s for up to 3 min) so the budget must clear a few full
+// OAuth attempts without throttling a legitimate user.
+export const authRateLimiter = makeLimiter(
+  10 * 60 * 1000,
+  300,
+  "Too many authentication requests, please try again later",
+);
+
+// Checkout invoice creation + subscription cancel — cheap to call, spammable.
+export const checkoutRateLimiter = makeLimiter(
+  10 * 60 * 1000,
+  20,
+  "Too many checkout requests, please try again later",
+);
+
+// Flitt webhook — Flitt-initiated; generous ceiling, just brute-force defence
+// against signature/replay probing.
+export const webhookRateLimiter = makeLimiter(
+  60 * 1000,
+  120,
+  "Too many webhook requests",
+);
+
+// Import endpoints — guards the expensive Puppeteer/AI pipeline and the
+// extension capture queue against cost-amplification abuse.
+export const importRateLimiter = makeLimiter(
+  10 * 60 * 1000,
+  60,
+  "Too many import requests, please try again later",
+);

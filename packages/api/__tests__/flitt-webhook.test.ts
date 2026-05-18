@@ -10,10 +10,11 @@ const mockVerifyCallback = vi.fn();
 const mockApplyActivation = vi.fn();
 const mockApplyRecurring = vi.fn();
 const mockApplyFailedCharge = vi.fn();
+const mockApplyOneTime = vi.fn();
 const mockWebhookEventCreate = vi.fn();
 
 vi.mock("../src/services/flittService.js", () => ({
-  createSubscriptionCheckout: vi.fn(),
+  createOneTimeCheckout: vi.fn(),
   cancelSubscription: vi.fn(),
   verifyCallback: (...args: unknown[]) => mockVerifyCallback(...args),
 }));
@@ -27,6 +28,8 @@ vi.mock("../src/services/licenseService.js", () => ({
       mockApplyRecurring(...args),
     applyFailedCharge: (...args: unknown[]) =>
       mockApplyFailedCharge(...args),
+    applyOneTimePurchase: (...args: unknown[]) =>
+      mockApplyOneTime(...args),
     applySubscriptionCancel: vi.fn(),
   },
 }));
@@ -68,7 +71,7 @@ beforeEach(() => {
 
 function approvedPayload(overrides: Record<string, unknown> = {}) {
   return {
-    order_id: "w2w_pro_u_1_123",
+    order_id: "w2w_pro_u-1_123",
     order_status: "approved",
     amount: 1600,
     currency: "USD",
@@ -136,7 +139,7 @@ describe("POST /api/webhooks/flitt — idempotency", () => {
     delete (payload as Record<string, unknown>).payment_id;
     await request(makeApp()).post("/api/webhooks/flitt").send(payload);
     expect(mockWebhookEventCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ transactionId: "w2w_pro_u_1_123_approved" }),
+      expect.objectContaining({ transactionId: "w2w_pro_u-1_123_approved" }),
     );
   });
 });
@@ -184,7 +187,7 @@ describe("POST /api/webhooks/flitt — order_status branching", () => {
     expect(mockApplyActivation).toHaveBeenCalledWith({
       figmaUserId: "u-1",
       email: "user@example.com",
-      flittOrderId: "w2w_pro_u_1_123",
+      flittOrderId: "w2w_pro_u-1_123",
     });
     expect(mockApplyRecurring).not.toHaveBeenCalled();
   });
@@ -220,5 +223,133 @@ describe("POST /api/webhooks/flitt — order_status branching", () => {
     expect(mockApplyActivation).not.toHaveBeenCalled();
     expect(mockApplyRecurring).not.toHaveBeenCalled();
     expect(mockApplyFailedCharge).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// One-time purchase branching (merchant_data.recurring === false)
+// ============================================================================
+
+describe("POST /api/webhooks/flitt — one-time purchase", () => {
+  beforeEach(() => {
+    mockVerifyCallback.mockReturnValue(true);
+  });
+
+  function oneTimePayload(overrides: Record<string, unknown> = {}) {
+    return approvedPayload({
+      merchant_data: JSON.stringify({
+        figmaUserId: "u-1",
+        plan: "pro",
+        recurring: false,
+      }),
+      ...overrides,
+    });
+  }
+
+  it("recurring:false approved → applyOneTimePurchase (not subscription activation)", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload());
+    expect(mockApplyOneTime).toHaveBeenCalledWith({
+      figmaUserId: "u-1",
+      email: "user@example.com",
+      flittOrderId: "w2w_pro_u-1_123",
+    });
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+    expect(mockApplyRecurring).not.toHaveBeenCalled();
+  });
+
+  it("recurring:false approved WITH parent_order_id still → applyOneTimePurchase", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload({ parent_order_id: "x", payment_id: "pay_p" }));
+    expect(mockApplyOneTime).toHaveBeenCalledOnce();
+    expect(mockApplyRecurring).not.toHaveBeenCalled();
+  });
+
+  it("recurring:false declined → no service call (logged only)", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload({ order_status: "declined", payment_id: "pay_d" }));
+    expect(mockApplyOneTime).not.toHaveBeenCalled();
+    expect(mockApplyFailedCharge).not.toHaveBeenCalled();
+  });
+
+  it("recurring:false expired → no service call (logged only)", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload({ order_status: "expired", payment_id: "pay_e" }));
+    expect(mockApplyOneTime).not.toHaveBeenCalled();
+    expect(mockApplyFailedCharge).not.toHaveBeenCalled();
+  });
+
+  it("two one-time purchases with different payment_id → applyOneTimePurchase twice", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload({ payment_id: "pay_1" }));
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload({ payment_id: "pay_2" }));
+    expect(mockApplyOneTime).toHaveBeenCalledTimes(2);
+  });
+
+  it("duplicate one-time webhook (same payment_id) is deduped", async () => {
+    mockWebhookEventCreate.mockRejectedValueOnce(
+      Object.assign(new Error("dup key"), { code: 11000 }),
+    );
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload({ payment_id: "pay_dup" }));
+    expect(res.status).toBe(200);
+    expect(res.body.deduped).toBe(true);
+    expect(mockApplyOneTime).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// Payload hardening (H-4)
+// ============================================================================
+
+describe("POST /api/webhooks/flitt — payload hardening", () => {
+  beforeEach(() => {
+    mockVerifyCallback.mockReturnValue(true);
+  });
+
+  it("rejects a webhook missing the amount field — no Pro granted", async () => {
+    const payload = approvedPayload();
+    delete (payload as Record<string, unknown>).amount;
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(payload);
+    expect(res.status).toBe(200);
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a webhook missing order_id — no Pro granted", async () => {
+    const payload = approvedPayload();
+    delete (payload as Record<string, unknown>).order_id;
+    await request(makeApp()).post("/api/webhooks/flitt").send(payload);
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+  });
+
+  it("rejects an approved charge with an unexpected amount", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ amount: 1 }));
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+  });
+
+  it("rejects when order_id does not match the merchant_data figmaUserId", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          order_id: "w2w_pro_attacker_999",
+          merchant_data: JSON.stringify({ figmaUserId: "victim", plan: "pro" }),
+        }),
+      );
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+    expect(mockApplyOneTime).not.toHaveBeenCalled();
   });
 });

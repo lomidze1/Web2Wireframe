@@ -54,6 +54,26 @@ function Options() {
               The URL of your Web2Wireframe backend server
             </span>
           </div>
+
+          <div class="form-group">
+            <label htmlFor="pairingCode">Pairing Code</label>
+            <input
+              type="text"
+              id="pairingCode"
+              value={settings.pairingCode}
+              onChange={(e) =>
+                handleChange(
+                  "pairingCode",
+                  (e.target as HTMLInputElement).value.trim().toUpperCase(),
+                )
+              }
+              placeholder="ABC123"
+            />
+            <span class="help-text">
+              Open the Figma plugin's Browser Extension tab to get a code.
+              It scopes your captures so they reach your plugin only.
+            </span>
+          </div>
         </section>
 
         {/* Capture Options */}

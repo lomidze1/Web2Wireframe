@@ -938,6 +938,35 @@ export default function () {
       }
     }
 
+    // Plugin OAuth token persistence. The token is obtained via the Figma
+    // OAuth flow in the UI iframe; clientStorage lives in the sandbox, so the
+    // iframe round-trips through these messages to persist/load it.
+    if (msg.type === "save-auth-token") {
+      try {
+        await figma.clientStorage.setAsync("w2w_auth_token", msg.data);
+      } catch (err) {
+        logger.warn("Failed to save auth token to clientStorage", { error: err });
+      }
+    }
+
+    if (msg.type === "load-auth-token") {
+      try {
+        const token = await figma.clientStorage.getAsync("w2w_auth_token");
+        figma.ui.postMessage({ type: "auth-token-loaded", data: token ?? null });
+      } catch (err) {
+        logger.warn("Failed to load auth token from clientStorage", { error: err });
+        figma.ui.postMessage({ type: "auth-token-loaded", data: null });
+      }
+    }
+
+    if (msg.type === "clear-auth-token") {
+      try {
+        await figma.clientStorage.deleteAsync("w2w_auth_token");
+      } catch (err) {
+        logger.warn("Failed to clear auth token from clientStorage", { error: err });
+      }
+    }
+
     // Handle get-current-user message — primary identity source for License
     // lookups. Sandbox is the only context with access to figma.currentUser;
     // UI consumes this via ConfigContext.figmaUserId.

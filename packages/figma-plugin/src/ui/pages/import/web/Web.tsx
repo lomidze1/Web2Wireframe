@@ -5,6 +5,8 @@ import styles from "./Web.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { authHeader } from "../../../shared/licenseClient";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
@@ -19,8 +21,8 @@ import RenderingLoader, {
 const TAB_ID = "web";
 const STORAGE_KEY = "w2w_settings_expanded_web";
 
-// Backend API URL - in production, this should come from environment config
-const API_URL = "http://localhost:3002";
+// Backend API URL — single source: apiConfig.ts (toggle USE_PRODUCTION there).
+const API_URL = API_BASE_URL;
 
 // Import state type
 interface ImportState {
@@ -192,6 +194,7 @@ export default function Web() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: authHeader(),
         },
         body: JSON.stringify({
           userId: `figma-user-${Date.now()}`, // Temporary user ID

@@ -52,9 +52,10 @@ router.get(
         wireframe,
       });
     } catch (error) {
+      console.error("[Wireframe] request failed:", error);
       res.status(500).json({
         success: false,
-        error: (error as Error).message,
+        error: "Server error",
       });
     }
   },
@@ -95,9 +96,10 @@ router.get(
         wireframes,
       });
     } catch (error) {
+      console.error("[Wireframe] request failed:", error);
       res.status(500).json({
         success: false,
-        error: (error as Error).message,
+        error: "Server error",
       });
     }
   },

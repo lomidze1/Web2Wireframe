@@ -57,9 +57,10 @@ router.post(
         settings,
       });
     } catch (error) {
+      console.error("[Settings] request failed:", error);
       res.status(500).json({
         success: false,
-        error: (error as Error).message,
+        error: "Server error",
       });
     }
   },
@@ -104,9 +105,10 @@ router.get(
         settings,
       });
     } catch (error) {
+      console.error("[Settings] request failed:", error);
       res.status(500).json({
         success: false,
-        error: (error as Error).message,
+        error: "Server error",
       });
     }
   },

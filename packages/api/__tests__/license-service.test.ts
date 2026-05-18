@@ -25,6 +25,7 @@ const {
   licenseService,
   resetCycleIfElapsed,
   cleanupExpiredCancellation,
+  downgradeExpiredOneTimePro,
 } = await import("../src/services/licenseService.js");
 
 // ============================================================================
@@ -95,6 +96,76 @@ describe("resetCycleIfElapsed", () => {
       CYCLE_DURATION_MS,
     );
     expect(license.cycleEndsAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("returns false for an expired Pro license (Pro downgrade is handled elsewhere)", () => {
+    const license = makeLicense({
+      plan: "pro",
+      cycleStartedAt: new Date(Date.now() - 60 * CYCLE_DURATION_MS),
+      cycleEndsAt: new Date(Date.now() - 30 * CYCLE_DURATION_MS),
+    });
+    expect(resetCycleIfElapsed(license as never)).toBe(false);
+    expect(license.plan).toBe("pro");
+  });
+});
+
+// ============================================================================
+// downgradeExpiredOneTimePro (pure)
+// ============================================================================
+
+describe("downgradeExpiredOneTimePro", () => {
+  it("does nothing when Pro and cycle is still active", () => {
+    const license = makeLicense({
+      plan: "pro",
+      cycleEndsAt: new Date(Date.now() + CYCLE_DURATION_MS),
+      subscription: { autoRenew: false },
+    });
+    expect(downgradeExpiredOneTimePro(license as never)).toBe(false);
+    expect(license.plan).toBe("pro");
+  });
+
+  it("does nothing for a Free license", () => {
+    const license = makeLicense({
+      plan: "free",
+      cycleEndsAt: new Date(Date.now() - 1000),
+    });
+    expect(downgradeExpiredOneTimePro(license as never)).toBe(false);
+  });
+
+  it("does nothing for an expired subscription Pro (autoRenew=true)", () => {
+    const license = makeLicense({
+      plan: "pro",
+      cycleEndsAt: new Date(Date.now() - 1000),
+      subscription: { autoRenew: true },
+    });
+    expect(downgradeExpiredOneTimePro(license as never)).toBe(false);
+    expect(license.plan).toBe("pro");
+  });
+
+  it("downgrades an expired one-time Pro (autoRenew=false) to fresh Free", () => {
+    const license = makeLicense({
+      plan: "pro",
+      status: "active",
+      cycleEndsAt: new Date(Date.now() - 1000),
+      subscription: { flittOrderId: "old", autoRenew: false },
+      usage: { imports: 99, periodStartedAt: new Date(Date.now() - 60 * CYCLE_DURATION_MS) },
+    });
+    expect(downgradeExpiredOneTimePro(license as never)).toBe(true);
+    expect(license.plan).toBe("free");
+    expect(license.status).toBe("active");
+    expect(license.subscription).toBe(null);
+    expect(license.usage.imports).toBe(0);
+    expect(license.cycleEndsAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("downgrades a legacy expired Pro row that has no autoRenew field", () => {
+    const license = makeLicense({
+      plan: "pro",
+      cycleEndsAt: new Date(Date.now() - 1000),
+      subscription: { flittOrderId: "legacy" },
+    });
+    expect(downgradeExpiredOneTimePro(license as never)).toBe(true);
+    expect(license.plan).toBe("free");
   });
 });
 
@@ -196,6 +267,37 @@ describe("licenseService.getOrCreate", () => {
     expect(license.subscription).toBe(null);
     expect(existing.save).toHaveBeenCalledOnce();
   });
+
+  it("downgrades expired one-time Pro to Free + saves", async () => {
+    const existing = makeLicense({
+      plan: "pro",
+      status: "active",
+      cycleEndsAt: new Date(Date.now() - 1000),
+      subscription: { flittOrderId: "ot", autoRenew: false },
+    });
+    mockFindOne.mockResolvedValue(existing);
+
+    const license = await licenseService.getOrCreate("u-1");
+
+    expect(license.plan).toBe("free");
+    expect(license.subscription).toBe(null);
+    expect(existing.save).toHaveBeenCalledOnce();
+  });
+
+  it("does NOT downgrade an expired subscription Pro (autoRenew=true)", async () => {
+    const existing = makeLicense({
+      plan: "pro",
+      status: "active",
+      cycleEndsAt: new Date(Date.now() - 1000),
+      subscription: { flittOrderId: "sub", autoRenew: true },
+    });
+    mockFindOne.mockResolvedValue(existing);
+
+    const license = await licenseService.getOrCreate("u-1");
+
+    expect(license.plan).toBe("pro");
+    expect(existing.save).not.toHaveBeenCalled();
+  });
 });
 
 // ============================================================================
@@ -282,6 +384,117 @@ describe("licenseService.applySubscriptionActivation", () => {
       "w2w_pro_u_1",
     );
     expect(options).toMatchObject({ new: true, upsert: true });
+  });
+});
+
+// ============================================================================
+// licenseService.applyOneTimePurchase
+// ============================================================================
+
+describe("licenseService.applyOneTimePurchase", () => {
+  it("activates a fresh 30-day Pro cycle for a new / non-Pro user", async () => {
+    const fakeNow = new Date("2026-05-10T10:00:00Z");
+    vi.setSystemTime(fakeNow);
+    mockFindOne.mockResolvedValue(null);
+    const updated = makeLicense({ plan: "pro" });
+    mockFindOneAndUpdate.mockResolvedValue(updated);
+
+    const result = await licenseService.applyOneTimePurchase({
+      figmaUserId: "u-1",
+      email: "user@example.com",
+      flittOrderId: "w2w_pro_u_1",
+    });
+
+    expect(result).toBe(updated);
+    const [filter, update, options] = mockFindOneAndUpdate.mock.calls[0] as [
+      Record<string, unknown>,
+      { $set: Record<string, unknown> },
+      Record<string, unknown>,
+    ];
+    expect(filter).toEqual({ figmaUserId: "u-1" });
+    expect(update.$set.plan).toBe("pro");
+    expect(update.$set.status).toBe("active");
+    expect(update.$set.email).toBe("user@example.com");
+    expect(update.$set["usage.imports"]).toBe(0);
+    const cycleEnd = update.$set.cycleEndsAt as Date;
+    expect(cycleEnd.getTime() - fakeNow.getTime()).toBe(CYCLE_DURATION_MS);
+    const sub = update.$set.subscription as {
+      autoRenew: boolean;
+      reminderSentAt: Date | null;
+      nextBillingAt: Date;
+      flittOrderId: string;
+    };
+    expect(sub.autoRenew).toBe(false);
+    expect(sub.reminderSentAt).toBe(null);
+    expect(sub.flittOrderId).toBe("w2w_pro_u_1");
+    expect(sub.nextBillingAt.getTime()).toBe(cycleEnd.getTime());
+    expect(options).toMatchObject({ new: true, upsert: true });
+  });
+
+  it("stacks +30 days onto cycleEndsAt for an already-active Pro (early renewal)", async () => {
+    const fakeNow = new Date("2026-05-10T10:00:00Z");
+    vi.setSystemTime(fakeNow);
+    const existingEnd = new Date(fakeNow.getTime() + 10 * 24 * 60 * 60 * 1000);
+    mockFindOne.mockResolvedValue(
+      makeLicense({ plan: "pro", cycleEndsAt: existingEnd }),
+    );
+    mockFindOneAndUpdate.mockResolvedValue(makeLicense({ plan: "pro" }));
+
+    await licenseService.applyOneTimePurchase({
+      figmaUserId: "u-1",
+      email: null,
+      flittOrderId: "w2w_pro_u_1_renew",
+    });
+
+    const [, update] = mockFindOneAndUpdate.mock.calls[0] as [
+      unknown,
+      { $set: Record<string, unknown> },
+    ];
+    const cycleEnd = update.$set.cycleEndsAt as Date;
+    expect(cycleEnd.getTime()).toBe(existingEnd.getTime() + CYCLE_DURATION_MS);
+  });
+
+  it("does NOT stack onto a stale past cycleEndsAt (expired Pro renews fresh)", async () => {
+    const fakeNow = new Date("2026-05-10T10:00:00Z");
+    vi.setSystemTime(fakeNow);
+    mockFindOne.mockResolvedValue(
+      makeLicense({
+        plan: "pro",
+        cycleEndsAt: new Date(fakeNow.getTime() - 5 * 24 * 60 * 60 * 1000),
+      }),
+    );
+    mockFindOneAndUpdate.mockResolvedValue(makeLicense({ plan: "pro" }));
+
+    await licenseService.applyOneTimePurchase({
+      figmaUserId: "u-1",
+      email: null,
+      flittOrderId: "w2w_pro_u_1",
+    });
+
+    const [, update] = mockFindOneAndUpdate.mock.calls[0] as [
+      unknown,
+      { $set: Record<string, unknown> },
+    ];
+    const cycleEnd = update.$set.cycleEndsAt as Date;
+    expect(cycleEnd.getTime() - fakeNow.getTime()).toBe(CYCLE_DURATION_MS);
+  });
+
+  it("resets reminderSentAt to null on every purchase", async () => {
+    mockFindOne.mockResolvedValue(null);
+    mockFindOneAndUpdate.mockResolvedValue(makeLicense({ plan: "pro" }));
+
+    await licenseService.applyOneTimePurchase({
+      figmaUserId: "u-1",
+      email: null,
+      flittOrderId: "o1",
+    });
+
+    const [, update] = mockFindOneAndUpdate.mock.calls[0] as [
+      unknown,
+      { $set: Record<string, unknown> },
+    ];
+    const sub = update.$set.subscription as { reminderSentAt: Date | null };
+    expect(sub.reminderSentAt).toBe(null);
   });
 });
 

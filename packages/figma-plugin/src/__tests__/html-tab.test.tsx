@@ -4,6 +4,7 @@ import HTML from "../ui/pages/import/html/HTML";
 import { transformFramesData } from "../ui/shared/transformData";
 import { prepareFramesForRendering } from "../ui/shared/absoluteModeRenderer";
 import { validateHtml } from "../utils/validateHtml";
+import { applyAuthToken } from "../ui/shared/licenseClient";
 
 // Mock ConfigContext
 vi.mock("../ui/shared/ConfigContext", async (importOriginal) => {
@@ -120,6 +121,8 @@ describe("HTML Tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
+    // Seed a plugin token so authed import requests can be issued.
+    applyAuthToken("test.token", Date.now() + 3_600_000);
     mockFontModalProps.current = null;
     mockRenderingLoaderProps.current = null;
     mockHtmlWarningModalProps.current = null;
@@ -510,7 +513,10 @@ describe("HTML Tab", () => {
         "http://localhost:3002/api/import-html",
         expect.objectContaining({
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer test.token",
+          },
         })
       );
 

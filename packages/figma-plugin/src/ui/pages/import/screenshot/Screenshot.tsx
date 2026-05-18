@@ -5,11 +5,13 @@ import styles from "./Screenshot.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { authHeader } from "../../../shared/licenseClient";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import SettingsPanel from "../../../components/settingsPanel";
 
 const TAB_ID = "screenshot";
 const STORAGE_KEY = "w2w_settings_expanded_screenshot";
-const API_URL = "http://localhost:3002";
+const API_URL = API_BASE_URL;
 
 export default function Screenshot() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -115,7 +117,7 @@ export default function Screenshot() {
 
       const response = await fetch(`${API_URL}/api/import-screenshot`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: authHeader() },
         body: JSON.stringify({
           figmaUserId: config.figmaUserId,
           imageBase64: imagePreview,

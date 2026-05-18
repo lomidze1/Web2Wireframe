@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { Request, Response, NextFunction } from "express";
 import "express-session"; // Session type augmentation loaded from config/express-session.d.ts
 
@@ -18,6 +18,13 @@ interface TokenPayload {
 }
 
 const DEFAULT_EXPIRY_SECONDS = 24 * 60 * 60; // 24 hours
+
+/**
+ * Expiry for plugin tokens issued after a verified Figma OAuth login.
+ * Long-lived so the user re-authenticates rarely; rotated by /api/auth/refresh
+ * while still valid. A full expiry simply triggers another OAuth round-trip.
+ */
+export const PLUGIN_TOKEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 /**
  * Create an HMAC-SHA256 signed token for a Figma user.
@@ -67,7 +74,14 @@ export function verifyToken(
     .update(payloadB64)
     .digest("base64url");
 
-  if (providedSignature !== expectedSignature) {
+  // Constant-time comparison — a plain `!==` leaks, via response timing, how
+  // many leading bytes matched, enabling byte-by-byte signature forgery.
+  const providedBuf = Buffer.from(providedSignature);
+  const expectedBuf = Buffer.from(expectedSignature);
+  if (
+    providedBuf.length !== expectedBuf.length ||
+    !timingSafeEqual(providedBuf, expectedBuf)
+  ) {
     throw new Error("Invalid signature");
   }
 

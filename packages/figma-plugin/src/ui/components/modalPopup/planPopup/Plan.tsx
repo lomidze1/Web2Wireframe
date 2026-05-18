@@ -6,7 +6,6 @@ import styles from "../Modal.css";
 import {
   fetchMyLicense,
   createCheckout,
-  issueCancelToken,
   type License,
 } from "../../../shared/licenseClient";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -19,24 +18,20 @@ interface PlanProps {
 
 const POLL_INTERVAL_MS = 5_000;
 const POLL_DURATION_MS = 5 * 60 * 1000; // give up after 5 minutes
-const WEBSITE_BASE_URL = "https://www.web2wireframe.design";
 
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return iso;
-  }
+/** Whole days remaining until `iso`, never negative. */
+function daysUntil(iso: string): number {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return 0;
+  return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
 }
 
-function getFailureSeverity(count: number): "info" | "warning" | "urgent" {
-  if (count >= 4) return "urgent";
-  if (count >= 2) return "warning";
-  return "info";
+/** Countdown phrase: "today", "in 1 day", "in 25 days". */
+function inDaysPhrase(iso: string): string {
+  const days = daysUntil(iso);
+  if (days <= 0) return "today";
+  if (days === 1) return "in 1 day";
+  return `in ${days} days`;
 }
 
 export default function Plan({ isOpen, onClose }: PlanProps) {
@@ -48,12 +43,16 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   const [error, setError] = useState<string | null>(null);
   const [isCheckoutPending, setIsCheckoutPending] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
-  const [isCancelPending, setIsCancelPending] = useState(false);
 
   const { modalRef } = useModal({ isOpen, onClose });
 
   const pollTimerRef = useRef<number | null>(null);
   const pollStartRef = useRef<number | null>(null);
+  // Snapshot taken before opening checkout. Lets polling tell a first-time
+  // upgrade (free → pro) apart from a renewal (pro, cycleEndsAt moves forward).
+  const preCheckoutRef = useRef<{ plan: string; cycleEndsAt: string } | null>(
+    null,
+  );
 
   // ------------------------------------------------------------------
   // Initial load
@@ -97,6 +96,9 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
     if (!figmaUserId || isCheckoutPending) return;
     setIsCheckoutPending(true);
     setCheckoutMessage("Opening Flitt checkout…");
+    preCheckoutRef.current = license
+      ? { plan: license.plan, cycleEndsAt: license.cycleEndsAt }
+      : null;
     try {
       const { checkoutUrl } = await createCheckout(figmaUserId);
       window.open(checkoutUrl, "_blank");
@@ -128,36 +130,28 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
       }
       try {
         const fresh = await fetchMyLicense(figmaUserId);
-        if (fresh.plan === "pro" && fresh.status !== "expired") {
+        const pre = preCheckoutRef.current;
+        // First-time upgrade: plan flipped free → pro.
+        const upgraded = fresh.plan === "pro" && pre?.plan !== "pro";
+        // Renewal: already Pro, cycleEndsAt extended by the new purchase.
+        const renewed =
+          fresh.plan === "pro" &&
+          pre?.plan === "pro" &&
+          new Date(fresh.cycleEndsAt).getTime() >
+            new Date(pre.cycleEndsAt).getTime();
+        if (upgraded || renewed) {
           window.clearInterval(pollTimerRef.current!);
           pollTimerRef.current = null;
           setLicense(fresh);
           setIsCheckoutPending(false);
-          setCheckoutMessage("🎉 Welcome to Pro!");
+          setCheckoutMessage(
+            renewed ? "🎉 Pro extended — thanks!" : "🎉 Welcome to Pro!",
+          );
         }
       } catch {
         // Silent — keep polling.
       }
     }, POLL_INTERVAL_MS);
-  }
-
-  // ------------------------------------------------------------------
-  // Manage Subscription → issue token + open Account page
-  // ------------------------------------------------------------------
-  async function handleManageSubscription(): Promise<void> {
-    if (!figmaUserId || isCancelPending) return;
-    setIsCancelPending(true);
-    try {
-      const { token } = await issueCancelToken(figmaUserId);
-      const url =
-        `${WEBSITE_BASE_URL}/account?fid=${encodeURIComponent(figmaUserId)}` +
-        `&t=${encodeURIComponent(token)}`;
-      window.open(url, "_blank");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not open billing");
-    } finally {
-      setIsCancelPending(false);
-    }
   }
 
   // ------------------------------------------------------------------
@@ -168,13 +162,6 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
     ? license.status[0].toUpperCase() + license.status.slice(1)
     : "—";
   const isPro = license?.plan === "pro";
-  const failureCount = license?.subscription?.failureCount ?? 0;
-  const failureSeverity = getFailureSeverity(failureCount);
-  const failureSeverityClass = {
-    info: styles.planFailedPaymentBannerInfo,
-    warning: styles.planFailedPaymentBannerWarning,
-    urgent: styles.planFailedPaymentBannerUrgent,
-  }[failureSeverity];
   const limitText =
     license == null
       ? ""
@@ -206,21 +193,6 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
           </button>
         </div>
         <div class={styles.modalContent}>
-          {license && failureCount > 0 && (
-            <div
-              data-severity={failureSeverity}
-              class={`${styles.planFailedPaymentBanner} ${failureSeverityClass}`}
-            >
-              <div>
-                ⚠️ Last payment attempt failed ({failureCount}{" "}
-                {failureCount === 1 ? "attempt" : "attempts"}).
-              </div>
-              <div>
-                Update your payment method by {formatDate(license.cycleEndsAt)}{" "}
-                to keep Pro access. Use "Manage Subscription" below.
-              </div>
-            </div>
-          )}
           <div class={styles.planSummary}>
             <span class={styles.planLabel}>Current plan</span>
             <span class={styles.planBadge}>{planLabel}</span>
@@ -258,11 +230,11 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                 <span>Usage</span>
                 <span class={styles.planMetaValue}>{limitText}</span>
               </div>
-              {isPro && license.subscription && (
+              {isPro && (
                 <div class={styles.planMetaRow}>
-                  <span>{license.status === "canceled" ? "Access until" : "Next billing"}</span>
+                  <span>Access expires</span>
                   <span class={styles.planMetaValue}>
-                    {formatDate(license.subscription.nextBillingAt)}
+                    {inDaysPhrase(license.cycleEndsAt)}
                   </span>
                 </div>
               )}
@@ -270,10 +242,14 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                 <div class={styles.planMetaRow}>
                   <span>Cycle resets</span>
                   <span class={styles.planMetaValue}>
-                    {formatDate(license.cycleEndsAt)}
+                    {inDaysPhrase(license.cycleEndsAt)}
                   </span>
                 </div>
               )}
+              <div class={styles.planMetaRow}>
+                <span>Figma user ID</span>
+                <span class={styles.planMetaValue}>{license.figmaUserId}</span>
+              </div>
             </div>
           )}
 
@@ -292,7 +268,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               </div>
               <div class={styles.planCards}>
                 <div class={`${styles.planCard} ${styles.planCardPro}`}>
-                  <div class={styles.planCardHeader}>PRO — $16/month</div>
+                  <div class={styles.planCardHeader}>PRO — $16 / 1 month</div>
                   <ul class={styles.planList}>
                     <li class={styles.planListItem}>Unlimited imports</li>
                     <li class={styles.planListItem}>
@@ -319,10 +295,10 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
             <button
               type="button"
               class={styles.planCtaLink}
-              onClick={handleManageSubscription}
-              disabled={!figmaUserId || isCancelPending}
+              onClick={handleGetPro}
+              disabled={!figmaUserId || isCheckoutPending}
             >
-              {isCancelPending ? "Opening billing…" : "Manage Subscription"}
+              {isCheckoutPending ? "Waiting for payment…" : "Renew Pro — $16"}
             </button>
           )}
         </div>

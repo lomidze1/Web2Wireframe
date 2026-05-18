@@ -33,98 +33,168 @@ export interface License {
 }
 
 // ============================================================================
-// HMAC install-token state
+// Auth token state (Figma OAuth)
 // ============================================================================
-// Plugin → API auth uses a backend-issued HMAC-SHA256 token bound to the
-// caller's figmaUserId. The token is requested from `/api/auth/init` on
-// plugin start (or after figmaUserId becomes available) and stored in
-// module-local memory. It expires after 24h; callers should re-run
-// `initAuth()` on expiry (handled implicitly when a 401 propagates back).
+// Plugin → API auth uses a backend-issued HMAC token bound to the caller's
+// *verified* Figma identity. The token is obtained through the Figma OAuth
+// flow (connectFigma) and persisted in figma.clientStorage via the sandbox.
 //
-// Replaces the previous hardcoded `DEV_TOKEN = "dev-token"` which shipped
-// in the plugin bundle and provided no cryptographic binding to the user.
+// This replaces the old `/api/auth/init`, which minted a token for any
+// `figmaUserId` posted in the request body — with no proof the caller owned
+// that account — and so let anyone impersonate any Figma user.
+
 interface AuthState {
   token: string;
   expiresAt: number; // epoch ms
-  figmaUserId: string;
 }
 
 let authState: AuthState | null = null;
-let pendingAuthInit: Promise<AuthState> | null = null;
 
-/**
- * Exchange the live figmaUserId for an HMAC-signed install token. Safe to
- * call multiple times: concurrent callers share the in-flight request, and
- * a cached non-expired token is returned immediately.
- */
-export async function initAuth(
-  figmaUserId: string,
-  signal?: AbortSignal,
-): Promise<AuthState> {
-  if (!figmaUserId) {
-    throw new Error("initAuth: figmaUserId is required");
-  }
-  // Reuse a still-valid token for the same user (60-second safety margin).
-  const now = Date.now();
-  if (
-    authState &&
-    authState.figmaUserId === figmaUserId &&
-    authState.expiresAt - 60_000 > now
-  ) {
-    return authState;
-  }
-  if (pendingAuthInit) return pendingAuthInit;
+const TOKEN_SAFETY_MARGIN_MS = 60_000;
 
-  pendingAuthInit = (async () => {
-    const response = await fetch(`${API_BASE_URL}/api/auth/init`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ figmaUserId }),
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(`Auth init failed (${response.status})`);
-    }
-    const data = (await response.json()) as {
-      success: boolean;
-      token: string;
-      expiresAt: string;
-      userId: string;
-    };
-    if (!data.success || !data.token) {
-      throw new Error("Auth init returned no token");
-    }
-    authState = {
-      token: data.token,
-      expiresAt: new Date(data.expiresAt).getTime(),
-      figmaUserId: data.userId,
-    };
-    return authState;
-  })();
+/** Apply a token to in-memory state only (used when loading from storage). */
+export function applyAuthToken(token: string, expiresAt: number): void {
+  authState = { token, expiresAt };
+}
 
-  try {
-    return await pendingAuthInit;
-  } finally {
-    pendingAuthInit = null;
+/** Apply a token AND persist it to clientStorage via the sandbox. */
+export function setAuthToken(token: string, expiresAt: number): void {
+  applyAuthToken(token, expiresAt);
+  parent.postMessage(
+    { pluginMessage: { type: "save-auth-token", data: { token, expiresAt } } },
+    "*",
+  );
+}
+
+/** Clear the token from memory and clientStorage. */
+export function clearAuthToken(): void {
+  authState = null;
+  parent.postMessage({ pluginMessage: { type: "clear-auth-token" } }, "*");
+}
+
+/** The current token if held and not within the safety margin of expiry. */
+export function getValidToken(): string | null {
+  if (!authState) return null;
+  if (authState.expiresAt - TOKEN_SAFETY_MARGIN_MS <= Date.now()) return null;
+  return authState.token;
+}
+
+/** Authorization header value. Throws if no valid token is held. */
+export function authHeader(): string {
+  const token = getValidToken();
+  if (!token) {
+    throw new Error("Not connected to Figma");
   }
+  return `Bearer ${token}`;
+}
+
+const delay = (ms: number): Promise<void> =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function generateNonce(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let hex = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    hex += bytes[i].toString(16).padStart(2, "0");
+  }
+  return hex;
 }
 
 /**
- * Returns the current auth header value, ensuring a valid token is held
- * for the given figmaUserId. Lazily initializes auth on first call.
+ * Run the Figma OAuth flow: open the backend login URL in a browser tab and
+ * poll the exchange endpoint until the verified token is parked. Resolves
+ * once the token is in memory + persisted; rejects on timeout/cancel.
  */
-async function authHeader(
-  figmaUserId: string,
-  signal?: AbortSignal,
-): Promise<string> {
-  const state = await initAuth(figmaUserId, signal);
-  return `Bearer ${state.token}`;
+export async function connectFigma(signal?: AbortSignal): Promise<void> {
+  const nonce = generateNonce();
+  const loginUrl = `${API_BASE_URL}/auth/figma/login?plugin_nonce=${encodeURIComponent(
+    nonce,
+  )}`;
+  window.open(loginUrl, "_blank", "noopener");
+
+  const deadline = Date.now() + 3 * 60 * 1000; // 3 minutes
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error("Connection cancelled");
+    await delay(2000);
+    let res: Response;
+    try {
+      res = await fetch(
+        `${API_BASE_URL}/api/auth/figma-exchange?nonce=${encodeURIComponent(
+          nonce,
+        )}`,
+        { signal },
+      );
+    } catch {
+      continue; // transient network error — keep polling
+    }
+    if (!res.ok) continue;
+    const data = (await res.json().catch(() => null)) as {
+      pending?: boolean;
+      token?: string;
+      expiresAt?: string;
+    } | null;
+    if (data && data.pending === false && data.token && data.expiresAt) {
+      setAuthToken(data.token, new Date(data.expiresAt).getTime());
+      return;
+    }
+  }
+  throw new Error("Figma connection timed out — please try again");
+}
+
+/** Roll the token's expiry while it is still valid. Best-effort. */
+export async function refreshAuthToken(): Promise<void> {
+  const token = getValidToken();
+  if (!token) return;
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    return;
+  }
+  if (!res.ok) return;
+  const data = (await res.json().catch(() => null)) as {
+    token?: string;
+    expiresAt?: string;
+  } | null;
+  if (data && data.token && data.expiresAt) {
+    setAuthToken(data.token, new Date(data.expiresAt).getTime());
+  }
 }
 
 /** Test helper — resets cached auth state so unit tests start clean. */
 export function __resetAuthForTests(): void {
   authState = null;
-  pendingAuthInit = null;
+}
+
+// ============================================================================
+// /api/extension-pair
+// ============================================================================
+
+/**
+ * Request a short pairing code bound to this verified user. The user types
+ * it into the browser extension so its captures land in their own queue
+ * slot rather than a shared global one.
+ */
+export async function requestPairingCode(
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/api/extension-pair`, {
+    method: "POST",
+    headers: { Authorization: authHeader() },
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Pairing request failed (${response.status})`);
+  }
+  const data = (await response.json()) as { code?: string };
+  if (!data.code) {
+    throw new Error("Pairing response missing code");
+  }
+  return data.code;
 }
 
 // ============================================================================
@@ -141,7 +211,7 @@ export async function fetchMyLicense(
   const url = withFigmaUserId(`${API_BASE_URL}/api/license/me`, figmaUserId);
   const response = await fetch(url, {
     method: "GET",
-    headers: { Authorization: await authHeader(figmaUserId, signal) },
+    headers: { Authorization: authHeader() },
     signal,
   });
   if (!response.ok) {
@@ -170,7 +240,7 @@ export async function createCheckout(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: await authHeader(figmaUserId, signal),
+      Authorization: authHeader(),
     },
     body: JSON.stringify({ figmaUserId }),
     signal,
@@ -209,7 +279,7 @@ export async function issueCancelToken(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: await authHeader(figmaUserId, signal),
+        Authorization: authHeader(),
       },
       body: JSON.stringify({ figmaUserId }),
       signal,

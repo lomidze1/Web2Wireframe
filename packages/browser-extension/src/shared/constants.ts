@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS = {
   captureFonts: true,
   compressData: true,
   defaultViewport: 1440,
+  pairingCode: "",
 } as const;
 
 // Viewports
