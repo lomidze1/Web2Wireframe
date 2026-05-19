@@ -2,7 +2,7 @@
 
 გადახდის (ერთჯერადი $16 → 30 დღე Pro) production-ზე ატვირთვამდე შესასრულებელი ნაბიჯები.
 სტატუსი: `[ ]` = დარჩა, `[x]` = გაკეთდა.
-ბოლო განახლება: 2026-05-18.
+ბოლო განახლება: 2026-05-19.
 
 ---
 
@@ -66,6 +66,11 @@
 - [ ] "Credit private key" payout-only-ა? (checkout-ს არ სჭირდება)
 - [ ] checkout request-ში `version` ველი (`"1.0.1"`) საჭიროა?
 - [ ] USD charge-ები ანგარიშზე ჩართულია?
+- [ ] **Payment key-ის როტაცია** — key 2026-05 security აუდიტისას `.env`-ში
+      ექსპონირდა (Anthropic/Resend/Figma უკვე გადანაცვლდა; Flitt გადაიდო).
+      Flitt-ს ჰკითხე: შესაძლებელია თუ არა Payment key-ის რეგენერაცია არსებულ
+      merchant `4055602`-ზე (merchant portal-ში self-service ღილაკი არ არის).
+      ⚠️ webhook endpoint launch-ზე ცოცხალდება — როტაცია მანამდე უნდა მოხდეს.
 
 ## 8. Figma OAuth App (plugin-ის "Connect Figma")
 
