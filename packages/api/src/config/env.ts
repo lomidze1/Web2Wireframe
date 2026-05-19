@@ -52,13 +52,12 @@ const figmaClientSecret = requireEnv(
 );
 const figmaRedirectUri = process.env.FIGMA_REDIRECT_URI || "";
 
-const licenseServiceUrl = isProd
-  ? requireEnv("LICENSE_SERVICE_URL")
-  : devDefault("LICENSE_SERVICE_URL", "https://web2wireframe.onrender.com");
-const licenseServiceToken = requireEnv(
-  "LICENSE_SERVICE_TOKEN",
-  "License proxy routes will be disabled in development."
-);
+// Legacy license-proxy config. The standalone License backend was merged
+// into this unified API; the only remaining consumer is the /web/license/me
+// proxy route, which returns 503 when these are unset (`licenseProxyEnabled`
+// is derived from them below). Optional — not set in production.
+const licenseServiceUrl = process.env.LICENSE_SERVICE_URL ?? "";
+const licenseServiceToken = process.env.LICENSE_SERVICE_TOKEN ?? "";
 
 // Flitt — payment processor (single-tier launch). All payment flows go
 // through the Flitt-hosted checkout; we never see card data. Sandbox/live

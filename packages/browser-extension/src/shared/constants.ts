@@ -6,8 +6,9 @@
  * must not be imported by @w2w/api or the figma-plugin.
  */
 
-// API Endpoints
-export const API_URL = "http://localhost:3002";
+// API Endpoints — production default. For local development, override the
+// backend URL via the extension's Options page (settings.backendUrl).
+export const API_URL = "https://api.web2wireframe.design";
 export const API_ENDPOINTS = {
   IMPORT_CDP: `${API_URL}/api/import-cdp`,
   IMPORT_URL: `${API_URL}/api/import-url`,
