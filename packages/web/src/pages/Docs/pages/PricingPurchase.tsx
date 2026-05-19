@@ -4,42 +4,42 @@ import styles from "../Docs.module.scss";
 
 const PricingPurchase = (): ReactElement => (
   <DocsLayout>
-    <h2>Purchase & Subscription</h2>
+    <h2>Purchase & Access</h2>
 
-    <h3>How the subscription model works</h3>
+    <h3>How the one-time purchase model works</h3>
     <p>
-      Web2Wireframe uses a subscription-based model to provide ongoing access
-      to paid features. Subscriptions are designed to be flexible, allowing
-      users to start small and upgrade as their needs grow.
+      Web2Wireframe Pro is a one-time purchase. A single $16 payment unlocks 30
+      days of Pro access — there is no recurring subscription and you are never
+      charged automatically.
     </p>
     <p>
-      A subscription gives you continuous access to paid functionality for the
-      duration of your billing period. As long as the subscription is active,
-      you can use the included features without interruption.
+      For the 30 days your access is active, you can use every Pro feature
+      without interruption. When the period ends, your account returns to the
+      Free tier unless you choose to buy again.
     </p>
     <p>
-      The subscription model is built to support long-term use while keeping
-      entry simple for new users.
+      This keeps things simple and predictable: you always know exactly when
+      and how much you'll be charged, because nothing happens unless you start
+      a purchase yourself.
     </p>
     <figure className={styles.imageBlock}>
       <div
         className={styles.imagePlaceholder}
         role="img"
-        aria-label="Subscription model overview diagram"
+        aria-label="One-time purchase model overview diagram"
       />
       <figcaption className={styles.imageCaption}>
-        Subscription model overview diagram.
+        One-time purchase model overview diagram.
       </figcaption>
     </figure>
 
     <h3>Step-by-step purchase process</h3>
     <p>
-      Purchasing a subscription is a straightforward process designed to
-      minimize friction.
+      Buying Pro is a straightforward process designed to minimize friction.
     </p>
     <p>The general flow looks like this:</p>
     <ol>
-      <li>Choose a plan that fits your needs</li>
+      <li>Open the Plan modal in the plugin and choose Pro</li>
       <li>Start the purchase process</li>
       <li>Complete the required checkout steps</li>
       <li>Gain immediate access to paid features</li>
@@ -73,33 +73,37 @@ const PricingPurchase = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Subscription update and cancellation</h3>
+    <h3>Renewing your access</h3>
     <p>
-      You can manage your subscription at any time from your account settings.
-      This includes upgrading, downgrading, or canceling your plan.
+      Because Pro does not auto-renew, there is nothing to cancel — access
+      simply ends when the 30 days are up. To keep Pro, you make another
+      one-time purchase.
     </p>
-    <p>When updating a subscription:</p>
     <ul>
-      <li>Changes take effect according to the selected plan and billing cycle</li>
-      <li>Your access adjusts automatically based on the new plan</li>
-    </ul>
-    <p>When canceling a subscription:</p>
-    <ul>
-      <li>Access to paid features remains active until the end of the current billing period</li>
-      <li>No further charges are applied after cancellation</li>
+      <li>
+        Renew any time from the Plan modal in the plugin, or from the link in
+        your expiry reminder email
+      </li>
+      <li>
+        Renewing early stacks the new 30 days onto your remaining time — no
+        days are lost
+      </li>
+      <li>
+        We email you a reminder a few days before your access is due to expire
+      </li>
     </ul>
     <p>
-      Clear subscription management ensures you stay in control of your usage
-      and costs.
+      You stay fully in control of your usage and costs — you are only ever
+      charged when you choose to buy.
     </p>
     <figure className={styles.imageBlock}>
       <div
         className={styles.imagePlaceholder}
         role="img"
-        aria-label="Subscription management settings with update and cancel options"
+        aria-label="Plan modal with renew option"
       />
       <figcaption className={styles.imageCaption}>
-        Subscription management settings.
+        Renewing Pro access from the Plan modal.
       </figcaption>
     </figure>
 

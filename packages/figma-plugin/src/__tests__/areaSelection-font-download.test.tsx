@@ -148,15 +148,15 @@ function findFileInput(container: Element): HTMLInputElement {
   return input;
 }
 
-/** Find the Generate button by text content */
-function findGenerateButton(container: Element): HTMLButtonElement {
+/** Find the Import button by text content */
+function findImportButton(container: Element): HTMLButtonElement {
   const buttons = Array.from(container.querySelectorAll("button"));
   for (const btn of buttons) {
-    if (btn.textContent?.includes("Generate") || btn.textContent?.includes("Processing")) {
+    if (btn.textContent?.includes("Import")) {
       return btn as HTMLButtonElement;
     }
   }
-  throw new Error("Generate button not found");
+  throw new Error("Import button not found");
 }
 
 // ============================================================================
@@ -191,7 +191,7 @@ describe("AreaSelection — Font download prop wiring (P0 #1)", () => {
     fireEvent.change(input);
 
     // Trigger handleGenerate
-    fireEvent.click(findGenerateButton(container));
+    fireEvent.click(findImportButton(container));
 
     // Wait for the file to be parsed and processAndRender to run
     await waitFor(() => {
@@ -234,7 +234,7 @@ describe("AreaSelection — Font download prop wiring (P0 #1)", () => {
       configurable: true,
     });
     fireEvent.change(input);
-    fireEvent.click(findGenerateButton(container));
+    fireEvent.click(findImportButton(container));
 
     await waitFor(() => {
       // wait for parse

@@ -5,6 +5,9 @@ import styles from "./HTML.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { authHeader } from "../../../shared/licenseClient";
+import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
@@ -20,7 +23,7 @@ import { validateHtml, type HtmlValidationResult } from "../../../../utils/valid
 const TAB_ID = "html";
 const STORAGE_KEY = "w2w_settings_expanded_html";
 
-const API_URL = "http://localhost:3002";
+const API_URL = API_BASE_URL;
 
 interface ImportState {
   status: "idle" | "loading" | "success" | "error";
@@ -117,7 +120,7 @@ export default function HTML() {
     }
     setShowRenderingLoader(true);
     setRenderingProgress({
-      step: "Creating wireframe...",
+      step: "Creating wireframe…",
       percent: 0,
     });
     setImportState({ status: "loading", message: "" });
@@ -162,7 +165,7 @@ export default function HTML() {
   };
 
   const proceedWithGenerate = async (trimmedHTML: string) => {
-    setImportState({ status: "loading", message: "Generating wireframe from HTML..." });
+    setImportState({ status: "loading", message: "Importing the HTML…" });
     settings.collapseSettings();
 
     try {
@@ -170,6 +173,7 @@ export default function HTML() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: authHeader(),
         },
         body: JSON.stringify({
           figmaUserId: config.figmaUserId,
@@ -192,7 +196,9 @@ export default function HTML() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(
-          errorData.error || errorData.details || `HTTP ${response.status}`
+          errorData.error ||
+            errorData.details ||
+            httpErrorMessage(response.status)
         );
       }
 
@@ -266,8 +272,7 @@ export default function HTML() {
     } catch (error) {
       setImportState({
         status: "error",
-        message:
-          error instanceof Error ? error.message : "Failed to generate wireframe from HTML",
+        message: toUserMessage(error, "Failed to import the HTML"),
       });
     }
   };
@@ -420,7 +425,7 @@ export default function HTML() {
         onClick={handleGenerate}
         disabled={isDisabled}
       >
-        {importState.status === "loading" ? "Generating..." : "Generate Wireframe"}
+        {importState.status === "loading" ? "Importing…" : "Import"}
       </button>
 
       {/* Font Fallback Modal */}
@@ -439,12 +444,13 @@ export default function HTML() {
       <HtmlWarningModal
         isOpen={warningType !== null}
         title={warningType === "css" ? "Missing CSS" : "HTML Quality Warning"}
-        errorCount={warningType === "css" ? 1 : htmlValidation?.errorCount ?? 0}
-        errors={
+        intro={
           warningType === "css"
-            ? ["You're trying to import HTML without CSS styles. The wireframe may not reflect the intended design."]
-            : htmlValidation?.errors ?? []
+            ? "No CSS provided. The wireframe will use browser default styling and may look unstyled."
+            : undefined
         }
+        errorCount={warningType === "css" ? 0 : htmlValidation?.errorCount ?? 0}
+        errors={warningType === "css" ? [] : htmlValidation?.errors ?? []}
         onContinue={handleWarningContinue}
         onCancel={handleWarningCancel}
       />

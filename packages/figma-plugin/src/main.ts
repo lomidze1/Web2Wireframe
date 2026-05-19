@@ -172,7 +172,7 @@ export default function () {
       const executeRender = async (fontFamily: string, fontMapping?: FontMapping, originalFontNames?: FontMapping) => {
 
 
-      figma.notify("Creating wireframe...", { timeout: 2000 });
+      figma.notify("Creating wireframe…", { timeout: 2000 });
 
       // Send initial progress to UI
       figma.ui.postMessage({
@@ -261,7 +261,7 @@ export default function () {
         });
 
         if (effectiveColorMode === "plugin") {
-          figma.notify("Creating plugin color styles...", { timeout: 1500 });
+          figma.notify("Creating plugin color styles…", { timeout: 1500 });
           try {
             // Nest plugin styles under `{hostname}/Plugin` so multi-site
             // imports in Plugin Colors mode don't collide (e.g. importing
@@ -290,7 +290,7 @@ export default function () {
           }
         } else {
           // Website color mode: unified variable-first style creation
-          figma.notify("Creating website color styles...", { timeout: 1500 });
+          figma.notify("Creating website color styles…", { timeout: 1500 });
 
           try {
             const result = await createUnifiedWebsiteColorStyles(
@@ -581,7 +581,7 @@ export default function () {
 
         for (let i = 0; i < frames.length; i++) {
           const viewportWidth = frames[i].viewportWidth;
-          figma.notify(`Processing viewport ${i + 1}/${frames.length}...`, {
+          figma.notify(`Processing viewport ${i + 1}/${frames.length}…`, {
             timeout: 1000,
           });
 
@@ -631,7 +631,7 @@ export default function () {
         }
 
         // Wrap frame(s) in a Section
-        figma.notify("Grouping frames in Section...", { timeout: 1000 });
+        figma.notify("Grouping frames in Section…", { timeout: 1000 });
 
         figma.ui.postMessage({
           type: "render-progress",
@@ -902,7 +902,7 @@ export default function () {
         }
       } catch (err) {
         logger.warn("rebind-original-fonts handler failed", { error: err });
-        figma.notify("Re-apply fonts failed. Check console for details.", { error: true });
+        figma.notify("Couldn't re-apply fonts. Please try again.", { error: true });
       }
       return;
     }
@@ -935,6 +935,35 @@ export default function () {
           type: "config-loaded",
           data: { config: null },
         });
+      }
+    }
+
+    // Plugin OAuth token persistence. The token is obtained via the Figma
+    // OAuth flow in the UI iframe; clientStorage lives in the sandbox, so the
+    // iframe round-trips through these messages to persist/load it.
+    if (msg.type === "save-auth-token") {
+      try {
+        await figma.clientStorage.setAsync("w2w_auth_token", msg.data);
+      } catch (err) {
+        logger.warn("Failed to save auth token to clientStorage", { error: err });
+      }
+    }
+
+    if (msg.type === "load-auth-token") {
+      try {
+        const token = await figma.clientStorage.getAsync("w2w_auth_token");
+        figma.ui.postMessage({ type: "auth-token-loaded", data: token ?? null });
+      } catch (err) {
+        logger.warn("Failed to load auth token from clientStorage", { error: err });
+        figma.ui.postMessage({ type: "auth-token-loaded", data: null });
+      }
+    }
+
+    if (msg.type === "clear-auth-token") {
+      try {
+        await figma.clientStorage.deleteAsync("w2w_auth_token");
+      } catch (err) {
+        logger.warn("Failed to clear auth token from clientStorage", { error: err });
       }
     }
 

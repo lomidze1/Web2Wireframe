@@ -9,7 +9,20 @@ import {
   DEFAULT_CONFIG,
 } from "../ui/shared/ConfigContext";
 import { API_BASE_URL, withFigmaUserId } from "../ui/shared/apiConfig";
-import { fetchMyLicense } from "../ui/shared/licenseClient";
+import {
+  fetchMyLicense,
+  applyAuthToken,
+  __resetAuthForTests,
+} from "../ui/shared/licenseClient";
+
+// fetchMyLicense issues a single authed request to /api/license/me. The
+// token is seeded directly via applyAuthToken — the old /api/auth/init
+// exchange is gone (replaced by the verified Figma OAuth flow).
+function mockLicenseFetch(licenseResponse: Response): ReturnType<typeof vi.spyOn> {
+  return vi
+    .spyOn(globalThis, "fetch")
+    .mockImplementation(async () => licenseResponse.clone());
+}
 
 // ============================================================================
 // apiConfig
@@ -53,10 +66,13 @@ describe("apiConfig.withFigmaUserId", () => {
 describe("licenseClient.fetchMyLicense", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    __resetAuthForTests();
+    applyAuthToken("test.token", Date.now() + 3_600_000);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    __resetAuthForTests();
   });
 
   it("rejects when figmaUserId is missing", async () => {
@@ -64,7 +80,7 @@ describe("licenseClient.fetchMyLicense", () => {
   });
 
   it("includes figmaUserId in the request URL", async () => {
-    const mockFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const mockFetch = mockLicenseFetch(
       new Response(
         JSON.stringify({
           userId: "user-abc-123",
@@ -80,18 +96,16 @@ describe("licenseClient.fetchMyLicense", () => {
 
     await fetchMyLicense("user-abc-123");
 
-    expect(mockFetch).toHaveBeenCalledOnce();
-    const calledUrl = mockFetch.mock.calls[0][0] as string;
-    expect(calledUrl).toContain("figmaUserId=user-abc-123");
-    expect(calledUrl.startsWith(API_BASE_URL)).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const licenseUrl = mockFetch.mock.calls[0][0] as string;
+    expect(licenseUrl).toContain("figmaUserId=user-abc-123");
+    expect(licenseUrl.startsWith(API_BASE_URL)).toBe(true);
   });
 
-  it("throws on non-2xx response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("", { status: 500 }),
-    );
+  it("throws a user-facing message on non-2xx response", async () => {
+    mockLicenseFetch(new Response("", { status: 500 }));
     await expect(fetchMyLicense("u-1")).rejects.toThrow(
-      /License request failed/,
+      /Something went wrong on our side/,
     );
   });
 });

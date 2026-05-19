@@ -14,6 +14,8 @@ import {
 import { validateUrl } from "../../utils/urlValidation.js";
 import { mongoConnected } from "../../state.js";
 import { requireImportAllowance } from "../../middleware/licenseGate.js";
+import { authenticatePlugin } from "../../middleware/auth.js";
+import { importRateLimiter } from "../../middleware/rateLimit.js";
 
 const router = Router();
 
@@ -30,10 +32,9 @@ const router = Router();
  * - pluginColors: object - Custom plugin color overrides
  * - pluginFont: string - Custom plugin font (e.g., "Montserrat", "Arial")
  */
-router.post("/import-url", requireImportAllowance, async (req: Request, res: Response) => {
+router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportAllowance, async (req: Request, res: Response) => {
   try {
     const {
-      userId,
       sourceUrl,
       viewports = [1440],
       colorMode = "plugin",
@@ -43,13 +44,8 @@ router.post("/import-url", requireImportAllowance, async (req: Request, res: Res
       pluginFont = "Montserrat",
     } = req.body;
 
-    // Validation
-    if (!userId || typeof userId !== "string") {
-      return res.status(400).json({
-        success: false,
-        error: "Missing or invalid userId",
-      });
-    }
+    // Identity comes from the verified plugin token, never the request body.
+    const userId = req.userId!;
 
     if (!sourceUrl) {
       return res.status(400).json({
@@ -200,7 +196,7 @@ router.post("/import-url", requireImportAllowance, async (req: Request, res: Res
  * - pluginColors: object
  * - pluginFont: string
  */
-router.post("/import-html", requireImportAllowance, async (req: Request, res: Response) => {
+router.post("/import-html", importRateLimiter, authenticatePlugin, requireImportAllowance, async (req: Request, res: Response) => {
   try {
     const {
       htmlCode,

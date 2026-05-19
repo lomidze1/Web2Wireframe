@@ -15,6 +15,10 @@ export interface ISubscription {
   lastChargeAt: Date | null;
   lastFailedAt: Date | null;
   failureCount: number;
+  /** true = native Flitt subscription; false = one-time purchase. */
+  autoRenew: boolean;
+  /** Set when an expiry reminder email has been sent for the current cycle. */
+  reminderSentAt: Date | null;
 }
 
 export interface IUsage {
@@ -66,6 +70,8 @@ const SubscriptionSchema = new Schema<ISubscription>(
     lastChargeAt: { type: Date, default: null },
     lastFailedAt: { type: Date, default: null },
     failureCount: { type: Number, default: 0 },
+    autoRenew: { type: Boolean, default: false },
+    reminderSentAt: { type: Date, default: null },
   },
   { _id: false },
 );
@@ -113,5 +119,6 @@ const LicenseSchema = new Schema<ILicense>(
 
 LicenseSchema.index({ "subscription.nextBillingAt": 1 });
 LicenseSchema.index({ cycleEndsAt: 1 });
+LicenseSchema.index({ "subscription.reminderSentAt": 1, cycleEndsAt: 1 });
 
 export const License = mongoose.model<ILicense>("License", LicenseSchema);

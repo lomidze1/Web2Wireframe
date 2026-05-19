@@ -5,7 +5,7 @@ import { render, screen, act, waitFor } from "@testing-library/preact";
 
 import Plan from "../ui/components/modalPopup/planPopup/Plan";
 import { ConfigProvider } from "../ui/shared/ConfigContext";
-import type { License } from "../ui/shared/licenseClient";
+import { applyAuthToken, type License } from "../ui/shared/licenseClient";
 
 const FIGMA_USER_ID = "figma-user-billing-test";
 
@@ -52,6 +52,8 @@ function dispatchCurrentUser(userId: string | null): void {
 describe("Plan modal — Billing email row", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Seed a plugin token so fetchMyLicense can issue its authed request.
+    applyAuthToken("test.token", Date.now() + 3_600_000);
   });
 
   afterEach(() => {

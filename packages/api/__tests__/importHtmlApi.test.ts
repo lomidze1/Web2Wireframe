@@ -24,6 +24,23 @@ vi.mock("../src/middleware/licenseGate.js", () => ({
   ) => next(),
 }));
 
+// Stub authenticatePlugin so import routes are reachable with a fixed
+// req.userId — auth itself is covered by auth.test.ts.
+vi.mock("../src/middleware/auth.js", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    authenticatePlugin: (
+      req: { userId?: string },
+      _res: unknown,
+      next: () => void,
+    ) => {
+      req.userId = "test-user";
+      next();
+    },
+  };
+});
+
 const { default: app } = await import("../src/index.js");
 
 describe("POST /api/import-html — validation", () => {

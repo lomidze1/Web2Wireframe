@@ -110,6 +110,21 @@ describe("License schema definition", () => {
     expect(subSchema?.path("nextBillingAt").isRequired).toBe(true);
   });
 
+  it("subscription subdocument has autoRenew (default false) + reminderSentAt (default null), both optional", () => {
+    const subPath = License.schema.path("subscription");
+    const subSchema = (subPath as mongoose.SchemaType & {
+      schema?: mongoose.Schema;
+    }).schema;
+    const autoRenew = subSchema?.path("autoRenew");
+    const reminderSentAt = subSchema?.path("reminderSentAt");
+    expect(autoRenew).toBeDefined();
+    expect(autoRenew?.defaultValue).toBe(false);
+    expect(autoRenew?.isRequired).toBeFalsy();
+    expect(reminderSentAt).toBeDefined();
+    expect(reminderSentAt?.defaultValue).toBe(null);
+    expect(reminderSentAt?.isRequired).toBeFalsy();
+  });
+
   it("registers timestamps (createdAt/updatedAt)", () => {
     expect(License.schema.path("createdAt")).toBeDefined();
     expect(License.schema.path("updatedAt")).toBeDefined();

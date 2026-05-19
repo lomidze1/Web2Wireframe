@@ -1,7 +1,7 @@
 # Payment System Implementation Plan
 
-**Status:** Decisions finalized, research complete, awaiting Plan Mode approval to begin implementation.
-**Last updated:** 2026-05-04
+**Status:** ✅ Implemented — launch ships the one-time $16 / 30-day model. Native recurring subscription code is complete but parked at the route level until Flitt grants subscription access.
+**Last updated:** 2026-05-18
 **Provider:** Flitt (Georgia/CIS PCI-DSS Level 1 gateway) — exclusive, no fallback providers.
 
 ---
@@ -14,6 +14,12 @@ Build a complete payment, subscription, and licensing system for the Web2Wirefra
 - Limit enforcement on imports (URL + Screenshot + HTML + Browser Extension)
 - No user registration — Figma user ID is the identity
 - 100% PCI compliance — card data never touches our servers
+
+> **Launch model (2026-05-18):** the checkout route ships **one-time $16 / 30-day**
+> purchases (`createOneTimeCheckout`). The native-subscription path described below
+> (`createSubscriptionCheckout`, `subscription: "Y"`) is fully implemented and tested
+> but disabled at the route level — re-enabled when Flitt grants subscription access.
+> The webhook handler and License model already support both paths.
 
 ---
 
@@ -42,7 +48,10 @@ Build a complete payment, subscription, and licensing system for the Web2Wirefra
 - Email collected **only at Flitt checkout** (receipt/recovery only) — written to License via webhook
 - `figmaUserId` is the primary key; email is metadata only
 
-### 2.4 Recurring Strategy
+### 2.4 Recurring Strategy — ⚠️ parked at launch
+
+> Launch ships one-time purchases (see §1 launch-model note). The points below
+> describe the parked recurring path, kept for when Flitt subscriptions are enabled.
 
 - Flitt native subscriptions (`subscription: "Y"` + `recurring_data`)
 - Flitt charges automatically — no custom cron job for charging
@@ -371,6 +380,10 @@ POST /api/subscription/cancel
 ---
 
 ## 6. Implementation Phases (TDD-First)
+
+> **Status (2026-05-18): all phases 0–12 implemented.** The Phase 0 blocker is
+> resolved — plugin identity is Figma OAuth-verified. The breakdown below is
+> retained as a build record.
 
 ### Phase 0 — `figma.currentUser.id` plumbing ⚠️ PRIMARY BLOCKER
 

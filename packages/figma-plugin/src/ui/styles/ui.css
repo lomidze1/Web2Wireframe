@@ -34,3 +34,13 @@ body {
   background: var(--main-gradient, #264653);
   color: var(--text, #ffffff);
 }
+
+/* Initial connection-gate loading state */
+.loadingScreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}

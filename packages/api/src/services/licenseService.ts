@@ -25,10 +25,15 @@ export type UseImportResult = UseImportSuccess | UseImportFailure;
 // ============================================================================
 
 /**
- * If the current cycle has elapsed, advance it: reset usage and roll the
+ * If a Free license's cycle has elapsed, advance it: reset usage and roll the
  * cycle dates forward. Returns true if the doc was modified.
+ *
+ * Only applies to Free licenses. An expired Pro license must NOT get a free
+ * cycle reset — `downgradeExpiredOneTimePro` / `cleanupExpiredCancellation`
+ * handle the downgrade for Pro.
  */
 export function resetCycleIfElapsed(license: ILicense): boolean {
+  if (license.plan !== "free") return false;
   const now = Date.now();
   if (now < license.cycleEndsAt.getTime()) return false;
   const nowDate = new Date(now);
@@ -36,6 +41,28 @@ export function resetCycleIfElapsed(license: ILicense): boolean {
   license.cycleEndsAt = new Date(now + CYCLE_DURATION_MS);
   license.usage.imports = 0;
   license.usage.periodStartedAt = nowDate;
+  return true;
+}
+
+/**
+ * If a one-time Pro purchase has expired (no auto-renewal), downgrade in place
+ * to Free with a fresh cycle. Subscription Pro licenses (`autoRenew: true`)
+ * are left untouched — Flitt's recurring charge / cancellation drives those.
+ * Returns true if the doc was modified.
+ */
+export function downgradeExpiredOneTimePro(license: ILicense): boolean {
+  if (license.plan !== "pro") return false;
+  if (license.subscription?.autoRenew === true) return false;
+  if (Date.now() < license.cycleEndsAt.getTime()) return false;
+
+  const now = new Date();
+  license.plan = "free";
+  license.status = "active";
+  license.subscription = null;
+  license.cycleStartedAt = now;
+  license.cycleEndsAt = new Date(now.getTime() + CYCLE_DURATION_MS);
+  license.usage.imports = 0;
+  license.usage.periodStartedAt = now;
   return true;
 }
 
@@ -75,12 +102,18 @@ export const licenseService = {
       return license;
     }
 
-    // Downgrade-on-read takes precedence: if a canceled Pro period has
-    // ended, we already roll the cycle as part of the downgrade and skip
-    // the redundant cycle reset.
-    const downgraded = cleanupExpiredCancellation(license);
-    const cycled = downgraded ? false : resetCycleIfElapsed(license);
-    if (downgraded || cycled) await license.save();
+    // Downgrade-on-read takes precedence: a canceled subscription Pro or an
+    // expired one-time Pro is downgraded to Free (which already rolls a fresh
+    // cycle), so the redundant Free cycle reset is skipped.
+    const downgradedCancel = cleanupExpiredCancellation(license);
+    const downgradedOneTime = downgradedCancel
+      ? false
+      : downgradeExpiredOneTimePro(license);
+    const cycled =
+      downgradedCancel || downgradedOneTime
+        ? false
+        : resetCycleIfElapsed(license);
+    if (downgradedCancel || downgradedOneTime || cycled) await license.save();
     return license;
   },
 
@@ -144,6 +177,64 @@ export const licenseService = {
             lastChargeAt: now,
             lastFailedAt: null,
             failureCount: 0,
+            autoRenew: true,
+            reminderSentAt: null,
+          },
+        },
+      },
+      { new: true, upsert: true },
+    );
+    // upsert:true with new:true guarantees a non-null result.
+    return updated as ILicense;
+  },
+
+  /**
+   * Webhook: one-time purchase approved. Grants 30 days of Pro. If the user is
+   * already an active Pro, the new 30 days STACK onto the remaining time so an
+   * early renewal loses no days; an expired Pro renews fresh from now.
+   *
+   * Read-modify-write: a concurrent second webhook for the same user within
+   * milliseconds is effectively impossible (a user cannot complete two Flitt
+   * checkouts at once), and webhook idempotency dedupes retries of the same
+   * payment upstream.
+   */
+  async applyOneTimePurchase(params: {
+    figmaUserId: string;
+    email: string | null;
+    flittOrderId: string;
+  }): Promise<ILicense> {
+    const now = new Date();
+    const existing = await License.findOne({ figmaUserId: params.figmaUserId });
+    const stillActivePro =
+      existing != null &&
+      existing.plan === "pro" &&
+      existing.cycleEndsAt.getTime() > now.getTime();
+    const base = stillActivePro
+      ? existing.cycleEndsAt.getTime()
+      : now.getTime();
+    const cycleEnd = new Date(base + CYCLE_DURATION_MS);
+
+    const updated = await License.findOneAndUpdate(
+      { figmaUserId: params.figmaUserId },
+      {
+        $set: {
+          email: params.email,
+          plan: "pro",
+          status: "active",
+          cycleStartedAt: now,
+          cycleEndsAt: cycleEnd,
+          "usage.imports": 0,
+          "usage.periodStartedAt": now,
+          subscription: {
+            flittOrderId: params.flittOrderId,
+            activatedAt: now,
+            nextBillingAt: cycleEnd,
+            canceledAt: null,
+            lastChargeAt: now,
+            lastFailedAt: null,
+            failureCount: 0,
+            autoRenew: false,
+            reminderSentAt: null,
           },
         },
       },

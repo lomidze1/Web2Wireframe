@@ -119,6 +119,12 @@ Browser Extension (Content Script primary + CDP for specific tasks)
 ტესტები **აუცილებლად** უნდა დაიწეროს და დამოწმდეს **იმპლემენტაციამდე**.
 გამონაკლისი: one-liner fix, typo, ან მომხმარებელმა აშკარად თქვა "ტესტები არ მჭირდება".
 
+### IMPORTANT: Pre-Launch Checklist
+
+როცა owner-ი ახალ სესიაში გეკითხება "გამოქვეყნებამდე რა დამრჩა გასაკეთებელი"
+(ან მსგავსს — "launch-მდე რა მჭირდება", "what's left before launch"),
+**აუცილებლად წაიკითხე** `docs/PRE-LAUNCH-CHECKLIST.md` და მისი მიხედვით უპასუხე.
+
 ## Code Style
 
 - TypeScript strict mode (no `any`) — ყველა package-ში

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
 import { CYCLE_DURATION_MS } from "../src/models/License.js";
+import { signToken } from "../src/middleware/auth.js";
 
 // ============================================================================
 // Mock licenseService BEFORE importing the route module
@@ -39,6 +40,12 @@ function makeApp() {
   return app;
 }
 
+const AUTH_SECRET = "test-auth-secret-for-license-route-tests";
+
+function authHeader(userId: string): string {
+  return `Bearer ${signToken(userId, AUTH_SECRET)}`;
+}
+
 function fakeLicense(overrides: Record<string, unknown> = {}) {
   const now = new Date("2026-05-04T10:00:00Z");
   const cycleEnd = new Date(now.getTime() + CYCLE_DURATION_MS);
@@ -59,6 +66,7 @@ function fakeLicense(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.AUTH_SECRET = AUTH_SECRET;
 });
 
 // ============================================================================
@@ -66,17 +74,23 @@ beforeEach(() => {
 // ============================================================================
 
 describe("GET /api/license/me", () => {
-  it("returns 400 when figmaUserId query is missing", async () => {
+  it("returns 401 when Authorization header is missing", async () => {
     const res = await request(makeApp()).get("/api/license/me");
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/figmaUserId/i);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 401 with an invalid token", async () => {
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", "Bearer not-a-real-token");
+    expect(res.status).toBe(401);
   });
 
   it("returns serialized Free license with limits.imports = 10", async () => {
     mockGetOrCreate.mockResolvedValue(fakeLicense());
-    const res = await request(makeApp()).get(
-      "/api/license/me?figmaUserId=u-1",
-    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
     expect(res.status).toBe(200);
     expect(res.body.figmaUserId).toBe("u-1");
     expect(res.body.plan).toBe("free");
@@ -84,6 +98,8 @@ describe("GET /api/license/me", () => {
     expect(res.body.limits.imports).toBe(10);
     expect(res.body.subscription).toBe(null);
     expect(res.body.cycleStartedAt).toBe("2026-05-04T10:00:00.000Z");
+    // Caller identity comes from the verified token, not the query string.
+    expect(mockGetOrCreate).toHaveBeenCalledWith("u-1");
   });
 
   it("serializes Pro plan limit as null (unlimited)", async () => {
@@ -101,9 +117,9 @@ describe("GET /api/license/me", () => {
         },
       }),
     );
-    const res = await request(makeApp()).get(
-      "/api/license/me?figmaUserId=u-1",
-    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
     expect(res.status).toBe(200);
     expect(res.body.plan).toBe("pro");
     expect(res.body.limits.imports).toBe(null);
@@ -126,9 +142,9 @@ describe("GET /api/license/me", () => {
         },
       }),
     );
-    const res = await request(makeApp()).get(
-      "/api/license/me?figmaUserId=u-1",
-    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
     expect(res.status).toBe(200);
     expect(res.body.subscription.failureCount).toBe(3);
     expect(res.body.subscription.lastFailedAt).toBe(failedAt.toISOString());
@@ -149,9 +165,9 @@ describe("GET /api/license/me", () => {
         },
       }),
     );
-    const res = await request(makeApp()).get(
-      "/api/license/me?figmaUserId=u-1",
-    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
     expect(res.status).toBe(200);
     expect(res.body.subscription.failureCount).toBe(0);
     expect(res.body.subscription.lastFailedAt).toBe(null);
@@ -159,9 +175,9 @@ describe("GET /api/license/me", () => {
 
   it("returns 500 when service throws", async () => {
     mockGetOrCreate.mockRejectedValue(new Error("db down"));
-    const res = await request(makeApp()).get(
-      "/api/license/me?figmaUserId=u-1",
-    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
     expect(res.status).toBe(500);
   });
 });
@@ -171,20 +187,22 @@ describe("GET /api/license/me", () => {
 // ============================================================================
 
 describe("POST /api/license/use-import", () => {
-  it("returns 400 when figmaUserId is missing", async () => {
+  it("returns 401 when Authorization header is missing", async () => {
     const res = await request(makeApp())
       .post("/api/license/use-import")
       .send({});
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
   });
 
   it("returns 200 with remaining count for Free under limit", async () => {
     mockUseImport.mockResolvedValue({ ok: true, remaining: 6 });
     const res = await request(makeApp())
       .post("/api/license/use-import")
-      .send({ figmaUserId: "u-1" });
+      .set("Authorization", authHeader("u-1"))
+      .send({});
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, remaining: 6 });
+    expect(mockUseImport).toHaveBeenCalledWith("u-1");
   });
 
   it("returns 200 with remaining: null for Pro (unlimited)", async () => {
@@ -194,7 +212,8 @@ describe("POST /api/license/use-import", () => {
     });
     const res = await request(makeApp())
       .post("/api/license/use-import")
-      .send({ figmaUserId: "u-1" });
+      .set("Authorization", authHeader("u-1"))
+      .send({});
     expect(res.status).toBe(200);
     expect(res.body.remaining).toBe(null);
   });
@@ -203,7 +222,8 @@ describe("POST /api/license/use-import", () => {
     mockUseImport.mockResolvedValue({ error: "limit_exceeded" });
     const res = await request(makeApp())
       .post("/api/license/use-import")
-      .send({ figmaUserId: "u-1" });
+      .set("Authorization", authHeader("u-1"))
+      .send({});
     expect(res.status).toBe(403);
     expect(res.body.error).toBe("limit_exceeded");
     expect(res.body.upgradeUrl).toBeDefined();
@@ -213,7 +233,55 @@ describe("POST /api/license/use-import", () => {
     mockUseImport.mockRejectedValue(new Error("db down"));
     const res = await request(makeApp())
       .post("/api/license/use-import")
-      .send({ figmaUserId: "u-1" });
+      .set("Authorization", authHeader("u-1"))
+      .send({});
     expect(res.status).toBe(500);
+  });
+});
+
+// ============================================================================
+// POST /api/license/by-token  (website Account page — token in body)
+// ============================================================================
+
+describe("POST /api/license/by-token", () => {
+  it("returns the serialized license for a valid token", async () => {
+    mockGetOrCreate.mockResolvedValue(fakeLicense());
+    const res = await request(makeApp())
+      .post("/api/license/by-token")
+      .send({ figmaUserId: "u-1", token: signToken("u-1", AUTH_SECRET) });
+    expect(res.status).toBe(200);
+    expect(res.body.figmaUserId).toBe("u-1");
+    expect(res.body.plan).toBe("free");
+    expect(mockGetOrCreate).toHaveBeenCalledWith("u-1");
+  });
+
+  it("returns 400 when figmaUserId or token is missing", async () => {
+    const res = await request(makeApp())
+      .post("/api/license/by-token")
+      .send({ figmaUserId: "u-1" });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when figmaUserId is not a string (NoSQL guard)", async () => {
+    const res = await request(makeApp())
+      .post("/api/license/by-token")
+      .send({ figmaUserId: { $ne: null }, token: signToken("u-1", AUTH_SECRET) });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 401 with an invalid token", async () => {
+    const res = await request(makeApp())
+      .post("/api/license/by-token")
+      .send({ figmaUserId: "u-1", token: "not-a-real-token" });
+    expect(res.status).toBe(401);
+    expect(mockGetOrCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 when the token's user does not match figmaUserId", async () => {
+    const res = await request(makeApp())
+      .post("/api/license/by-token")
+      .send({ figmaUserId: "u-2", token: signToken("u-1", AUTH_SECRET) });
+    expect(res.status).toBe(401);
+    expect(mockGetOrCreate).not.toHaveBeenCalled();
   });
 });

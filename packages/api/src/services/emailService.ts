@@ -73,10 +73,10 @@ export const generateSupportEmailHtml = (data: {
     <body>
       <div class="container">
         <div class="header">
-          <h2>[Support Ticket] ${data.topic}</h2>
-          <p style="margin: 8px 0 0 0; color: #5a6072;">From: <strong>${
-            data.name
-          }</strong></p>
+          <h2>[Support Ticket] ${escapeHtml(data.topic)}</h2>
+          <p style="margin: 8px 0 0 0; color: #5a6072;">From: <strong>${escapeHtml(
+            data.name,
+          )}</strong></p>
         </div>
 
         <div class="section">
@@ -258,6 +258,68 @@ Ticket ID: ${data.ticketId}
 Keep this Ticket ID for follow-ups.
 
 Detected plan: ${data.plan} (${data.planVerified ? "verified" : "unverified"})
+`;
+};
+
+export const generateExpiryReminderHtml = (data: {
+  email: string;
+  expiresAt: string;
+  renewUrl: string;
+}): string => {
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9; border-radius: 8px; }
+        .header { border-bottom: 2px solid #3b82f6; padding-bottom: 16px; margin-bottom: 16px; }
+        .header h2 { margin: 0; color: #0c0d12; }
+        .cta { display: inline-block; margin: 16px 0; padding: 12px 24px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; }
+        .meta { margin-top: 12px; color: #5a6072; font-size: 0.95rem; }
+        .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 0.85rem; color: #5a6072; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h2>Your Web2Wireframe Pro access is about to expire</h2>
+        </div>
+        <p>Your Pro access ends on <strong>${escapeHtml(
+          data.expiresAt,
+        )}</strong>. After that your account returns to the Free plan (10 imports per month).</p>
+        <p>Renew for $16 to keep unlimited imports for another 30 days.</p>
+        <p><a class="cta" href="${escapeHtml(data.renewUrl)}">Renew Pro — $16</a></p>
+        <p class="meta">One-time payment — you're only charged when you choose to renew.</p>
+        <div class="footer">
+          <p>You're receiving this because Pro access is linked to ${escapeHtml(
+            data.email,
+          )}. If you didn't expect this email, you can ignore it.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const generateExpiryReminderText = (data: {
+  email: string;
+  expiresAt: string;
+  renewUrl: string;
+}): string => {
+  return `
+Your Web2Wireframe Pro access is about to expire.
+
+Your Pro access ends on ${data.expiresAt}. After that your account returns to the Free plan (10 imports per month).
+
+Renew for $16 to keep unlimited imports for another 30 days:
+${data.renewUrl}
+
+One-time payment — you're only charged when you choose to renew.
+
+You're receiving this because Pro access is linked to ${data.email}.
 `;
 };
 

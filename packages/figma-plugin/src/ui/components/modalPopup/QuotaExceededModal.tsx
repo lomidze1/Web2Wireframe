@@ -33,7 +33,7 @@ export default function QuotaExceededModal({
       >
         <div class={styles.modalHeader}>
           <h2 id="quota-title" class={styles.modalTitle}>
-            Free quota reached
+            You've reached your free limit
           </h2>
           <button
             type="button"
@@ -46,12 +46,12 @@ export default function QuotaExceededModal({
         </div>
         <div class={styles.modalContent}>
           <div class={styles.planNotice}>
-            You've used all 10 free imports this month. Upgrade to Pro for
-            unlimited imports — your cycle resets when you renew.
+            You've used all 10 free imports this month. Upgrade to Pro for 30
+            days of unlimited imports.
           </div>
           <div class={styles.planSummary}>
             <span class={styles.planLabel}>Pro</span>
-            <span class={styles.planBadge}>$16 / month</span>
+            <span class={styles.planBadge}>$16 / 30 days</span>
           </div>
           <div class={styles.planCards}>
             <div class={`${styles.planCard} ${styles.planCardPro}`}>
@@ -59,7 +59,9 @@ export default function QuotaExceededModal({
                 <li class={styles.planListItem}>Unlimited imports</li>
                 <li class={styles.planListItem}>All viewports & full styles</li>
                 <li class={styles.planListItem}>Priority email support</li>
-                <li class={styles.planListItem}>Cancel anytime</li>
+                <li class={styles.planListItem}>
+                  One-time payment — no auto-renewal
+                </li>
               </ul>
               <button
                 type="button"

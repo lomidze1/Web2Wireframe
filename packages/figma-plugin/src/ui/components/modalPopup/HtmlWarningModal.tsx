@@ -6,6 +6,9 @@ import { useModal } from "../../hooks/useModal";
 interface HtmlWarningModalProps {
   isOpen: boolean;
   title?: string;
+  /** Overrides the default "Found N issues" sentence — used for the
+   *  informational missing-CSS case rather than a validation warning. */
+  intro?: string;
   errorCount: number;
   errors: string[];
   onContinue: () => void;
@@ -17,6 +20,7 @@ const MAX_VISIBLE_ERRORS = 5;
 export default function HtmlWarningModal({
   isOpen,
   title,
+  intro,
   errorCount,
   errors,
   onContinue,
@@ -53,8 +57,10 @@ export default function HtmlWarningModal({
         </div>
         <div class={styles.modalContent}>
           <p class={styles.variablesDescription}>
-            Found {errorCount} potential issue{errorCount !== 1 ? "s" : ""} in
-            your HTML code. The generated wireframe may not match your intent.
+            {intro ??
+              `Found ${errorCount} potential issue${
+                errorCount !== 1 ? "s" : ""
+              } in your HTML code. The generated wireframe may not match your intent.`}
           </p>
 
           {visibleErrors.length > 0 && (

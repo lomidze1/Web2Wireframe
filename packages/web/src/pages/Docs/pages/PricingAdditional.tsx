@@ -73,27 +73,27 @@ const PricingAdditional = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Cancellations and account-related topics</h3>
+    <h3>Renewal and account-related topics</h3>
     <p>
-      Subscription cancellations, account access, and related topics are
-      handled with clarity and user control in mind. Users can manage their
-      subscriptions through account settings and review the status of their
-      plans at any time.
+      Pro is a one-time purchase, so there is no recurring subscription to
+      cancel and no automatic charges. Access lasts 30 days from the date of
+      purchase, and you can review your current plan and expiry date at any
+      time in the plugin's Plan modal.
     </p>
     <p>
-      If a subscription is canceled, access to paid features typically remains
-      available until the end of the current billing period. Account-related
-      questions and changes are documented to help users understand how their
-      access is managed.
+      To keep Pro past the 30 days, you make another one-time purchase. When
+      the period ends without a renewal, the account simply returns to the
+      Free tier. We email a reminder before access is due to expire so a
+      renewal is never a surprise.
     </p>
     <figure className={styles.imageBlock}>
       <div
         className={styles.imagePlaceholder}
         role="img"
-        aria-label="Account settings or subscription status placeholder"
+        aria-label="Plan status and renewal placeholder"
       />
       <figcaption className={styles.imageCaption}>
-        Account settings or subscription status placeholder.
+        Plan status and renewal placeholder.
       </figcaption>
     </figure>
 

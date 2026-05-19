@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import express, { Request, Response, NextFunction } from "express";
+import { describe, it, expect, beforeEach } from "vitest";
+import express, { Request, Response } from "express";
 import request from "supertest";
 import { createHmac } from "node:crypto";
 import { signToken, verifyToken, authenticatePlugin } from "../src/middleware/auth.js";
+import { pendingPluginAuth } from "../src/state.js";
 
 const TEST_SECRET = "test-secret-key-for-hmac-signing-32bytes!";
 
@@ -46,11 +47,10 @@ describe("verifyToken", () => {
   });
 
   it("throws for an expired token", () => {
-    // Create token with expiry in the past
     const payload = {
       userId: "user-expired",
-      iat: Math.floor(Date.now() / 1000) - 7200, // 2 hours ago
-      exp: Math.floor(Date.now() / 1000) - 3600, // 1 hour ago
+      iat: Math.floor(Date.now() / 1000) - 7200,
+      exp: Math.floor(Date.now() / 1000) - 3600,
     };
     const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
     const signature = createHmac("sha256", TEST_SECRET)
@@ -65,7 +65,6 @@ describe("verifyToken", () => {
     const token = signToken("user-real", TEST_SECRET);
     const [payloadB64, signature] = token.split(".");
 
-    // Tamper with the payload
     const tamperedPayload = JSON.parse(
       Buffer.from(payloadB64, "base64url").toString()
     );
@@ -76,6 +75,15 @@ describe("verifyToken", () => {
     const tamperedToken = `${tamperedB64}.${signature}`;
 
     expect(() => verifyToken(tamperedToken, TEST_SECRET)).toThrow(
+      /invalid.*signature/i
+    );
+  });
+
+  it("throws for a signature of a different length", () => {
+    const token = signToken("user-real", TEST_SECRET);
+    const [payloadB64] = token.split(".");
+    // A short signature must be rejected, not crash timingSafeEqual.
+    expect(() => verifyToken(`${payloadB64}.short`, TEST_SECRET)).toThrow(
       /invalid.*signature/i
     );
   });
@@ -102,13 +110,11 @@ describe("authenticatePlugin middleware", () => {
   let app: express.Express;
 
   beforeEach(() => {
-    // Set AUTH_SECRET env for middleware
     process.env.AUTH_SECRET = TEST_SECRET;
 
     app = express();
     app.use(express.json());
 
-    // Protected test route
     app.get(
       "/api/test-protected",
       authenticatePlugin,
@@ -160,6 +166,7 @@ describe("Auth Routes", () => {
 
   beforeEach(async () => {
     process.env.AUTH_SECRET = TEST_SECRET;
+    pendingPluginAuth.clear();
 
     app = express();
     app.use(express.json());
@@ -167,7 +174,6 @@ describe("Auth Routes", () => {
     const { default: authRoutes } = await import("../src/routes/plugin/auth.js");
     app.use("/api", authRoutes);
 
-    // Add a protected route for end-to-end test
     app.get(
       "/api/protected",
       authenticatePlugin,
@@ -177,65 +183,83 @@ describe("Auth Routes", () => {
     );
   });
 
-  describe("POST /api/auth/init", () => {
-    it("returns token for valid figmaUserId", async () => {
+  describe("POST /api/auth/init (removed — auth bypass closed)", () => {
+    it("no longer exists: a body figmaUserId cannot mint a token", async () => {
       const res = await request(app).post("/api/auth/init").send({
-        figmaUserId: "12345",
-        figmaName: "Test User",
+        figmaUserId: "victim-user-id",
       });
+      expect(res.status).toBe(404);
+    });
+  });
 
+  describe("GET /api/auth/figma-exchange", () => {
+    it("returns 400 when nonce is missing", async () => {
+      const res = await request(app).get("/api/auth/figma-exchange");
+      expect(res.status).toBe(400);
+    });
+
+    it("returns pending when no token is parked for the nonce", async () => {
+      const res = await request(app)
+        .get("/api/auth/figma-exchange")
+        .query({ nonce: "a".repeat(64) });
       expect(res.status).toBe(200);
-      expect(res.body.token).toBeDefined();
-      expect(typeof res.body.token).toBe("string");
-      expect(res.body.expiresAt).toBeDefined();
+      expect(res.body.pending).toBe(true);
+      expect(res.body.token).toBeUndefined();
     });
 
-    it("returns 400 when figmaUserId is missing", async () => {
-      const res = await request(app).post("/api/auth/init").send({
-        figmaName: "No ID User",
+    it("returns the parked token and consumes the nonce (single-use)", async () => {
+      const nonce = "b".repeat(64);
+      const token = signToken("oauth-user", TEST_SECRET, 60);
+      pendingPluginAuth.set(nonce, {
+        token,
+        tokenExpiresAt: Date.now() + 60_000,
+        expires: Date.now() + 60_000,
       });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/figmaUserId.*required/i);
+      const first = await request(app)
+        .get("/api/auth/figma-exchange")
+        .query({ nonce });
+      expect(first.status).toBe(200);
+      expect(first.body.pending).toBe(false);
+      expect(first.body.token).toBe(token);
+      expect(verifyToken(first.body.token, TEST_SECRET).userId).toBe(
+        "oauth-user"
+      );
+
+      const second = await request(app)
+        .get("/api/auth/figma-exchange")
+        .query({ nonce });
+      expect(second.body.pending).toBe(true);
     });
 
-    it("returns 400 when body is empty", async () => {
-      const res = await request(app).post("/api/auth/init").send({});
-
-      expect(res.status).toBe(400);
-    });
-
-    it("issued token is verifiable", async () => {
-      const res = await request(app).post("/api/auth/init").send({
-        figmaUserId: "verify-me",
-        figmaName: "Verify User",
+    it("treats an expired nonce entry as pending", async () => {
+      const nonce = "c".repeat(64);
+      pendingPluginAuth.set(nonce, {
+        token: signToken("stale-user", TEST_SECRET, 60),
+        tokenExpiresAt: Date.now() + 60_000,
+        expires: Date.now() - 1000,
       });
-
-      const result = verifyToken(res.body.token, TEST_SECRET);
-      expect(result.userId).toBe("verify-me");
+      const res = await request(app)
+        .get("/api/auth/figma-exchange")
+        .query({ nonce });
+      expect(res.body.pending).toBe(true);
     });
   });
 
   describe("POST /api/auth/refresh", () => {
-    it("returns new token for valid existing token", async () => {
-      const initRes = await request(app).post("/api/auth/init").send({
-        figmaUserId: "refresh-user",
-        figmaName: "Refresh User",
-      });
-      const oldToken = initRes.body.token;
+    it("returns a new token for a valid existing token", async () => {
+      const oldToken = signToken("refresh-user", TEST_SECRET);
 
       const refreshRes = await request(app)
         .post("/api/auth/refresh")
         .set("Authorization", `Bearer ${oldToken}`);
 
       expect(refreshRes.status).toBe(200);
-      expect(refreshRes.body.token).toBeDefined();
       expect(typeof refreshRes.body.token).toBe("string");
       expect(refreshRes.body.expiresAt).toBeDefined();
-
-      // New token should have same userId
-      const result = verifyToken(refreshRes.body.token, TEST_SECRET);
-      expect(result.userId).toBe("refresh-user");
+      expect(verifyToken(refreshRes.body.token, TEST_SECRET).userId).toBe(
+        "refresh-user"
+      );
     });
 
     it("returns 401 without token", async () => {
@@ -246,14 +270,10 @@ describe("Auth Routes", () => {
 
   describe("GET /api/auth/me", () => {
     it("returns user info for valid token", async () => {
-      const initRes = await request(app).post("/api/auth/init").send({
-        figmaUserId: "me-user",
-        figmaName: "Me User",
-      });
-
+      const token = signToken("me-user", TEST_SECRET);
       const res = await request(app)
         .get("/api/auth/me")
-        .set("Authorization", `Bearer ${initRes.body.token}`);
+        .set("Authorization", `Bearer ${token}`);
 
       expect(res.status).toBe(200);
       expect(res.body.userId).toBe("me-user");
@@ -261,15 +281,21 @@ describe("Auth Routes", () => {
   });
 
   describe("Protected route integration", () => {
-    it("auth token from /init works on protected routes", async () => {
-      const initRes = await request(app).post("/api/auth/init").send({
-        figmaUserId: "protected-user",
-        figmaName: "Protected",
+    it("a token exchanged via the OAuth bridge works on protected routes", async () => {
+      const nonce = "d".repeat(64);
+      pendingPluginAuth.set(nonce, {
+        token: signToken("protected-user", TEST_SECRET, 3600),
+        tokenExpiresAt: Date.now() + 3_600_000,
+        expires: Date.now() + 60_000,
       });
+
+      const exchange = await request(app)
+        .get("/api/auth/figma-exchange")
+        .query({ nonce });
 
       const res = await request(app)
         .get("/api/protected")
-        .set("Authorization", `Bearer ${initRes.body.token}`);
+        .set("Authorization", `Bearer ${exchange.body.token}`);
 
       expect(res.status).toBe(200);
       expect(res.body.userId).toBe("protected-user");

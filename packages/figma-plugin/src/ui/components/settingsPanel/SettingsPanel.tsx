@@ -363,8 +363,8 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {/* Interactions */}
-          {setInteractionMode && (
+          {/* Interactions — TEMPORARILY HIDDEN FOR LAUNCH (2026-05-12). Restore by removing `false &&` wrapper. */}
+          {false && setInteractionMode && (
             <div class={styles.settingRow}>
               <div class={styles.settingLabel}>
                 <span>🎯</span>
@@ -374,7 +374,7 @@ export default function SettingsPanel({
                 class={styles.dropdown}
                 value={localInteractionMode || "none"}
                 onChange={(e) =>
-                  setInteractionMode(
+                  setInteractionMode!(
                     (e.target as HTMLSelectElement).value as "none" | "variants"
                   )
                 }

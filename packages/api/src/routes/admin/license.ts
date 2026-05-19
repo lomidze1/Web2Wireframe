@@ -1,10 +1,11 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { License, type ILicense } from "../../models/License.js";
 
 const router = Router();
 
 // ============================================================================
-// Admin auth — Bearer ADMIN_TOKEN
+// Admin auth — Bearer ADMIN_TOKEN (constant-time comparison)
 // ============================================================================
 
 function adminAuth(req: Request, res: Response, next: NextFunction): void {
@@ -18,7 +19,14 @@ function adminAuth(req: Request, res: Response, next: NextFunction): void {
   const token = header?.startsWith("Bearer ")
     ? header.slice("Bearer ".length)
     : null;
-  if (!token || token !== expected) {
+  if (!token) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  // Constant-time compare to avoid timing-oracle attacks on ADMIN_TOKEN.
+  const a = Buffer.from(token, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -115,14 +123,17 @@ router.post(
     try {
       const { figmaUserId, plan, status, cycleEndsAt, email } =
         req.body as {
-          figmaUserId?: string;
+          figmaUserId?: unknown;
           plan?: string;
           status?: string;
           cycleEndsAt?: string;
           email?: string | null;
         };
 
-      if (!figmaUserId) {
+      // Must be a non-empty string — an object like {"$ne": null} would turn
+      // the findOneAndUpdate filter into a NoSQL operator query matching an
+      // arbitrary license.
+      if (typeof figmaUserId !== "string" || figmaUserId.length === 0) {
         res.status(400).json({ error: "figmaUserId is required" });
         return;
       }

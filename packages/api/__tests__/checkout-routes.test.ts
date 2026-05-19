@@ -7,15 +7,15 @@ import { CYCLE_DURATION_MS } from "../src/models/License.js";
 // Mocks BEFORE importing the route module
 // ============================================================================
 
-const mockCreateSubscriptionCheckout = vi.fn();
+const mockCreateOneTimeCheckout = vi.fn();
 const mockCancelSubscription = vi.fn();
 const mockVerifyCallback = vi.fn();
 const mockGetOrCreate = vi.fn();
 const mockApplyCancel = vi.fn();
 
 vi.mock("../src/services/flittService.js", () => ({
-  createSubscriptionCheckout: (...args: unknown[]) =>
-    mockCreateSubscriptionCheckout(...args),
+  createOneTimeCheckout: (...args: unknown[]) =>
+    mockCreateOneTimeCheckout(...args),
   cancelSubscription: (...args: unknown[]) => mockCancelSubscription(...args),
   verifyCallback: (...args: unknown[]) => mockVerifyCallback(...args),
 }));
@@ -77,7 +77,7 @@ describe("POST /api/checkout/create", () => {
   });
 
   it("returns 200 with checkoutUrl when Flitt accepts the order", async () => {
-    mockCreateSubscriptionCheckout.mockResolvedValue({
+    mockCreateOneTimeCheckout.mockResolvedValue({
       ok: true,
       checkoutUrl: "https://pay.flitt.test/checkout/abc",
       orderId: "w2w_pro_u_1",
@@ -93,7 +93,7 @@ describe("POST /api/checkout/create", () => {
   });
 
   it("returns 502 when Flitt rejects", async () => {
-    mockCreateSubscriptionCheckout.mockResolvedValue({
+    mockCreateOneTimeCheckout.mockResolvedValue({
       ok: false,
       error: "Flitt down",
     });

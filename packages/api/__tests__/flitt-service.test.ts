@@ -22,6 +22,7 @@ const {
   verifyCallback,
   buildSubscriptionOrderId,
   createSubscriptionCheckout,
+  createOneTimeCheckout,
   cancelSubscription,
 } = await import("../src/services/flittService.js");
 
@@ -138,6 +139,28 @@ describe("verifyCallback", () => {
           signature,
           response_signature_string: "garbage that should be ignored",
         },
+        "test",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a payload whose field value contains the | separator (H2)", () => {
+    // Flitt joins signed values with a literal `|`. A value containing `|`
+    // lets two distinct payloads collide on the signing string — reject it
+    // before trusting the signature, even though it is correctly signed here.
+    const params = { order_id: "x|y", amount: 1600 };
+    const signature = flittSign(params, "test");
+    expect(verifyCallback({ ...params, signature }, "test")).toBe(false);
+  });
+
+  it("still accepts response_signature_string that contains | (debug echo)", () => {
+    // response_signature_string is Flitt's echo of the concat string and is
+    // excluded from signing — its `|` must not trip the H2 guard.
+    const params = { order_id: "x", amount: 1600 };
+    const signature = flittSign(params, "test");
+    expect(
+      verifyCallback(
+        { ...params, signature, response_signature_string: "test|1600|x" },
         "test",
       ),
     ).toBe(true);
@@ -259,6 +282,82 @@ describe("createSubscriptionCheckout", () => {
 });
 
 // ============================================================================
+// createOneTimeCheckout
+// ============================================================================
+
+describe("createOneTimeCheckout", () => {
+  it("posts a one-time order with no subscription/recurring_data", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: {
+            response_status: "success",
+            checkout_url: "https://pay.flitt.test/checkout/ot1",
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await createOneTimeCheckout({ figmaUserId: "user-1" });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.checkoutUrl).toBe("https://pay.flitt.test/checkout/ot1");
+    expect(result.orderId.startsWith("w2w_pro_user-1_")).toBe(true);
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://pay.flitt.test/api/checkout/url");
+    expect(init?.method).toBe("POST");
+
+    const payload = JSON.parse((init?.body as string) ?? "{}");
+    expect(payload.request.merchant_id).toBe("1549901");
+    expect(payload.request.amount).toBe(1600);
+    expect(payload.request.currency).toBe("USD");
+    expect(payload.request.order_desc).toBe("Web2Wireframe Pro — 1 Month");
+    expect(payload.request.signature).toMatch(/^[0-9a-f]{40}$/);
+
+    // one-time = NO subscription / recurring_data keys
+    expect(payload.request.subscription).toBeUndefined();
+    expect(payload.request.recurring_data).toBeUndefined();
+
+    // merchant_data flags this as a one-time purchase for the webhook
+    const md = JSON.parse(payload.request.merchant_data);
+    expect(md).toEqual({ figmaUserId: "user-1", plan: "pro", recurring: false });
+  });
+
+  it("returns error when Flitt returns a non-success response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: { response_status: "failure", error_message: "nope" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await createOneTimeCheckout({ figmaUserId: "user-1" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("returns error on HTTP failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("Internal Server Error", { status: 500 }),
+    );
+
+    const result = await createOneTimeCheckout({ figmaUserId: "user-1" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("returns error when fetch itself rejects", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const result = await createOneTimeCheckout({ figmaUserId: "user-1" });
+    expect(result.ok).toBe(false);
+  });
+});
+
+// ============================================================================
 // cancelSubscription
 // ============================================================================
 
@@ -275,7 +374,7 @@ describe("cancelSubscription", () => {
     expect(result.ok).toBe(true);
 
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://pay.flitt.test/api/recurring/");
+    expect(url).toBe("https://pay.flitt.test/api/subscription");
     const payload = JSON.parse((init?.body as string) ?? "{}");
     expect(payload.request.action).toBe("stop");
     expect(payload.request.order_id).toBe("w2w_pro_user-1_123");

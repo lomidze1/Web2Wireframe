@@ -1,16 +1,29 @@
 /**
- * Centralized API base URL for all plugin → backend calls.
+ * Centralized API base URL for ALL plugin → backend calls (payment, license,
+ * import endpoints). This is the single place the address is defined.
  *
- * The Figma plugin runtime does not natively support build-time env injection,
- * so this is a constant. Update before `npm run build` for production.
+ * Figma plugins are built once and published — the runtime has no env vars,
+ * so dev vs. production is one manual toggle:
  *
- * Local dev:  http://localhost:3002
- * Production: https://api.web2wireframe.design
+ *   USE_PRODUCTION = false → http://localhost:3002           (local dev + sandbox testing)
+ *   USE_PRODUCTION = true  → https://api.web2wireframe.design (the build you publish)
  *
- * The figma-plugin manifest's `networkAccess` whitelists both URLs, so the
- * plugin will load either at runtime — but only one is reachable per build.
+ * Workflow:
+ *   • Local development / testing → keep USE_PRODUCTION = false.
+ *   • Publishing to Figma Community → set true, `npm run build`, upload.
+ *     Then set it back to false to keep developing locally.
+ *
+ * The published Community plugin and your local dev plugin are SEPARATE
+ * instances in Figma. Flipping this toggle only affects your NEXT build —
+ * it never changes the plugin already published on Community.
+ *
+ * The manifest's `networkAccess` whitelists both URLs, so either build works.
  */
-export const API_BASE_URL = "http://localhost:3002";
+const USE_PRODUCTION = false;
+
+export const API_BASE_URL = USE_PRODUCTION
+  ? "https://api.web2wireframe.design"
+  : "http://localhost:3002";
 
 /**
  * Append a `figmaUserId` query parameter to a URL, preserving any existing

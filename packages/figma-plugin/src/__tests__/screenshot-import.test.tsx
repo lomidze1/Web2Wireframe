@@ -5,6 +5,7 @@ import { render, fireEvent } from "@testing-library/preact";
 import Screenshot from "../ui/pages/import/screenshot/Screenshot";
 
 import { createMockConfigContext } from "./helpers/configMock";
+import { applyAuthToken } from "../ui/shared/licenseClient";
 
 // Mock ConfigContext with full context (needed by useTabSettings)
 const mockContext = createMockConfigContext({
@@ -51,15 +52,15 @@ function findDeleteButton(container: Element): HTMLButtonElement | null {
   return null;
 }
 
-/** Helper: find the Generate button */
-function findGenerateButton(container: Element): HTMLButtonElement {
+/** Helper: find the Import button */
+function findImportButton(container: Element): HTMLButtonElement {
   const buttons = container.querySelectorAll("button");
   for (const btn of buttons) {
-    if (btn.textContent?.includes("Generate") || btn.textContent?.includes("Analyzing")) {
+    if (btn.textContent?.includes("Import")) {
       return btn as HTMLButtonElement;
     }
   }
-  throw new Error("Generate button not found");
+  throw new Error("Import button not found");
 }
 
 /** Helper: simulate image upload via FileReader */
@@ -120,6 +121,8 @@ describe("Screenshot", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
+    // Seed a plugin token so authed import requests can be issued.
+    applyAuthToken("test.token", Date.now() + 3_600_000);
     postMessageSpy = vi.spyOn(window.parent, "postMessage");
     originalImage = globalThis.Image;
     globalThis.Image = MockImage as unknown as typeof Image;
@@ -139,9 +142,9 @@ describe("Screenshot", () => {
       expect(getByText("Click to upload screenshot")).toBeTruthy();
     });
 
-    it("renders Generate Wireframe button", () => {
+    it("renders the Import button", () => {
       const { getByText } = render(<Screenshot />);
-      expect(getByText("Generate Wireframe")).toBeTruthy();
+      expect(getByText("Import")).toBeTruthy();
     });
 
     it("renders settings panel with viewports", () => {
@@ -198,7 +201,7 @@ describe("Screenshot", () => {
   describe("button state", () => {
     it("button is disabled when no image is uploaded", () => {
       const { container } = render(<Screenshot />);
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       expect(button.disabled).toBe(true);
     });
 
@@ -207,29 +210,29 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
     });
   });
 
   describe("loading state", () => {
-    it("shows 'Analyzing Screenshot...' during API call", async () => {
+    it("shows 'Importing…' during API call", async () => {
       globalThis.fetch = vi.fn(() => new Promise(() => {})) as unknown as typeof fetch;
 
       const { container, getByText } = render(<Screenshot />);
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       await vi.waitFor(() => {
-        expect(getByText("Analyzing Screenshot...")).toBeTruthy();
+        expect(getByText("Importing…")).toBeTruthy();
       });
     });
 
@@ -240,11 +243,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       await vi.waitFor(() => {
@@ -266,11 +269,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       const errorMsg = await findByText("API key not configured");
@@ -286,11 +289,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       const errorMsg = await findByText("Network error");
@@ -309,11 +312,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
       await findByText("Some error");
 
       // Upload a new image — error should clear
@@ -336,11 +339,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
       await findByText("Some error");
 
       // Delete image — error should clear
@@ -359,11 +362,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       await vi.waitFor(() => {
         expect(postMessageSpy).toHaveBeenCalled();
@@ -387,11 +390,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       await vi.waitFor(() => {
         expect(globalThis.fetch).toHaveBeenCalled();
@@ -431,7 +434,7 @@ describe("Screenshot", () => {
       expect(labels).toContain("Screenshot Colors");
     });
 
-    it("forces plugin font mode when global config has website fonts", () => {
+    it("shows plugin font mode (coerced) when the global default is website fonts", () => {
       // Override mock to return fontMode: "website"
       mockContext.config.fontMode = "website";
       mockContext.getEffectiveConfig.mockImplementation(() => ({
@@ -447,10 +450,11 @@ describe("Screenshot", () => {
       const fontSelect = selects[1]; // second dropdown is Fonts
       expect(fontSelect.value).toBe("plugin");
 
-      // setSessionOverride should have been called with fontMode: "plugin"
-      expect(mockContext.setSessionOverride).toHaveBeenCalledWith(
+      // The incompatible value is coerced for display/import only — no session
+      // override is written, so the global default and other tabs stay intact.
+      expect(mockContext.setSessionOverride).not.toHaveBeenCalledWith(
         "screenshot",
-        expect.objectContaining({ fontMode: "plugin" })
+        expect.objectContaining({ fontMode: expect.anything() })
       );
 
       // Restore
@@ -479,11 +483,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       await vi.waitFor(() => {
         expect(globalThis.fetch).toHaveBeenCalled();
@@ -501,11 +505,11 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       await vi.waitFor(() => {
         expect(postMessageSpy).toHaveBeenCalled();
@@ -526,14 +530,14 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       await vi.waitFor(() => {
-        expect(getByText("Analyzing Screenshot...")).toBeTruthy();
+        expect(getByText("Importing…")).toBeTruthy();
       });
 
       // Simulate wireframe-created message from Figma sandbox
@@ -544,7 +548,7 @@ describe("Screenshot", () => {
       );
 
       await vi.waitFor(() => {
-        expect(getByText("Generate Wireframe")).toBeTruthy();
+        expect(getByText("Import")).toBeTruthy();
       });
     });
 
@@ -555,14 +559,14 @@ describe("Screenshot", () => {
       simulateImageUpload(container);
 
       await vi.waitFor(() => {
-        const button = findGenerateButton(container);
+        const button = findImportButton(container);
         expect(button.disabled).toBe(false);
       });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       await vi.waitFor(() => {
-        expect(getByText("Analyzing Screenshot...")).toBeTruthy();
+        expect(getByText("Importing…")).toBeTruthy();
       });
 
       // Simulate wireframe-error message from Figma sandbox
@@ -579,7 +583,7 @@ describe("Screenshot", () => {
 
       const errorMsg = await findByText("Rendering failed");
       expect(errorMsg).toBeTruthy();
-      expect(getByText("Generate Wireframe")).toBeTruthy();
+      expect(getByText("Import")).toBeTruthy();
     });
   });
 });

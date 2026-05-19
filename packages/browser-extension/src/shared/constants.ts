@@ -1,9 +1,14 @@
 /**
- * Extension Constants
+ * Extension-local constants — intentionally NOT in @w2w/shared.
+ *
+ * STORAGE_KEYS, DEFAULT_SETTINGS, API_ENDPOINTS, API_URL are chrome.storage
+ * and runtime-config shapes that exist only inside the extension. They
+ * must not be imported by @w2w/api or the figma-plugin.
  */
 
-// API Endpoints
-export const API_URL = "http://localhost:3002";
+// API Endpoints — production default. For local development, override the
+// backend URL via the extension's Options page (settings.backendUrl).
+export const API_URL = "https://api.web2wireframe.design";
 export const API_ENDPOINTS = {
   IMPORT_CDP: `${API_URL}/api/import-cdp`,
   IMPORT_URL: `${API_URL}/api/import-url`,
@@ -23,6 +28,7 @@ export const DEFAULT_SETTINGS = {
   captureFonts: true,
   compressData: true,
   defaultViewport: 1440,
+  pairingCode: "",
 } as const;
 
 // Viewports

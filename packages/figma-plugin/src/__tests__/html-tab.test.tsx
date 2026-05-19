@@ -4,6 +4,7 @@ import HTML from "../ui/pages/import/html/HTML";
 import { transformFramesData } from "../ui/shared/transformData";
 import { prepareFramesForRendering } from "../ui/shared/absoluteModeRenderer";
 import { validateHtml } from "../utils/validateHtml";
+import { applyAuthToken } from "../ui/shared/licenseClient";
 
 // Mock ConfigContext
 vi.mock("../ui/shared/ConfigContext", async (importOriginal) => {
@@ -105,21 +106,23 @@ function addDefaultCss(container: Element) {
   });
 }
 
-/** Helper: find the Generate button by text content */
-function findGenerateButton(container: Element): HTMLButtonElement {
+/** Helper: find the Import button by text content */
+function findImportButton(container: Element): HTMLButtonElement {
   const buttons = container.querySelectorAll("button");
   for (const btn of buttons) {
-    if (btn.textContent?.includes("Generate") || btn.textContent?.includes("Generating")) {
+    if (btn.textContent?.includes("Import")) {
       return btn as HTMLButtonElement;
     }
   }
-  throw new Error("Generate button not found");
+  throw new Error("Import button not found");
 }
 
 describe("HTML Tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
+    // Seed a plugin token so authed import requests can be issued.
+    applyAuthToken("test.token", Date.now() + 3_600_000);
     mockFontModalProps.current = null;
     mockRenderingLoaderProps.current = null;
     mockHtmlWarningModalProps.current = null;
@@ -150,16 +153,16 @@ describe("HTML Tab", () => {
       expect(textareas[1].getAttribute("placeholder")).toContain("CSS");
     });
 
-    it("renders Generate Wireframe button", () => {
+    it("renders the Import button", () => {
       const { getByText } = render(<HTML />);
-      expect(getByText("Generate Wireframe")).toBeTruthy();
+      expect(getByText("Import")).toBeTruthy();
     });
   });
 
   describe("button state", () => {
     it("button is disabled when HTML textarea is empty", () => {
       const { container } = render(<HTML />);
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       expect(button.disabled).toBe(true);
     });
 
@@ -167,7 +170,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "<h1>Hello</h1>" } });
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       expect(button.disabled).toBe(false);
     });
 
@@ -175,7 +178,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "hello world" } });
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       expect(button.disabled).toBe(true);
     });
 
@@ -183,13 +186,13 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textarea = container.querySelectorAll("textarea")[0];
       fireEvent.input(textarea, { target: { value: "   " } });
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       expect(button.disabled).toBe(true);
     });
   });
 
   describe("loading state", () => {
-    it("shows 'Generating...' text during loading", async () => {
+    it("shows 'Importing…' text during loading", async () => {
       globalThis.fetch = vi.fn(() => new Promise(() => {})) as unknown as typeof fetch;
 
       const { container, getByText } = render(<HTML />);
@@ -197,10 +200,10 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
-      expect(getByText("Generating...")).toBeTruthy();
+      expect(getByText("Importing…")).toBeTruthy();
     });
 
     it("disables textareas during loading", async () => {
@@ -211,7 +214,7 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       const textareas = container.querySelectorAll("textarea");
@@ -227,7 +230,7 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       expect(button.disabled).toBe(true);
@@ -248,7 +251,7 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       const errorMsg = await findByText("Something went wrong");
@@ -263,14 +266,14 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       const errorMsg = await findByText("Network error");
       expect(errorMsg).toBeTruthy();
     });
 
-    it("shows HTTP status when response.json() fails to parse", async () => {
+    it("shows a friendly server error when response.json() fails to parse", async () => {
       globalThis.fetch = vi.fn(() =>
         Promise.resolve({
           ok: false,
@@ -284,9 +287,11 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
-      const errorMsg = await findByText("HTTP 500");
+      const errorMsg = await findByText(
+        "Something went wrong on our side. Please try again in a moment."
+      );
       expect(errorMsg).toBeTruthy();
     });
 
@@ -303,7 +308,7 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       const errorMsg = await findByText("Validation failed: htmlCode required");
       expect(errorMsg).toBeTruthy();
@@ -317,9 +322,9 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
-      const errorMsg = await findByText("Failed to generate wireframe from HTML");
+      const errorMsg = await findByText("Failed to import the HTML");
       expect(errorMsg).toBeTruthy();
     });
   });
@@ -418,7 +423,7 @@ describe("HTML Tab", () => {
       addDefaultCss(container);
 
       // Start loading
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // Open HTML overlay
       const maximizeBtns = findMaximizeBtns(container);
@@ -439,10 +444,10 @@ describe("HTML Tab", () => {
       fireEvent.input(textarea, { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
-      const msg = await findByText("Generating wireframe from HTML...");
+      const msg = await findByText("Importing the HTML…");
       expect(msg).toBeTruthy();
     });
   });
@@ -487,7 +492,7 @@ describe("HTML Tab", () => {
       if (css) {
         fireEvent.input(textareas[1], { target: { value: css } });
       }
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
       // Wait for fetch to resolve and state to update
       await waitFor(() => {
@@ -510,7 +515,10 @@ describe("HTML Tab", () => {
         "http://localhost:3002/api/import-html",
         expect.objectContaining({
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer test.token",
+          },
         })
       );
 
@@ -527,7 +535,7 @@ describe("HTML Tab", () => {
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
       fireEvent.input(textareas[1], { target: { value: "   " } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // CSS warning appears
       await waitFor(() => {
@@ -665,7 +673,7 @@ describe("HTML Tab", () => {
 
       expect(mockRenderingLoaderProps.current.isVisible).toBe(true);
       expect(mockRenderingLoaderProps.current.progress).toEqual({
-        step: "Creating wireframe...",
+        step: "Creating wireframe…",
         percent: 0,
       });
     });
@@ -864,7 +872,7 @@ describe("HTML Tab", () => {
       });
 
       // Before 10s passes, start new generate → sendToFigma cancels old timeout
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // Flush promises and advance past the original 10s
       await vi.advanceTimersByTimeAsync(15000);
@@ -911,7 +919,7 @@ describe("HTML Tab", () => {
       fireEvent.input(textareas[0], { target: { value: "<div>Test</div>" } });
       fireEvent.input(textareas[1], { target: { value: ".container { padding: 20px; }" } });
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -930,7 +938,7 @@ describe("HTML Tab", () => {
       fireEvent.input(textareas[0], { target: { value: "<p>Hello</p>" } });
       fireEvent.input(textareas[1], { target: { value: "   \n  \t  " } });
 
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // CSS warning appears
       await waitFor(() => {
@@ -954,7 +962,7 @@ describe("HTML Tab", () => {
       fireEvent.input(textareas[0], { target: { value: "<h1>Test</h1>" } });
       addDefaultCss(container);
 
-      const button = findGenerateButton(container);
+      const button = findImportButton(container);
       fireEvent.click(button);
 
       expect(mockCollapseSettings).toHaveBeenCalled();
@@ -975,15 +983,15 @@ describe("HTML Tab", () => {
       addDefaultCss(container);
 
       // Trigger first generate → error
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
       await findByText("Server error");
 
       // Now mock a successful fetch
       mockSuccessFetch();
 
       // Trigger second generate → should show loading, not error
-      fireEvent.click(findGenerateButton(container));
-      const loadingMsg = await findByText("Generating wireframe from HTML...");
+      fireEvent.click(findImportButton(container));
+      const loadingMsg = await findByText("Importing the HTML…");
       expect(loadingMsg).toBeTruthy();
     });
 
@@ -1033,7 +1041,7 @@ describe("HTML Tab", () => {
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Valid</h1>" } });
       addDefaultCss(container);
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       await waitFor(() => {
         expect(globalThis.fetch).toHaveBeenCalled();
@@ -1053,7 +1061,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<div><p>Bad" } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // Should NOT have called fetch
       expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -1082,7 +1090,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<div>Bad" } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // Modal should be open
       await waitFor(() => {
@@ -1111,7 +1119,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<div>Bad" } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // Modal should be open
       await waitFor(() => {
@@ -1135,7 +1143,7 @@ describe("HTML Tab", () => {
 
     it("does not generate or show modal when textarea is empty", () => {
       const { container } = render(<HTML />);
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // No fetch, no modal
       expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -1146,7 +1154,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "   \n\t  " } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       expect(globalThis.fetch).not.toHaveBeenCalled();
       expect(validateHtml).not.toHaveBeenCalled();
@@ -1164,7 +1172,7 @@ describe("HTML Tab", () => {
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "  <h1>Test</h1>  " } });
       addDefaultCss(container);
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       expect(validateHtml).toHaveBeenCalledWith("<h1>Test</h1>");
     });
@@ -1190,16 +1198,17 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // Should NOT have called fetch
       expect(globalThis.fetch).not.toHaveBeenCalled();
 
-      // Warning modal should be open with CSS-specific content
+      // Warning modal should be open with the informational CSS notice —
+      // shown as `intro`, not as an error row.
       expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
       expect(mockHtmlWarningModalProps.current.title).toBe("Missing CSS");
-      expect(mockHtmlWarningModalProps.current.errorCount).toBe(1);
-      expect(mockHtmlWarningModalProps.current.errors[0]).toContain("without CSS");
+      expect(mockHtmlWarningModalProps.current.intro).toContain("No CSS provided");
+      expect(mockHtmlWarningModalProps.current.errors).toEqual([]);
     });
 
     it("proceeds with generation when user clicks Continue Anyway on CSS warning", async () => {
@@ -1209,7 +1218,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // CSS warning appears
       expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
@@ -1231,7 +1240,7 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // CSS warning appears
       expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);
@@ -1258,7 +1267,7 @@ describe("HTML Tab", () => {
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<h1>Hello</h1>" } });
       fireEvent.input(textareas[1], { target: { value: "h1 { color: red; }" } });
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // Should proceed directly to fetch
       await waitFor(() => {
@@ -1280,7 +1289,7 @@ describe("HTML Tab", () => {
       const textareas = container.querySelectorAll("textarea");
       fireEvent.input(textareas[0], { target: { value: "<div>Bad" } });
       // CSS is empty too
-      fireEvent.click(findGenerateButton(container));
+      fireEvent.click(findImportButton(container));
 
       // Should show HTML warning, not CSS warning
       expect(mockHtmlWarningModalProps.current.isOpen).toBe(true);

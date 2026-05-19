@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 // Use random port to avoid EADDRINUSE conflicts
@@ -26,11 +26,39 @@ vi.mock("../src/services/licenseService.js", () => ({
   },
 }));
 
+// Stub authenticatePlugin so GET /api/pending-import resolves to a fixed user.
+vi.mock("../src/middleware/auth.js", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    authenticatePlugin: (
+      req: { userId?: string },
+      _res: unknown,
+      next: () => void,
+    ) => {
+      req.userId = "test-user";
+      next();
+    },
+  };
+});
+
 const { default: app } = await import("../src/index.js");
+const { pendingPairings, pendingCDPImports } = await import("../src/state.js");
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+const PAIR = "TESTCD";
+
+beforeEach(() => {
+  pendingCDPImports.clear();
+  pendingPairings.clear();
+  pendingPairings.set(PAIR, {
+    figmaUserId: "test-user",
+    expires: Date.now() + 600_000,
+  });
+});
 
 function buildCaptureData(overrides: Record<string, unknown> = {}) {
   return {
@@ -49,6 +77,37 @@ function buildCaptureData(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** POST /api/import-cdp with the test pairing code attached. */
+function postCdp(body: Record<string, unknown>) {
+  return request(app)
+    .post("/api/import-cdp")
+    .send({ pairingCode: PAIR, ...body });
+}
+
+// ============================================================================
+// Tests: pairing-code scoping
+// ============================================================================
+
+describe("POST /api/import-cdp — pairing code", () => {
+  it("rejects a capture with no pairing code", async () => {
+    const res = await request(app)
+      .post("/api/import-cdp")
+      .send({ captureData: buildCaptureData(), timestamp: Date.now() });
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects a capture with an unknown pairing code", async () => {
+    const res = await request(app)
+      .post("/api/import-cdp")
+      .send({
+        pairingCode: "ZZZZZZ",
+        captureData: buildCaptureData(),
+        timestamp: Date.now(),
+      });
+    expect(res.status).toBe(403);
+  });
+});
+
 // ============================================================================
 // Tests: Cookie handling
 // ============================================================================
@@ -60,19 +119,16 @@ describe("POST /api/import-cdp — cookie handling", () => {
       { name: "token", value: "xyz789", domain: ".example.com", path: "/", secure: true, httpOnly: false, sameSite: "strict" },
     ];
 
-    const res = await request(app)
-      .post("/api/import-cdp")
-      .send({
-        captureData: buildCaptureData(),
-        cookies,
-        timestamp: Date.now(),
-      });
+    const res = await postCdp({
+      captureData: buildCaptureData(),
+      cookies,
+      timestamp: Date.now(),
+    });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
 
-    // Fetch the pending import to verify round-trip
-    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
+    const pending = await request(app).get("/api/pending-import");
     expect(pending.body.success).toBe(true);
     expect(pending.body.hasPending).toBe(true);
     expect(pending.body.cookies).toEqual(cookies);
@@ -80,32 +136,28 @@ describe("POST /api/import-cdp — cookie handling", () => {
   });
 
   it("defaults to empty array when cookies not provided", async () => {
-    const res = await request(app)
-      .post("/api/import-cdp")
-      .send({
-        captureData: buildCaptureData(),
-        timestamp: Date.now(),
-      });
+    const res = await postCdp({
+      captureData: buildCaptureData(),
+      timestamp: Date.now(),
+    });
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
+    const pending = await request(app).get("/api/pending-import");
     expect(pending.body.cookies).toEqual([]);
     expect(pending.body.cdpMetadata.hasCookies).toBe(false);
   });
 
   it("defaults to empty array when cookies is null", async () => {
-    const res = await request(app)
-      .post("/api/import-cdp")
-      .send({
-        captureData: buildCaptureData(),
-        cookies: null,
-        timestamp: Date.now(),
-      });
+    const res = await postCdp({
+      captureData: buildCaptureData(),
+      cookies: null,
+      timestamp: Date.now(),
+    });
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
+    const pending = await request(app).get("/api/pending-import");
     expect(pending.body.cookies).toEqual([]);
     expect(pending.body.cdpMetadata.hasCookies).toBe(false);
   });
@@ -122,33 +174,29 @@ describe("POST /api/import-cdp — webStorage handling", () => {
       sessionStorage: { cart: "item1,item2" },
     };
 
-    const res = await request(app)
-      .post("/api/import-cdp")
-      .send({
-        captureData: buildCaptureData(),
-        cookies: [],
-        webStorage,
-        timestamp: Date.now(),
-      });
+    const res = await postCdp({
+      captureData: buildCaptureData(),
+      cookies: [],
+      webStorage,
+      timestamp: Date.now(),
+    });
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
+    const pending = await request(app).get("/api/pending-import");
     expect(pending.body.webStorage).toEqual(webStorage);
     expect(pending.body.cdpMetadata.hasWebStorage).toBe(true);
   });
 
   it("defaults webStorage when not provided", async () => {
-    const res = await request(app)
-      .post("/api/import-cdp")
-      .send({
-        captureData: buildCaptureData(),
-        timestamp: Date.now(),
-      });
+    const res = await postCdp({
+      captureData: buildCaptureData(),
+      timestamp: Date.now(),
+    });
 
     expect(res.status).toBe(200);
 
-    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
+    const pending = await request(app).get("/api/pending-import");
     expect(pending.body.webStorage).toEqual({ localStorage: {}, sessionStorage: {} });
     expect(pending.body.cdpMetadata.hasWebStorage).toBe(false);
   });
@@ -168,16 +216,14 @@ describe("POST /api/import-cdp → GET /api/pending-import round-trip", () => {
       sessionStorage: {},
     };
 
-    await request(app)
-      .post("/api/import-cdp")
-      .send({
-        captureData: buildCaptureData({ url: "https://test.com/page" }),
-        cookies,
-        webStorage,
-        timestamp: 1700000000000,
-      });
+    await postCdp({
+      captureData: buildCaptureData({ url: "https://test.com/page" }),
+      cookies,
+      webStorage,
+      timestamp: 1700000000000,
+    });
 
-    const pending = await request(app).get("/api/pending-import?figmaUserId=test-user");
+    const pending = await request(app).get("/api/pending-import");
 
     expect(pending.body.success).toBe(true);
     expect(pending.body.hasPending).toBe(true);

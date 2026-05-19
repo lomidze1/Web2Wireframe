@@ -7,12 +7,14 @@ import { buildFontDownloads } from "../../../../utils/fontDownload";
 import { transformFramesData } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import { useConfig } from "../../../shared/ConfigContext";
+import { authHeader, requestPairingCode } from "../../../shared/licenseClient";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
 
-// Backend API URL
-const API_URL = "http://localhost:3002";
+// Backend API URL — single source: apiConfig.ts (toggle USE_PRODUCTION there).
+const API_URL = API_BASE_URL;
 
 // Poll interval in milliseconds
 const POLL_INTERVAL = 2000;
@@ -43,6 +45,9 @@ export default function BrowserExtension() {
   });
   const [pendingData, setPendingData] = useState<PendingData | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  // Pairing code the user enters into the browser extension so its captures
+  // are scoped to this user (see /api/extension-pair).
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
   // Rendering loader state
   const [showRenderingLoader, setShowRenderingLoader] = useState(false);
   const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
@@ -68,6 +73,7 @@ export default function BrowserExtension() {
       if (!config.figmaUserId) return;
       const response = await fetch(
         `${API_URL}/api/pending-import?figmaUserId=${encodeURIComponent(config.figmaUserId)}`,
+        { headers: { Authorization: authHeader() } },
       );
 
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
@@ -98,7 +104,7 @@ export default function BrowserExtension() {
         stopPolling();
 
         // Render directly with default config settings (no modal)
-        setImportState({ status: "importing", message: "Creating wireframe..." });
+        setImportState({ status: "importing", message: "Creating wireframe…" });
         const transformedFrames = transformFramesData(
           newPendingData.wireframeData.frames as Parameters<typeof transformFramesData>[0],
           {
@@ -123,8 +129,13 @@ export default function BrowserExtension() {
     setIsPolling(true);
     setImportState({
       status: "waiting",
-      message: "Waiting for Browser Extension capture...",
+      message: "Waiting for a capture from your browser…",
     });
+
+    // Fetch a pairing code for the user to enter into the extension.
+    requestPairingCode()
+      .then(setPairingCode)
+      .catch(() => setPairingCode(null));
 
     // Check immediately
     checkForPendingImport();
@@ -231,7 +242,7 @@ export default function BrowserExtension() {
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({
-      step: "Preparing wireframe data...",
+      step: "Preparing wireframe data…",
       percent: 0,
     });
 
@@ -299,10 +310,20 @@ export default function BrowserExtension() {
           {importState.message}
         </div>
 
+        {pairingCode && (
+          <div class={styles.pairingBox}>
+            <div class={styles.pairingLabel}>
+              Pairing code — enter this in the browser extension
+            </div>
+            <div class={styles.pairingCode}>{pairingCode}</div>
+          </div>
+        )}
+
         <div class={styles.extensionBenefits}>
           <ul>
             <li>Open the website in Chrome</li>
             <li>Click the Web2Wireframe extension icon</li>
+            <li>Enter the pairing code shown above</li>
             <li>Select viewports and click "Capture"</li>
             <li>Click "Send to Figma"</li>
           </ul>
@@ -342,20 +363,24 @@ export default function BrowserExtension() {
   // Default: idle state or modals showing
   return (
     <div class={styles.extensionContainer}>
-      <div class={styles.extensionTitle}>
-        Connect the Plugin with your Browser
+      <div class={styles.extensionTitle}>Connect your browser</div>
+
+      <div class={styles.extensionDescription}>
+        Capture any webpage from your browser — including private, local, and
+        login-protected pages — and it appears here, ready to import into Figma.
       </div>
 
       <div class={styles.extensionDescription}>
-        Capture webpages directly from your browser and they will appear here.
-        Import them into Figma when you want.
+        <strong>How it works:</strong> install the extension, capture a page in
+        your browser, then click “Wait for capture” below and keep this plugin
+        open — your capture lands here automatically.
       </div>
 
       <div class={styles.extensionBenefits}>
         <ul>
           <li>Perfect for private or local webpages</li>
           <li>Pages behind a log-in session</li>
-          <li>Removing banners and more...</li>
+          <li>Removing banners and more…</li>
         </ul>
       </div>
 
@@ -365,7 +390,7 @@ export default function BrowserExtension() {
 
       <div class={styles.extensionActions}>
         <button class={styles.extensionBtn} onClick={startPolling}>
-          Start Listening
+          Wait for capture
         </button>
         <button
           class={`${styles.extensionBtn} ${styles.extensionBtnSecondary}`}

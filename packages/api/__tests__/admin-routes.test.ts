@@ -146,6 +146,15 @@ describe("POST /api/admin/license/override", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rejects a non-string figmaUserId (NoSQL operator injection)", async () => {
+    const res = await request(makeApp())
+      .post("/api/admin/license/override")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`)
+      .send({ figmaUserId: { $ne: null }, plan: "pro" });
+    expect(res.status).toBe(400);
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid plan", async () => {
     const res = await request(makeApp())
       .post("/api/admin/license/override")

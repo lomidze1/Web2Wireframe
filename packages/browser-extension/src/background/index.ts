@@ -92,7 +92,14 @@ let inspectModeOptions: CaptureOptions = DEFAULT_CAPTURE_OPTIONS;
  * Listen for messages from popup/content scripts
  */
 chrome.runtime.onMessage.addListener(
-  (message: ExtensionMessage, _sender, sendResponse) => {
+  (message: ExtensionMessage, sender, sendResponse) => {
+    // Trust boundary: only handle messages from this extension's own
+    // contexts (popup, options, content scripts). A message from any other
+    // extension — or a web page — must never drive CDP attach or downloads.
+    if (sender.id !== chrome.runtime.id) {
+      return false;
+    }
+
     if (message.type === "CAPTURE_PAGE") {
       console.log("[W2W] CAPTURE_PAGE received, tabId:", message.tabId);
       handleCapturePage(message.tabId, message.options)
@@ -2937,6 +2944,7 @@ async function sendToBackend(data: CaptureResult): Promise<unknown> {
     },
     body: JSON.stringify({
       captureData: data,
+      pairingCode: settings.pairingCode,
       timestamp: Date.now(),
     }),
   });

@@ -1,5 +1,12 @@
 /**
- * Utility functions for the extension
+ * Extension-local utilities.
+ *
+ * Helpers that operate on extension capture data (analyzeColorsFromTree,
+ * compressData, parseColor, parseBoxShadow, ...). Several have logical
+ * counterparts in @w2w/shared but operate on extension-local types
+ * (ExtractedElement). Migrating them requires reconciling type shapes,
+ * which is out of scope for the pre-launch security pass — track as
+ * follow-up tech debt.
  */
 
 /**

@@ -100,7 +100,7 @@ const Privacy = (): ReactElement => {
         content: (
           <>
             <p>
-              Subscription payments are processed by{" "}
+              Pro payments are processed by{" "}
               <a
                 href="https://flitt.com/"
                 target="_blank"
@@ -116,7 +116,7 @@ const Privacy = (): ReactElement => {
               We retain payment metadata necessary for tax and accounting
               compliance: order ID, transaction ID, charged amount, currency,
               status, billing email, and the Figma user ID associated with the
-              subscription. This information is retained for the period
+              purchase. This information is retained for the period
               required by Georgian accounting law (typically 7 years).
             </p>
           </>

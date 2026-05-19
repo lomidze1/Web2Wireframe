@@ -15,6 +15,9 @@ import Help from "./components/modalPopup/Help";
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 
+import ConnectFigma from "./components/ConnectFigma";
+import { applyAuthToken, refreshAuthToken } from "./shared/licenseClient";
+
 import { onQuotaExceeded } from "./shared/quotaEvents";
 
 // Components
@@ -46,9 +49,54 @@ type ImportTab = "web" | "screenshot" | "html" | "area" | "extension";
 export default function App() {
   return (
     <ConfigProvider>
-      <AppContent />
+      <ConnectionGate />
     </ConfigProvider>
   );
+}
+
+type ConnState = "loading" | "connected" | "disconnected";
+
+/**
+ * Gates the app behind a verified Figma OAuth token. On start it loads any
+ * persisted token from clientStorage; without a valid one it shows the
+ * Connect screen so the backend can verify identity before issuing a token.
+ */
+function ConnectionGate() {
+  const [conn, setConn] = useState<ConnState>("loading");
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg.type !== "auth-token-loaded") return;
+      const stored = msg.data as
+        | { token?: string; expiresAt?: number }
+        | null;
+      if (
+        stored &&
+        typeof stored.token === "string" &&
+        typeof stored.expiresAt === "number" &&
+        stored.expiresAt - 60_000 > Date.now()
+      ) {
+        applyAuthToken(stored.token, stored.expiresAt);
+        setConn("connected");
+        // Roll the long-lived token's expiry in the background.
+        void refreshAuthToken();
+      } else {
+        setConn("disconnected");
+      }
+    };
+    window.addEventListener("message", handler);
+    parent.postMessage({ pluginMessage: { type: "load-auth-token" } }, "*");
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  if (conn === "loading") {
+    return <div class={styles.loadingScreen}>Loading…</div>;
+  }
+  if (conn === "disconnected") {
+    return <ConnectFigma onConnected={() => setConn("connected")} />;
+  }
+  return <AppContent />;
 }
 
 function AppContent() {

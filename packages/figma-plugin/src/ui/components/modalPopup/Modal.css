@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 4000;
+  z-index: var(--z-modal);
 }
 
 /* Modal */
@@ -18,15 +18,17 @@
     rgba(var(--panel-rgb), 0.95)
   );
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   width: 95%;
   max-width: 680px;
   padding: 20px 10px;
   color: var(--text);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.48);
+  box-shadow: var(--shadow-lg);
   backdrop-filter: blur(14px);
-  height: 540px;
-  max-height: 540px;
+  /* Size to content, but never taller than the 560px plugin window minus a
+     16px breathing margin top and bottom. .modalContent scrolls when full. */
+  height: auto;
+  max-height: calc(100% - 32px);
   display: flex;
   flex-direction: column;
 }
@@ -58,7 +60,7 @@
   font-size: 16px;
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -126,7 +128,7 @@
 }
 
 .planLabel {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   font-weight: 600;
 }
@@ -137,25 +139,25 @@
   border: 1px solid var(--accent);
   color: var(--accent);
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--font-sm);
   letter-spacing: 0.4px;
   background: rgba(var(--accent-rgb), 0.1);
 }
 
 .planNotice {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
 }
 
 .planError {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: #ffb3b3;
 }
 
 .planFailedPaymentBanner {
   padding: 10px 12px;
   border-radius: 10px;
-  font-size: 12px;
+  font-size: var(--font-sm);
   line-height: 1.4;
   border: 1px solid;
   display: flex;
@@ -190,7 +192,7 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
 }
 
@@ -206,7 +208,7 @@
 }
 
 .planDescription {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -401,7 +403,7 @@
   border: 1px solid var(--accent);
   background: rgba(var(--accent-rgb), 0.12);
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 700;
   text-align: center;
   text-decoration: none;
@@ -429,7 +431,7 @@
   color: var(--text);
   cursor: pointer;
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--font-sm);
   transition: var(--transition-normal);
 }
 
@@ -505,7 +507,7 @@
 .termSidebarBtn {
   padding: 7px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -571,7 +573,7 @@
   border-radius: 12px;
   padding: 10px 12px;
   background: rgba(42, 157, 143, 0.12);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .accordion summary {
@@ -591,7 +593,7 @@
 
 .accordion summary::after {
   content: "▸";
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   transition: transform 0.2s ease;
 }
@@ -632,7 +634,7 @@
 }
 
 .configSubtitle {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
 }
 
@@ -696,7 +698,7 @@
 }
 
 .radioLabel span {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
 }
 
@@ -790,7 +792,7 @@
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-family: var(--font-display);
 }
 
@@ -878,11 +880,11 @@
 .dropdown {
   width: 100%;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-family: var(--font-body);
   cursor: pointer;
   margin-top: 4px;
@@ -979,7 +981,7 @@
 }
 
 .videoLink {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--accent);
   text-decoration: none;
   font-weight: 600;
@@ -1029,7 +1031,7 @@
 /* Reset Button */
 .resetBtn {
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-secondary);
@@ -1102,7 +1104,7 @@
   border: 1px solid var(--logo-color);
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1135,7 +1137,7 @@
   transform: translateY(-1px);
 }
 .helpMadeBy {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -1150,8 +1152,6 @@
   text-decoration: underline;
 }
 .helpModal {
-  height: auto;
-  max-height: 90vh;
   padding: 16px 20px;
 }
 
@@ -1159,15 +1159,13 @@
 .variablesModal {
   width: 320px;
   max-width: 95%;
-  height: auto;
-  max-height: 85vh;
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
 }
 
 .variablesDescription {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   margin: 0 0 12px 0;
   line-height: 1.4;
@@ -1236,7 +1234,7 @@
 }
 
 .variablesOptionContent span {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -1270,7 +1268,7 @@
 
 .fontMappingLabel {
   min-width: 100px;
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1278,13 +1276,13 @@
 }
 
 .fontMappingArrow {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
 
 .fontMappingValue {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text);
   font-weight: 500;
 }
@@ -1304,7 +1302,7 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 500;
   cursor: pointer;
   margin-top: 8px;
@@ -1328,7 +1326,7 @@
   display: block;
   margin-top: 6px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -1341,7 +1339,7 @@
 
 .fontDownloadError {
   background: rgba(231, 111, 81, 0.12);
-  color: #e76f51;
+  color: var(--error-text);
   border: 1px solid rgba(231, 111, 81, 0.3);
 }
 
@@ -1356,12 +1354,12 @@
 }
 
 .importOptionsUrl {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   margin-bottom: 16px;
   padding: 8px 12px;
   background: rgba(var(--bg-rgb), 0.5);
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -1379,7 +1377,7 @@
 
 .importOptionsLabel {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-sm);
   font-weight: 600;
   color: var(--text);
   margin-bottom: 8px;
@@ -1403,7 +1401,7 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-sm);
   cursor: pointer;
   transition: var(--transition-normal);
 }
@@ -1575,7 +1573,7 @@
 }
 
 .unifiedDontShowAgain span {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -1592,7 +1590,7 @@
 }
 
 .dontShowAgainLabel {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--accent);
   font-weight: 500;
 }
@@ -1646,7 +1644,7 @@
 
 .dontShowAgainHint {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text);
   text-align: center;
   margin-top: 2px;
@@ -1685,7 +1683,7 @@
 }
 
 .collapseArrow {
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   transition: transform 0.2s ease;
   transform: rotate(-90deg);
@@ -1755,7 +1753,7 @@
 
 .importOptionsToggleText {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
   font-weight: 500;
   transition: color 0.2s ease;
@@ -1873,7 +1871,7 @@
 .colorSwatch {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-input);
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   cursor: help;
@@ -1888,7 +1886,7 @@
 .colorReferenceTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--font-sm);
   margin-top: 8px;
 }
 

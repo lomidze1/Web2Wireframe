@@ -13,10 +13,10 @@ declare global {
 /**
  * Express middleware: gate an import endpoint behind the license quota.
  *
- * Reads `figmaUserId` from the request body (or `?figmaUserId` query for
- * GET endpoints), atomically increments the user's monthly import counter,
- * and returns 403 with `error: "limit_exceeded"` when the Free quota is
- * exhausted.
+ * Identity comes from the verified plugin token (`req.userId`, set by
+ * `authenticatePlugin`) — never from a client-supplied body/query field.
+ * Atomically increments the user's monthly import counter and returns 403
+ * with `error: "limit_exceeded"` when the Free quota is exhausted.
  *
  * Trade-off: increments BEFORE the import is processed. A crash mid-import
  * "consumes" an import without delivering one — acceptable for MVP given
@@ -29,20 +29,12 @@ export async function requireImportAllowance(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const fromBody = (req.body as { figmaUserId?: unknown } | undefined)
-    ?.figmaUserId;
-  const fromQuery = req.query?.figmaUserId;
-  const figmaUserId =
-    typeof fromBody === "string"
-      ? fromBody
-      : typeof fromQuery === "string"
-        ? fromQuery
-        : null;
+  const figmaUserId = req.userId;
 
   if (!figmaUserId) {
-    res.status(400).json({
+    res.status(401).json({
       success: false,
-      error: "figmaUserId is required for billable import endpoints",
+      error: "Unauthorized",
     });
     return;
   }

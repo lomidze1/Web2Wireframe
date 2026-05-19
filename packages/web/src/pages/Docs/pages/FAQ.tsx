@@ -7,7 +7,7 @@ const FAQ = (): ReactElement => (
     <p>Frequently asked questions</p>
     <h3>Billing</h3>
     <p>Content coming soon...</p>
-    <h3>Subscription</h3>
+    <h3>Renewal</h3>
     <p>Content coming soon...</p>
     <h3>Usage</h3>
     <p>Content coming soon...</p>

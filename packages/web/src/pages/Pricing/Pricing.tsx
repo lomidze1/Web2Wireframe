@@ -34,7 +34,7 @@ const plans: Plan[] = [
   {
     name: "Pro",
     price: "$16",
-    period: "/month",
+    period: "/ 30 days",
     summary:
       "Unlimited imports with full styling, real text content, and assets.",
     features: [
@@ -46,6 +46,7 @@ const plans: Plan[] = [
       "Hover state capture",
       "Font binary download (ZIP + auto-install)",
       "Priority email support (24h response)",
+      "One-time payment — renew manually, no auto-charge",
     ],
     cta: "Install Plugin",
     link: checkoutLinks.pro,

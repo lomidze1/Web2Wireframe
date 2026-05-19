@@ -5,11 +5,14 @@ import styles from "./Screenshot.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { authHeader } from "../../../shared/licenseClient";
+import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import SettingsPanel from "../../../components/settingsPanel";
 
 const TAB_ID = "screenshot";
 const STORAGE_KEY = "w2w_settings_expanded_screenshot";
-const API_URL = "http://localhost:3002";
+const API_URL = API_BASE_URL;
 
 export default function Screenshot() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -20,40 +23,27 @@ export default function Screenshot() {
   const { config } = useConfig();
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
 
-  // Force plugin fonts — website fonts not available in screenshot mode
-  useEffect(() => {
-    if (settings.localFontMode === "website") {
-      settings.setFontMode("plugin");
-    }
-  }, [settings.localFontMode]);
-
-  // Force absolute layout — auto-layout not available in screenshot mode
-  useEffect(() => {
-    if (settings.localLayoutMode === "autoLayout") {
-      settings.setLayoutMode("absolute");
-    }
-  }, [settings.localLayoutMode]);
-
-  // Force placeholders — real assets not available in screenshot mode (no DOM)
-  useEffect(() => {
-    if (settings.localAssetMode === "realAssets") {
-      settings.setAssetMode("placeholders");
-    }
-  }, [settings.localAssetMode]);
-
-  // Force no interactions — hover variants not available in screenshot mode
-  useEffect(() => {
-    if (settings.localInteractionMode === "variants") {
-      settings.setInteractionMode("none");
-    }
-  }, [settings.localInteractionMode]);
-
-  // Force lorem/website text — semantic placeholders not useful in screenshot mode
-  useEffect(() => {
-    if (settings.localTextMode === "semantic") {
-      settings.setTextMode("lorem");
-    }
-  }, [settings.localTextMode]);
+  // Screenshot mode can't use website fonts, auto-layout, real assets, hover
+  // variants, or semantic text. Coerce to the supported value for display and
+  // import — derived, never written back, so the user's settings on other
+  // tabs (and the global defaults) stay untouched. The SettingsPanel disables
+  // these options with a tooltip; this only handles an incompatible default.
+  const fontMode =
+    settings.localFontMode === "website" ? "plugin" : settings.localFontMode;
+  const layoutMode =
+    settings.localLayoutMode === "autoLayout"
+      ? "absolute"
+      : settings.localLayoutMode;
+  const assetMode =
+    settings.localAssetMode === "realAssets"
+      ? "placeholders"
+      : settings.localAssetMode;
+  const interactionMode =
+    settings.localInteractionMode === "variants"
+      ? "none"
+      : settings.localInteractionMode;
+  const textMode =
+    settings.localTextMode === "semantic" ? "lorem" : settings.localTextMode;
 
   // Listen for wireframe creation results from Figma sandbox
   useEffect(() => {
@@ -115,7 +105,7 @@ export default function Screenshot() {
 
       const response = await fetch(`${API_URL}/api/import-screenshot`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: authHeader() },
         body: JSON.stringify({
           figmaUserId: config.figmaUserId,
           imageBase64: imagePreview,
@@ -124,7 +114,7 @@ export default function Screenshot() {
           viewports: settings.localViewports.map(Number),
           pluginColors: config.pluginColors,
           pluginFont: config.pluginFont,
-          textMode: settings.localTextMode,
+          textMode,
           colorMode: settings.localColorMode,
         }),
       });
@@ -137,7 +127,7 @@ export default function Screenshot() {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `HTTP ${response.status}`);
+        throw new Error(errData.error || httpErrorMessage(response.status));
       }
 
       const data = await response.json();
@@ -157,7 +147,7 @@ export default function Screenshot() {
               layoutMode: "absolute",
               colorMode: settings.localColorMode,
               fontMode: "plugin",
-              textMode: settings.localTextMode,
+              textMode,
             },
           },
         },
@@ -165,9 +155,9 @@ export default function Screenshot() {
       );
     } catch (err: unknown) {
       setIsGenerating(false);
-      setError(err instanceof Error ? err.message : "Screenshot analysis failed");
+      setError(toUserMessage(err, "Screenshot analysis failed"));
     }
-  }, [imagePreview, settings.localViewports, settings.localTextMode, settings.localColorMode, config]);
+  }, [imagePreview, settings.localViewports, textMode, settings.localColorMode, config]);
 
   return (
     <div class={styles.screenshotContainer}>
@@ -194,7 +184,7 @@ export default function Screenshot() {
           <input
             type="file"
             ref={fileInputRef}
-            class="srOnly"
+            class={styles.hiddenInput}
             accept="image/*"
             aria-label={
               imagePreview ? "Replace uploaded image" : "Upload screenshot image"
@@ -229,11 +219,11 @@ export default function Screenshot() {
         toggleExpanded={settings.toggleExpanded}
         localViewports={settings.localViewports}
         localColorMode={settings.localColorMode}
-        localFontMode={settings.localFontMode}
-        localTextMode={settings.localTextMode}
+        localFontMode={fontMode}
+        localTextMode={textMode}
         localCssVariablesMode={settings.localCssVariablesMode}
-        localLayoutMode={settings.localLayoutMode}
-        localAssetMode={settings.localAssetMode}
+        localLayoutMode={layoutMode}
+        localAssetMode={assetMode}
         toggleViewport={settings.toggleViewport}
         setColorMode={settings.setColorMode}
         setFontMode={settings.setFontMode}
@@ -255,7 +245,7 @@ export default function Screenshot() {
         layoutDisabledTooltip="Not available in Screenshot mode"
         disableRealAssetsOption={true}
         assetsDisabledTooltip="Not available in Screenshot mode"
-        localInteractionMode={settings.localInteractionMode}
+        localInteractionMode={interactionMode}
         setInteractionMode={settings.setInteractionMode}
         disableInteractionsVariants={true}
         interactionsDisabledTooltip="Not available in Screenshot mode"
@@ -274,7 +264,7 @@ export default function Screenshot() {
         onClick={handleGenerate}
         disabled={!imagePreview || isGenerating}
       >
-        {isGenerating ? "Analyzing Screenshot..." : "Generate Wireframe"}
+        {isGenerating ? "Importing…" : "Import"}
       </button>
     </div>
   );

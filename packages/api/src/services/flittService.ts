@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { config } from "../config/env.js";
 import { PLAN_PRICES } from "../models/License.js";
 
@@ -90,18 +90,23 @@ export function verifyCallback(
   const provided = payload.signature;
   if (typeof provided !== "string" || provided.length === 0) return false;
 
+  // Reject canonicalization injection: Flitt joins signed values with a
+  // literal `|`. A field value containing `|` could make two distinct
+  // payloads produce the same signing string. Flitt's own webhook fields
+  // never contain `|`, so any value that does is a tampering attempt.
+  // (`response_signature_string` is Flitt's debug echo of the concat string
+  // itself and is excluded from signing — skip it.)
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === "signature" || key === "response_signature_string") continue;
+    if (typeof value === "string" && value.includes("|")) return false;
+  }
+
   const expected = flittSign(payload, secretKey);
 
-  // Constant-time-ish compare: lengths must match and we walk the whole
-  // string. Node's `crypto.timingSafeEqual` would be stricter but requires
-  // equal-length Buffers; for our use case length-check + bitwise XOR is
-  // sufficient (signatures are always 40 hex chars).
+  // Constant-time comparison. timingSafeEqual requires equal-length buffers,
+  // which the length check below guarantees.
   if (provided.length !== expected.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < expected.length; i += 1) {
-    mismatch |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
-  return mismatch === 0;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
 }
 
 // ============================================================================
@@ -215,6 +220,90 @@ export async function createSubscriptionCheckout(params: {
 }
 
 // ============================================================================
+// One-time checkout
+// ============================================================================
+
+/**
+ * Create a hosted checkout for a one-time Pro purchase ($16 → 30 days of Pro).
+ * No `subscription`/`recurring_data` — Flitt processes a single charge and the
+ * user renews manually. `merchant_data.recurring:false` tells our webhook to
+ * route this payment to the one-time activation path.
+ */
+export async function createOneTimeCheckout(params: {
+  figmaUserId: string;
+  returnUrl?: string;
+}): Promise<CheckoutResult | CheckoutError> {
+  const { merchantId, secretKey, baseUrl } = config.flitt;
+  if (!merchantId || !secretKey) {
+    return { ok: false, error: "Flitt is not configured" };
+  }
+
+  const orderId = buildSubscriptionOrderId(params.figmaUserId);
+  const amount = PLAN_PRICES.pro.priceCents;
+  const currency = PLAN_PRICES.pro.currency;
+
+  // merchant_data round-trips back to us in the webhook so we can map the
+  // payment to the correct figmaUserId and route it as a one-time purchase.
+  const merchantData = JSON.stringify({
+    figmaUserId: params.figmaUserId,
+    plan: "pro",
+    recurring: false,
+  });
+
+  const responseUrl =
+    params.returnUrl ?? `${config.website.baseUrl}/checkout/success`;
+  const callbackUrl = `${
+    process.env.API_PUBLIC_URL ?? "https://api.web2wireframe.design"
+  }/api/webhooks/flitt`;
+
+  const requestParams: Record<string, unknown> = {
+    merchant_id: merchantId,
+    order_id: orderId,
+    amount,
+    currency,
+    order_desc: "Web2Wireframe Pro — 1 Month",
+    server_callback_url: callbackUrl,
+    response_url: responseUrl,
+    merchant_data: merchantData,
+  };
+
+  const signature = flittSign(requestParams, secretKey);
+  const body = { request: { ...requestParams, signature } };
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${baseUrl}/api/checkout/url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error("[Flitt] one-time checkout fetch failed:", err);
+    return { ok: false, error: "Flitt unreachable" };
+  }
+
+  if (!resp.ok) {
+    console.error(
+      `[Flitt] one-time checkout HTTP ${resp.status}:`,
+      await resp.text().catch(() => "<no body>"),
+    );
+    return { ok: false, error: `Flitt HTTP ${resp.status}` };
+  }
+
+  const data = (await resp.json()) as FlittCheckoutResponse;
+  const r = data.response;
+  if (!r || r.response_status !== "success" || !r.checkout_url) {
+    console.error("[Flitt] one-time checkout response error:", r);
+    return {
+      ok: false,
+      error: r?.error_message ?? "Flitt did not return a checkout URL",
+    };
+  }
+
+  return { ok: true, checkoutUrl: r.checkout_url, orderId };
+}
+
+// ============================================================================
 // Cancel subscription
 // ============================================================================
 
@@ -240,7 +329,7 @@ export async function cancelSubscription(
 
   let resp: Response;
   try {
-    resp = await fetch(`${baseUrl}/api/recurring/`, {
+    resp = await fetch(`${baseUrl}/api/subscription`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

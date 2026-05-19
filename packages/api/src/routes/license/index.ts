@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { type ILicense, PLAN_LIMITS } from "../../models/License.js";
 import { licenseService } from "../../services/licenseService.js";
+import { authenticatePlugin, verifyToken } from "../../middleware/auth.js";
+import { authRateLimiter } from "../../middleware/rateLimit.js";
 import { mongoConnected } from "../../state.js";
 
 const router = Router();
@@ -88,32 +90,23 @@ function serialize(license: ILicense): SerializedLicense {
 // ============================================================================
 
 /**
- * GET /api/license/me?figmaUserId=<id>
+ * GET /api/license/me
  *
- * Public read. The figmaUserId is its own bearer credential — anyone who
- * knows the id can read the license, but cannot mutate it. (Worst case:
- * snooping a public Figma file's user list reveals 10/month free quotas.)
+ * Returns the license for the caller identified by their HMAC plugin
+ * token. Caller identity comes from the verified `req.userId` set by
+ * `authenticatePlugin`; the figmaUserId query parameter is no longer
+ * trusted (previous IDOR: anyone could read anyone's license by passing
+ * their id in the query string).
  */
-router.get("/me", async (req: Request, res: Response) => {
+router.get("/me", authenticatePlugin, async (req: Request, res: Response) => {
   if (!requireMongo(req, res)) return;
   try {
-    const figmaUserId = req.query.figmaUserId;
-    if (typeof figmaUserId !== "string" || !figmaUserId) {
-      res.status(400).json({ error: "figmaUserId query parameter is required" });
-      return;
-    }
+    const figmaUserId = req.userId!;
     const license = await licenseService.getOrCreate(figmaUserId);
     res.json(serialize(license));
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Server error";
     console.error("[License] /me error:", err);
-    res.status(500).json({
-      error: message,
-      stack:
-        process.env.NODE_ENV === "production" || !(err instanceof Error)
-          ? undefined
-          : err.stack,
-    });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
@@ -122,36 +115,90 @@ router.get("/me", async (req: Request, res: Response) => {
  *
  * Atomically increments imports.usage. Returns 403 when the Free monthly
  * quota has been exhausted; the plugin opens the QuotaExceededModal in
- * response.
- *
- * Auth: figmaUserId in body for now. Phase 4 will add HMAC plugin token
- * verification.
+ * response. Caller identity comes from the verified plugin token.
  */
-router.post("/use-import", async (req: Request, res: Response) => {
-  if (!requireMongo(req, res)) return;
-  try {
-    const { figmaUserId } = req.body as { figmaUserId?: string };
-    if (!figmaUserId) {
-      res.status(400).json({ error: "figmaUserId is required" });
-      return;
-    }
-    const result = await licenseService.useImport(figmaUserId);
-    if ("error" in result) {
-      res.status(403).json({
-        error: "limit_exceeded",
-        upgradeUrl: "/api/checkout/create",
+router.post(
+  "/use-import",
+  authenticatePlugin,
+  async (req: Request, res: Response) => {
+    if (!requireMongo(req, res)) return;
+    try {
+      const figmaUserId = req.userId!;
+      const result = await licenseService.useImport(figmaUserId);
+      if ("error" in result) {
+        res.status(403).json({
+          error: "limit_exceeded",
+          upgradeUrl: "/api/checkout/create",
+        });
+        return;
+      }
+      res.json({
+        ok: true,
+        remaining: Number.isFinite(result.remaining) ? result.remaining : null,
       });
+    } catch (err) {
+      console.error("[License] /use-import error:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+/**
+ * POST /api/license/by-token
+ *
+ * Read-only license lookup for the website Account ("Manage Subscription")
+ * page. That page is opened from the plugin with a short-lived HMAC token
+ * (issued by /api/auth/issue-cancel-token) bound to the caller's verified
+ * Figma id. We verify that token and that it matches the supplied
+ * figmaUserId — the same proof /api/subscription/cancel requires — instead
+ * of an HMAC Bearer header the browser page does not hold.
+ *
+ * Public route (token-in-body); throttled by authRateLimiter.
+ */
+router.post(
+  "/by-token",
+  authRateLimiter,
+  async (req: Request, res: Response) => {
+    if (!requireMongo(req, res)) return;
+
+    const { figmaUserId, token } = req.body as {
+      figmaUserId?: unknown;
+      token?: unknown;
+    };
+    if (typeof figmaUserId !== "string" || typeof token !== "string") {
+      res.status(400).json({ error: "figmaUserId and token are required" });
       return;
     }
-    res.json({
-      ok: true,
-      remaining: Number.isFinite(result.remaining) ? result.remaining : null,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Server error";
-    console.error("[License] /use-import error:", err);
-    res.status(500).json({ error: message });
-  }
-});
+
+    const secret = process.env.AUTH_SECRET;
+    if (!secret) {
+      console.error("[License] AUTH_SECRET env var is not set");
+      res.status(500).json({ error: "Server auth not configured" });
+      return;
+    }
+
+    let payload;
+    try {
+      payload = verifyToken(token, secret);
+    } catch (err) {
+      res
+        .status(401)
+        .json({ error: `Invalid token: ${(err as Error).message}` });
+      return;
+    }
+    if (payload.userId !== figmaUserId) {
+      res.status(401).json({ error: "Token does not match figmaUserId" });
+      return;
+    }
+
+    try {
+      const license = await licenseService.getOrCreate(figmaUserId);
+      res.json(serialize(license));
+    } catch (err) {
+      console.error("[License] /by-token error:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
 
 export default router;

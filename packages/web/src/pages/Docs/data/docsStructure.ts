@@ -132,7 +132,7 @@ export const docsNavigation: DocsTopic[] = [
       },
       {
         id: "purchase",
-        title: "Purchase & Subscription",
+        title: "Purchase & Access",
         path: "purchase",
         source: "PricingPurchase",
       },

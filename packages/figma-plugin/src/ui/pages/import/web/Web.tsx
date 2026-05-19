@@ -5,6 +5,9 @@ import styles from "./Web.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { authHeader } from "../../../shared/licenseClient";
+import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
@@ -19,8 +22,8 @@ import RenderingLoader, {
 const TAB_ID = "web";
 const STORAGE_KEY = "w2w_settings_expanded_web";
 
-// Backend API URL - in production, this should come from environment config
-const API_URL = "http://localhost:3002";
+// Backend API URL — single source: apiConfig.ts (toggle USE_PRODUCTION there).
+const API_URL = API_BASE_URL;
 
 // Import state type
 interface ImportState {
@@ -121,7 +124,7 @@ export default function Web() {
     // Show the rendering loader
     setShowRenderingLoader(true);
     setRenderingProgress({
-      step: "Creating wireframe...",
+      step: "Creating wireframe…",
       percent: 0,
     });
     setImportState({ status: "loading", message: "" });
@@ -181,7 +184,7 @@ export default function Web() {
     }
     const normalizedUrl = validation.url;
 
-    setImportState({ status: "loading", message: "Importing website..." });
+    setImportState({ status: "loading", message: "Importing the website…" });
 
     // Collapse settings panel so user can see loading status
     settings.collapseSettings();
@@ -192,6 +195,7 @@ export default function Web() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: authHeader(),
         },
         body: JSON.stringify({
           userId: `figma-user-${Date.now()}`, // Temporary user ID
@@ -214,7 +218,9 @@ export default function Web() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(
-          errorData.error || errorData.details || `HTTP ${response.status}`
+          errorData.error ||
+            errorData.details ||
+            httpErrorMessage(response.status)
         );
       }
 
@@ -291,8 +297,7 @@ export default function Web() {
     } catch (error) {
       setImportState({
         status: "error",
-        message:
-          error instanceof Error ? error.message : "Failed to import website",
+        message: toUserMessage(error, "Failed to import website"),
       });
     }
   };
@@ -301,36 +306,43 @@ export default function Web() {
 
   return (
     <div class={styles.webContainer}>
-      {/* URL Input */}
-      <div class={styles.inputGroup}>
-        <label class="srOnly" for="w2w-url-input">
+      {/* Title & Instructions */}
+      <div>
+        <label class={styles.urlLabel} for="w2w-url-input">
           Website URL
         </label>
-        <input
-          id="w2w-url-input"
-          type="url"
-          class={styles.urlInput}
-          placeholder="https://www.website.com/"
-          value={url}
-          aria-invalid={importState.status === "error"}
-          aria-describedby={
-            importState.status === "error" ? "w2w-url-error" : undefined
-          }
-          onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
-          onBlur={() => {
-            const trimmed = url.trim();
-            if (trimmed && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(trimmed)) {
-              setUrl(`https://${trimmed}`);
-            }
-          }}
-          disabled={importState.status === "loading"}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !isDisabled) {
-              handleImport();
-            }
-          }}
-        />
+        <ul class={styles.webBullets}>
+          <li>Paste a website URL</li>
+          <li>Choose your import options</li>
+          <li>Click Import</li>
+        </ul>
       </div>
+
+      {/* URL Input */}
+      <input
+        id="w2w-url-input"
+        type="url"
+        class={styles.urlInput}
+        placeholder="https://www.website.com/"
+        value={url}
+        aria-invalid={importState.status === "error"}
+        aria-describedby={
+          importState.status === "error" ? "w2w-url-error" : undefined
+        }
+        onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+        onBlur={() => {
+          const trimmed = url.trim();
+          if (trimmed && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(trimmed)) {
+            setUrl(`https://${trimmed}`);
+          }
+        }}
+        disabled={importState.status === "loading"}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !isDisabled) {
+            handleImport();
+          }
+        }}
+      />
 
       {/* Status Message — live region so screen readers announce updates */}
       {importState.message && (
@@ -388,11 +400,11 @@ export default function Web() {
 
       {/* Import Button */}
       <button
-        class={`${importStyles.btnPrimary} ${styles.importBtn}`}
+        class={importStyles.btnPrimary}
         onClick={handleImport}
         disabled={isDisabled}
       >
-        {importState.status === "loading" ? "Importing..." : "Import"}
+        {importState.status === "loading" ? "Importing…" : "Import"}
       </button>
 
       {/* Font Fallback Modal */}

@@ -1,0 +1,50 @@
+/* Connection gate screen — shown before a verified plugin token is held. */
+.connectScreen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  height: 100%;
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.connectHeading {
+  margin: 0;
+  font-size: var(--font-xl);
+  font-weight: 700;
+  font-family: var(--font-display);
+  color: var(--text);
+}
+
+.connectText {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.connectButton {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  font-family: var(--font-display);
+  border: none;
+  border-radius: var(--radius-input);
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.connectButton:hover {
+  background: var(--accent-hover);
+}
+
+.connectError {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--error-text);
+}

@@ -39,7 +39,10 @@ const PricingOverview = (): ReactElement => (
     <p>Plan types:</p>
     <ul>
       <li>Free — 10 imports per month, for exploration and occasional use</li>
-      <li>Pro $16/month — unlimited imports and full features</li>
+      <li>
+        Pro — $16 for 30 days of unlimited imports and full features
+        (one-time payment, no auto-renewal)
+      </li>
     </ul>
     <p>
       Additional options may be introduced over time as new features
@@ -122,9 +125,8 @@ const PricingOverview = (): ReactElement => (
 
     <h3>Next step</h3>
     <p>
-      Continue to{" "}
-      <a href="/docs/pricing/purchase">Purchase & Subscription</a> to learn how
-      buying, updating, and canceling subscriptions works.
+      Continue to <a href="/docs/pricing/purchase">Purchase & Access</a> to
+      learn how buying and renewing Pro access works.
     </p>
   </DocsLayout>
 );
