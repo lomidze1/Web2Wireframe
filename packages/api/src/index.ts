@@ -28,6 +28,7 @@ import {
   checkoutRateLimiter,
   webhookRateLimiter,
 } from "./middleware/rateLimit.js";
+import { flittIpAllowlist } from "./middleware/flittIpAllowlist.js";
 import { runExpiryReminders } from "./services/reminderService.js";
 import { config } from "./config/env.js";
 
@@ -182,7 +183,12 @@ pluginRouter.use("/api/license", licenseRoutes);
 
 // Flitt payment routes — unique prefixes, so mount-level rate limiting is safe.
 pluginRouter.use("/api/checkout", checkoutRateLimiter, checkoutRoutes);
-pluginRouter.use("/api/webhooks", webhookRateLimiter, webhookRouter);
+pluginRouter.use(
+  "/api/webhooks",
+  webhookRateLimiter,
+  flittIpAllowlist,
+  webhookRouter,
+);
 pluginRouter.use("/api/subscription", checkoutRateLimiter, cancelRouter);
 
 // Admin endpoints (curl-driven, ADMIN_TOKEN-protected)

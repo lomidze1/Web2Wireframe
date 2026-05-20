@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { timingSafeEqual } from "node:crypto";
 import { License, type ILicense } from "../../models/License.js";
+import { LicenseAudit } from "../../models/LicenseAudit.js";
 
 const router = Router();
 
@@ -57,6 +58,49 @@ function serialize(license: ILicense) {
 // ============================================================================
 
 /**
+ * GET /api/admin/license/recent?limit=<N>&plan=<free|pro>
+ *
+ * Recent license activity by `updatedAt`. Useful for the support inbox:
+ * lets you skim who just upgraded / who has a stuck subscription state
+ * without knowing their figmaUserId or email. `limit` caps at 100;
+ * `plan` filter is optional.
+ *
+ * NOTE: defined BEFORE /:figmaUserId so Express does not treat
+ * "recent" as a figmaUserId param.
+ */
+router.get(
+  "/recent",
+  adminAuth,
+  async (req: Request, res: Response) => {
+    try {
+      const rawLimit = Number.parseInt(String(req.query.limit ?? "20"), 10);
+      const limit = Number.isFinite(rawLimit)
+        ? Math.min(Math.max(rawLimit, 1), 100)
+        : 20;
+      const planFilter = req.query.plan;
+      const filter: Record<string, unknown> = {};
+      if (typeof planFilter === "string") {
+        if (!["free", "pro"].includes(planFilter)) {
+          res.status(400).json({ error: "Invalid plan filter" });
+          return;
+        }
+        filter.plan = planFilter;
+      }
+      const licenses = await License.find(filter)
+        .sort({ updatedAt: -1 })
+        .limit(limit);
+      res.json({
+        count: licenses.length,
+        licenses: licenses.map(serialize),
+      });
+    } catch (err) {
+      console.error("[Admin] recent error:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+/**
  * GET /api/admin/license/lookup-by-email?email=<...>
  *
  * NOTE: defined BEFORE /:figmaUserId so Express does not treat
@@ -110,24 +154,25 @@ router.get(
 /**
  * POST /api/admin/license/override
  *
- * Body: { figmaUserId, plan?, status?, cycleEndsAt?, email? }
+ * Body: { figmaUserId, plan?, status?, cycleEndsAt?, email?, reason? }
  *
  * Force-set arbitrary license fields. Use sparingly — for support cases
  * where Flitt-driven state ended up wrong (refund issued, customer claim,
- * etc.).
+ * etc.). `reason` is recorded in the audit log for accountability.
  */
 router.post(
   "/override",
   adminAuth,
   async (req: Request, res: Response) => {
     try {
-      const { figmaUserId, plan, status, cycleEndsAt, email } =
+      const { figmaUserId, plan, status, cycleEndsAt, email, reason } =
         req.body as {
           figmaUserId?: unknown;
           plan?: string;
           status?: string;
           cycleEndsAt?: string;
           email?: string | null;
+          reason?: string;
         };
 
       // Must be a non-empty string — an object like {"$ne": null} would turn
@@ -160,9 +205,59 @@ router.post(
         { $set: update },
         { new: true, upsert: true },
       );
+
+      // Best-effort audit write — never block the override response on this.
+      try {
+        await LicenseAudit.create({
+          figmaUserId,
+          action: "admin_override",
+          changes: {},
+          context: { reason: reason ?? null, fields: Object.keys(update) },
+        });
+      } catch (err) {
+        console.warn("[Admin] audit write failed:", err);
+      }
+
       res.json(serialize(license as ILicense));
     } catch (err) {
       console.error("[Admin] override error:", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  },
+);
+
+/**
+ * GET /api/admin/license/:figmaUserId/audit?limit=<N>
+ *
+ * Returns the most recent audit entries for a user (subscription changes,
+ * refunds, admin overrides). Backed by the LicenseAudit collection
+ * (18-month TTL).
+ */
+router.get(
+  "/:figmaUserId/audit",
+  adminAuth,
+  async (req: Request, res: Response) => {
+    try {
+      const rawLimit = Number.parseInt(String(req.query.limit ?? "50"), 10);
+      const limit = Number.isFinite(rawLimit)
+        ? Math.min(Math.max(rawLimit, 1), 200)
+        : 50;
+      const entries = await LicenseAudit.find({
+        figmaUserId: req.params.figmaUserId,
+      })
+        .sort({ at: -1 })
+        .limit(limit);
+      res.json({
+        count: entries.length,
+        entries: entries.map((e) => ({
+          action: e.action,
+          changes: e.changes,
+          context: e.context,
+          at: e.at.toISOString(),
+        })),
+      });
+    } catch (err) {
+      console.error("[Admin] audit error:", err);
       res.status(500).json({ error: "Server error" });
     }
   },

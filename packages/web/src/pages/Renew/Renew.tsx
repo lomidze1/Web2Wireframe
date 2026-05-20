@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import styles from "./Renew.module.scss";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3002";
@@ -16,12 +16,7 @@ const Renew = (): ReactElement => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!uid) {
-      setError(
-        "This renewal link is missing its user ID. Open the plugin and use the Renew button instead.",
-      );
-      return;
-    }
+    if (!uid) return; // handled by the dedicated empty-state below
     let cancelled = false;
     (async () => {
       try {
@@ -55,7 +50,28 @@ const Renew = (): ReactElement => {
     <div className={styles.page}>
       <div className="container">
         <div className={styles.card}>
-          {error ? (
+          {!uid ? (
+            <>
+              <div className={styles.iconInfo}>?</div>
+              <h1>This renewal link is incomplete</h1>
+              <p>
+                The link you used is missing your account ID. This usually
+                means the URL was truncated when copied from your email.
+              </p>
+              <p>
+                Open the Web2Wireframe plugin in Figma and use the{" "}
+                <strong>Renew</strong> button in the Plan modal, or browse{" "}
+                <Link to="/pricing">our pricing</Link>.
+              </p>
+              <p className={styles.subtle}>
+                Need help? Email{" "}
+                <a href="mailto:billing@web2wireframe.design">
+                  billing@web2wireframe.design
+                </a>
+                .
+              </p>
+            </>
+          ) : error ? (
             <>
               <div className={styles.iconError}>!</div>
               <h1>Renewal couldn't start</h1>

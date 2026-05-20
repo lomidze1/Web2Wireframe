@@ -9,6 +9,7 @@ import request from "supertest";
 const mockFindOne = vi.fn();
 const mockFindOneAndUpdate = vi.fn();
 const mockFind = vi.fn();
+const mockRecentFind = vi.fn();
 
 vi.mock("../src/models/License.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/models/License.js")>();
@@ -17,12 +18,31 @@ vi.mock("../src/models/License.js", async (importOriginal) => {
     License: {
       findOne: (...args: unknown[]) => mockFindOne(...args),
       findOneAndUpdate: (...args: unknown[]) => mockFindOneAndUpdate(...args),
+      // Dual-shape: lookup-by-email uses .limit(n); /recent uses
+      // .sort(...).limit(n). The mock returns a fluent chain that resolves
+      // to whichever mock was primed.
       find: (...args: unknown[]) => ({
         limit: (_n: number) => mockFind(...args),
+        sort: (_sort: unknown) => ({
+          limit: (_n: number) => mockRecentFind(...args),
+        }),
       }),
     },
   };
 });
+
+const mockAuditCreate = vi.fn();
+const mockAuditFind = vi.fn();
+vi.mock("../src/models/LicenseAudit.js", () => ({
+  LicenseAudit: {
+    create: (...args: unknown[]) => mockAuditCreate(...args),
+    find: (...args: unknown[]) => ({
+      sort: (_s: unknown) => ({
+        limit: (_n: number) => mockAuditFind(...args),
+      }),
+    }),
+  },
+}));
 
 const { default: adminLicenseRoutes } = await import(
   "../src/routes/admin/license.js"
@@ -134,6 +154,53 @@ describe("GET /api/admin/license/lookup-by-email", () => {
 });
 
 // ============================================================================
+// GET /api/admin/license/recent
+// ============================================================================
+
+describe("GET /api/admin/license/recent", () => {
+  it("returns 401 without admin token", async () => {
+    const res = await request(makeApp()).get("/api/admin/license/recent");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns recent licenses sorted by updatedAt desc (default limit=20)", async () => {
+    mockRecentFind.mockResolvedValue([
+      fakeLicense("u-1"),
+      fakeLicense("u-2"),
+    ]);
+    const res = await request(makeApp())
+      .get("/api/admin/license/recent")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(2);
+    expect(res.body.licenses[0].figmaUserId).toBe("u-1");
+  });
+
+  it("accepts limit query param (capped at 100)", async () => {
+    mockRecentFind.mockResolvedValue([]);
+    await request(makeApp())
+      .get("/api/admin/license/recent?limit=5")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(mockRecentFind).toHaveBeenCalledWith({});
+  });
+
+  it("accepts plan filter", async () => {
+    mockRecentFind.mockResolvedValue([]);
+    await request(makeApp())
+      .get("/api/admin/license/recent?plan=pro")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(mockRecentFind).toHaveBeenCalledWith({ plan: "pro" });
+  });
+
+  it("rejects invalid plan filter", async () => {
+    const res = await request(makeApp())
+      .get("/api/admin/license/recent?plan=enterprise")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(400);
+  });
+});
+
+// ============================================================================
 // POST /api/admin/license/override
 // ============================================================================
 
@@ -195,5 +262,73 @@ describe("POST /api/admin/license/override", () => {
     expect(update.$set.status).toBe("active");
     expect(update.$set.email).toBe("user@example.com");
     expect(options).toMatchObject({ new: true, upsert: true });
+  });
+});
+
+// ============================================================================
+// GET /api/admin/license/:figmaUserId/audit
+// ============================================================================
+
+describe("GET /api/admin/license/:figmaUserId/audit", () => {
+  it("returns 401 without admin token", async () => {
+    const res = await request(makeApp()).get("/api/admin/license/u-1/audit");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns audit entries for a user", async () => {
+    mockAuditFind.mockResolvedValue([
+      {
+        action: "subscription_activation",
+        changes: {},
+        context: { flittOrderId: "w2w_pro_u-1_123" },
+        at: new Date("2026-05-04T10:00:00Z"),
+      },
+      {
+        action: "refund",
+        changes: { plan: ["pro", "free"] },
+        context: { flittOrderId: "w2w_pro_u-1_123", revoked: true },
+        at: new Date("2026-05-10T10:00:00Z"),
+      },
+    ]);
+    const res = await request(makeApp())
+      .get("/api/admin/license/u-1/audit")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(2);
+    expect(res.body.entries[0].action).toBe("subscription_activation");
+    expect(res.body.entries[1].action).toBe("refund");
+    expect(res.body.entries[0].at).toBe("2026-05-04T10:00:00.000Z");
+  });
+
+  it("respects ?limit= query param", async () => {
+    mockAuditFind.mockResolvedValue([]);
+    await request(makeApp())
+      .get("/api/admin/license/u-1/audit?limit=10")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(mockAuditFind).toHaveBeenCalledWith({ figmaUserId: "u-1" });
+  });
+
+  it("override endpoint writes an audit row with reason", async () => {
+    mockFindOneAndUpdate.mockResolvedValue(
+      fakeLicense("u-1", { plan: "pro", status: "active" }),
+    );
+    mockAuditCreate.mockResolvedValue({});
+    await request(makeApp())
+      .post("/api/admin/license/override")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`)
+      .send({
+        figmaUserId: "u-1",
+        plan: "pro",
+        reason: "manual goodwill for stuck webhook",
+      });
+    expect(mockAuditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        figmaUserId: "u-1",
+        action: "admin_override",
+        context: expect.objectContaining({
+          reason: "manual goodwill for stuck webhook",
+        }),
+      }),
+    );
   });
 });

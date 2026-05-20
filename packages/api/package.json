@@ -11,7 +11,8 @@
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e:flitt": "tsx scripts/e2e-flitt-webhook.ts"
+    "test:e2e:flitt": "tsx scripts/e2e-flitt-webhook.ts",
+    "simulate:flitt": "tsx scripts/simulate-flitt-webhook.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

@@ -21,6 +21,14 @@ vi.mock("../src/models/License.js", async (importOriginal) => {
   };
 });
 
+// LicenseAudit is best-effort and must not break tests. Mock with a no-op
+// so audit writes succeed silently without an actual model connection.
+vi.mock("../src/models/LicenseAudit.js", () => ({
+  LicenseAudit: {
+    create: vi.fn().mockResolvedValue({}),
+  },
+}));
+
 const {
   licenseService,
   resetCycleIfElapsed,

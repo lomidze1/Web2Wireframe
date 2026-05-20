@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import styles from "./Account.module.scss";
 
 interface Subscription {
@@ -59,7 +59,8 @@ const Account = (): ReactElement => {
 
   useEffect(() => {
     if (!figmaUserId || !token) {
-      setError("Missing or invalid link. Open this page from the Figma plugin.");
+      // Handled by the dedicated empty-state below — don't surface as an
+      // error toast.
       setIsLoading(false);
       return;
     }
@@ -122,6 +123,37 @@ const Account = (): ReactElement => {
     warning: styles.failedPaymentBannerWarning,
     urgent: styles.failedPaymentBannerUrgent,
   }[failureSeverity];
+
+  // Dedicated empty state when this page is reached without the plugin
+  // signing the link — the Account view requires a verified HMAC token.
+  if (!figmaUserId || !token) {
+    return (
+      <div className={styles.page}>
+        <div className="container">
+          <div className={styles.card}>
+            <h1>Open from the Figma plugin</h1>
+            <p>
+              This page manages your Pro subscription, but it needs a
+              verified link from the Web2Wireframe plugin to show your
+              account. Open the plugin in Figma, then click{" "}
+              <strong>Manage Subscription</strong> in the Plan modal.
+            </p>
+            <p>
+              Just looking for pricing? Visit{" "}
+              <Link to="/pricing">our pricing page</Link>.
+            </p>
+            <p className={styles.subtle}>
+              Need help? Email{" "}
+              <a href="mailto:billing@web2wireframe.design">
+                billing@web2wireframe.design
+              </a>
+              .
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.page}>

@@ -4,6 +4,33 @@ import {
   CYCLE_DURATION_MS,
   type ILicense,
 } from "../models/License.js";
+import {
+  LicenseAudit,
+  type LicenseAuditAction,
+} from "../models/LicenseAudit.js";
+
+/**
+ * Best-effort audit log write. Never throws — a logger blip must not block
+ * the live license update path, since the webhook handler must always
+ * respond 200 to Flitt.
+ */
+async function audit(
+  figmaUserId: string,
+  action: LicenseAuditAction,
+  context: Record<string, unknown>,
+  changes: Record<string, [unknown, unknown]> = {},
+): Promise<void> {
+  try {
+    await LicenseAudit.create({
+      figmaUserId,
+      action,
+      changes,
+      context,
+    });
+  } catch (err) {
+    console.warn("[LicenseAudit] write failed (non-fatal):", err);
+  }
+}
 
 // ============================================================================
 // Result types
@@ -184,6 +211,11 @@ export const licenseService = {
       },
       { new: true, upsert: true },
     );
+    await audit(params.figmaUserId, "subscription_activation", {
+      flittOrderId: params.flittOrderId,
+      email: params.email,
+      cycleEndsAt: cycleEnd.toISOString(),
+    });
     // upsert:true with new:true guarantees a non-null result.
     return updated as ILicense;
   },
@@ -240,6 +272,12 @@ export const licenseService = {
       },
       { new: true, upsert: true },
     );
+    await audit(params.figmaUserId, "one_time_purchase", {
+      flittOrderId: params.flittOrderId,
+      email: params.email,
+      cycleEndsAt: cycleEnd.toISOString(),
+      stacked: stillActivePro,
+    });
     // upsert:true with new:true guarantees a non-null result.
     return updated as ILicense;
   },
@@ -253,7 +291,7 @@ export const licenseService = {
   }): Promise<ILicense | null> {
     const now = new Date();
     const cycleEnd = new Date(now.getTime() + CYCLE_DURATION_MS);
-    return await License.findOneAndUpdate(
+    const updated = await License.findOneAndUpdate(
       { figmaUserId: params.figmaUserId, plan: "pro" },
       {
         $set: {
@@ -268,6 +306,12 @@ export const licenseService = {
       },
       { new: true },
     );
+    if (updated) {
+      await audit(params.figmaUserId, "recurring_charge", {
+        cycleEndsAt: cycleEnd.toISOString(),
+      });
+    }
+    return updated;
   },
 
   /**
@@ -277,7 +321,7 @@ export const licenseService = {
   async applyFailedCharge(params: {
     figmaUserId: string;
   }): Promise<ILicense | null> {
-    return await License.findOneAndUpdate(
+    const updated = await License.findOneAndUpdate(
       { figmaUserId: params.figmaUserId },
       {
         $set: { "subscription.lastFailedAt": new Date() },
@@ -285,6 +329,12 @@ export const licenseService = {
       },
       { new: true },
     );
+    if (updated) {
+      await audit(params.figmaUserId, "failed_charge", {
+        failureCount: updated.subscription?.failureCount ?? null,
+      });
+    }
+    return updated;
   },
 
   /**
@@ -328,11 +378,22 @@ export const licenseService = {
       { new: true },
     );
     if (updated) {
+      await audit(
+        params.figmaUserId,
+        "refund",
+        { flittOrderId: params.flittOrderId, revoked: true },
+        { plan: ["pro", "free"], status: ["active", "active"] },
+      );
       return { revoked: true, license: updated };
     }
     // Stale order or user already Free — fetch current state for logging only.
     const current = await License.findOne({
       figmaUserId: params.figmaUserId,
+    });
+    await audit(params.figmaUserId, "refund", {
+      flittOrderId: params.flittOrderId,
+      revoked: false,
+      reason: "stale_or_missing_order",
     });
     return { revoked: false, license: current };
   },
@@ -346,7 +407,7 @@ export const licenseService = {
     figmaUserId: string;
   }): Promise<ILicense | null> {
     const now = new Date();
-    return await License.findOneAndUpdate(
+    const updated = await License.findOneAndUpdate(
       { figmaUserId: params.figmaUserId, plan: "pro" },
       {
         $set: {
@@ -356,5 +417,14 @@ export const licenseService = {
       },
       { new: true },
     );
+    if (updated) {
+      await audit(
+        params.figmaUserId,
+        "subscription_cancel",
+        { canceledAt: now.toISOString() },
+        { status: ["active", "canceled"] },
+      );
+    }
+    return updated;
   },
 };

@@ -24,10 +24,20 @@
 
 **Investigation:**
 ```bash
-# Confirm webhook arrived
-mongosh "$MONGODB_URI" --eval 'db.webhookevents.find({orderId: /USER_ID/}).sort({processedAt: -1}).limit(5)'
+# Easiest: admin API lookup (returns full license JSON)
+curl "https://api.web2wireframe.design/api/admin/license/lookup-by-email?email=user@example.com" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
 
-# Check current license
+# Or by figmaUserId
+curl "https://api.web2wireframe.design/api/admin/license/$FIGMA_USER_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Recent activity sweep (last 20 license updates)
+curl "https://api.web2wireframe.design/api/admin/license/recent?limit=20" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Direct DB queries (slower, fall back if API unreachable)
+mongosh "$MONGODB_URI" --eval 'db.webhookevents.find({orderId: /USER_ID/}).sort({processedAt: -1}).limit(5)'
 mongosh "$MONGODB_URI" --eval 'db.licenses.findOne({figmaUserId: "USER_ID"})'
 ```
 
