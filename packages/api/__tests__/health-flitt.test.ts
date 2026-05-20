@@ -76,12 +76,28 @@ describe("GET /api/health/flitt", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 200 when ADMIN_TOKEN matches header", async () => {
+  it("returns 200 when ADMIN_TOKEN matches X-Admin-Token header", async () => {
     process.env.ADMIN_TOKEN = "secret-admin-token";
     const res = await request(makeApp())
       .get("/api/health/flitt")
       .set("X-Admin-Token", "secret-admin-token");
     expect(res.status).toBe(200);
+  });
+
+  it("also accepts Authorization: Bearer <ADMIN_TOKEN>", async () => {
+    process.env.ADMIN_TOKEN = "secret-admin-token";
+    const res = await request(makeApp())
+      .get("/api/health/flitt")
+      .set("Authorization", "Bearer secret-admin-token");
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects Bearer with wrong token", async () => {
+    process.env.ADMIN_TOKEN = "secret-admin-token";
+    const res = await request(makeApp())
+      .get("/api/health/flitt")
+      .set("Authorization", "Bearer not-the-right-one");
+    expect(res.status).toBe(401);
   });
 
   it("returns 200 in dev (ADMIN_TOKEN unset) without header", async () => {

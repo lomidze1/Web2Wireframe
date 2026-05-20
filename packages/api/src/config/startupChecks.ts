@@ -67,3 +67,52 @@ export function assertProductionSecrets(env: NodeJS.ProcessEnv): void {
     );
   }
 }
+
+/** Production-facing URL env vars: malformed values silently break Flitt. */
+const PUBLIC_URL_VARS = ["API_PUBLIC_URL", "WEBSITE_BASE_URL"] as const;
+
+/**
+ * Throw if a production-facing URL env var is missing, unparseable, or
+ * non-HTTPS. No-op outside production.
+ *
+ * Why HTTPS-only:
+ *   - `API_PUBLIC_URL` is the parent of the webhook callback. Flitt POSTs
+ *     payment events here; over HTTP a passive listener can read PII (email,
+ *     amount, order_id) and an active attacker on the path can swap the
+ *     signed payload before our handler verifies it.
+ *   - `WEBSITE_BASE_URL` builds `response_url` (where Flitt sends the user
+ *     after checkout) and the renew/account deep-links in emails. HTTP would
+ *     downgrade an authenticated session to a network attacker.
+ *
+ * Failing fast at boot beats discovering the misconfig from a debug-log
+ * trail of failed webhook deliveries hours later.
+ */
+export function assertProductionUrls(env: NodeJS.ProcessEnv): void {
+  if (env.NODE_ENV !== "production") return;
+
+  const problems: string[] = [];
+  for (const key of PUBLIC_URL_VARS) {
+    const raw = env[key];
+    if (!raw || !raw.trim()) {
+      problems.push(`${key} is missing`);
+      continue;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(raw.trim());
+    } catch {
+      problems.push(`${key}="${raw}" is not a valid URL`);
+      continue;
+    }
+    if (parsed.protocol !== "https:") {
+      problems.push(`${key}="${raw}" must use https:// in production`);
+      continue;
+    }
+    if (!parsed.hostname || parsed.hostname === "localhost") {
+      problems.push(`${key}="${raw}" cannot point at localhost in production`);
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(`Refusing to start: ${problems.join("; ")}`);
+  }
+}

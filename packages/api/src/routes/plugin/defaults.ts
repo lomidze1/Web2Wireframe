@@ -85,7 +85,16 @@ router.get("/health", (req: Request, res: Response) => {
 router.get("/health/flitt", async (req: Request, res: Response) => {
   const adminToken = process.env.ADMIN_TOKEN;
   if (adminToken) {
-    const provided = req.header("x-admin-token");
+    // Accept either `X-Admin-Token: <value>` or `Authorization: Bearer <value>`.
+    // The Bearer form matches what most CLIs (curl, Postman, httpie) and
+    // monitoring tools default to, and it's also what /api/admin/* uses, so
+    // operators don't juggle two header names.
+    const xAdmin = req.header("x-admin-token");
+    const authHeader = req.header("authorization");
+    const bearer = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : null;
+    const provided = xAdmin ?? bearer ?? "";
     if (provided !== adminToken) {
       res.status(401).json({ error: "Unauthorized" });
       return;

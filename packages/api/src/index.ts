@@ -37,12 +37,16 @@ import websiteSupportRoutes from "./routes/website/support.js";
 import websiteFigmaAuthRoutes from "./routes/website/figmaAuth.js";
 import websiteSessionRoutes from "./routes/website/session.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-import { assertProductionSecrets } from "./config/startupChecks.js";
+import {
+  assertProductionSecrets,
+  assertProductionUrls,
+} from "./config/startupChecks.js";
 
 const app = express();
 
 // Fail fast at boot if critical secrets are missing or weak in production.
 assertProductionSecrets(process.env);
+assertProductionUrls(process.env);
 
 // ============================================================================
 // Global middleware

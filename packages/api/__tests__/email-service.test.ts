@@ -73,3 +73,165 @@ describe("generateSupportEmailHtml — HTML injection (M1)", () => {
     expect(html).toContain("&lt;img");
   });
 });
+
+// ============================================================================
+// Refund notification (B2)
+// ============================================================================
+
+const {
+  generateRefundNotificationHtml,
+  generateRefundNotificationText,
+} = await import("../src/services/emailService.js");
+
+describe("generateRefundNotificationHtml", () => {
+  it("mentions refund + Free plan + contact email", () => {
+    const html = generateRefundNotificationHtml({ email: "u@x.com" });
+    expect(html.toLowerCase()).toContain("refund");
+    expect(html).toContain("Free plan");
+    expect(html).toContain("billing@web2wireframe.design");
+  });
+
+  it("escapes the user's email when rendering HTML", () => {
+    const html = generateRefundNotificationHtml({
+      email: "<script>alert(1)</script>@evil.com",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+});
+
+describe("generateRefundNotificationText", () => {
+  it("is plain text (no HTML tags) with email mention", () => {
+    const text = generateRefundNotificationText({ email: "u@x.com" });
+    expect(text).not.toContain("<");
+    expect(text).toContain("u@x.com");
+  });
+});
+
+// ============================================================================
+// Payment-failed notification (B9)
+// ============================================================================
+
+const {
+  generatePaymentFailedHtml,
+  generatePaymentFailedText,
+} = await import("../src/services/emailService.js");
+
+describe("generatePaymentFailedHtml", () => {
+  const data = {
+    email: "u@x.com",
+    renewUrl: "https://web2wireframe.test/renew?uid=u-1",
+  };
+
+  it("includes the retry link as a CTA", () => {
+    const html = generatePaymentFailedHtml(data);
+    expect(html).toContain("https://web2wireframe.test/renew?uid=u-1");
+    expect(html.toLowerCase()).toMatch(/retry|try again/);
+  });
+
+  it("explains common decline causes", () => {
+    const html = generatePaymentFailedHtml(data).toLowerCase();
+    expect(html).toMatch(/bank|fraud|3d secure/);
+  });
+
+  it("escapes the renewUrl when rendering", () => {
+    const html = generatePaymentFailedHtml({
+      email: "u@x.com",
+      renewUrl: "https://x.com/?q=<script>x</script>",
+    });
+    expect(html).not.toContain("<script>x</script>");
+  });
+});
+
+describe("generatePaymentFailedText", () => {
+  it("includes the retry URL on its own line (terminal-friendly)", () => {
+    const text = generatePaymentFailedText({
+      email: "u@x.com",
+      renewUrl: "https://web2wireframe.test/renew?uid=u-1",
+    });
+    expect(text).toContain("https://web2wireframe.test/renew?uid=u-1");
+    expect(text).not.toContain("<");
+  });
+});
+
+// ============================================================================
+// Receipt email (C3)
+// ============================================================================
+
+const {
+  generateReceiptHtml,
+  generateReceiptText,
+} = await import("../src/services/emailService.js");
+
+describe("generateReceiptHtml", () => {
+  const receiptData = {
+    email: "u@x.com",
+    amountCents: 1600,
+    currency: "USD",
+    orderId: "w2w_pro_u-1_1715000000000",
+    purchasedAt: new Date("2026-05-20T10:00:00Z"),
+    proExpiresAt: new Date("2026-06-19T10:00:00Z"),
+  };
+
+  it("renders the price as dollars with two decimals", () => {
+    const html = generateReceiptHtml(receiptData);
+    expect(html).toContain("$16.00");
+  });
+
+  it("includes the orderId, currency, and statement hint", () => {
+    const html = generateReceiptHtml(receiptData);
+    expect(html).toContain("w2w_pro_u-1_1715000000000");
+    expect(html).toContain("USD");
+    expect(html).toContain("FLITT*WEB2WIREFRAME");
+  });
+
+  it("renders both dates in long form (no raw ISO)", () => {
+    const html = generateReceiptHtml(receiptData);
+    expect(html).toMatch(/May (19|20),? 2026/);
+    expect(html).toMatch(/June (18|19),? 2026/);
+    // No raw ISO timestamps surfaced to the customer.
+    expect(html).not.toContain("2026-05-20T10:00:00.000Z");
+  });
+
+  it("escapes the orderId in case Flitt ever returns HTML-y content", () => {
+    const html = generateReceiptHtml({
+      ...receiptData,
+      orderId: "w2w_pro<script>x</script>",
+    });
+    expect(html).not.toContain("<script>x</script>");
+  });
+
+  it("reassures: no auto-renewal", () => {
+    const html = generateReceiptHtml(receiptData).toLowerCase();
+    expect(html).toMatch(/no auto-renewal|only be charged again/);
+  });
+});
+
+describe("generateReceiptText", () => {
+  it("plain text, $X.XX format, no HTML", () => {
+    const text = generateReceiptText({
+      email: "u@x.com",
+      amountCents: 1600,
+      currency: "USD",
+      orderId: "ord_1",
+      purchasedAt: new Date("2026-05-20T10:00:00Z"),
+      proExpiresAt: new Date("2026-06-19T10:00:00Z"),
+    });
+    expect(text).toContain("$16.00");
+    expect(text).toContain("USD");
+    expect(text).toContain("ord_1");
+    expect(text).not.toContain("<");
+  });
+
+  it("formats amounts other than $16 correctly", () => {
+    const text = generateReceiptText({
+      email: "u@x.com",
+      amountCents: 12345,
+      currency: "USD",
+      orderId: "ord_2",
+      purchasedAt: new Date("2026-05-20T10:00:00Z"),
+      proExpiresAt: new Date("2026-06-19T10:00:00Z"),
+    });
+    expect(text).toContain("$123.45");
+  });
+});
