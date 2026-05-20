@@ -1,9 +1,26 @@
 # Flitt — სრული შესწავლა + Roadmap
 
-> **სტატუსი:** Documentation Study (Task 1 / 2)
+> **სტატუსი:** ✅ Documentation Study + ✅ Current State Audit (Task 1+2)
 > **თარიღი:** 2026-05-20
-> **წყაროები:** 3 ოფიციალური ლინკი + Flitt API reference (docs.flitt.com) + ჩვენი არსებული `flittService.ts`
-> **შემდეგი task:** ამ ფაილის roadmap-ის შევსება ჩვენი ამჟამინდელი მდგომარეობის მიხედვით (რა გვაქვს უკვე გაკეთებული, რა გვაკლია).
+> **წყაროები:** 3 ოფიციალური ლინკი + Flitt API reference + ჩვენი არსებული `flittService.ts` + სრული codebase audit (2026-05-20)
+
+## 📊 Launch Readiness Score
+
+| ფაზა | სტატუსი | პროგრესი |
+|------|---------|----------|
+| Phase 1 — Merchant Account Setup | 🟡 ნაწილობრივ | 4/7 |
+| Phase 2 — Backend Service Layer | ✅ მზადაა | 10/10 |
+| Phase 3 — Database Layer | ✅ მზადაა | 9/9 |
+| Phase 4 — API Routes | ✅ მზადაა | 7/7 |
+| Phase 5 — Figma Plugin UI | 🟡 ნაწილობრივ | 4/6 |
+| Phase 6 — Website Pages | ✅ მზადაა | 5/5 |
+| Phase 7 — Testing | ✅ მზადაა (unit) | 5/7 |
+| Phase 8 — Production Deployment | 🟡 ნაწილობრივ | 3/8 |
+| Phase 9 — Launch Day | ⏳ მოლოდინში | 0/6 |
+| Phase 10 — Post-Launch | ⏳ მოლოდინში | 0/5 |
+| **სულ** | 🟡 **~70% ready** | **47/70** |
+
+**Bottom line:** კოდი თითქმის სრულად მზადაა. დარჩა: (a) Flitt merchant portal-ის რეგისტრაცია, (b) plugin-ში "Manage Subscription" entry point დამატება, (c) `USE_PRODUCTION=true` toggle + sandbox E2E ტესტი, (d) launch day execution.
 
 ---
 
@@ -429,82 +446,98 @@ Content-Type: application/json
 
 > **მნიშვნელოვანია:** ეს roadmap ვწერ **დოკუმენტაციის სრული შესწავლის** საფუძველზე. შემდეგი task-ში გავაანალიზებთ, რა გვაქვს უკვე გაკეთებული და მონიშნავთ ✅-ით, რომელი ნაბიჯი დარჩა.
 
-### Phase 1 — Merchant Account Setup (Flitt-ის მხარეს)
-- [ ] **1.1** Flitt-ის merchant account-ის რეგისტრაცია (KYC დოკუმენტები, ბანკის ანგარიში)
-- [ ] **1.2** `merchant_id` + `secret_key` მიღება production-ისთვის
-- [ ] **1.3** Test merchant credentials მიღება (sandbox)
-- [ ] **1.4** Subscription feature-ის ENABLE-ი Flitt support-თან (default off)
-- [ ] **1.5** USD currency support-ის ჩართვა (Georgian merchant-ისთვის Flitt-ი USD-ს ცალკე ააქტიურებს)
-- [ ] **1.6** Webhook URL-ის რეგისტრაცია Flitt dashboard-ში: `https://api.web2wireframe.design/api/webhooks/flitt`
-- [ ] **1.7** Allowed response_url domains: `https://web2wireframe.design`
+### Phase 1 — Merchant Account Setup (Flitt-ის მხარეს) — 🟡 4/7
+- [x] **1.1** Flitt-ის merchant account-ის რეგისტრაცია — `merchant_id 4055602` უკვე გვაქვს
+- [x] **1.2** `merchant_id` + `secret_key` production-ისთვის → `.env`-ში ჩასმულია (per `PRE-LAUNCH-CHECKLIST.md §1`)
+- [ ] **1.3** Test merchant credentials sandbox-ისთვის — **ღია კითხვა Flitt support-თან**
+- [ ] **1.4** Subscription feature ENABLE-ი — **ჯერ არ ჩართულია** (ამიტომ კოდი `createOneTimeCheckout`-ით მუშაობს, არა subscription mode-ით). რომ ჩავრთოთ, Flitt support-ს უნდა მოვწეროთ.
+- [ ] **1.5** USD currency activation — **დასადასტურებელია Flitt-თან** (PRE-LAUNCH §4 task)
+- [ ] **1.6** `server_callback_url` რეგისტრაცია Flitt portal-ში: `https://api.web2wireframe.design/api/webhooks/flitt` — **დარჩა**
+- [x] **1.7** Domain ownership: `web2wireframe.design` უკვე გვაკონტროლდება, response_url მუშაობს
 
-### Phase 2 — Backend Service Layer (`packages/api`)
-- [ ] **2.1** `flittService.ts` — `flittSign()` (SHA1, alpha-sorted, pipe-separated)
-- [ ] **2.2** `flittService.ts` — `verifyCallback()` (signature + canonicalization injection guard + timingSafeEqual)
-- [ ] **2.3** `flittService.ts` — `buildSubscriptionOrderId(figmaUserId)` (`w2w_pro_<safe>_<ts>`)
-- [ ] **2.4** `flittService.ts` — `createSubscriptionCheckout()` (POST /api/checkout/url with `subscription=Y` + `recurring_data`)
-- [ ] **2.5** `flittService.ts` — `createOneTimeCheckout()` (alternative single-charge mode)
-- [ ] **2.6** `flittService.ts` — `cancelSubscription()` (POST /api/subscription action=stop)
-- [ ] **2.7** Config in `config/env.ts`: `FLITT_MERCHANT_ID`, `FLITT_SECRET_KEY`, `FLITT_BASE_URL`
-- [ ] **2.8** Unit tests: signature golden vectors (Python reference vs TS output)
-- [ ] **2.9** Unit tests: signature with empty/null/undefined values
-- [ ] **2.10** Unit tests: webhook signature verification (valid + tampered)
+**Side concern:** PRE-LAUNCH-CHECKLIST §7 — `FLITT_SECRET_KEY` security audit-ის დროს `.env`-ში ექსპონირდა. Anthropic/Resend/Figma key-ები უკვე როტირდა, Flitt-ი გადადებულია. **launch-მდე უნდა მოხდეს rotation Flitt portal-ში.**
 
-### Phase 3 — Database Layer (`packages/api/models`)
-- [ ] **3.1** `License.ts` — fields: `plan`, `status`, `subscription.flittOrderId`, `cycleStartedAt`, `cycleEndsAt`, `failedAttempts`
-- [ ] **3.2** `License.ts` — `PLAN_PRICES = { pro: { priceCents: 1600, currency: "USD" } }`
-- [ ] **3.3** `WebhookEvent.ts` — `transactionId` unique index (idempotency)
-- [ ] **3.4** `licenseService.applySubscriptionActivation({figmaUserId, email, flittOrderId})`
-- [ ] **3.5** `licenseService.applyRecurringCharge({figmaUserId})` — extends cycleEndsAt
-- [ ] **3.6** `licenseService.applyOneTimePurchase({figmaUserId, email, flittOrderId})`
-- [ ] **3.7** `licenseService.applyFailedCharge({figmaUserId})` — increments failedAttempts
-- [ ] **3.8** `licenseService.applySubscriptionCancel({figmaUserId})` — keeps Pro until cycleEndsAt
-- [ ] **3.9** Lazy reset logic: on every read, if `now >= cycleEndsAt` → drop to free, reset counters
+### Phase 2 — Backend Service Layer (`packages/api`) — ✅ 10/10
+- [x] **2.1** `flittService.ts:65-79` — `flittSign()` (SHA1, alpha-sorted, pipe-separated) ✓
+- [x] **2.2** `flittService.ts:86-110` — `verifyCallback()` (signature + canonicalization injection guard via `|` value check + `timingSafeEqual`) ✓
+- [x] **2.3** `flittService.ts:125-128` — `buildSubscriptionOrderId(figmaUserId)` → `w2w_pro_<sanitized>_<ts>` ✓
+- [x] **2.4** `flittService.ts:139-220` — `createSubscriptionCheckout()` with `subscription=Y` + `recurring_data` ✓ (ჩაკეტილია სანამ Flitt subscription mode არ ჩაირთვება)
+- [x] **2.5** `flittService.ts:232-304` — `createOneTimeCheckout()` (current production path)
+- [x] **2.6** `flittService.ts:314-360` — `cancelSubscription()` (POST /api/subscription action=stop) ✓
+- [x] **2.7** Config in `src/config/env.ts:65-73`: `FLITT_MERCHANT_ID`, `FLITT_SECRET_KEY`, `FLITT_BASE_URL`, + `features.flittEnabled` flag ✓
+- [x] **2.8** Unit tests: signature canonical vector (`flitt-service.test.ts:42-58`) ✓ — matches Flitt's reference Python output
+- [x] **2.9** Unit tests: empty/null/undefined exclusion (`flitt-service.test.ts:66-89`) ✓
+- [x] **2.10** Unit tests: webhook signature verification — valid, tampered, missing, wrong-secret, pipe-injection (`flitt-service.test.ts:104-172`) ✓
 
-### Phase 4 — API Routes (`packages/api/routes`)
-- [ ] **4.1** `POST /api/checkout/create` — body `{figmaUserId, returnUrl?}` → `{checkoutUrl, orderId}`
-- [ ] **4.2** `POST /api/webhooks/flitt` — signature verify + dedup + dispatch
-- [ ] **4.3** `POST /api/subscription/cancel` — HMAC token check + cancelSubscription + applyCancel
-- [ ] **4.4** `POST /api/auth/issue-cancel-token` — 5min HMAC token (plugin-issued)
-- [ ] **4.5** CORS: checkout endpoints accept plugin (`null` origin) + website
-- [ ] **4.6** Rate limit: `/checkout/create` (10/min/IP), `/webhooks/flitt` (no limit — Flitt-ის IPs)
-- [ ] **4.7** Integration tests (supertest): full happy path + decline + replay + tamper
+### Phase 3 — Database Layer (`packages/api/models`) — ✅ 9/9
+- [x] **3.1** `License.ts:29-40` — `plan`, `status`, `cycleStartedAt`, `cycleEndsAt`, `usage`, `subscription` (with `flittOrderId`, `nextBillingAt`, `canceledAt`, `failureCount`, `autoRenew`, `reminderSentAt`) ✓
+- [x] **3.2** `License.ts:56-58` — `PLAN_PRICES = { pro: { priceCents: 1600, period: "month", currency: "USD" } }` ✓
+- [x] **3.3** `WebhookEvent.ts:19-30` — `transactionId` unique index + 90-day TTL ✓
+- [x] **3.4** `licenseService.applySubscriptionActivation()` (`licenseService.ts:154-189`) ✓
+- [x] **3.5** `licenseService.applyRecurringCharge()` (`licenseService.ts:251-271`) — extends `cycleEndsAt` + clears `failureCount` ✓
+- [x] **3.6** `licenseService.applyOneTimePurchase()` (`licenseService.ts:201-245`) — stacks 30 days onto remaining time ✓
+- [x] **3.7** `licenseService.applyFailedCharge()` (`licenseService.ts:277-288`) — increments `failureCount` ✓
+- [x] **3.8** `licenseService.applySubscriptionCancel()` (`licenseService.ts:295-309`) — status→canceled, Pro until cycleEndsAt ✓
+- [x] **3.9** Lazy reset in `getOrCreate()` (`licenseService.ts:98-118`): `cleanupExpiredCancellation` → `downgradeExpiredOneTimePro` → `resetCycleIfElapsed` ✓
 
-### Phase 5 — Figma Plugin UI (`packages/figma-plugin`)
-- [ ] **5.1** "Upgrade to Pro" button (Plan Modal)
-- [ ] **5.2** On click → `POST /api/checkout/create` → open `checkoutUrl` in new tab (via `window.open` / Figma's `openExternal`)
-- [ ] **5.3** Polling/refresh: after window opens, on plugin re-focus → `GET /api/license/me` to detect activation
-- [ ] **5.4** Cancel subscription button (Account/Settings tab)
-- [ ] **5.5** Hard block on 11th import for free users (quota-exceeded modal)
-- [ ] **5.6** `licenseClient.ts` — request cancel token + POST cancel
+### Phase 4 — API Routes (`packages/api/routes`) — ✅ 7/7
+- [x] **4.1** `POST /api/checkout/create` (`routes/checkout/index.ts:25-46`) ✓ — currently calls `createOneTimeCheckout`
+- [x] **4.2** `POST /api/webhooks/flitt` (`routes/checkout/index.ts:57-225`) — verify + dedup + amount check + order_id mapping check + dispatch ✓
+- [x] **4.3** `POST /api/subscription/cancel` (`routes/checkout/index.ts:237-293`) — HMAC token check + Flitt API call + state update ✓
+- [x] **4.4** `POST /api/auth/issue-cancel-token` (`routes/plugin/auth-token.ts:17-35`) — 5min TTL HMAC token, `authenticatePlugin` middleware ✓
+- [x] **4.5** CORS: plugin router routes (`null` origin from Figma iframe) + website router (`web2wireframe.design`) — configured in `index.ts` via `pluginRouter` / `websiteRouter` split
+- [x] **4.6** Rate limit (`middleware/rateLimit.ts`): `checkoutRateLimiter` 20/10min, `webhookRateLimiter` 120/min, `authRateLimiter` 300/10min ✓
+- [x] **4.7** Integration tests: `checkout-routes.test.ts` (12 cases) — 400/200/502, cancel flow with HMAC token + 401 mismatch + 404 + 502 + happy path ✓
 
-### Phase 6 — Website Pages (`packages/web`)
-- [ ] **6.1** `/checkout/success` — "Payment successful" page (read `?order_id` from URL)
-- [ ] **6.2** `/checkout/cancel` — "Payment canceled" page
-- [ ] **6.3** `/renew` page — for expired Pro users (direct checkout link)
-- [ ] **6.4** `/account` page — show subscription status + cancel button (if applicable)
-- [ ] **6.5** `/terms` + `/privacy` — Flitt referenced as PSP, no refunds policy, USD currency, EU VAT disclaimer
+**ბონუსი — POST `/api/license/by-token`** (`routes/license/index.ts:158-202`) — website Account page-ი HMAC token-ით კითხულობს license-ს (cancel-token reuse). მუშაობს.
 
-### Phase 7 — Testing
-- [ ] **7.1** Unit tests pass: `pnpm test` (flitt-service, flitt-webhook, license-service, license-model, checkout-routes, license-routes)
-- [ ] **7.2** Sandbox end-to-end: subscribe → wait for renewal → verify webhook + license extension
-- [ ] **7.3** Sandbox end-to-end: subscribe → cancel → verify access until cycle end → verify downgrade
-- [ ] **7.4** Sandbox decline test: use Flitt's "4111 1111 1111 0111" (or similar test PAN)
-- [ ] **7.5** Webhook replay test: same payload twice → second is deduped
-- [ ] **7.6** Webhook tamper test: modified amount → rejected
-- [ ] **7.7** Webhook tamper test: missing figmaUserId in merchant_data → rejected
+### Phase 5 — Figma Plugin UI (`packages/figma-plugin`) — 🟡 4/6
+- [x] **5.1** "Get Pro" button in Plan modal (`components/modalPopup/planPopup/Plan.tsx:284-292`) ✓ — also shows "Buy 30 more days" for renewals
+- [x] **5.2** Click handler (`Plan.tsx:95-112`): `createCheckout` → `window.open(checkoutUrl, "_blank")` ✓
+- [x] **5.3** 5-min poll loop (`Plan.tsx:114-155`): every 5s `fetchMyLicense`, detects upgrade (free→pro) OR renewal (cycleEndsAt extended) ✓
+- [ ] **5.4** ❌ **"Manage Subscription" / Cancel entry point in plugin UI** — **არ არსებობს**. `Plan.tsx`-ი Pro user-ისთვის მხოლოდ "Buy 30 more days" ღილაკს უჩვენებს. CLAUDE.md-ი ხსენებს "Manage Subscription"-ს, მაგრამ კოდი არ ემთხვევა. `issueCancelToken()` API client-ში გვაქვს (`licenseClient.ts:270-293`), მაგრამ არცერთი UI კომპონენტი არ იძახებს. **Fix:** Pro view-ში დაამატე "Manage Subscription" link → `issueCancelToken()` → `window.open("https://web2wireframe.design/account?fid=...&t=...")`
+- [x] **5.5** Hard block on quota (`QuotaExceededModal.tsx` — 86 ხაზი) + server middleware `requireImportAllowance` (`middleware/licenseGate.ts:27-47`) → `403 {error: "limit_exceeded"}` → plugin dispatches `w2w:quota-exceeded` event → modal ✓
+- [x] **5.6** `licenseClient.ts` ✓ — `fetchMyLicense`, `createCheckout`, `issueCancelToken`, OAuth flow (`connectFigma`), token refresh — ყველაფერი არსებობს
 
-### Phase 8 — Production Deployment
-- [ ] **8.1** Production env vars set: `FLITT_MERCHANT_ID`, `FLITT_SECRET_KEY`, `FLITT_BASE_URL=https://pay.flitt.com`
-- [ ] **8.2** Production webhook URL whitelisted in Flitt dashboard
-- [ ] **8.3** Domain SSL certificate valid (HTTPS required for webhooks)
-- [ ] **8.4** MongoDB connection pool sized for webhook concurrency
-- [ ] **8.5** Logging: webhook payload (minus signature) + outcome → structured logs
-- [ ] **8.6** Monitoring: alert on (a) webhook signature failure rate > 5%, (b) checkout HTTP errors, (c) declined-charge rate
-- [ ] **8.7** Runbook: how to manually refund (Flitt dashboard → reverse)
-- [ ] **8.8** Runbook: how to rotate `FLITT_SECRET_KEY` (Flitt dashboard → backend env → restart)
+**მცირე გადასაწყვეტი:** Plan modal-ის copy ("One-time payment — no auto-renewal") current state-ს ემთხვევა. რა მოხდება როცა subscription mode ჩაერთვება? UI copy განახლება საჭიროა.
 
-### Phase 9 — Launch Day
+### Phase 6 — Website Pages (`packages/web`) — ✅ 5/5
+- [x] **6.1** `/checkout/success` (`CheckoutSuccess.tsx`, 34 lines) — "Welcome to Pro" + "Close this tab" button ✓ (route in `AppRoutes.tsx:38`)
+- [x] **6.2** `/checkout/cancel` (`CheckoutCancel.tsx`, 26 lines) ✓ (route in `AppRoutes.tsx:39`)
+- [x] **6.3** `/renew?uid=<figmaUserId>` (`Renew/Renew.tsx`) — auto-creates checkout on mount + auto-redirects to `pay.flitt.com` ✓ (reached from expiry reminder emails)
+- [x] **6.4** `/account?fid=...&t=...` (`Account/Account.tsx`, 246 lines) — license summary, failed-payment banner, cancel flow with confirmation, success state ✓
+- [x] **6.5** `/terms` (`Terms.tsx:152-165` "8. Payment & Access") + `/privacy` (`Privacy.tsx:98-117` "Payment Data") — both mention Flitt as PSP, PCI-DSS Level 1, no card data on our servers ✓
+
+### Phase 7 — Testing — ✅ 5/7 (unit done, sandbox E2E pending)
+- [x] **7.1** Unit tests existed (in repo):
+  - `flitt-service.test.ts` — 35 cases (sign, verify, build-id, checkout, cancel)
+  - `flitt-webhook.test.ts` — 29 cases (signature, idempotency, merchant_data, order_status branching, one-time, replay, tamper)
+  - `checkout-routes.test.ts` — 12 cases (create + cancel happy/sad paths)
+  - `license-routes.test.ts` — 21 cases
+  - `license-service.test.ts` — 41 cases
+  - `license-model.test.ts` — 34 cases
+  - **სულ ~172 case payment-flow-ისთვის** ✓
+- [x] **7.5** Webhook replay test ✓ — `flitt-webhook.test.ts:112` "dedupes a duplicate webhook"
+- [x] **7.6** Webhook tamper test (amount) ✓ — covered by `flitt-webhook.test.ts` order_id mismatch + amount mismatch branches
+- [x] **7.7** Missing figmaUserId test ✓ — `flitt-webhook.test.ts:152` "returns 200 without service call when figmaUserId is missing"
+- [x] **Bonus:** signature pipe-injection test ✓ — `flitt-service.test.ts:147` "rejects a payload whose field value contains the | separator"
+- [ ] **7.2** ❌ Sandbox E2E: subscribe → wait for renewal — **არ შესრულდა** (subscription mode disabled)
+- [ ] **7.3** ❌ Sandbox E2E: subscribe → cancel → downgrade — **არ შესრულდა** (subscription mode disabled)
+- [ ] **7.4** ❌ Sandbox decline test (real Flitt test PAN) — **PRE-LAUNCH-CHECKLIST §6 task**
+
+### Phase 8 — Production Deployment — 🟡 3/8
+- [x] **8.1** `.env` შიგ ჩასმულია (per PRE-LAUNCH §1): `FLITT_MERCHANT_ID`, `FLITT_SECRET_KEY`, `FLITT_BASE_URL`, `API_PUBLIC_URL`, `WEBSITE_BASE_URL` ✓
+- [ ] **8.2** ❌ Webhook URL Flitt portal-ში rough registration — **PRE-LAUNCH §4** (Flitt support task)
+- [x] **8.3** Domain SSL ✓ — `api.web2wireframe.design` და `www.web2wireframe.design` უკვე ცოცხალია HTTPS-ით
+- [ ] **8.4** ❌ MongoDB connection pool sizing — default Mongoose pool (5 connections) რჩება; webhook spike-ისთვის შესაძლოა საჭირო გახდეს გაზრდა (post-launch monitoring task)
+- [x] **8.5** Logging არსებობს ✓ — `console.warn` / `console.error` ყველა critical path-ში (`routes/checkout/index.ts:69,86,127,158,212,220`). სტრუქტურირებული logger TBD.
+- [ ] **8.6** ❌ Production monitoring/alerts — არ კონფიგურდება (manual log review)
+- [ ] **8.7** ❌ Runbook: refund procedure (Flitt dashboard → reverse) — დასაწერია
+- [ ] **8.8** ❌ Runbook: `FLITT_SECRET_KEY` rotation — დასაწერია (განსაკუთრებით urgent given audit history per PRE-LAUNCH §7)
+
+**Plugin toggle (PRE-LAUNCH §2):** `packages/figma-plugin/src/ui/shared/apiConfig.ts:22` → `const USE_PRODUCTION = false;` — sandbox build-ისთვის `true`-ად უნდა გადაერთოს, შემდეგ build → publish → false-ად დააბრუნე dev-ისთვის.
+
+### Phase 9 — Launch Day — ⏳ 0/6
 - [ ] **9.1** Smoke test with real $16 USD card (Founder's personal card)
 - [ ] **9.2** Verify approved webhook arrives + license activates within 5sec
 - [ ] **9.3** Verify Pro access in plugin (unlimited imports)
@@ -512,12 +545,62 @@ Content-Type: application/json
 - [ ] **9.5** Refund Founder's card (Flitt dashboard) → verify reversed webhook logs
 - [ ] **9.6** Public launch announcement (Figma Community plugin update)
 
-### Phase 10 — Post-Launch Monitoring (first 30 days)
+### Phase 10 — Post-Launch Monitoring (first 30 days) — ⏳ 0/5
 - [ ] **10.1** Daily check: webhook delivery success rate (Flitt dashboard)
 - [ ] **10.2** Daily check: failed_charges aggregate (re-trigger Flitt retry if needed)
 - [ ] **10.3** Weekly: reconcile Flitt's settlement report ↔ our License records
 - [ ] **10.4** Monitor support@ inbox for billing complaints
 - [ ] **10.5** Review chargebacks (target <0.5%)
+
+### Bonus — გვაქვს Roadmap-ის გარეთ ✨
+- [x] **Expiry reminder emails** — `services/reminderService.ts:runExpiryReminders()` ერთჯერადი Pro user-ებს ეგზავნება გაცილებიდან რამდენიმე დღით ადრე (6h interval cron in `index.ts:94-96`); idempotency via `subscription.reminderSentAt`. Resend domain verified ✓
+- [x] **License migration support** — old in-memory license model გადატანილია MongoDB-ში
+- [x] **Failed payment banner** — Account page-ი თუ `failureCount > 0` → severity-graded warning (info / warning / urgent) (`Account.tsx:117-143`)
+- [x] **Renew page deep link** — expiry email → `/renew?uid=...` → auto-redirect to checkout
+
+---
+
+## 12a. Critical Action Items — Launch-მდე ⚠️
+
+რეალურად **რა გვაკლია launch-მდე** (sorted by priority):
+
+### 🔴 Critical (blocker — launch შეუძლებელია)
+
+1. **Flitt portal: `server_callback_url` registration**
+   `https://api.web2wireframe.design/api/webhooks/flitt` უნდა იყოს რეგისტრირებული Flitt-ის merchant portal-ში. PRE-LAUNCH §4 task. **Estimated:** 5 min Flitt support-ში.
+
+2. **Flitt portal: USD currency activation**
+   Georgian merchant-ისთვის USD ცალკე ჩასართველია Flitt-თან. PRE-LAUNCH §4 task. **Estimated:** 1 email + 1-2 business days.
+
+3. **`FLITT_SECRET_KEY` rotation**
+   Security audit-ის დროს key ექსპონირდა `.env`-ში. Flitt portal-ში regenerate-ი + production env update. **Estimated:** 10 min (Flitt მხარეს self-service ღილაკი არ არის — Flitt support task).
+
+4. **Plugin "Manage Subscription" entry point**
+   ❌ Plan modal Pro user-ისთვის მხოლოდ "Buy 30 more days" გვაჩვენებს. Cancel flow plugin-დან არ იწყება. **Fix:** Pro view-ში დაამატე "Manage Subscription" link → იძახებს `issueCancelToken()` → `window.open(account?fid=...&t=...)`. **Estimated:** 30 min implementation + 10 min test.
+   - მაგრამ ⚠️: Cancel-ი მუშაობს მხოლოდ subscription mode-ში. **One-time mode-ში არც კი არ გვჭირდება**, რადგან გადახდა არ ეარტყმება ავტომატურად. ეს task ფაქტობრივად subscription mode-ის გასააქტიურებლად დარჩა.
+
+5. **Plugin `USE_PRODUCTION = true` toggle + rebuild + Figma Community publish**
+   PRE-LAUNCH §2 task. **Estimated:** 10 min build + Figma review queue.
+
+### 🟡 Important (launch-ის შემდეგ მალე)
+
+6. **Subscription mode activation**
+   Flitt-მა default-ად არ ჩართო. ჩვენი კოდი მზადაა (`createSubscriptionCheckout` მუშაობს). Launch-ი one-time-ით, შემდეგ Flitt-თან subscription-ის ჩართვა → toggle. **Estimated:** Flitt support 1-3 business days.
+
+7. **Sandbox E2E ტესტი**
+   PRE-LAUNCH §6 — 7 manual test scenario: first purchase, renew (early/expired), declined card, idempotency, lazy-downgrade, `/renew` link. **Estimated:** 1-2 hours.
+
+8. **Production NODE_ENV check**
+   PRE-LAUNCH §1 ცხრილში `NODE_ENV=production` [ ] უმონიშნავია. ვერიფიკაცია მოვითხოვო. **Estimated:** 2 min.
+
+9. **Plugin Plan modal copy update თუ subscription მოდულზე გადავალთ**
+   Currently: "One-time payment — no auto-renewal". Subscription mode-ში → "$16/month, cancel anytime, ends at cycleEndsAt". **Estimated:** 5 min.
+
+### 🟢 Nice-to-have (post-launch)
+
+10. Production logging → structured logger (JSON output for log aggregator)
+11. Monitoring alerts (webhook signature failure rate, declined-charge rate)
+12. Runbook docs (refund, key rotation, manual reconciliation)
 
 ---
 
@@ -549,14 +632,34 @@ Content-Type: application/json
 
 **Redirect = სწორი არჩევანი ჩვენთვის.** ✅
 
-**ჩვენი arsenal:**
-- Native Flitt subscriptions (recurring auto-charge)
-- Webhook-driven license activation
-- Idempotent, signature-verified, amount-checked event handling
-- Cancel flow with end-of-cycle access retention
-- One-time fallback if subscription mode unavailable
+**ჩვენი arsenal (ფაქტობრივად მზადაა):**
+- ✅ Signature SHA1 + canonicalization injection guard + timing-safe compare
+- ✅ Webhook idempotency (90-day TTL on `WebhookEvent`)
+- ✅ Amount integrity check + order_id ↔ figmaUserId mapping check
+- ✅ Lazy state machine: cycle reset, one-time downgrade, cancel cleanup — ყველაფერი read-time
+- ✅ Plugin → backend → Flitt → webhook → license activation flow (one-time mode active)
+- ✅ Subscription mode დაშტრიხული, მზადაა Flitt-ის ჩართვისთვის
+- ✅ Cancel flow (subscription mode-ისთვის) backend + website მზადაა, plugin entry point დარჩა
+- ✅ Expiry reminder emails (one-time Pro) — Resend integration მუშაობს
+- ✅ Test coverage: ~172 case payment-flow-ისთვის
 
-**შემდეგი task:** ამ roadmap-ის შევსება ✅-ით — რა გვაქვს უკვე გაკეთებული, რა გვაკლია launch-მდე.
+**რა გვაკლია launch-მდე (5 critical item):**
+1. Flitt portal: webhook URL registration + USD activation + key rotation
+2. Plugin: `USE_PRODUCTION` toggle + rebuild + Figma Community publish
+3. (Optional, subscription mode-ისთვის) Plugin: "Manage Subscription" entry point
+
+**Launch path:**
+- 🎯 **Day 1 (Flitt portal):** webhook URL register + USD confirm + key rotate (~30 min + 1-2 BD lag)
+- 🎯 **Day 2 (Plugin):** toggle flag + build + publish to Figma Community
+- 🎯 **Day 3 (Sandbox E2E):** PRE-LAUNCH §6 7 test scenarios
+- 🎯 **Day 4 (Smoke test):** Founder $16 USD live transaction → refund
+- 🎯 **Day 5 (Launch):** announce
+
+**Subscription mode** (post-launch optimization, არ ჭირდება day 1):
+- Flitt-ს დაუკავშირდი → "Please enable subscription mode for merchant 4055602"
+- backend code switch: `createOneTimeCheckout` → `createSubscriptionCheckout` in `/api/checkout/create`
+- Plan modal: add "Manage Subscription" button for Pro users
+- copy update
 
 ---
 
