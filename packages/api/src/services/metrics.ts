@@ -69,6 +69,22 @@ export function incrementCounter(
   counter.values.set(key, (counter.values.get(key) ?? 0) + delta);
 }
 
+/**
+ * Read the current value of every counter as a JS-friendly snapshot. Used
+ * by /api/health/flitt to surface "since process restart" totals next to
+ * the MongoDB-backed 24h aggregates. Cheap — pure in-memory iteration.
+ *
+ * Shape: `{ counterName: { labelKey: value } }` where labelKey is the
+ * Prometheus-style `a="1",b="2"` string ("" for label-less counters).
+ */
+export function getCounterSnapshot(): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const [name, counter] of counters) {
+    out[name] = Object.fromEntries(counter.values);
+  }
+  return out;
+}
+
 /** Render every registered counter in Prometheus text format. */
 export function renderMetrics(): string {
   const out: string[] = [];
@@ -113,6 +129,26 @@ export const metrics = {
       "email_send_total",
       "Resend email send outcomes by template.",
       { template, result },
+    );
+  },
+  licenseEvent(
+    action:
+      | "subscription_activation"
+      | "one_time_purchase"
+      | "recurring_charge"
+      | "failed_charge"
+      | "subscription_cancel"
+      | "refund",
+    result: "applied" | "no_op",
+  ): void {
+    // Tracks the outcome of every webhook-driven license mutation.
+    // `no_op` captures refund-for-stale-order and cancel-when-already-Free
+    // — both meaningful for support diagnostics (chargeback patterns,
+    // double-cancel attempts).
+    incrementCounter(
+      "license_events_total",
+      "License state mutations by action and outcome.",
+      { action, result },
     );
   },
 };

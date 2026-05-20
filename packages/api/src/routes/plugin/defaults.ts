@@ -14,7 +14,10 @@ import {
 import { config } from "../../config/env.js";
 import * as state from "../../state.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
-import { renderMetrics } from "../../services/metrics.js";
+import {
+  renderMetrics,
+  getCounterSnapshot,
+} from "../../services/metrics.js";
 
 interface RecentCounts {
   approved: number;
@@ -142,11 +145,46 @@ router.get("/health/flitt", async (req: Request, res: Response) => {
     baseUrl: config.flitt.baseUrl,
     webhookCallbackUrl: `${apiPublicUrl}/api/webhooks/flitt`,
     mongoConnected: state.mongoConnected,
+    // MongoDB-backed, survives restart, scoped to last 24h.
     recent24h: counts,
     lastWebhookProcessedAt: lastProcessedAt?.toISOString() ?? null,
+    // In-memory metrics — reset on restart, useful for quick "is this
+    // build healthy?" probes. Same data source as /api/metrics.
+    sinceRestart: summarizeMetricsForHealth(),
     timestamp: new Date().toISOString(),
   });
 });
+
+/**
+ * Compact health-friendly view of the metrics counters. Sums across label
+ * dimensions so the operator sees one number per concept rather than the
+ * full Prometheus matrix.
+ */
+function summarizeMetricsForHealth(): Record<string, number | Record<string, number>> {
+  const raw = getCounterSnapshot();
+  const sumAll = (counterName: string): number => {
+    const c = raw[counterName];
+    if (!c) return 0;
+    let total = 0;
+    for (const v of Object.values(c)) total += v;
+    return total;
+  };
+  // Group checkout_creations by `result` so success/fail is visible at a glance.
+  const checkoutByResult: Record<string, number> = { success: 0, fail: 0 };
+  for (const [labels, n] of Object.entries(
+    raw.flitt_checkout_creations_total ?? {},
+  )) {
+    if (labels.includes('result="success"')) checkoutByResult.success += n;
+    if (labels.includes('result="fail"')) checkoutByResult.fail += n;
+  }
+  return {
+    webhooks: sumAll("flitt_webhook_total"),
+    signatureFailures: sumAll("flitt_signature_failures_total"),
+    checkoutCreations: checkoutByResult,
+    emailsSent: sumAll("email_send_total"),
+    licenseEvents: sumAll("license_events_total"),
+  };
+}
 
 // GET /api/default-colors - Get default plugin colors
 router.get("/default-colors", (req: Request, res: Response) => {

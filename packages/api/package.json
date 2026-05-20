@@ -11,7 +11,7 @@
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:flitt": "vitest run flitt-service flitt-webhook flitt-ip-allowlist flitt-sign-perf checkout-routes license-routes license-service license-model health-flitt webhook-logger email-service email-retry admin-routes issue-cancel-token startup-checks metrics",
+    "test:flitt": "vitest run flitt-service flitt-webhook flitt-ip-allowlist flitt-sign-perf checkout-routes license-routes license-service license-model license-service-refund.integration health-flitt webhook-logger email-service email-retry admin-routes issue-cancel-token startup-checks metrics metrics-endpoint",
     "test:e2e:flitt": "tsx scripts/e2e-flitt-webhook.ts",
     "simulate:flitt": "tsx scripts/simulate-flitt-webhook.ts",
     "backup:licenses": "tsx scripts/backup-licenses.ts"
@@ -43,6 +43,7 @@
     "@types/node": "^20.11.0",
     "@types/supertest": "^6.0.2",
     "devtools-protocol": "^0.0.1604597",
+    "mongodb-memory-server": "^11.1.0",
     "supertest": "^7.2.2",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",

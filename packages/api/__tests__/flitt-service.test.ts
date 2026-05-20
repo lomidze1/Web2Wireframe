@@ -395,3 +395,82 @@ describe("cancelSubscription", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe("cancelSubscription — retry on Flitt 5xx", () => {
+  function successResponse() {
+    return new Response(
+      JSON.stringify({ response: { response_status: "success" } }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  function serverErrorResponse(status = 502) {
+    return new Response("upstream timeout", {
+      status,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+
+  it("retries on a 5xx and succeeds on the second attempt", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(serverErrorResponse(503))
+      .mockResolvedValueOnce(successResponse());
+
+    const result = await cancelSubscription("w2w_pro_x_1");
+    expect(result.ok).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries up to 3 total attempts then gives up", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(serverErrorResponse(502));
+
+    const result = await cancelSubscription("w2w_pro_x_2");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/HTTP 502/);
+    }
+    // Default delays = [200, 800] → 3 total attempts.
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries on network failures (TypeError from fetch)", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new TypeError("ECONNRESET"))
+      .mockRejectedValueOnce(new TypeError("ETIMEDOUT"))
+      .mockResolvedValueOnce(successResponse());
+
+    const result = await cancelSubscription("w2w_pro_x_3");
+    expect(result.ok).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("does NOT retry on a 4xx (decisive — Flitt explicitly rejected)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("bad order_id", {
+        status: 400,
+        headers: { "Content-Type": "text/plain" },
+      }),
+    );
+
+    const result = await cancelSubscription("w2w_pro_x_4");
+    expect(result.ok).toBe(false);
+    // Single attempt — 4xx is terminal, retry would just delay the error.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 'Flitt unreachable' after all attempts on persistent network failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new TypeError("ENOTFOUND"),
+    );
+
+    const result = await cancelSubscription("w2w_pro_x_5");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe("Flitt unreachable");
+    }
+  });
+});

@@ -310,7 +310,21 @@ export async function createOneTimeCheckout(params: {
 /**
  * Stop the recurring charge schedule for a subscription. The user retains
  * Pro access until the current cycle ends (lazy downgrade in licenseService).
+ *
+ * Retry policy: Flitt sometimes returns 5xx during regional incidents; a
+ * single transient blip should not surface as a 502 to a user clicking
+ * "Cancel". We retry server-error (5xx) and network failures with bounded
+ * backoff (~200ms + 800ms ≈ 1s total worst case — well under the cancel
+ * endpoint's overall budget).
+ *
+ * 4xx responses are NOT retried — they're decisive (no such order, wrong
+ * merchant, etc.) and retrying just delays the user's error message.
  */
+const CANCEL_RETRY_DELAYS_MS = [200, 800];
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function cancelSubscription(
   orderId: string,
 ): Promise<CancelResult | CancelError> {
@@ -327,34 +341,65 @@ export async function cancelSubscription(
   const signature = flittSign(requestParams, secretKey);
   const body = { request: { ...requestParams, signature } };
 
-  let resp: Response;
-  try {
-    resp = await fetch(`${baseUrl}/api/subscription`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    console.error("[Flitt] cancel fetch failed:", err);
-    return { ok: false, error: "Flitt unreachable" };
+  const attempts = CANCEL_RETRY_DELAYS_MS.length + 1;
+  let lastError: CancelError = { ok: false, error: "Flitt unreachable" };
+
+  for (let i = 0; i < attempts; i += 1) {
+    let resp: Response;
+    try {
+      resp = await fetch(`${baseUrl}/api/subscription`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      console.error(`[Flitt] cancel fetch failed (attempt ${i + 1}):`, err);
+      lastError = { ok: false, error: "Flitt unreachable" };
+      if (i < CANCEL_RETRY_DELAYS_MS.length) {
+        await sleep(CANCEL_RETRY_DELAYS_MS[i]);
+        continue;
+      }
+      return lastError;
+    }
+
+    // 5xx — transient Flitt-side issue, retry. 4xx — terminal (don't retry).
+    if (resp.status >= 500) {
+      console.error(
+        `[Flitt] cancel HTTP ${resp.status} on attempt ${i + 1}:`,
+        await resp.text().catch(() => "<no body>"),
+      );
+      lastError = { ok: false, error: `Flitt HTTP ${resp.status}` };
+      if (i < CANCEL_RETRY_DELAYS_MS.length) {
+        await sleep(CANCEL_RETRY_DELAYS_MS[i]);
+        continue;
+      }
+      return lastError;
+    }
+
+    if (!resp.ok) {
+      console.error(
+        `[Flitt] cancel HTTP ${resp.status}:`,
+        await resp.text().catch(() => "<no body>"),
+      );
+      // Terminal — surface to the caller; user-visible error like "no
+      // such order" is more actionable than a retry storm.
+      return { ok: false, error: `Flitt HTTP ${resp.status}` };
+    }
+
+    const data = (await resp.json()) as FlittRecurringResponse;
+    if (data.response?.response_status !== "success") {
+      console.error("[Flitt] cancel response error:", data.response);
+      return {
+        ok: false,
+        error: data.response?.error_message ?? "Flitt cancel failed",
+      };
+    }
+
+    if (i > 0) {
+      console.info(`[Flitt] cancel succeeded on attempt ${i + 1}`);
+    }
+    return { ok: true };
   }
 
-  if (!resp.ok) {
-    console.error(
-      `[Flitt] cancel HTTP ${resp.status}:`,
-      await resp.text().catch(() => "<no body>"),
-    );
-    return { ok: false, error: `Flitt HTTP ${resp.status}` };
-  }
-
-  const data = (await resp.json()) as FlittRecurringResponse;
-  if (data.response?.response_status !== "success") {
-    console.error("[Flitt] cancel response error:", data.response);
-    return {
-      ok: false,
-      error: data.response?.error_message ?? "Flitt cancel failed",
-    };
-  }
-
-  return { ok: true };
+  return lastError;
 }

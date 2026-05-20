@@ -208,6 +208,18 @@ describe("GET /api/health/flitt", () => {
       reversed: 0,
     });
   });
+
+  it("includes sinceRestart block with metric totals", async () => {
+    const res = await request(makeApp()).get("/api/health/flitt");
+    expect(res.body.sinceRestart).toBeTruthy();
+    expect(res.body.sinceRestart).toHaveProperty("webhooks");
+    expect(res.body.sinceRestart).toHaveProperty("signatureFailures");
+    expect(res.body.sinceRestart).toHaveProperty("checkoutCreations");
+    expect(res.body.sinceRestart.checkoutCreations).toHaveProperty("success");
+    expect(res.body.sinceRestart.checkoutCreations).toHaveProperty("fail");
+    expect(res.body.sinceRestart).toHaveProperty("emailsSent");
+    expect(res.body.sinceRestart).toHaveProperty("licenseEvents");
+  });
 });
 
 // ============================================================================

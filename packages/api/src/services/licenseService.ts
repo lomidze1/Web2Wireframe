@@ -8,6 +8,7 @@ import {
   LicenseAudit,
   type LicenseAuditAction,
 } from "../models/LicenseAudit.js";
+import { metrics } from "./metrics.js";
 
 /**
  * Best-effort audit log write. Never throws — a logger blip must not block
@@ -216,6 +217,7 @@ export const licenseService = {
       email: params.email,
       cycleEndsAt: cycleEnd.toISOString(),
     });
+    metrics.licenseEvent("subscription_activation", "applied");
     // upsert:true with new:true guarantees a non-null result.
     return updated as ILicense;
   },
@@ -278,6 +280,7 @@ export const licenseService = {
       cycleEndsAt: cycleEnd.toISOString(),
       stacked: stillActivePro,
     });
+    metrics.licenseEvent("one_time_purchase", "applied");
     // upsert:true with new:true guarantees a non-null result.
     return updated as ILicense;
   },
@@ -310,6 +313,12 @@ export const licenseService = {
       await audit(params.figmaUserId, "recurring_charge", {
         cycleEndsAt: cycleEnd.toISOString(),
       });
+      metrics.licenseEvent("recurring_charge", "applied");
+    } else {
+      // The user is not Pro — could mean they refunded or subscription
+      // canceled between webhook delivery and our processing. Track as
+      // no-op for billing reconciliation.
+      metrics.licenseEvent("recurring_charge", "no_op");
     }
     return updated;
   },
@@ -333,6 +342,9 @@ export const licenseService = {
       await audit(params.figmaUserId, "failed_charge", {
         failureCount: updated.subscription?.failureCount ?? null,
       });
+      metrics.licenseEvent("failed_charge", "applied");
+    } else {
+      metrics.licenseEvent("failed_charge", "no_op");
     }
     return updated;
   },
@@ -384,6 +396,7 @@ export const licenseService = {
         { flittOrderId: params.flittOrderId, revoked: true },
         { plan: ["pro", "free"], status: ["active", "active"] },
       );
+      metrics.licenseEvent("refund", "applied");
       return { revoked: true, license: updated };
     }
     // Stale order or user already Free — fetch current state for logging only.
@@ -395,6 +408,7 @@ export const licenseService = {
       revoked: false,
       reason: "stale_or_missing_order",
     });
+    metrics.licenseEvent("refund", "no_op");
     return { revoked: false, license: current };
   },
 
@@ -424,6 +438,11 @@ export const licenseService = {
         { canceledAt: now.toISOString() },
         { status: ["active", "canceled"] },
       );
+      metrics.licenseEvent("subscription_cancel", "applied");
+    } else {
+      // Not Pro — caller already gated this in the route, but double-cancel
+      // attempts (user clicks cancel twice) land here. Track them.
+      metrics.licenseEvent("subscription_cancel", "no_op");
     }
     return updated;
   },
