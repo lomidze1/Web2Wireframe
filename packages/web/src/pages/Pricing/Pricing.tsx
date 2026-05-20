@@ -1,5 +1,10 @@
 import type { ReactElement } from "react";
 import { checkoutLinks } from "../../data/links";
+import {
+  formatUsdCents,
+  formatUsdCentsShort,
+  isLikelyEuVisitor,
+} from "../../utils/currency";
 import styles from "./Pricing.module.scss";
 
 type Plan = {
@@ -13,10 +18,14 @@ type Plan = {
   highlight?: boolean;
 };
 
+const PRO_CENTS = 1600;
+const PRO_PRICE_SHORT = formatUsdCentsShort(PRO_CENTS);
+const PRO_PRICE = formatUsdCents(PRO_CENTS);
+
 const plans: Plan[] = [
   {
     name: "Free",
-    price: "$0",
+    price: formatUsdCentsShort(0),
     period: "/forever",
     summary: "Best for quick exploration and basic wireframe imports.",
     features: [
@@ -33,7 +42,7 @@ const plans: Plan[] = [
   },
   {
     name: "Pro",
-    price: "$16",
+    price: PRO_PRICE_SHORT,
     period: "/ 30 days",
     summary:
       "Unlimited imports with full styling, real text content, and assets.",
@@ -46,7 +55,7 @@ const plans: Plan[] = [
       "Hover state capture",
       "Font binary download (ZIP + auto-install)",
       "Priority email support (24h response)",
-      "One-time $16 — you're charged once, no auto-renewal",
+      `One-time ${PRO_PRICE_SHORT} — you're charged once, no auto-renewal`,
     ],
     cta: "Get Pro from Plugin",
     link: checkoutLinks.pro,
@@ -54,7 +63,11 @@ const plans: Plan[] = [
   },
 ];
 
-const Pricing = (): ReactElement => (
+const Pricing = (): ReactElement => {
+  // Render once on first paint — `isLikelyEuVisitor()` is cheap and
+  // depends only on the browser's resolved time zone.
+  const showEuVatNote = isLikelyEuVisitor();
+  return (
   <div className={styles.page}>
     <section className={styles.hero}>
       <div className="container">
@@ -64,9 +77,9 @@ const Pricing = (): ReactElement => (
             Simple pricing. Upgrade when you need full fidelity.
           </h1>
           <p>
-            Start free with 10 imports per month. Upgrade to Pro for $16 →
-            30 days of unlimited imports, full styling, and assets. No
-            subscription, no auto-renewal.
+            Start free with 10 imports per month. Upgrade to Pro for{" "}
+            {PRO_PRICE_SHORT} → 30 days of unlimited imports, full styling,
+            and assets. No subscription, no auto-renewal.
           </p>
         </div>
       </div>
@@ -105,11 +118,20 @@ const Pricing = (): ReactElement => (
                 {plan.cta}
               </a>
               {plan.highlight && (
-                <p className={styles.trustNote}>
-                  Secure checkout by Flitt (PCI-DSS Level 1) · Apple Pay,
-                  Google Pay & all major cards · See{" "}
-                  <a href="/terms">Terms</a> for refund policy
-                </p>
+                <>
+                  <p className={styles.trustNote}>
+                    Secure checkout by Flitt (PCI-DSS Level 1) · Apple Pay,
+                    Google Pay & all major cards · See{" "}
+                    <a href="/terms">Terms</a> for refund policy
+                  </p>
+                  {showEuVatNote && (
+                    <p className={styles.trustNote}>
+                      EU note: charged in USD ({PRO_PRICE}). Your bank will
+                      convert and may apply FX margin; local VAT (if any)
+                      is your responsibility.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           ))}
@@ -130,6 +152,7 @@ const Pricing = (): ReactElement => (
       </h2>
     </div>
   </div>
-);
+  );
+};
 
 export default Pricing;

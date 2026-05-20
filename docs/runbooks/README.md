@@ -7,6 +7,7 @@ Operational playbooks for production incidents.
 | [refund.md](./refund.md) | მომხმარებელი ითხოვს refund-ს; chargeback შემოვიდა |
 | [key-rotation.md](./key-rotation.md) | `FLITT_SECRET_KEY` rotation (scheduled ან incident) |
 | [billing-faq.md](./billing-faq.md) | Customer billing-related questions (template replies) |
+| [backup-restore.md](./backup-restore.md) | Daily license + webhook backup; full / single-user restore |
 
 ## სხვა მნიშვნელოვანი დოკუმენტები
 

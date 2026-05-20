@@ -14,6 +14,7 @@ import {
 import { config } from "../../config/env.js";
 import * as state from "../../state.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
+import { renderMetrics } from "../../services/metrics.js";
 
 interface RecentCounts {
   approved: number;
@@ -70,6 +71,37 @@ const router = Router();
 // GET /api/health - Health check
 router.get("/health", (req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+/**
+ * GET /api/metrics — Prometheus text-format counters.
+ *
+ * Admin-gated by the same `ADMIN_TOKEN` as `/api/health/flitt`: in production
+ * the metrics endpoint exposes operational state (webhook volume, decline
+ * rates, signature-failure spikes) that we wouldn't want an unauthenticated
+ * adversary to probe. In dev (no `ADMIN_TOKEN`), open for local scrapes.
+ *
+ * Auth accepts EITHER `X-Admin-Token: <value>` or `Authorization: Bearer <value>`.
+ */
+router.get("/metrics", (req: Request, res: Response) => {
+  const adminToken = process.env.ADMIN_TOKEN;
+  if (adminToken) {
+    const xAdmin = req.header("x-admin-token");
+    const authHeader = req.header("authorization");
+    const bearer = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : null;
+    const provided = xAdmin ?? bearer ?? "";
+    if (provided !== adminToken) {
+      res.status(401).type("text/plain").send("Unauthorized\n");
+      return;
+    }
+  }
+  // Prometheus expects this exact content-type with the version param.
+  res
+    .status(200)
+    .type("text/plain; version=0.0.4; charset=utf-8")
+    .send(renderMetrics());
 });
 
 /**

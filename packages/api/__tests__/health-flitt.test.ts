@@ -39,6 +39,10 @@ vi.mock("../src/models/WebhookEvent.js", () => ({
   },
 }));
 
+// metrics module imports `metrics` from this same package — it's pure
+// in-memory so we don't need to mock it; renderMetrics returns whatever
+// has been incremented across the test run.
+
 const { default: healthRouter } = await import(
   "../src/routes/plugin/defaults.js"
 );
@@ -203,5 +207,52 @@ describe("GET /api/health/flitt", () => {
       failed: 0,
       reversed: 0,
     });
+  });
+});
+
+// ============================================================================
+// GET /api/metrics
+// ============================================================================
+
+describe("GET /api/metrics", () => {
+  it("returns 401 when ADMIN_TOKEN is set and credential is missing", async () => {
+    process.env.ADMIN_TOKEN = "secret-admin-token";
+    const res = await request(makeApp()).get("/api/metrics");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 200 with text/plain content-type in dev (no ADMIN_TOKEN)", async () => {
+    delete process.env.ADMIN_TOKEN;
+    const res = await request(makeApp()).get("/api/metrics");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/plain/);
+    expect(res.headers["content-type"]).toMatch(/version=0\.0\.4/);
+  });
+
+  it("accepts Authorization: Bearer when ADMIN_TOKEN is set", async () => {
+    process.env.ADMIN_TOKEN = "secret-admin-token";
+    const res = await request(makeApp())
+      .get("/api/metrics")
+      .set("Authorization", "Bearer secret-admin-token");
+    expect(res.status).toBe(200);
+  });
+
+  it("accepts X-Admin-Token when ADMIN_TOKEN is set", async () => {
+    process.env.ADMIN_TOKEN = "secret-admin-token";
+    const res = await request(makeApp())
+      .get("/api/metrics")
+      .set("X-Admin-Token", "secret-admin-token");
+    expect(res.status).toBe(200);
+  });
+
+  it("body is a valid Prometheus text payload (trailing newline)", async () => {
+    delete process.env.ADMIN_TOKEN;
+    const res = await request(makeApp()).get("/api/metrics");
+    // Even when no counters have been incremented yet, response must end
+    // in a newline (some scrapers reject otherwise).
+    expect(typeof res.text).toBe("string");
+    if (res.text.length > 0) {
+      expect(res.text.endsWith("\n")).toBe(true);
+    }
   });
 });

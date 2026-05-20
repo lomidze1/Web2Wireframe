@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { config } from "../config/env.js";
 import type { EmailPayload } from "../config/website-types.js";
+import { metrics } from "./metrics.js";
 
 // Lazy init — avoid crash when RESEND_API_KEY is not set (e.g., in tests)
 let resend: Resend | null = null;
@@ -56,6 +57,7 @@ async function sendWithRetry(
         if (i > 0) {
           console.info(`[Email/${label}] succeeded on attempt ${i + 1}`);
         }
+        metrics.email(label, "ok");
         return { ok: true };
       }
       lastError = result.error.message || JSON.stringify(result.error);
@@ -72,6 +74,7 @@ async function sendWithRetry(
   console.error(
     `[Email/${label}] all ${attempts} attempts failed: ${lastError}`,
   );
+  metrics.email(label, "fail");
   return { ok: false, error: lastError };
 }
 

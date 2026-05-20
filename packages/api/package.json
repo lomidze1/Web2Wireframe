@@ -11,9 +11,10 @@
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:flitt": "vitest run flitt-service flitt-webhook flitt-ip-allowlist checkout-routes license-routes license-service license-model health-flitt webhook-logger email-service email-retry admin-routes issue-cancel-token startup-checks",
+    "test:flitt": "vitest run flitt-service flitt-webhook flitt-ip-allowlist flitt-sign-perf checkout-routes license-routes license-service license-model health-flitt webhook-logger email-service email-retry admin-routes issue-cancel-token startup-checks metrics",
     "test:e2e:flitt": "tsx scripts/e2e-flitt-webhook.ts",
-    "simulate:flitt": "tsx scripts/simulate-flitt-webhook.ts"
+    "simulate:flitt": "tsx scripts/simulate-flitt-webhook.ts",
+    "backup:licenses": "tsx scripts/backup-licenses.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

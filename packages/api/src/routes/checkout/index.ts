@@ -14,6 +14,7 @@ import {
   createLogger,
   createWebhookLogger,
 } from "../../services/webhookLogger.js";
+import { metrics } from "../../services/metrics.js";
 import { verifyToken } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
@@ -50,10 +51,12 @@ router.post("/create", async (req: Request, res: Response) => {
         figmaUserId,
         error: result.error,
       });
+      metrics.checkoutCreate("fail");
       res.status(502).json({ error: result.error });
       return;
     }
     log.info("checkout created", { figmaUserId, orderId: result.orderId });
+    metrics.checkoutCreate("success");
     res.json({ checkoutUrl: result.checkoutUrl, orderId: result.orderId });
   } catch (err) {
     log.error("handler error", {
@@ -86,6 +89,7 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
 
     if (!verifyCallback(payload, config.flitt.secretKey)) {
       log.warn("signature verification failed", { order_id: payload.order_id });
+      metrics.signatureFailure();
       res.status(200).json({ received: true });
       return;
     }
@@ -126,11 +130,13 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       // Duplicate key means we already processed this event — return 200.
       const code = (err as { code?: number }).code;
       if (code === 11000) {
+        metrics.webhook(orderStatus, "deduped");
         res.status(200).json({ received: true, deduped: true });
         return;
       }
       throw err;
     }
+    metrics.webhook(orderStatus, "processed");
 
     // Parse merchant_data → figmaUserId + plan + recurring flag.
     let merchantData: {
