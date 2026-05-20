@@ -43,6 +43,12 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   const [error, setError] = useState<string | null>(null);
   const [isCheckoutPending, setIsCheckoutPending] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
+  // When window.open() returns null the browser blocked the popup. We surface
+  // a clickable fallback link the user can click manually — the click is a
+  // direct user gesture, which all popup blockers honor.
+  const [blockedCheckoutUrl, setBlockedCheckoutUrl] = useState<string | null>(
+    null,
+  );
 
   const { modalRef } = useModal({ isOpen, onClose });
 
@@ -96,19 +102,41 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
     if (!figmaUserId || isCheckoutPending) return;
     setIsCheckoutPending(true);
     setCheckoutMessage("Opening secure checkout…");
+    setBlockedCheckoutUrl(null);
     preCheckoutRef.current = license
       ? { plan: license.plan, cycleEndsAt: license.cycleEndsAt }
       : null;
     try {
       const { checkoutUrl } = await createCheckout(figmaUserId);
-      window.open(checkoutUrl, "_blank");
-      setCheckoutMessage("Complete payment in your browser. We'll detect it automatically.");
+      // window.open returns null when the popup is blocked, e.g. because the
+      // call awaited the API response and lost the user-gesture context.
+      // Render an explicit click-to-open link rather than appearing to hang.
+      const opened = window.open(checkoutUrl, "_blank");
+      if (!opened) {
+        setBlockedCheckoutUrl(checkoutUrl);
+        setCheckoutMessage(
+          "Your browser blocked the checkout window — click the link below to continue.",
+        );
+      } else {
+        setCheckoutMessage(
+          "Complete payment in your browser. We'll detect it automatically.",
+        );
+      }
       startPolling();
     } catch (err) {
       setCheckoutMessage(null);
       setError(err instanceof Error ? err.message : "Checkout failed");
       setIsCheckoutPending(false);
     }
+  }
+
+  function handleBlockedLinkClick(): void {
+    // Direct click = fresh user gesture. The popup blocker is required to
+    // honor this; we hide the fallback once they've launched it.
+    setBlockedCheckoutUrl(null);
+    setCheckoutMessage(
+      "Complete payment in your browser. We'll detect it automatically.",
+    );
   }
 
   function startPolling(): void {
@@ -257,6 +285,19 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
             <div class={styles.planNotice} role="status" aria-live="polite">
               {checkoutMessage}
             </div>
+          )}
+
+          {blockedCheckoutUrl && (
+            <a
+              href={blockedCheckoutUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              class={styles.planCtaLink}
+              onClick={handleBlockedLinkClick}
+              data-testid="checkout-fallback-link"
+            >
+              Open Flitt checkout →
+            </a>
           )}
 
           {!isPro && (

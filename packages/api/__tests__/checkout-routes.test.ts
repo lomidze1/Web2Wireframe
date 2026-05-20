@@ -209,4 +209,89 @@ describe("POST /api/subscription/cancel", () => {
     expect(mockCancelSubscription).toHaveBeenCalledWith("w2w_pro_u_1");
     expect(mockApplyCancel).toHaveBeenCalledWith({ figmaUserId: "u-1" });
   });
+
+  it("rejects an expired token without calling Flitt", async () => {
+    // Sign a token with a negative TTL — verifyToken should reject it as
+    // expired and the cancel must short-circuit before reaching Flitt.
+    const expiredToken = signToken("u-1", process.env.AUTH_SECRET!, -10);
+
+    const res = await request(makeApp())
+      .post("/api/subscription/cancel")
+      .send({ figmaUserId: "u-1", token: expiredToken });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Invalid or expired token");
+    expect(mockCancelSubscription).not.toHaveBeenCalled();
+    expect(mockApplyCancel).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when AUTH_SECRET env is unset", async () => {
+    const savedSecret = process.env.AUTH_SECRET;
+    delete process.env.AUTH_SECRET;
+    try {
+      const res = await request(makeApp())
+        .post("/api/subscription/cancel")
+        .send({ figmaUserId: "u-1", token: "some.token" });
+      expect(res.status).toBe(500);
+      expect(mockCancelSubscription).not.toHaveBeenCalled();
+    } finally {
+      process.env.AUTH_SECRET = savedSecret;
+    }
+  });
+
+  it("does not call applySubscriptionCancel when Flitt cancel fails (atomic)", async () => {
+    const license = fakeProLicense();
+    mockGetOrCreate.mockResolvedValue(license);
+    mockCancelSubscription.mockResolvedValue({
+      ok: false,
+      error: "Flitt 502",
+    });
+    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
+
+    const res = await request(makeApp())
+      .post("/api/subscription/cancel")
+      .send({ figmaUserId: "u-1", token });
+
+    expect(res.status).toBe(502);
+    // The local license must NOT flip to canceled if Flitt itself didn't
+    // honor the stop — otherwise we'd have a user who shows "canceled"
+    // locally but Flitt still charges them next cycle.
+    expect(mockApplyCancel).not.toHaveBeenCalled();
+  });
+
+  it("propagates a Flitt 'no such order' error message to the client", async () => {
+    const license = fakeProLicense();
+    mockGetOrCreate.mockResolvedValue(license);
+    mockCancelSubscription.mockResolvedValue({
+      ok: false,
+      error: "no such order",
+    });
+    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
+
+    const res = await request(makeApp())
+      .post("/api/subscription/cancel")
+      .send({ figmaUserId: "u-1", token });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe("no such order");
+  });
+
+  it("returns 200 + null accessUntil when applySubscriptionCancel returns null", async () => {
+    // Edge: Flitt accepted the cancel but our license row vanished (rare
+    // race with a webhook downgrade). Don't error — the client just sees
+    // accessUntil=null and the next /api/license/me will report Free.
+    const license = fakeProLicense();
+    mockGetOrCreate.mockResolvedValue(license);
+    mockCancelSubscription.mockResolvedValue({ ok: true });
+    mockApplyCancel.mockResolvedValue(null);
+    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
+
+    const res = await request(makeApp())
+      .post("/api/subscription/cancel")
+      .send({ figmaUserId: "u-1", token });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.accessUntil).toBe(null);
+  });
 });

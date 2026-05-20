@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createWebhookLogger,
+  createLogger,
   sanitizeContext,
 } from "../src/services/webhookLogger.js";
 
@@ -98,5 +99,51 @@ describe("createWebhookLogger", () => {
     const a = JSON.parse(stdoutSpy.mock.calls[0][0] as string);
     const b = JSON.parse(stdoutSpy.mock.calls[1][0] as string);
     expect(a.requestId).toBe(b.requestId);
+  });
+});
+
+describe("createLogger (generalized)", () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("stamps the supplied component name on every line", () => {
+    const log = createLogger("checkout-create");
+    log.info("hello");
+    const line = JSON.parse(stdoutSpy.mock.calls[0][0] as string);
+    expect(line.component).toBe("checkout-create");
+  });
+
+  it("createWebhookLogger remains identical to createLogger('flitt-webhook')", () => {
+    const a = createWebhookLogger();
+    const b = createLogger("flitt-webhook");
+    a.info("a");
+    b.info("b");
+    const lineA = JSON.parse(stdoutSpy.mock.calls[0][0] as string);
+    const lineB = JSON.parse(stdoutSpy.mock.calls[1][0] as string);
+    expect(lineA.component).toBe("flitt-webhook");
+    expect(lineB.component).toBe("flitt-webhook");
+  });
+
+  it("two different component loggers each have their own requestId", () => {
+    const a = createLogger("checkout-create");
+    const b = createLogger("subscription-cancel");
+    expect(a.requestId).not.toBe(b.requestId);
+  });
+
+  it("strips sensitive fields regardless of component", () => {
+    const log = createLogger("subscription-cancel");
+    log.info("msg", { figmaUserId: "u-1", signature: "leak" });
+    const line = JSON.parse(stdoutSpy.mock.calls[0][0] as string);
+    expect(line.figmaUserId).toBe("u-1");
+    expect(line.signature).toBeUndefined();
   });
 });

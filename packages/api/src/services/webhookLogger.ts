@@ -1,25 +1,34 @@
 import { randomBytes } from "node:crypto";
 
 /**
- * Lightweight structured logger for the Flitt webhook handler.
+ * Lightweight structured request logger.
  *
- * Each webhook invocation gets a unique `requestId`, which is included in
- * every log line so a single delivery's history can be traced through a log
+ * Each request invocation gets a unique `requestId`, which is included in
+ * every log line so a single request's history can be traced through a log
  * aggregator (Datadog, Loki, etc.). Output is JSON-per-line (NDJSON) on
  * stdout — production-friendly without pulling in a logger dependency.
  *
- * Sensitive fields are stripped before serialization. The webhook handler
- * already verifies the SHA1 signature, so `signature` and Flitt's debug
- * echo `response_signature_string` have no business in logs — they're long,
- * noisy, and could enable a replay if logs leak.
+ * Sensitive fields are stripped before serialization. SHA1 signatures and
+ * any obvious secret-like keys are dropped, so `signature` and Flitt's debug
+ * echo `response_signature_string` never reach the log stream — they're
+ * long, noisy, and could enable a replay if logs leak.
+ *
+ * Component names:
+ *   - "flitt-webhook"          — webhook handler
+ *   - "checkout-create"        — POST /api/checkout/create
+ *   - "subscription-cancel"    — POST /api/subscription/cancel
+ *   - "license"                — /api/license/* routes
  */
 
-export interface WebhookLogger {
+export interface RequestLogger {
   requestId: string;
   info(msg: string, context?: Record<string, unknown>): void;
   warn(msg: string, context?: Record<string, unknown>): void;
   error(msg: string, context?: Record<string, unknown>): void;
 }
+
+/** Back-compat alias — the webhook handler still calls createWebhookLogger. */
+export type WebhookLogger = RequestLogger;
 
 const SENSITIVE_KEYS = new Set([
   "signature",
@@ -42,6 +51,7 @@ export function sanitizeContext(
 }
 
 function emit(
+  component: string,
   level: "info" | "warn" | "error",
   requestId: string,
   msg: string,
@@ -50,7 +60,7 @@ function emit(
   const line = {
     ts: new Date().toISOString(),
     level,
-    component: "flitt-webhook",
+    component,
     requestId,
     msg,
     ...sanitizeContext(context),
@@ -67,18 +77,24 @@ function emit(
   }
 }
 
-export function createWebhookLogger(): WebhookLogger {
+/** Build a logger bound to the given component name. */
+export function createLogger(component: string): RequestLogger {
   const requestId = randomBytes(6).toString("hex");
   return {
     requestId,
     info(msg, context) {
-      emit("info", requestId, msg, context);
+      emit(component, "info", requestId, msg, context);
     },
     warn(msg, context) {
-      emit("warn", requestId, msg, context);
+      emit(component, "warn", requestId, msg, context);
     },
     error(msg, context) {
-      emit("error", requestId, msg, context);
+      emit(component, "error", requestId, msg, context);
     },
   };
+}
+
+/** Back-compat — equivalent to `createLogger("flitt-webhook")`. */
+export function createWebhookLogger(): RequestLogger {
+  return createLogger("flitt-webhook");
 }

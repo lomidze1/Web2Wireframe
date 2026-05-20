@@ -169,6 +169,7 @@ describe("generateReceiptHtml", () => {
     amountCents: 1600,
     currency: "USD",
     orderId: "w2w_pro_u-1_1715000000000",
+    paymentId: null as string | null,
     purchasedAt: new Date("2026-05-20T10:00:00Z"),
     proExpiresAt: new Date("2026-06-19T10:00:00Z"),
   };
@@ -205,6 +206,31 @@ describe("generateReceiptHtml", () => {
     const html = generateReceiptHtml(receiptData).toLowerCase();
     expect(html).toMatch(/no auto-renewal|only be charged again/);
   });
+
+  it("includes the Flitt payment_id when provided (support lookup hint)", () => {
+    const html = generateReceiptHtml({
+      ...receiptData,
+      paymentId: "pay_flitt_98765",
+    });
+    expect(html).toContain("pay_flitt_98765");
+    expect(html).toContain("Payment ID");
+    expect(html).toMatch(/quote Payment ID/i);
+  });
+
+  it("omits the Payment ID row entirely when paymentId is null", () => {
+    const html = generateReceiptHtml({ ...receiptData, paymentId: null });
+    expect(html).not.toContain("Payment ID");
+    expect(html).not.toMatch(/quote Payment ID/i);
+  });
+
+  it("escapes a malicious payment_id (defense-in-depth)", () => {
+    const html = generateReceiptHtml({
+      ...receiptData,
+      paymentId: "<script>x</script>",
+    });
+    expect(html).not.toContain("<script>x</script>");
+    expect(html).toContain("&lt;script&gt;x&lt;/script&gt;");
+  });
 });
 
 describe("generateReceiptText", () => {
@@ -214,6 +240,7 @@ describe("generateReceiptText", () => {
       amountCents: 1600,
       currency: "USD",
       orderId: "ord_1",
+      paymentId: null,
       purchasedAt: new Date("2026-05-20T10:00:00Z"),
       proExpiresAt: new Date("2026-06-19T10:00:00Z"),
     });
@@ -223,12 +250,27 @@ describe("generateReceiptText", () => {
     expect(text).not.toContain("<");
   });
 
+  it("renders Payment ID as its own row when provided", () => {
+    const text = generateReceiptText({
+      email: "u@x.com",
+      amountCents: 1600,
+      currency: "USD",
+      orderId: "ord_3",
+      paymentId: "pay_flitt_42",
+      purchasedAt: new Date("2026-05-20T10:00:00Z"),
+      proExpiresAt: new Date("2026-06-19T10:00:00Z"),
+    });
+    expect(text).toContain("Payment ID:");
+    expect(text).toContain("pay_flitt_42");
+  });
+
   it("formats amounts other than $16 correctly", () => {
     const text = generateReceiptText({
       email: "u@x.com",
       amountCents: 12345,
       currency: "USD",
       orderId: "ord_2",
+      paymentId: null,
       purchasedAt: new Date("2026-05-20T10:00:00Z"),
       proExpiresAt: new Date("2026-06-19T10:00:00Z"),
     });

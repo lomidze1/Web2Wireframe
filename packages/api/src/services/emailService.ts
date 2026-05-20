@@ -11,6 +11,70 @@ function getResend(): Resend {
   return resend;
 }
 
+/**
+ * Configurable delay schedule used by `sendWithRetry`. Exposed for tests so
+ * a long retry chain doesn't add real wall-clock seconds to the suite.
+ */
+let retryDelaysMs = [200, 800];
+
+/** Test hook — restore defaults afterward. */
+export function __setRetryDelaysForTests(delays: number[]): () => void {
+  const prev = retryDelaysMs;
+  retryDelaysMs = delays;
+  return () => {
+    retryDelaysMs = prev;
+  };
+}
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Send a Resend email with bounded exponential-backoff retry. Webhook handlers
+ * `await` these — the total budget (defaults `200ms + 800ms = 1s`) is chosen
+ * so a single transient Resend blip can be absorbed without pushing the
+ * webhook response over Flitt's ~5s timeout.
+ *
+ * Resend errors and thrown errors are both treated as transient; we don't
+ * have a clean way to classify "permanent" failures (invalid email, etc.)
+ * from the response shape, and retrying a permanent failure costs us ~1s
+ * — cheap compared to silently losing a customer-facing receipt.
+ *
+ * Returns `{ ok: true }` on success, `{ ok: false, error }` after exhausting
+ * retries. Best-effort callers ignore the return; this helper never throws.
+ */
+async function sendWithRetry(
+  label: string,
+  send: () => Promise<{ error?: { message?: string } | null }>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const attempts = retryDelaysMs.length + 1;
+  let lastError = "unknown";
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const result = await send();
+      if (!result.error) {
+        if (i > 0) {
+          console.info(`[Email/${label}] succeeded on attempt ${i + 1}`);
+        }
+        return { ok: true };
+      }
+      lastError = result.error.message || JSON.stringify(result.error);
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+    if (i < retryDelaysMs.length) {
+      console.warn(
+        `[Email/${label}] attempt ${i + 1} failed: ${lastError} — retrying in ${retryDelaysMs[i]}ms`,
+      );
+      await delay(retryDelaysMs[i]);
+    }
+  }
+  console.error(
+    `[Email/${label}] all ${attempts} attempts failed: ${lastError}`,
+  );
+  return { ok: false, error: lastError };
+}
+
 export const sendSupportEmail = async (payload: EmailPayload) => {
   try {
     const result = await getResend().emails.send({
@@ -337,26 +401,19 @@ export const sendReceiptEmail = async (params: {
   amountCents: number;
   currency: string;
   orderId: string;
+  paymentId: string | null;
   purchasedAt: Date;
   proExpiresAt: Date;
 }): Promise<void> => {
-  try {
-    const result = await getResend().emails.send({
+  await sendWithRetry("receipt", () =>
+    getResend().emails.send({
       from: config.email.noreplyEmail,
       to: params.email,
       subject: `Receipt for your Web2Wireframe Pro purchase ($${formatAmount(params.amountCents)})`,
       html: generateReceiptHtml(params),
       text: generateReceiptText(params),
-    });
-    if (result.error) {
-      console.error(
-        "[Email] Receipt Resend error:",
-        result.error.message || result.error,
-      );
-    }
-  } catch (error) {
-    console.error("[Email] Failed to send receipt:", error);
-  }
+    }),
+  );
 };
 
 function formatAmount(cents: number): string {
@@ -377,6 +434,7 @@ export const generateReceiptHtml = (data: {
   amountCents: number;
   currency: string;
   orderId: string;
+  paymentId: string | null;
   purchasedAt: Date;
   proExpiresAt: Date;
 }): string => {
@@ -415,6 +473,14 @@ export const generateReceiptHtml = (data: {
           <span class="receipt-label">Order ID</span>
           <span class="receipt-value">${escapeHtml(data.orderId)}</span>
         </div>
+        ${
+          data.paymentId
+            ? `<div class="receipt-row">
+          <span class="receipt-label">Payment ID</span>
+          <span class="receipt-value">${escapeHtml(data.paymentId)}</span>
+        </div>`
+            : ""
+        }
         <div class="receipt-row">
           <span class="receipt-label">Purchased</span>
           <span class="receipt-value">${formatDateLong(data.purchasedAt)}</span>
@@ -434,7 +500,11 @@ export const generateReceiptHtml = (data: {
 
         <div class="footer">
           <p>Need a formal invoice with your business details? Reply to this email with your business name + tax ID.</p>
-          <p>Questions? <a href="mailto:billing@web2wireframe.design">billing@web2wireframe.design</a></p>
+          <p>Questions? <a href="mailto:billing@web2wireframe.design">billing@web2wireframe.design</a>${
+            data.paymentId
+              ? ` — quote Payment ID <strong>${escapeHtml(data.paymentId)}</strong> for fastest lookup.`
+              : ""
+          }</p>
         </div>
       </div>
     </body>
@@ -447,6 +517,7 @@ export const generateReceiptText = (data: {
   amountCents: number;
   currency: string;
   orderId: string;
+  paymentId: string | null;
   purchasedAt: Date;
   proExpiresAt: Date;
 }): string => {
@@ -456,7 +527,9 @@ Thanks for your purchase!
 Your Web2Wireframe Pro is active. Here's your receipt.
 
 Product:           Web2Wireframe Pro · 30 days
-Order ID:          ${data.orderId}
+Order ID:          ${data.orderId}${
+    data.paymentId ? `\nPayment ID:        ${data.paymentId}` : ""
+  }
 Purchased:         ${formatDateLong(data.purchasedAt)}
 Pro access until:  ${formatDateLong(data.proExpiresAt)}
 Total charged:     $${formatAmount(data.amountCents)} ${data.currency}
@@ -467,7 +540,9 @@ No auto-renewal — you'll only be charged again if you decide to buy more days 
 
 Need a formal invoice with your business details? Reply to this email with your business name + tax ID.
 
-Questions? billing@web2wireframe.design
+Questions? billing@web2wireframe.design${
+    data.paymentId ? ` — quote Payment ID ${data.paymentId} for fastest lookup.` : ""
+  }
 `;
 };
 
@@ -484,24 +559,16 @@ export const sendPaymentFailedNotification = async (params: {
   email: string;
   figmaUserId: string;
 }): Promise<void> => {
-  try {
-    const renewUrl = buildRenewUrl(params.figmaUserId);
-    const result = await getResend().emails.send({
+  const renewUrl = buildRenewUrl(params.figmaUserId);
+  await sendWithRetry("payment-failed", () =>
+    getResend().emails.send({
       from: config.email.noreplyEmail,
       to: params.email,
       subject: "Your Web2Wireframe payment didn't go through",
       html: generatePaymentFailedHtml({ email: params.email, renewUrl }),
       text: generatePaymentFailedText({ email: params.email, renewUrl }),
-    });
-    if (result.error) {
-      console.error(
-        "[Email] Payment-failed notification Resend error:",
-        result.error.message || result.error,
-      );
-    }
-  } catch (error) {
-    console.error("[Email] Failed to send payment-failed notification:", error);
-  }
+    }),
+  );
 };
 
 export const generatePaymentFailedHtml = (data: {
@@ -590,23 +657,15 @@ function buildRenewUrl(figmaUserId: string): string {
 export const sendRefundNotification = async (params: {
   email: string;
 }): Promise<void> => {
-  try {
-    const result = await getResend().emails.send({
+  await sendWithRetry("refund", () =>
+    getResend().emails.send({
       from: config.email.noreplyEmail,
       to: params.email,
       subject: "Your Web2Wireframe Pro purchase was refunded",
       html: generateRefundNotificationHtml({ email: params.email }),
       text: generateRefundNotificationText({ email: params.email }),
-    });
-    if (result.error) {
-      console.error(
-        "[Email] Refund notification Resend error:",
-        result.error.message || result.error,
-      );
-    }
-  } catch (error) {
-    console.error("[Email] Failed to send refund notification:", error);
-  }
+    }),
+  );
 };
 
 export const generateRefundNotificationHtml = (data: {

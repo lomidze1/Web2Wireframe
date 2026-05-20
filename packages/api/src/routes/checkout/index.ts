@@ -10,7 +10,10 @@ import {
   sendPaymentFailedNotification,
   sendReceiptEmail,
 } from "../../services/emailService.js";
-import { createWebhookLogger } from "../../services/webhookLogger.js";
+import {
+  createLogger,
+  createWebhookLogger,
+} from "../../services/webhookLogger.js";
 import { verifyToken } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
@@ -29,24 +32,33 @@ const router = Router();
 // ============================================================================
 
 router.post("/create", async (req: Request, res: Response) => {
+  const log = createLogger("checkout-create");
   try {
     const { figmaUserId, returnUrl } = req.body as {
       figmaUserId?: string;
       returnUrl?: string;
     };
     if (!figmaUserId || typeof figmaUserId !== "string") {
+      log.warn("missing figmaUserId");
       res.status(400).json({ error: "figmaUserId is required" });
       return;
     }
 
     const result = await createOneTimeCheckout({ figmaUserId, returnUrl });
     if (!result.ok) {
+      log.warn("Flitt rejected checkout creation", {
+        figmaUserId,
+        error: result.error,
+      });
       res.status(502).json({ error: result.error });
       return;
     }
+    log.info("checkout created", { figmaUserId, orderId: result.orderId });
     res.json({ checkoutUrl: result.checkoutUrl, orderId: result.orderId });
   } catch (err) {
-    console.error("[Checkout] /create error:", err);
+    log.error("handler error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -201,6 +213,10 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
             amountCents: Number(payload.amount),
             currency: String(payload.currency ?? PLAN_PRICES.pro.currency),
             orderId,
+            paymentId:
+              typeof payload.payment_id === "string"
+                ? payload.payment_id
+                : null,
             purchasedAt: new Date(),
             proExpiresAt: updated.cycleEndsAt,
           });
@@ -256,6 +272,10 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
               amountCents: Number(payload.amount),
               currency: String(payload.currency ?? PLAN_PRICES.pro.currency),
               orderId,
+              paymentId:
+                typeof payload.payment_id === "string"
+                  ? payload.payment_id
+                  : null,
               purchasedAt: new Date(),
               proExpiresAt: updated.cycleEndsAt,
             });
@@ -332,18 +352,20 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
 export const cancelRouter = Router();
 
 cancelRouter.post("/cancel", async (req: Request, res: Response) => {
+  const log = createLogger("subscription-cancel");
   try {
     const { figmaUserId, token } = req.body as {
       figmaUserId?: string;
       token?: string;
     };
     if (!figmaUserId || !token) {
+      log.warn("missing figmaUserId or token");
       res.status(400).json({ error: "figmaUserId and token are required" });
       return;
     }
     const secret = process.env.AUTH_SECRET;
     if (!secret) {
-      console.error("[Cancel] AUTH_SECRET env var is not set");
+      log.error("AUTH_SECRET env var is not set");
       res.status(500).json({ error: "Server auth not configured" });
       return;
     }
@@ -355,16 +377,25 @@ cancelRouter.post("/cancel", async (req: Request, res: Response) => {
       // Generic message: distinguishing 'Invalid signature' from 'Token
       // expired' lets an attacker probe whether their guessed AUTH_SECRET is
       // correct by replaying expired tokens.
+      log.warn("token verification failed", { figmaUserId });
       res.status(401).json({ error: "Invalid or expired token" });
       return;
     }
     if (payload.userId !== figmaUserId) {
+      log.warn("token userId mismatch", {
+        figmaUserId,
+        token_userId: payload.userId,
+      });
       res.status(401).json({ error: "Token does not match figmaUserId" });
       return;
     }
 
     const license = await licenseService.getOrCreate(figmaUserId);
     if (license.plan !== "pro" || !license.subscription) {
+      log.info("no active Pro to cancel", {
+        figmaUserId,
+        plan: license.plan,
+      });
       res.status(404).json({ error: "No active Pro subscription" });
       return;
     }
@@ -373,7 +404,10 @@ cancelRouter.post("/cancel", async (req: Request, res: Response) => {
       license.subscription.flittOrderId,
     );
     if (!flittResult.ok) {
-      console.error("[Cancel] Flitt rejected cancel:", flittResult.error);
+      log.warn("Flitt rejected cancel", {
+        figmaUserId,
+        error: flittResult.error,
+      });
       res.status(502).json({ error: flittResult.error });
       return;
     }
@@ -381,13 +415,19 @@ cancelRouter.post("/cancel", async (req: Request, res: Response) => {
     const updated = await licenseService.applySubscriptionCancel({
       figmaUserId,
     });
+    log.info("subscription canceled", {
+      figmaUserId,
+      accessUntil: updated?.cycleEndsAt.toISOString() ?? null,
+    });
 
     res.json({
       ok: true,
       accessUntil: updated?.cycleEndsAt.toISOString() ?? null,
     });
   } catch (err) {
-    console.error("[Cancel] handler error:", err);
+    log.error("handler error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     res.status(500).json({ error: "Server error" });
   }
 });
