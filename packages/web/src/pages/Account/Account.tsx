@@ -10,6 +10,7 @@ interface Subscription {
   canceledAt: string | null;
   lastFailedAt: string | null;
   failureCount: number;
+  autoRenew: boolean;
 }
 
 interface AccountLicense {
@@ -172,7 +173,9 @@ const Account = (): ReactElement => {
                   <span>
                     {license.status === "canceled"
                       ? "Access until"
-                      : "Next billing"}
+                      : license.subscription.autoRenew
+                        ? "Next billing"
+                        : "Pro expires"}
                   </span>
                   <span className={styles.value}>
                     {formatDate(license.subscription.nextBillingAt)}
@@ -184,6 +187,7 @@ const Account = (): ReactElement => {
 
           {license?.plan === "pro" &&
             license.status === "active" &&
+            license.subscription?.autoRenew === true &&
             cancelStatus === "idle" && (
               <button
                 type="button"
@@ -192,6 +196,19 @@ const Account = (): ReactElement => {
               >
                 Cancel subscription
               </button>
+            )}
+
+          {license?.plan === "pro" &&
+            license.status === "active" &&
+            license.subscription?.autoRenew === false && (
+              <p className={styles.subtle}>
+                You purchased Pro as a one-time payment — no auto-renewal,
+                nothing to cancel. Your Pro access ends on{" "}
+                {license.subscription
+                  ? formatDate(license.subscription.nextBillingAt)
+                  : "the date above"}
+                . Buy another 30 days anytime from the plugin.
+              </p>
             )}
 
           {cancelStatus === "confirming" && (

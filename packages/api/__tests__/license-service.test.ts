@@ -578,3 +578,70 @@ describe("licenseService.applySubscriptionCancel", () => {
     expect(result).toBe(null);
   });
 });
+
+// ============================================================================
+// licenseService.applyRefund (chargeback / reversal)
+// ============================================================================
+
+describe("licenseService.applyRefund", () => {
+  it("revokes Pro when current subscription.flittOrderId matches refunded order", async () => {
+    const revokedLicense = makeLicense({
+      plan: "free",
+      status: "active",
+      email: "user@example.com",
+    });
+    mockFindOneAndUpdate.mockResolvedValue(revokedLicense);
+
+    const result = await licenseService.applyRefund({
+      figmaUserId: "u-1",
+      flittOrderId: "w2w_pro_u-1_123",
+    });
+
+    expect(result.revoked).toBe(true);
+    expect(result.license).toBe(revokedLicense);
+
+    const [filter, update] = mockFindOneAndUpdate.mock.calls[0] as [
+      Record<string, unknown>,
+      { $set: Record<string, unknown> },
+    ];
+    // Filter MUST scope by flittOrderId — refunds for older orders must not
+    // touch the current subscription.
+    expect(filter).toEqual({
+      figmaUserId: "u-1",
+      plan: "pro",
+      "subscription.flittOrderId": "w2w_pro_u-1_123",
+    });
+    expect(update.$set.plan).toBe("free");
+    expect(update.$set.status).toBe("active");
+    expect(update.$set.subscription).toBe(null);
+    expect(update.$set["usage.imports"]).toBe(0);
+  });
+
+  it("does not revoke when refund is for an older (already replaced) order", async () => {
+    // findOneAndUpdate returns null because the orderId in the filter doesn't
+    // match the user's current subscription — they've since renewed.
+    mockFindOneAndUpdate.mockResolvedValue(null);
+    mockFindOne.mockResolvedValue(makeLicense({ plan: "pro" }));
+
+    const result = await licenseService.applyRefund({
+      figmaUserId: "u-1",
+      flittOrderId: "w2w_pro_u-1_OLD",
+    });
+
+    expect(result.revoked).toBe(false);
+    expect(result.license).not.toBe(null);
+  });
+
+  it("returns revoked=false when user does not exist", async () => {
+    mockFindOneAndUpdate.mockResolvedValue(null);
+    mockFindOne.mockResolvedValue(null);
+
+    const result = await licenseService.applyRefund({
+      figmaUserId: "ghost",
+      flittOrderId: "w2w_pro_ghost_1",
+    });
+
+    expect(result.revoked).toBe(false);
+    expect(result.license).toBe(null);
+  });
+});

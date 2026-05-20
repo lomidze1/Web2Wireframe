@@ -288,6 +288,56 @@ export const licenseService = {
   },
 
   /**
+   * Webhook: reversed (refund / chargeback). Atomically revokes Pro and
+   * downgrades to Free **only if** the refunded `flittOrderId` matches the
+   * user's current `subscription.flittOrderId`. A refund for an older order
+   * (the user has since re-purchased) must not retro-punish their current
+   * Pro access — the matched-filter prevents that.
+   *
+   * Returns:
+   *   - revoked=true  → access was revoked; caller may notify the user
+   *   - revoked=false → user wasn't Pro or order is stale; no-op
+   *
+   * `license` is the post-revocation document on revoked=true (so the email
+   * is reachable), or the current document on revoked=false (best-effort
+   * context for the caller's log line).
+   */
+  async applyRefund(params: {
+    figmaUserId: string;
+    flittOrderId: string;
+  }): Promise<{ revoked: boolean; license: ILicense | null }> {
+    const now = new Date();
+    const cycleEnd = new Date(now.getTime() + CYCLE_DURATION_MS);
+    const updated = await License.findOneAndUpdate(
+      {
+        figmaUserId: params.figmaUserId,
+        plan: "pro",
+        "subscription.flittOrderId": params.flittOrderId,
+      },
+      {
+        $set: {
+          plan: "free",
+          status: "active",
+          cycleStartedAt: now,
+          cycleEndsAt: cycleEnd,
+          "usage.imports": 0,
+          "usage.periodStartedAt": now,
+          subscription: null,
+        },
+      },
+      { new: true },
+    );
+    if (updated) {
+      return { revoked: true, license: updated };
+    }
+    // Stale order or user already Free — fetch current state for logging only.
+    const current = await License.findOne({
+      figmaUserId: params.figmaUserId,
+    });
+    return { revoked: false, license: current };
+  },
+
+  /**
    * Cancel-from-plugin: status → canceled, plan stays "pro" until
    * cycleEndsAt. The lazy `cleanupExpiredCancellation` in `getOrCreate`
    * downgrades to Free after the period ends.

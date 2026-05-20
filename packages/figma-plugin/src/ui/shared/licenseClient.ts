@@ -11,6 +11,8 @@ export interface LicenseSubscription {
   canceledAt: string | null;
   lastFailedAt: string | null;
   failureCount: number;
+  /** true = recurring subscription; false = one-time purchase. */
+  autoRenew: boolean;
 }
 
 export interface License {

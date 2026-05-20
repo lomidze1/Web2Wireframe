@@ -323,6 +323,84 @@ You're receiving this because Pro access is linked to ${data.email}.
 `;
 };
 
+/**
+ * Notify a user that their Pro purchase was refunded / reversed. Sent from
+ * the Flitt webhook handler when `order_status="reversed"` revokes access.
+ * Best-effort — failures are logged, never thrown back to the webhook
+ * (which must always 200 to avoid Flitt's retry storm).
+ */
+export const sendRefundNotification = async (params: {
+  email: string;
+}): Promise<void> => {
+  try {
+    const result = await getResend().emails.send({
+      from: config.email.noreplyEmail,
+      to: params.email,
+      subject: "Your Web2Wireframe Pro purchase was refunded",
+      html: generateRefundNotificationHtml({ email: params.email }),
+      text: generateRefundNotificationText({ email: params.email }),
+    });
+    if (result.error) {
+      console.error(
+        "[Email] Refund notification Resend error:",
+        result.error.message || result.error,
+      );
+    }
+  } catch (error) {
+    console.error("[Email] Failed to send refund notification:", error);
+  }
+};
+
+export const generateRefundNotificationHtml = (data: {
+  email: string;
+}): string => {
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9; border-radius: 8px; }
+        .header { border-bottom: 2px solid #3b82f6; padding-bottom: 16px; margin-bottom: 16px; }
+        .header h2 { margin: 0; color: #0c0d12; }
+        .meta { margin-top: 12px; color: #5a6072; font-size: 0.95rem; }
+        .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 0.85rem; color: #5a6072; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h2>Your Pro purchase was refunded</h2>
+        </div>
+        <p>Your Web2Wireframe Pro purchase has been refunded by your bank or by Flitt. Your account is now on the Free plan (10 imports per month).</p>
+        <p>If you didn't request this refund, it may have been issued automatically due to a chargeback. Please reach out to <a href="mailto:billing@web2wireframe.design">billing@web2wireframe.design</a> if you have questions or want to re-subscribe.</p>
+        <div class="footer">
+          <p>You're receiving this because Pro access was linked to ${escapeHtml(
+            data.email,
+          )}.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const generateRefundNotificationText = (data: {
+  email: string;
+}): string => {
+  return `
+Your Web2Wireframe Pro purchase has been refunded.
+
+Your account is now on the Free plan (10 imports per month).
+
+If you didn't request this refund, it may have been issued automatically due to a chargeback. Please reach out to billing@web2wireframe.design if you have questions or want to re-subscribe.
+
+You're receiving this because Pro access was linked to ${data.email}.
+`;
+};
+
 function escapeHtml(text: string): string {
   const map: Record<string, string> = {
     "&": "&amp;",

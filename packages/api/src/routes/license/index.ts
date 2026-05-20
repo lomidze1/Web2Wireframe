@@ -47,6 +47,8 @@ interface SerializedLicense {
     canceledAt: string | null;
     lastFailedAt: string | null;
     failureCount: number;
+    /** true = native Flitt recurring subscription; false = one-time purchase. */
+    autoRenew: boolean;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -78,6 +80,7 @@ function serialize(license: ILicense): SerializedLicense {
           lastFailedAt:
             license.subscription.lastFailedAt?.toISOString() ?? null,
           failureCount: license.subscription.failureCount,
+          autoRenew: license.subscription.autoRenew === true,
         }
       : null,
     createdAt: license.createdAt.toISOString(),

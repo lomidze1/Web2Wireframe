@@ -11,7 +11,9 @@ const mockApplyActivation = vi.fn();
 const mockApplyRecurring = vi.fn();
 const mockApplyFailedCharge = vi.fn();
 const mockApplyOneTime = vi.fn();
+const mockApplyRefund = vi.fn();
 const mockWebhookEventCreate = vi.fn();
+const mockSendRefundEmail = vi.fn();
 
 vi.mock("../src/services/flittService.js", () => ({
   createOneTimeCheckout: vi.fn(),
@@ -30,8 +32,13 @@ vi.mock("../src/services/licenseService.js", () => ({
       mockApplyFailedCharge(...args),
     applyOneTimePurchase: (...args: unknown[]) =>
       mockApplyOneTime(...args),
+    applyRefund: (...args: unknown[]) => mockApplyRefund(...args),
     applySubscriptionCancel: vi.fn(),
   },
+}));
+
+vi.mock("../src/services/emailService.js", () => ({
+  sendRefundNotification: (...args: unknown[]) => mockSendRefundEmail(...args),
 }));
 
 vi.mock("../src/models/WebhookEvent.js", () => ({
@@ -216,13 +223,56 @@ describe("POST /api/webhooks/flitt — order_status branching", () => {
     expect(mockApplyFailedCharge).toHaveBeenCalledWith({ figmaUserId: "u-1" });
   });
 
-  it("reversed → no service call (logged only)", async () => {
+  it("reversed → applyRefund (revoke Pro access)", async () => {
+    mockApplyRefund.mockResolvedValue({ revoked: true, license: null });
     await request(makeApp())
       .post("/api/webhooks/flitt")
       .send(approvedPayload({ order_status: "reversed", payment_id: "pay_rev" }));
+    expect(mockApplyRefund).toHaveBeenCalledWith({
+      figmaUserId: "u-1",
+      flittOrderId: "w2w_pro_u-1_123",
+    });
     expect(mockApplyActivation).not.toHaveBeenCalled();
     expect(mockApplyRecurring).not.toHaveBeenCalled();
     expect(mockApplyFailedCharge).not.toHaveBeenCalled();
+  });
+
+  it("reversed + revoked=true + email present → sends refund email", async () => {
+    mockApplyRefund.mockResolvedValue({
+      revoked: true,
+      license: { email: "user@example.com" },
+    });
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ order_status: "reversed", payment_id: "pay_rev2" }));
+    expect(mockSendRefundEmail).toHaveBeenCalledWith({
+      email: "user@example.com",
+    });
+  });
+
+  it("reversed + revoked=false (stale order) → no email", async () => {
+    // User has already renewed past this order; the refund is for an older
+    // charge. We don't revoke their current Pro, and we don't email.
+    mockApplyRefund.mockResolvedValue({
+      revoked: false,
+      license: { email: "user@example.com" },
+    });
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ order_status: "reversed", payment_id: "pay_rev3" }));
+    expect(mockSendRefundEmail).not.toHaveBeenCalled();
+  });
+
+  it("reversed + revoked=true + no email → no email send (still revokes)", async () => {
+    mockApplyRefund.mockResolvedValue({
+      revoked: true,
+      license: { email: null },
+    });
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ order_status: "reversed", payment_id: "pay_rev4" }));
+    expect(mockApplyRefund).toHaveBeenCalled();
+    expect(mockSendRefundEmail).not.toHaveBeenCalled();
   });
 });
 

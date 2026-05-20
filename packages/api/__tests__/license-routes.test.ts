@@ -173,6 +173,52 @@ describe("GET /api/license/me", () => {
     expect(res.body.subscription.lastFailedAt).toBe(null);
   });
 
+  it("serializes autoRenew=true for native Flitt subscription", async () => {
+    mockGetOrCreate.mockResolvedValue(
+      fakeLicense({
+        plan: "pro",
+        subscription: {
+          flittOrderId: "w2w_pro_u_4",
+          activatedAt: new Date("2026-05-04T10:00:00Z"),
+          nextBillingAt: new Date("2026-06-03T10:00:00Z"),
+          canceledAt: null,
+          lastChargeAt: null,
+          lastFailedAt: null,
+          failureCount: 0,
+          autoRenew: true,
+        },
+      }),
+    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
+    expect(res.status).toBe(200);
+    expect(res.body.subscription.autoRenew).toBe(true);
+  });
+
+  it("serializes autoRenew=false for one-time purchase", async () => {
+    mockGetOrCreate.mockResolvedValue(
+      fakeLicense({
+        plan: "pro",
+        subscription: {
+          flittOrderId: "w2w_pro_u_5",
+          activatedAt: new Date("2026-05-04T10:00:00Z"),
+          nextBillingAt: new Date("2026-06-03T10:00:00Z"),
+          canceledAt: null,
+          lastChargeAt: null,
+          lastFailedAt: null,
+          failureCount: 0,
+          autoRenew: false,
+        },
+      }),
+    );
+    const res = await request(makeApp())
+      .get("/api/license/me")
+      .set("Authorization", authHeader("u-1"));
+    expect(res.status).toBe(200);
+    expect(res.body.subscription.autoRenew).toBe(false);
+  });
+
   it("returns 500 when service throws", async () => {
     mockGetOrCreate.mockRejectedValue(new Error("db down"));
     const res = await request(makeApp())

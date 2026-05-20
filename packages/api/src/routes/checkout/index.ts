@@ -5,6 +5,8 @@ import {
   verifyCallback,
 } from "../../services/flittService.js";
 import { licenseService } from "../../services/licenseService.js";
+import { sendRefundNotification } from "../../services/emailService.js";
+import { createWebhookLogger } from "../../services/webhookLogger.js";
 import { verifyToken } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
@@ -57,19 +59,17 @@ export const webhookRouter = Router();
 webhookRouter.post("/flitt", async (req: Request, res: Response) => {
   // ALWAYS return 200 (or short-circuit early) — anything else triggers
   // Flitt's retry storm. Log internally; don't surface details.
+  const log = createWebhookLogger();
   try {
     const payload = req.body as Record<string, unknown>;
     if (!payload || typeof payload !== "object") {
-      console.warn("[Flitt webhook] empty body");
+      log.warn("empty body");
       res.status(200).json({ received: true });
       return;
     }
 
     if (!verifyCallback(payload, config.flitt.secretKey)) {
-      console.warn(
-        "[Flitt webhook] signature verification failed",
-        { order_id: payload.order_id },
-      );
+      log.warn("signature verification failed", { order_id: payload.order_id });
       res.status(200).json({ received: true });
       return;
     }
@@ -83,7 +83,9 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       payload.amount === undefined ||
       payload.amount === null
     ) {
-      console.warn("[Flitt webhook] missing/invalid required fields");
+      log.warn("missing/invalid required fields", {
+        order_id: payload.order_id,
+      });
       res.status(200).json({ received: true });
       return;
     }
@@ -124,13 +126,16 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       try {
         merchantData = JSON.parse(payload.merchant_data);
       } catch (err) {
-        console.warn("[Flitt webhook] merchant_data parse failed", err);
+        log.warn("merchant_data parse failed", {
+          order_id: orderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
     const figmaUserId = merchantData.figmaUserId;
 
     if (!figmaUserId) {
-      console.warn("[Flitt webhook] missing figmaUserId in merchant_data");
+      log.warn("missing figmaUserId in merchant_data", { order_id: orderId });
       res.status(200).json({ received: true });
       return;
     }
@@ -140,10 +145,10 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
     // buildSubscriptionOrderId). A mismatch means a tampered/forged mapping.
     const sanitizedUserId = figmaUserId.replace(/[^A-Za-z0-9_-]/g, "");
     if (!orderId.startsWith(`w2w_pro_${sanitizedUserId}_`)) {
-      console.warn(
-        "[Flitt webhook] order_id does not match merchant_data figmaUserId",
-        { order_id: orderId },
-      );
+      log.warn("order_id does not match merchant_data figmaUserId", {
+        order_id: orderId,
+        figmaUserId,
+      });
       res.status(200).json({ received: true });
       return;
     }
@@ -154,11 +159,12 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       orderStatus === "approved" &&
       Number(payload.amount) !== PLAN_PRICES.pro.priceCents
     ) {
-      console.warn(
-        `[Flitt webhook] approved charge with unexpected amount=${String(
-          payload.amount,
-        )} — not granting Pro for ${figmaUserId}`,
-      );
+      log.warn("approved charge with unexpected amount — not granting Pro", {
+        order_id: orderId,
+        figmaUserId,
+        amount: payload.amount,
+        expectedAmount: PLAN_PRICES.pro.priceCents,
+      });
       res.status(200).json({ received: true });
       return;
     }
@@ -180,11 +186,18 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           email,
           flittOrderId: orderId,
         });
+        log.info("one-time purchase approved", {
+          order_id: orderId,
+          figmaUserId,
+          amount: payload.amount,
+        });
       } else {
         // One-time orders only ever decline once — nothing to track.
-        console.log(
-          `[Flitt webhook] one-time order_status="${orderStatus}" for ${figmaUserId} — logged only`,
-        );
+        log.info("one-time order non-approved — logged only", {
+          order_id: orderId,
+          figmaUserId,
+          order_status: orderStatus,
+        });
       }
     } else {
       // Subscription path. parent_order_id is set on recurring renewals
@@ -193,6 +206,11 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
         const parentOrderId = payload.parent_order_id;
         if (parentOrderId && typeof parentOrderId === "string") {
           await licenseService.applyRecurringCharge({ figmaUserId });
+          log.info("recurring charge approved", {
+            order_id: orderId,
+            figmaUserId,
+            parent_order_id: parentOrderId,
+          });
         } else {
           const email =
             typeof payload.sender_email === "string"
@@ -203,21 +221,55 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
             email,
             flittOrderId: orderId,
           });
+          log.info("subscription activation approved", {
+            order_id: orderId,
+            figmaUserId,
+          });
         }
       } else if (orderStatus === "declined" || orderStatus === "expired") {
         await licenseService.applyFailedCharge({ figmaUserId });
+        log.info("charge failed", {
+          order_id: orderId,
+          figmaUserId,
+          order_status: orderStatus,
+        });
+      } else if (orderStatus === "reversed") {
+        // Refund / chargeback. applyRefund only revokes if THIS order_id is
+        // still the user's current subscription — a refund for an older
+        // (since-replaced) order is a no-op. Email is best-effort.
+        const result = await licenseService.applyRefund({
+          figmaUserId,
+          flittOrderId: orderId,
+        });
+        if (result.revoked) {
+          log.warn("reversed → Pro revoked", {
+            order_id: orderId,
+            figmaUserId,
+          });
+          if (result.license?.email) {
+            await sendRefundNotification({ email: result.license.email });
+          }
+        } else {
+          log.info("reversed for stale/missing order — no action", {
+            order_id: orderId,
+            figmaUserId,
+          });
+        }
       } else {
-        // reversed / refund / processing — log only for now; manual
-        // intervention via Flitt dashboard for chargebacks/refunds.
-        console.log(
-          `[Flitt webhook] unhandled order_status="${orderStatus}" for ${figmaUserId}`,
-        );
+        // processing / other transient — log only.
+        log.info("unhandled order_status", {
+          order_id: orderId,
+          figmaUserId,
+          order_status: orderStatus,
+        });
       }
     }
 
     res.status(200).json({ received: true });
   } catch (err) {
-    console.error("[Flitt webhook] handler error:", err);
+    log.error("handler error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
     // Still return 200 — internal failures shouldn't trigger Flitt retries
     // (they'd just fail the same way). Operator should monitor logs.
     res.status(200).json({ received: true });
