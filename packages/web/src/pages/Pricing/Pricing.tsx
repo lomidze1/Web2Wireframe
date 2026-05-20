@@ -28,8 +28,8 @@ const plans: Plan[] = [
       "Styles & assets: not included",
       "Support: Community",
     ],
-    cta: "Start Free",
-    link: "https://www.figma.com/community",
+    cta: "Install Plugin — Start Free",
+    link: checkoutLinks.free,
   },
   {
     name: "Pro",
@@ -46,9 +46,9 @@ const plans: Plan[] = [
       "Hover state capture",
       "Font binary download (ZIP + auto-install)",
       "Priority email support (24h response)",
-      "One-time payment — renew manually, no auto-charge",
+      "One-time $16 — you're charged once, no auto-renewal",
     ],
-    cta: "Install Plugin",
+    cta: "Get Pro from Plugin",
     link: checkoutLinks.pro,
     highlight: true,
   },
@@ -61,11 +61,12 @@ const Pricing = (): ReactElement => (
         <div className={styles.heroCard}>
           <div className={`${styles.sectionLabel} section-label`}>Pricing</div>
           <h1>
-            Conversion-focused plans. Upgrade when you need more fidelity.
+            Simple pricing. Upgrade when you need full fidelity.
           </h1>
           <p>
-            Start free, then unlock unlimited imports, full styling, and
-            assets with Pro.
+            Start free with 10 imports per month. Upgrade to Pro for $16 →
+            30 days of unlimited imports, full styling, and assets. No
+            subscription, no auto-renewal.
           </p>
         </div>
       </div>
@@ -103,6 +104,13 @@ const Pricing = (): ReactElement => (
               >
                 {plan.cta}
               </a>
+              {plan.highlight && (
+                <p className={styles.trustNote}>
+                  Secure checkout by Flitt (PCI-DSS Level 1) · Apple Pay,
+                  Google Pay & all major cards · See{" "}
+                  <a href="/terms">Terms</a> for refund policy
+                </p>
+              )}
             </div>
           ))}
         </div>

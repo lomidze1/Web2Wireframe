@@ -2,7 +2,13 @@
 
 გადახდის (ერთჯერადი $16 → 30 დღე Pro) production-ზე ატვირთვამდე შესასრულებელი ნაბიჯები.
 სტატუსი: `[ ]` = დარჩა, `[x]` = გაკეთდა.
-ბოლო განახლება: 2026-05-19.
+ბოლო განახლება: **2026-05-20**.
+
+📚 ცნობარი:
+- [`Flitt.md`](./Flitt.md) — სრული integration study + roadmap
+- [`runbooks/refund.md`](./runbooks/refund.md), [`key-rotation.md`](./runbooks/key-rotation.md), [`billing-faq.md`](./runbooks/billing-faq.md) — operational playbooks
+- E2E webhook test: `pnpm --filter @w2w/api test:e2e:flitt`
+- Health probe: `curl https://api.web2wireframe.design/api/health/flitt -H "X-Admin-Token: $ADMIN_TOKEN"`
 
 ---
 
@@ -95,7 +101,33 @@ API **არ ჩაირთვება** production-ში თუ ეს place
 
 - [ ] `AUTH_SECRET` — უნიკალური, `openssl rand -hex 32`
 - [ ] `SESSION_SECRET` — უნიკალური, `openssl rand -hex 32`
-- [ ] `ADMIN_TOKEN` — უნიკალური, `openssl rand -hex 32`
+- [ ] `ADMIN_TOKEN` — უნიკალური, `openssl rand -hex 32` (გამოიყენება `/api/health/flitt`-ისთვის — შენახე password manager-ში)
+
+---
+
+## 10. Recent enhancements (2026-05-20 audit)
+
+ეს code-level ცვლილებები შესრულდა Flitt audit-ის შემდეგ (იხ. [`Flitt.md`](./Flitt.md) §12). ყველაფერი deployed-ი ხდება ერთად backend deploy-ით — ცალკე action არ მოითხოვს.
+
+### ✅ შესრულდა code-ში
+
+- Account page — "Cancel subscription" ღილაკი ერთჯერადი user-ისთვის დაიმალა (B1)
+- `reversed` webhook → ნამდვილი refund handling: Pro→Free downgrade + email user-ს (B2)
+- Webhook structured logging (NDJSON, requestId, ავტო-sanitize) (B3)
+- `/api/health/flitt` endpoint — admin-gated, config sanity + recent24h counters + last webhook ts (B4, C7)
+- Runbooks: refund, key-rotation, billing-faq (B5)
+- Sandbox E2E test script `pnpm test:e2e:flitt` (B7)
+- Auth error message-ი არ ალერდება failure mode-ს (signature vs expiry) (B8)
+- Failed payment email (`sendPaymentFailedNotification`) (B9)
+- Plan modal copy: "Secure checkout by Flitt · Apple Pay, Google Pay" trust signal (B10)
+- Webhook body size limit 16kb (DoS guard) (C2)
+- Receipt email on approved purchase (`sendReceiptEmail`) (C3)
+
+### 📋 Operator action (post-deploy verification)
+
+- [ ] `curl https://api.web2wireframe.design/api/health/flitt -H "X-Admin-Token: $ADMIN_TOKEN"` უპასუხებს `flittEnabled:true, merchantIdSet:true, secretKeySet:true, mongoConnected:true`
+- [ ] Live smoke test-ის შემდეგ: `recent24h.approved >= 1` + `lastWebhookProcessedAt` updated
+- [ ] First real customer-ისთვის receipt email მოვიდა (sender_email = user-ის ნამდვილი მისამართი Flitt checkout-დან)
 
 ---
 
@@ -104,3 +136,5 @@ API **არ ჩაირთვება** production-ში თუ ეს place
 - მოდელი: ერთჯერადი გადახდა, $16 = 30 დღე Pro, **auto-renew/subscription არ არის**, cancel არ არსებობს.
 - Subscription კოდი პარკირებულია (Flitt subscription-ს რამდენიმე თვეში ჩართავს).
 - სრული გეგმა: `~/.claude/plans/effervescent-weaving-balloon.md`
+- ცალკე roadmap + audit: [`Flitt.md`](./Flitt.md)
+- Operational runbooks: [`runbooks/`](./runbooks/)

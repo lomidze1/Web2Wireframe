@@ -38,11 +38,13 @@ vi.mock("../src/services/licenseService.js", () => ({
 }));
 
 const mockSendPaymentFailed = vi.fn();
+const mockSendReceipt = vi.fn();
 
 vi.mock("../src/services/emailService.js", () => ({
   sendRefundNotification: (...args: unknown[]) => mockSendRefundEmail(...args),
   sendPaymentFailedNotification: (...args: unknown[]) =>
     mockSendPaymentFailed(...args),
+  sendReceiptEmail: (...args: unknown[]) => mockSendReceipt(...args),
 }));
 
 vi.mock("../src/models/WebhookEvent.js", () => ({
@@ -66,6 +68,9 @@ const { webhookRouter } = await import("../src/routes/checkout/index.js");
 
 function makeApp() {
   const app = express();
+  // Match production: webhook router gets a tiny body-size limit to defend
+  // against DoS via huge payloads. Real Flitt webhooks are ~1-2 KB.
+  app.use("/api/webhooks", express.json({ limit: "16kb" }));
   app.use(express.json());
   app.use("/api/webhooks", webhookRouter);
   return app;
@@ -329,6 +334,13 @@ describe("POST /api/webhooks/flitt — order_status branching", () => {
 describe("POST /api/webhooks/flitt — one-time purchase", () => {
   beforeEach(() => {
     mockVerifyCallback.mockReturnValue(true);
+    // applyOneTimePurchase returns the updated license (used by receipt email)
+    mockApplyOneTime.mockResolvedValue({
+      cycleEndsAt: new Date("2026-06-19T00:00:00Z"),
+    });
+    mockApplyActivation.mockResolvedValue({
+      cycleEndsAt: new Date("2026-06-19T00:00:00Z"),
+    });
   });
 
   function oneTimePayload(overrides: Record<string, unknown> = {}) {
@@ -389,6 +401,29 @@ describe("POST /api/webhooks/flitt — one-time purchase", () => {
     expect(mockApplyOneTime).toHaveBeenCalledTimes(2);
   });
 
+  it("recurring:false approved + sender_email → sends receipt email", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload({ payment_id: "pay_receipt_1" }));
+    expect(mockSendReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "user@example.com",
+        amountCents: 1600,
+        currency: "USD",
+        orderId: "w2w_pro_u-1_123",
+      }),
+    );
+  });
+
+  it("recurring:false approved + NO sender_email → no receipt", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        oneTimePayload({ payment_id: "pay_receipt_2", sender_email: undefined }),
+      );
+    expect(mockSendReceipt).not.toHaveBeenCalled();
+  });
+
   it("duplicate one-time webhook (same payment_id) is deduped", async () => {
     mockWebhookEventCreate.mockRejectedValueOnce(
       Object.assign(new Error("dup key"), { code: 11000 }),
@@ -405,6 +440,36 @@ describe("POST /api/webhooks/flitt — one-time purchase", () => {
 // ============================================================================
 // Payload hardening (H-4)
 // ============================================================================
+
+describe("POST /api/webhooks/flitt — body size limit (DoS guard)", () => {
+  it("rejects payloads above 16kb with HTTP 413", async () => {
+    // Build a payload larger than 16kb. The actual webhook fields are tiny
+    // — anything this large is either misconfigured or an attack.
+    const huge = "x".repeat(20 * 1024);
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .set("Content-Type", "application/json")
+      .send(approvedPayload({ merchant_data: huge }));
+    expect(res.status).toBe(413);
+  });
+
+  it("accepts a normally-sized payload (well under the limit)", async () => {
+    mockVerifyCallback.mockReturnValue(true);
+    mockApplyOneTime.mockResolvedValue({});
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          merchant_data: JSON.stringify({
+            figmaUserId: "u-1",
+            plan: "pro",
+            recurring: false,
+          }),
+        }),
+      );
+    expect(res.status).toBe(200);
+  });
+});
 
 describe("POST /api/webhooks/flitt — payload hardening", () => {
   beforeEach(() => {

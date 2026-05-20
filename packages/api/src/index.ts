@@ -47,6 +47,12 @@ assertProductionSecrets(process.env);
 // Global middleware
 // ============================================================================
 
+// Flitt webhook payloads are tiny (~1-2 KB). Cap the body size on the
+// webhook path BEFORE the global 50mb parser fires so an attacker cannot
+// pin Express's JSON parser with a huge body. Express skips a second
+// `express.json()` call once the body is already parsed, so a path-scoped
+// parser mounted first effectively overrides the global limit for that path.
+app.use("/api/webhooks", express.json({ limit: "16kb" }));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "1mb", extended: true }));
 app.set("trust proxy", 1);

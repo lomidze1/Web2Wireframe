@@ -8,6 +8,7 @@ import { licenseService } from "../../services/licenseService.js";
 import {
   sendRefundNotification,
   sendPaymentFailedNotification,
+  sendReceiptEmail,
 } from "../../services/emailService.js";
 import { createWebhookLogger } from "../../services/webhookLogger.js";
 import { verifyToken } from "../../middleware/auth.js";
@@ -184,7 +185,7 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           typeof payload.sender_email === "string"
             ? payload.sender_email
             : null;
-        await licenseService.applyOneTimePurchase({
+        const updated = await licenseService.applyOneTimePurchase({
           figmaUserId,
           email,
           flittOrderId: orderId,
@@ -194,6 +195,16 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           figmaUserId,
           amount: payload.amount,
         });
+        if (email) {
+          await sendReceiptEmail({
+            email,
+            amountCents: Number(payload.amount),
+            currency: String(payload.currency ?? PLAN_PRICES.pro.currency),
+            orderId,
+            purchasedAt: new Date(),
+            proExpiresAt: updated.cycleEndsAt,
+          });
+        }
       } else if (orderStatus === "declined" || orderStatus === "expired") {
         log.info("one-time order non-approved — logged only", {
           order_id: orderId,
@@ -230,7 +241,7 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
             typeof payload.sender_email === "string"
               ? payload.sender_email
               : null;
-          await licenseService.applySubscriptionActivation({
+          const updated = await licenseService.applySubscriptionActivation({
             figmaUserId,
             email,
             flittOrderId: orderId,
@@ -239,6 +250,16 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
             order_id: orderId,
             figmaUserId,
           });
+          if (email) {
+            await sendReceiptEmail({
+              email,
+              amountCents: Number(payload.amount),
+              currency: String(payload.currency ?? PLAN_PRICES.pro.currency),
+              orderId,
+              purchasedAt: new Date(),
+              proExpiresAt: updated.cycleEndsAt,
+            });
+          }
         }
       } else if (orderStatus === "declined" || orderStatus === "expired") {
         await licenseService.applyFailedCharge({ figmaUserId });

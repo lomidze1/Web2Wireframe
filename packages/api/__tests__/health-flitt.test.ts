@@ -15,14 +15,28 @@ const mockConfig = {
   features: { flittEnabled: true },
 };
 
+const mockState = { mongoConnected: true };
+
+const mockCountDocuments = vi.fn();
+const mockFindOne = vi.fn();
+
 vi.mock("../src/config/env.js", () => ({
   config: mockConfig,
 }));
 
 vi.mock("../src/state.js", () => ({
-  mongoConnected: true,
+  get mongoConnected() {
+    return mockState.mongoConnected;
+  },
   setMongoConnected: vi.fn(),
   pendingCDPImports: new Map(),
+}));
+
+vi.mock("../src/models/WebhookEvent.js", () => ({
+  WebhookEvent: {
+    countDocuments: (...args: unknown[]) => mockCountDocuments(...args),
+    findOne: (...args: unknown[]) => mockFindOne(...args),
+  },
 }));
 
 const { default: healthRouter } = await import(
@@ -42,6 +56,9 @@ beforeEach(() => {
   mockConfig.flitt.secretKey = "test-secret";
   mockConfig.flitt.baseUrl = "https://pay.flitt.test";
   mockConfig.features.flittEnabled = true;
+  mockState.mongoConnected = true;
+  mockCountDocuments.mockReset();
+  mockFindOne.mockReset();
 });
 
 describe("GET /api/health/flitt", () => {
@@ -112,5 +129,63 @@ describe("GET /api/health/flitt", () => {
     const res = await request(makeApp()).get("/api/health/flitt");
     expect(res.body.secretKeySet).toBe(false);
     expect(res.body.flittEnabled).toBe(false);
+  });
+
+  it("reports 24h webhook counts + last processed timestamp", async () => {
+    const lastTs = new Date("2026-05-20T12:00:00Z");
+    mockCountDocuments
+      .mockResolvedValueOnce(5) // approved
+      .mockResolvedValueOnce(2) // declined+expired
+      .mockResolvedValueOnce(1); // reversed
+    mockFindOne.mockReturnValue({
+      sort: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue({ processedAt: lastTs }),
+    });
+
+    const res = await request(makeApp()).get("/api/health/flitt");
+    expect(res.body.recent24h).toEqual({
+      approved: 5,
+      failed: 2,
+      reversed: 1,
+    });
+    expect(res.body.lastWebhookProcessedAt).toBe(lastTs.toISOString());
+  });
+
+  it("reports null webhook counts when MongoDB is disconnected", async () => {
+    mockState.mongoConnected = false;
+    const res = await request(makeApp()).get("/api/health/flitt");
+    expect(res.body.recent24h).toBeNull();
+    expect(res.body.lastWebhookProcessedAt).toBeNull();
+    expect(mockCountDocuments).not.toHaveBeenCalled();
+  });
+
+  it("returns null counts when WebhookEvent query throws (defensive)", async () => {
+    mockCountDocuments.mockRejectedValue(new Error("db blip"));
+    const res = await request(makeApp()).get("/api/health/flitt");
+    expect(res.body.recent24h).toBeNull();
+    expect(res.body.lastWebhookProcessedAt).toBeNull();
+    // Endpoint must still return 200 — operator visibility matters more than
+    // strict correctness here.
+    expect(res.status).toBe(200);
+  });
+
+  it("reports lastWebhookProcessedAt=null when collection is empty", async () => {
+    mockCountDocuments
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0);
+    mockFindOne.mockReturnValue({
+      sort: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue(null),
+    });
+    const res = await request(makeApp()).get("/api/health/flitt");
+    expect(res.body.lastWebhookProcessedAt).toBeNull();
+    expect(res.body.recent24h).toEqual({
+      approved: 0,
+      failed: 0,
+      reversed: 0,
+    });
   });
 });

@@ -324,6 +324,154 @@ You're receiving this because Pro access is linked to ${data.email}.
 };
 
 /**
+ * Send a receipt for a successful Pro purchase. Sent from the Flitt webhook
+ * handler when `order_status="approved"` AND a sender_email was collected.
+ * Best-effort — failures are logged, never thrown.
+ *
+ * The receipt doubles as a record-keeping artifact for the customer (no
+ * formal invoice yet — see billing-faq.md Q5) and an "expect this charge
+ * on your statement" confirmation that reduces dispute risk.
+ */
+export const sendReceiptEmail = async (params: {
+  email: string;
+  amountCents: number;
+  currency: string;
+  orderId: string;
+  purchasedAt: Date;
+  proExpiresAt: Date;
+}): Promise<void> => {
+  try {
+    const result = await getResend().emails.send({
+      from: config.email.noreplyEmail,
+      to: params.email,
+      subject: `Receipt for your Web2Wireframe Pro purchase ($${formatAmount(params.amountCents)})`,
+      html: generateReceiptHtml(params),
+      text: generateReceiptText(params),
+    });
+    if (result.error) {
+      console.error(
+        "[Email] Receipt Resend error:",
+        result.error.message || result.error,
+      );
+    }
+  } catch (error) {
+    console.error("[Email] Failed to send receipt:", error);
+  }
+};
+
+function formatAmount(cents: number): string {
+  const dollars = cents / 100;
+  return dollars.toFixed(2);
+}
+
+function formatDateLong(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+export const generateReceiptHtml = (data: {
+  email: string;
+  amountCents: number;
+  currency: string;
+  orderId: string;
+  purchasedAt: Date;
+  proExpiresAt: Date;
+}): string => {
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9; border-radius: 8px; }
+        .header { border-bottom: 2px solid #3b82f6; padding-bottom: 16px; margin-bottom: 16px; }
+        .header h2 { margin: 0; color: #0c0d12; }
+        .receipt-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+        .receipt-row:last-child { border-bottom: none; }
+        .receipt-label { color: #5a6072; }
+        .receipt-value { color: #0c0d12; font-weight: 600; }
+        .receipt-total { padding: 12px 0; margin-top: 8px; border-top: 2px solid #0c0d12; font-size: 1.1rem; }
+        .meta { margin-top: 16px; color: #5a6072; font-size: 0.9rem; }
+        .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 0.85rem; color: #5a6072; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h2>Thanks for your purchase!</h2>
+          <p style="margin: 6px 0 0 0; color: #5a6072;">Your Web2Wireframe Pro is active. Here's your receipt.</p>
+        </div>
+
+        <div class="receipt-row">
+          <span class="receipt-label">Product</span>
+          <span class="receipt-value">Web2Wireframe Pro · 30 days</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Order ID</span>
+          <span class="receipt-value">${escapeHtml(data.orderId)}</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Purchased</span>
+          <span class="receipt-value">${formatDateLong(data.purchasedAt)}</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Pro access until</span>
+          <span class="receipt-value">${formatDateLong(data.proExpiresAt)}</span>
+        </div>
+        <div class="receipt-row receipt-total">
+          <span class="receipt-label">Total charged</span>
+          <span class="receipt-value">$${escapeHtml(formatAmount(data.amountCents))} ${escapeHtml(data.currency)}</span>
+        </div>
+
+        <p class="meta">Your card statement will show "FLITT*WEB2WIREFRAME" or similar. Payments processed by Flitt (PCI-DSS Level 1).</p>
+
+        <p class="meta">No auto-renewal — you'll only be charged again if you decide to buy more days from the plugin.</p>
+
+        <div class="footer">
+          <p>Need a formal invoice with your business details? Reply to this email with your business name + tax ID.</p>
+          <p>Questions? <a href="mailto:billing@web2wireframe.design">billing@web2wireframe.design</a></p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const generateReceiptText = (data: {
+  email: string;
+  amountCents: number;
+  currency: string;
+  orderId: string;
+  purchasedAt: Date;
+  proExpiresAt: Date;
+}): string => {
+  return `
+Thanks for your purchase!
+
+Your Web2Wireframe Pro is active. Here's your receipt.
+
+Product:           Web2Wireframe Pro · 30 days
+Order ID:          ${data.orderId}
+Purchased:         ${formatDateLong(data.purchasedAt)}
+Pro access until:  ${formatDateLong(data.proExpiresAt)}
+Total charged:     $${formatAmount(data.amountCents)} ${data.currency}
+
+Your card statement will show "FLITT*WEB2WIREFRAME" or similar. Payments processed by Flitt (PCI-DSS Level 1).
+
+No auto-renewal — you'll only be charged again if you decide to buy more days from the plugin.
+
+Need a formal invoice with your business details? Reply to this email with your business name + tax ID.
+
+Questions? billing@web2wireframe.design
+`;
+};
+
+/**
  * Notify a user that their card was declined / expired during checkout.
  * Sent from the Flitt webhook handler when order_status is "declined" or
  * "expired" AND sender_email is present in the payload (Flitt collects it

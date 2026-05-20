@@ -104,3 +104,17 @@
   text-underline-offset: 6px;
   color: var(--accent-strong);
 }
+
+.trustNote {
+  margin: 0.8rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+
+  a {
+    color: var(--accent-strong);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}
