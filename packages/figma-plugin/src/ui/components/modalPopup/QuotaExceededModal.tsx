@@ -60,7 +60,7 @@ export default function QuotaExceededModal({
                 <li class={styles.planListItem}>All viewports & full styles</li>
                 <li class={styles.planListItem}>Priority email support</li>
                 <li class={styles.planListItem}>
-                  One-time payment — no auto-renewal
+                  One-time payment — you're charged once, no auto-renewal
                 </li>
               </ul>
               <button
@@ -70,6 +70,10 @@ export default function QuotaExceededModal({
               >
                 Get Pro
               </button>
+              <p class={styles.planTrustNote}>
+                Secure checkout by Flitt · Apple Pay, Google Pay & all major
+                cards
+              </p>
               <button
                 type="button"
                 class={styles.planCtaLink}

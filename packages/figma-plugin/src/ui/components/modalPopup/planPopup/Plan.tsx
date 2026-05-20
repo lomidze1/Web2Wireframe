@@ -278,7 +278,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                     <li class={styles.planListItem}>Styles & assets included</li>
                     <li class={styles.planListItem}>Priority email support</li>
                     <li class={styles.planListItem}>
-                      One-time payment — no auto-renewal
+                      One-time payment — you're charged once, no auto-renewal
                     </li>
                   </ul>
                   <button
@@ -289,22 +289,32 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                   >
                     {isCheckoutPending ? "Waiting for payment…" : "Get Pro"}
                   </button>
+                  <p class={styles.planTrustNote}>
+                    Secure checkout by Flitt · Apple Pay, Google Pay & all
+                    major cards
+                  </p>
                 </div>
               </div>
             </>
           )}
 
           {isPro && (
-            <button
-              type="button"
-              class={styles.planCtaLink}
-              onClick={handleGetPro}
-              disabled={!figmaUserId || isCheckoutPending}
-            >
-              {isCheckoutPending
-                ? "Waiting for payment…"
-                : "Buy 30 more days — $16"}
-            </button>
+            <Fragment>
+              <button
+                type="button"
+                class={styles.planCtaLink}
+                onClick={handleGetPro}
+                disabled={!figmaUserId || isCheckoutPending}
+              >
+                {isCheckoutPending
+                  ? "Waiting for payment…"
+                  : "Extend Pro — +30 days for $16"}
+              </button>
+              <p class={styles.planTrustNote}>
+                Buying now stacks 30 days onto your remaining time — no days
+                are lost.
+              </p>
+            </Fragment>
           )}
         </div>
       </div>

@@ -324,6 +324,116 @@ You're receiving this because Pro access is linked to ${data.email}.
 };
 
 /**
+ * Notify a user that their card was declined / expired during checkout.
+ * Sent from the Flitt webhook handler when order_status is "declined" or
+ * "expired" AND sender_email is present in the payload (Flitt collects it
+ * on the checkout form). Best-effort — errors are logged, never thrown.
+ *
+ * The renewUrl points to /renew?uid=<figmaUserId>, which auto-creates a
+ * fresh Flitt checkout, so the user can retry with one click.
+ */
+export const sendPaymentFailedNotification = async (params: {
+  email: string;
+  figmaUserId: string;
+}): Promise<void> => {
+  try {
+    const renewUrl = buildRenewUrl(params.figmaUserId);
+    const result = await getResend().emails.send({
+      from: config.email.noreplyEmail,
+      to: params.email,
+      subject: "Your Web2Wireframe payment didn't go through",
+      html: generatePaymentFailedHtml({ email: params.email, renewUrl }),
+      text: generatePaymentFailedText({ email: params.email, renewUrl }),
+    });
+    if (result.error) {
+      console.error(
+        "[Email] Payment-failed notification Resend error:",
+        result.error.message || result.error,
+      );
+    }
+  } catch (error) {
+    console.error("[Email] Failed to send payment-failed notification:", error);
+  }
+};
+
+export const generatePaymentFailedHtml = (data: {
+  email: string;
+  renewUrl: string;
+}): string => {
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; background: #f9f9f9; border-radius: 8px; }
+        .header { border-bottom: 2px solid #3b82f6; padding-bottom: 16px; margin-bottom: 16px; }
+        .header h2 { margin: 0; color: #0c0d12; }
+        .cta { display: inline-block; margin: 16px 0; padding: 12px 24px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; }
+        .meta { margin-top: 12px; color: #5a6072; font-size: 0.95rem; }
+        .footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 0.85rem; color: #5a6072; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h2>Your payment didn't go through</h2>
+        </div>
+        <p>Your recent attempt to purchase Web2Wireframe Pro was declined by your bank or expired before completion. No charge was made.</p>
+        <p>Common causes:</p>
+        <ul>
+          <li>Your bank's fraud filter blocked an international charge — call them to approve "FLITT" or "web2wireframe.design"</li>
+          <li>Insufficient funds, or expired card</li>
+          <li>The 3D Secure (3-D Secure) challenge timed out</li>
+        </ul>
+        <p>You can try again with one click:</p>
+        <p><a class="cta" href="${escapeHtml(data.renewUrl)}">Retry payment — $16</a></p>
+        <p class="meta">If you keep hitting issues, reply to this email or contact <a href="mailto:billing@web2wireframe.design">billing@web2wireframe.design</a>.</p>
+        <div class="footer">
+          <p>You're receiving this because this email was entered on the checkout page (${escapeHtml(
+            data.email,
+          )}).</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+export const generatePaymentFailedText = (data: {
+  email: string;
+  renewUrl: string;
+}): string => {
+  return `
+Your Web2Wireframe payment didn't go through.
+
+Your recent attempt to purchase Pro was declined by your bank or expired before completion. No charge was made.
+
+Common causes:
+- Your bank's fraud filter blocked an international charge (call them to approve "FLITT" or "web2wireframe.design")
+- Insufficient funds, or expired card
+- The 3D Secure challenge timed out
+
+Retry payment ($16):
+${data.renewUrl}
+
+If you keep hitting issues, reply to this email or contact billing@web2wireframe.design.
+
+You're receiving this because this email was entered on the checkout page (${data.email}).
+`;
+};
+
+function buildRenewUrl(figmaUserId: string): string {
+  const base =
+    process.env.WEBSITE_BASE_URL ?? "https://www.web2wireframe.design";
+  // Trim trailing slash to keep the URL canonical.
+  const trimmed = base.replace(/\/+$/, "");
+  return `${trimmed}/renew?uid=${encodeURIComponent(figmaUserId)}`;
+}
+
+/**
  * Notify a user that their Pro purchase was refunded / reversed. Sent from
  * the Flitt webhook handler when `order_status="reversed"` revokes access.
  * Best-effort — failures are logged, never thrown back to the webhook

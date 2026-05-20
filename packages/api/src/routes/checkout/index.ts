@@ -5,7 +5,10 @@ import {
   verifyCallback,
 } from "../../services/flittService.js";
 import { licenseService } from "../../services/licenseService.js";
-import { sendRefundNotification } from "../../services/emailService.js";
+import {
+  sendRefundNotification,
+  sendPaymentFailedNotification,
+} from "../../services/emailService.js";
 import { createWebhookLogger } from "../../services/webhookLogger.js";
 import { verifyToken } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
@@ -191,9 +194,20 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           figmaUserId,
           amount: payload.amount,
         });
-      } else {
-        // One-time orders only ever decline once — nothing to track.
+      } else if (orderStatus === "declined" || orderStatus === "expired") {
         log.info("one-time order non-approved — logged only", {
+          order_id: orderId,
+          figmaUserId,
+          order_status: orderStatus,
+        });
+        if (typeof payload.sender_email === "string" && payload.sender_email) {
+          await sendPaymentFailedNotification({
+            email: payload.sender_email,
+            figmaUserId,
+          });
+        }
+      } else {
+        log.info("one-time unhandled order_status", {
           order_id: orderId,
           figmaUserId,
           order_status: orderStatus,
@@ -233,6 +247,16 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           figmaUserId,
           order_status: orderStatus,
         });
+        // Best-effort customer notification — only fires when Flitt actually
+        // collected an email on the checkout form. For declines from automated
+        // recurring charges (no checkout form), sender_email is typically
+        // absent; that user is already getting a separate expiry reminder.
+        if (typeof payload.sender_email === "string" && payload.sender_email) {
+          await sendPaymentFailedNotification({
+            email: payload.sender_email,
+            figmaUserId,
+          });
+        }
       } else if (orderStatus === "reversed") {
         // Refund / chargeback. applyRefund only revokes if THIS order_id is
         // still the user's current subscription — a refund for an older
@@ -306,8 +330,11 @@ cancelRouter.post("/cancel", async (req: Request, res: Response) => {
     let payload;
     try {
       payload = verifyToken(token, secret);
-    } catch (err) {
-      res.status(401).json({ error: `Invalid token: ${(err as Error).message}` });
+    } catch {
+      // Generic message: distinguishing 'Invalid signature' from 'Token
+      // expired' lets an attacker probe whether their guessed AUTH_SECRET is
+      // correct by replaying expired tokens.
+      res.status(401).json({ error: "Invalid or expired token" });
       return;
     }
     if (payload.userId !== figmaUserId) {

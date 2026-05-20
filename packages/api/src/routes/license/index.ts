@@ -12,9 +12,14 @@ const router = Router();
  * surfaces to the plugin as an opaque 500. Fail fast with 503 instead. */
 function requireMongo(_req: Request, res: Response): boolean {
   if (!mongoConnected) {
+    // In production, `hint` would leak that the operator is running docker
+    // compose locally — useless to attackers but no reason to publish it.
+    const isDev = process.env.NODE_ENV === "development";
     res.status(503).json({
       error: "License database unavailable",
-      hint: "MongoDB is not connected. Start mongo (docker compose up mongo -d).",
+      ...(isDev && {
+        hint: "MongoDB is not connected. Start mongo (docker compose up mongo -d).",
+      }),
     });
     return false;
   }
@@ -183,10 +188,11 @@ router.post(
     let payload;
     try {
       payload = verifyToken(token, secret);
-    } catch (err) {
-      res
-        .status(401)
-        .json({ error: `Invalid token: ${(err as Error).message}` });
+    } catch {
+      // Generic message: distinguishing 'Invalid signature' from 'Token
+      // expired' lets an attacker probe whether their guessed AUTH_SECRET is
+      // correct by replaying expired tokens.
+      res.status(401).json({ error: "Invalid or expired token" });
       return;
     }
     if (payload.userId !== figmaUserId) {

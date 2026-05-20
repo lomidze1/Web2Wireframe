@@ -37,8 +37,12 @@ vi.mock("../src/services/licenseService.js", () => ({
   },
 }));
 
+const mockSendPaymentFailed = vi.fn();
+
 vi.mock("../src/services/emailService.js", () => ({
   sendRefundNotification: (...args: unknown[]) => mockSendRefundEmail(...args),
+  sendPaymentFailedNotification: (...args: unknown[]) =>
+    mockSendPaymentFailed(...args),
 }));
 
 vi.mock("../src/models/WebhookEvent.js", () => ({
@@ -221,6 +225,48 @@ describe("POST /api/webhooks/flitt — order_status branching", () => {
       .post("/api/webhooks/flitt")
       .send(approvedPayload({ order_status: "expired", payment_id: "pay_exp" }));
     expect(mockApplyFailedCharge).toHaveBeenCalledWith({ figmaUserId: "u-1" });
+  });
+
+  it("declined + sender_email present → sends payment-failed email", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          order_status: "declined",
+          payment_id: "pay_decl_email",
+          sender_email: "user@example.com",
+        }),
+      );
+    expect(mockSendPaymentFailed).toHaveBeenCalledWith({
+      email: "user@example.com",
+      figmaUserId: "u-1",
+    });
+  });
+
+  it("declined + sender_email missing → no email send", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          order_status: "declined",
+          payment_id: "pay_decl_noemail",
+          sender_email: undefined,
+        }),
+      );
+    expect(mockSendPaymentFailed).not.toHaveBeenCalled();
+  });
+
+  it("expired + sender_email present → sends payment-failed email", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          order_status: "expired",
+          payment_id: "pay_exp_email",
+          sender_email: "user@example.com",
+        }),
+      );
+    expect(mockSendPaymentFailed).toHaveBeenCalledOnce();
   });
 
   it("reversed → applyRefund (revoke Pro access)", async () => {

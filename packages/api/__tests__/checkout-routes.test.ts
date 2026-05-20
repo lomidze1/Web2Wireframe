@@ -138,6 +138,23 @@ describe("POST /api/subscription/cancel", () => {
     expect(res.status).toBe(401);
   });
 
+  it("does NOT leak which auth check failed (signature vs expiry)", async () => {
+    // Both 'Invalid signature' and 'Token expired' must surface as the same
+    // generic message — distinguishing them lets an attacker confirm a
+    // correct secret by replaying expired tokens.
+    const res = await request(makeApp())
+      .post("/api/subscription/cancel")
+      .send({ figmaUserId: "u-1", token: "bad.token" });
+    // The message must not name the specific failure mode (signature vs.
+    // payload vs. format). "Invalid or expired token" is fine — both
+    // possibilities listed, neither confirmed.
+    expect(res.body.error).not.toMatch(/signature/i);
+    expect(res.body.error).not.toMatch(/payload/i);
+    expect(res.body.error).not.toMatch(/format/i);
+    // Should match either "invalid" or "expired" — generic enough.
+    expect(res.body.error).toMatch(/invalid|expired/i);
+  });
+
   it("returns 401 when token is signed for a different user", async () => {
     const token = signToken("other-user", process.env.AUTH_SECRET!, 300);
     const res = await request(makeApp())
