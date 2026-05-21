@@ -6,18 +6,32 @@ import styles from "./Renew.module.scss";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3002";
 
 /**
- * One-click renewal landing page. Reached from the expiry reminder email
- * (`/renew?uid=<figmaUserId>`). Creates a fresh Flitt checkout on mount and
- * redirects the browser straight to it — no clicks needed.
+ * Renewal landing page. Reached from the expiry reminder email
+ * (`/renew?uid=<figmaUserId>`).
+ *
+ * Security note (paid-by-victim mitigation): The `uid` query param controls
+ * which account gets Pro after payment. An attacker could send a victim a
+ * spoofed renewal link `…/renew?uid=ATTACKER_UID`, and if the victim auto-
+ * redirected to checkout and paid, the attacker's account would be upgraded.
+ * To prevent this, the page no longer auto-redirects — it displays the
+ * target `uid` prominently and requires an explicit click. Legit users
+ * recognize their own account ID (shown in the plugin's Plan modal);
+ * spoofed links surface an unfamiliar id.
+ *
+ * The checkout URL is pre-fetched on mount so the click is instantaneous —
+ * the friction added is just the visual confirmation step.
  */
 const Renew = (): ReactElement => {
   const [params] = useSearchParams();
   const uid = params.get("uid");
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!uid) return; // handled by the dedicated empty-state below
+    if (!uid) return;
     let cancelled = false;
+    setIsLoading(true);
     (async () => {
       try {
         const res = await fetch(`${API_URL}/api/checkout/create`, {
@@ -30,21 +44,35 @@ const Renew = (): ReactElement => {
           error?: string;
         };
         if (!res.ok || !data.checkoutUrl) {
-          throw new Error(data.error || "Could not start checkout");
+          // Log the operator-detail error to the console for debugging,
+          // but show a generic message to the user — `data.error` from the
+          // backend may echo Flitt-side strings ("no such order", HTTP
+          // status codes) that aren't actionable for an end user.
+          console.error("[Renew] checkout creation failed:", data.error);
+          throw new Error("");
         }
-        if (!cancelled) window.location.href = data.checkoutUrl;
+        if (!cancelled) setCheckoutUrl(data.checkoutUrl);
       } catch (err) {
         if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Could not start checkout",
-          );
+          // Generic message — see comment above.
+          setError("We couldn't start the checkout. Please try again or email billing@web2wireframe.design.");
+          // Operator-side trail.
+          console.error("[Renew] error:", err);
         }
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [uid]);
+
+  function handleConfirmRenew(): void {
+    if (checkoutUrl) {
+      window.location.href = checkoutUrl;
+    }
+  }
 
   return (
     <div className={styles.page}>
@@ -76,21 +104,36 @@ const Renew = (): ReactElement => {
               <div className={styles.iconError}>!</div>
               <h1>Renewal couldn't start</h1>
               <p>{error}</p>
-              <p className={styles.subtle}>
-                Need help? Email{" "}
-                <a href="mailto:billing@web2wireframe.design">
-                  billing@web2wireframe.design
-                </a>
-                .
-              </p>
             </>
           ) : (
             <>
-              <div className={styles.spinner} aria-hidden="true" />
-              <h1>Taking you to checkout…</h1>
+              <h1>Renew Web2Wireframe Pro</h1>
               <p>
-                Hold on — we're opening the secure Flitt checkout to renew
-                your Web2Wireframe Pro access ($16 for 30 days).
+                You're about to renew Pro for the Figma account below.
+                Verify that this account ID matches yours — you can see it
+                in the plugin's Plan modal under <strong>Account ID</strong>.
+              </p>
+              <div className={styles.uidBox}>
+                <div className={styles.uidLabel}>Renewing account</div>
+                <div className={styles.uidValue}>{uid}</div>
+              </div>
+              <p>
+                <strong>$16 USD</strong> · 30 days of unlimited imports ·
+                One-time payment, no auto-renewal.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleConfirmRenew}
+                disabled={!checkoutUrl || isLoading}
+              >
+                {isLoading ? "Preparing checkout…" : "Continue to checkout"}
+              </button>
+              <p className={styles.subtle}>
+                Not your account ID?{" "}
+                <strong>Don't continue.</strong> This link may have been sent
+                to the wrong person. Open the plugin in Figma and renew from
+                there instead.
               </p>
             </>
           )}

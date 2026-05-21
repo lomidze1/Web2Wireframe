@@ -23,6 +23,12 @@ import { createWebhookLogger } from "../services/webhookLogger.js";
  *
  * The middleware is mounted only on the webhook router; the rest of the
  * API is unaffected.
+ *
+ * ⚠️ Trust-boundary requirement: `req.ip` is only trustworthy when the
+ * `trust proxy` hop count in `index.ts` matches the actual number of
+ * reverse proxies in front of the API. With a misconfigured hop count an
+ * attacker can spoof `X-Forwarded-For` and bypass this check. See
+ * `docs/runbooks/deployment-security.md §1` for full validation steps.
  */
 const FLITT_DEFAULT_IPS = ["54.154.216.60", "3.75.125.89"];
 

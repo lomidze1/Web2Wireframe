@@ -2,7 +2,10 @@ import { Router, type Request, type Response } from "express";
 import { type ILicense, PLAN_LIMITS } from "../../models/License.js";
 import { licenseService } from "../../services/licenseService.js";
 import { authenticatePlugin, verifyToken } from "../../middleware/auth.js";
-import { authRateLimiter } from "../../middleware/rateLimit.js";
+import {
+  authRateLimiter,
+  byTokenUserRateLimiter,
+} from "../../middleware/rateLimit.js";
 import { mongoConnected } from "../../state.js";
 
 const router = Router();
@@ -165,7 +168,11 @@ router.post(
  */
 router.post(
   "/by-token",
+  // Order: IP-keyed limiter first (cheap brute-force defense), then
+  // figmaUserId-keyed limiter to catch distributed attacks focused on
+  // a single victim's identifier. Both must pass.
   authRateLimiter,
+  byTokenUserRateLimiter,
   async (req: Request, res: Response) => {
     if (!requireMongo(req, res)) return;
 

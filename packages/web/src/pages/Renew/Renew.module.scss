@@ -76,3 +76,28 @@
     transform: rotate(360deg);
   }
 }
+
+.uidBox {
+  margin: 20px auto;
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: var(--surface-elev, #f5f6f9);
+  border: 1px solid var(--border, #e5e7eb);
+  text-align: center;
+}
+
+.uidLabel {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted, #5a6072);
+  margin-bottom: 6px;
+}
+
+.uidValue {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary, #0c0d12);
+  word-break: break-all;
+}
