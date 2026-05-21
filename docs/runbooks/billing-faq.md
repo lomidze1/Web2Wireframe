@@ -99,9 +99,6 @@ docker compose logs api | grep '"component":"flitt-webhook"' | tail -20
 > Thanks,
 > <You>
 
-**თუ რეცე subscription mode ჩაირთვება (post-launch):**
-> Hi <Name>, you can cancel anytime — open the plugin Plan modal → "Manage Subscription" → opens the website → "Cancel". You'll keep Pro until the end of your current billing cycle (no refunds for the unused remainder, but no further charges).
-
 ---
 
 ## Q4. "Do you support Apple Pay / Google Pay?"
