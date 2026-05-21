@@ -24,7 +24,15 @@
 
 **Investigation:**
 ```bash
-# Easiest: admin API lookup (returns full license JSON)
+# At-a-glance dashboard (HTML, opens in a browser)
+open "https://api.web2wireframe.design/api/admin/stats/.html#token=$ADMIN_TOKEN"
+# (Token in URL fragment — never reaches the server access log.)
+
+# JSON aggregates if you prefer curl + jq
+curl "https://api.web2wireframe.design/api/admin/stats" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq
+
+# Lookup by email (returns full license JSON)
 curl "https://api.web2wireframe.design/api/admin/license/lookup-by-email?email=user@example.com" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
