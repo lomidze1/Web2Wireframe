@@ -11,26 +11,28 @@ import {
 import { metrics } from "./metrics.js";
 
 /**
- * Best-effort audit log write. Never throws — a logger blip must not block
- * the live license update path, since the webhook handler must always
- * respond 200 to Flitt.
+ * Best-effort audit log write. Synchronously fires a background insert and
+ * returns immediately — does NOT await Mongo, so it never adds latency to
+ * the webhook handler's 200 response. Errors are swallowed (logged) so a
+ * Mongo blip can never bubble up to block a license activation.
+ *
+ * Callers may continue to `audit(...)` for backward compatibility —
+ * awaiting `void` is a no-op. New call sites should omit the await.
  */
-async function audit(
+function audit(
   figmaUserId: string,
   action: LicenseAuditAction,
   context: Record<string, unknown>,
   changes: Record<string, [unknown, unknown]> = {},
-): Promise<void> {
-  try {
-    await LicenseAudit.create({
-      figmaUserId,
-      action,
-      changes,
-      context,
-    });
-  } catch (err) {
+): void {
+  LicenseAudit.create({
+    figmaUserId,
+    action,
+    changes,
+    context,
+  }).catch((err) => {
     console.warn("[LicenseAudit] write failed (non-fatal):", err);
-  }
+  });
 }
 
 // ============================================================================
@@ -212,7 +214,7 @@ export const licenseService = {
       },
       { new: true, upsert: true },
     );
-    await audit(params.figmaUserId, "subscription_activation", {
+    audit(params.figmaUserId, "subscription_activation", {
       flittOrderId: params.flittOrderId,
       email: params.email,
       cycleEndsAt: cycleEnd.toISOString(),
@@ -274,7 +276,7 @@ export const licenseService = {
       },
       { new: true, upsert: true },
     );
-    await audit(params.figmaUserId, "one_time_purchase", {
+    audit(params.figmaUserId, "one_time_purchase", {
       flittOrderId: params.flittOrderId,
       email: params.email,
       cycleEndsAt: cycleEnd.toISOString(),
@@ -310,7 +312,7 @@ export const licenseService = {
       { new: true },
     );
     if (updated) {
-      await audit(params.figmaUserId, "recurring_charge", {
+      audit(params.figmaUserId, "recurring_charge", {
         cycleEndsAt: cycleEnd.toISOString(),
       });
       metrics.licenseEvent("recurring_charge", "applied");
@@ -339,7 +341,7 @@ export const licenseService = {
       { new: true },
     );
     if (updated) {
-      await audit(params.figmaUserId, "failed_charge", {
+      audit(params.figmaUserId, "failed_charge", {
         failureCount: updated.subscription?.failureCount ?? null,
       });
       metrics.licenseEvent("failed_charge", "applied");
@@ -390,7 +392,7 @@ export const licenseService = {
       { new: true },
     );
     if (updated) {
-      await audit(
+      audit(
         params.figmaUserId,
         "refund",
         { flittOrderId: params.flittOrderId, revoked: true },
@@ -403,7 +405,7 @@ export const licenseService = {
     const current = await License.findOne({
       figmaUserId: params.figmaUserId,
     });
-    await audit(params.figmaUserId, "refund", {
+    audit(params.figmaUserId, "refund", {
       flittOrderId: params.flittOrderId,
       revoked: false,
       reason: "stale_or_missing_order",
@@ -432,7 +434,7 @@ export const licenseService = {
       { new: true },
     );
     if (updated) {
-      await audit(
+      audit(
         params.figmaUserId,
         "subscription_cancel",
         { canceledAt: now.toISOString() },

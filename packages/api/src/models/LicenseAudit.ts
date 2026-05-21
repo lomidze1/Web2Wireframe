@@ -12,8 +12,16 @@ import mongoose, { Schema, type Document } from "mongoose";
  *   - Refund forensics: confirm sequence of approved → reversed
  *   - Pattern detection: a user with 5 refunds in 60 days is a chargeback risk
  *
- * Retention: 18 months. Long enough to cover statute-of-limitations on most
- * card disputes (typically 6 months) plus a buffer for tax-year accounting.
+ * Retention: 7 years. Financial-record retention rules drive this — Georgia
+ * Tax Code (6 years), EU VAT MOSS (10 years if we ever cross the
+ * registration threshold), US IRS (7 years for audit defense). 7y is the
+ * intersection most jurisdictions accept; if regulatory scope changes,
+ * drop the TTL entirely and rely on the backup script's S3 archive for
+ * longer retention.
+ *
+ * Card-dispute statutes alone would justify only 6 months; the longer
+ * retention here is about being able to answer "show me the charge log
+ * for this account in 2027" if a customer asks for tax purposes.
  */
 export type LicenseAuditAction =
   | "subscription_activation"
@@ -35,7 +43,10 @@ export interface ILicenseAudit extends Document {
 }
 
 const LicenseAuditSchema = new Schema<ILicenseAudit>({
-  figmaUserId: { type: String, required: true, index: true },
+  // No `index: true` here — the compound index below (figmaUserId, at desc)
+  // covers single-key lookups too via Mongo's prefix-match. A standalone
+  // index would be redundant write overhead on every audit insert.
+  figmaUserId: { type: String, required: true },
   action: {
     type: String,
     required: true,
@@ -55,15 +66,15 @@ const LicenseAuditSchema = new Schema<ILicenseAudit>({
   at: { type: Date, default: () => new Date(), index: true },
 });
 
-// 18-month TTL — auto-purge old audit rows. Card-dispute statutes generally
-// run 6 months; we keep extra headroom for tax-year reviews.
+// 7-year TTL — financial records retention (see header comment).
 LicenseAuditSchema.index(
   { at: 1 },
-  { expireAfterSeconds: 18 * 30 * 24 * 60 * 60 },
+  { expireAfterSeconds: 7 * 365 * 24 * 60 * 60 },
 );
 
 // Compound index: per-user history queries are the most common access
-// pattern (admin lookup, support investigations).
+// pattern (admin lookup, support investigations). Supersedes the single
+// `figmaUserId` index declared on the field (Mongo uses prefix-match).
 LicenseAuditSchema.index({ figmaUserId: 1, at: -1 });
 
 export const LicenseAudit = mongoose.model<ILicenseAudit>(

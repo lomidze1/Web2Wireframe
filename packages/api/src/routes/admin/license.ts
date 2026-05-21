@@ -200,13 +200,11 @@ router.post(
       if (cycleEndsAt) update.cycleEndsAt = new Date(cycleEndsAt);
       if (email !== undefined) update.email = email;
 
-      const license = await License.findOneAndUpdate(
-        { figmaUserId },
-        { $set: update },
-        { new: true, upsert: true },
-      );
-
-      // Best-effort audit write — never block the override response on this.
+      // AUDIT FIRST. Manual admin overrides are the one path where a
+      // missing audit row matters legally — non-repudiation breaks if
+      // we mutate the license and the audit insert silently fails. For
+      // automated webhook-driven audits the best-effort fire-and-forget
+      // in licenseService is correct; admin-initiated changes are not.
       try {
         await LicenseAudit.create({
           figmaUserId,
@@ -215,8 +213,18 @@ router.post(
           context: { reason: reason ?? null, fields: Object.keys(update) },
         });
       } catch (err) {
-        console.warn("[Admin] audit write failed:", err);
+        console.error("[Admin] audit write FAILED — refusing to override:", err);
+        res.status(500).json({
+          error: "Audit log unavailable — override blocked. Try again in a moment.",
+        });
+        return;
       }
+
+      const license = await License.findOneAndUpdate(
+        { figmaUserId },
+        { $set: update },
+        { new: true, upsert: true },
+      );
 
       res.json(serialize(license as ILicense));
     } catch (err) {

@@ -308,7 +308,7 @@ describe("GET /api/admin/license/:figmaUserId/audit", () => {
     expect(mockAuditFind).toHaveBeenCalledWith({ figmaUserId: "u-1" });
   });
 
-  it("override endpoint writes an audit row with reason", async () => {
+  it("override endpoint writes an audit row with reason BEFORE mutating the license", async () => {
     mockFindOneAndUpdate.mockResolvedValue(
       fakeLicense("u-1", { plan: "pro", status: "active" }),
     );
@@ -321,6 +321,13 @@ describe("GET /api/admin/license/:figmaUserId/audit", () => {
         plan: "pro",
         reason: "manual goodwill for stuck webhook",
       });
+
+    // Audit row must be written BEFORE the License mutation. Non-repudiation
+    // breaks if we mutate then silently fail to log.
+    const auditOrder = mockAuditCreate.mock.invocationCallOrder[0];
+    const updateOrder = mockFindOneAndUpdate.mock.invocationCallOrder[0];
+    expect(auditOrder).toBeLessThan(updateOrder);
+
     expect(mockAuditCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         figmaUserId: "u-1",
@@ -330,5 +337,19 @@ describe("GET /api/admin/license/:figmaUserId/audit", () => {
         }),
       }),
     );
+  });
+
+  it("blocks the override with HTTP 500 when the audit insert fails", async () => {
+    // If we can't record what we're about to do, refuse to do it.
+    // Non-repudiation > convenience for manual admin actions.
+    mockAuditCreate.mockRejectedValue(new Error("audit-db-down"));
+    const res = await request(makeApp())
+      .post("/api/admin/license/override")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`)
+      .send({ figmaUserId: "u-blocked", plan: "pro", reason: "test" });
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/Audit log unavailable/);
+    // Critically — the License row must NOT be mutated.
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
   });
 });

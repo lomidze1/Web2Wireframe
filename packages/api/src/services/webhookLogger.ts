@@ -31,10 +31,23 @@ export interface RequestLogger {
 export type WebhookLogger = RequestLogger;
 
 const SENSITIVE_KEYS = new Set([
+  // Signature material — already verified, no business in logs.
   "signature",
   "response_signature_string",
   "secret_key",
   "secretKey",
+  // PII surfaces. `figmaUserId` is intentionally NOT in this set — it's
+  // the join key with MongoDB License + WebhookEvent rows, and is already
+  // persisted there, so logging it doesn't expand the regulated-data
+  // surface. Email + Flitt's payment_id ARE PII / quasi-PII; they belong
+  // in MongoDB (where retention + erasure is auditable), not in NDJSON
+  // streams that downstream aggregators (Loki, Datadog) cache freely.
+  "email",
+  "sender_email",
+  "payment_id",
+  // rectoken would be PCI-scope if Flitt ever returned it; we don't
+  // request it today, but pre-scrub in case the field is ever added.
+  "rectoken",
 ]);
 
 /** Drop sensitive fields from context. Top-level only — webhook payloads are flat. */

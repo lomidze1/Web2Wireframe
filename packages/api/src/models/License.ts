@@ -120,5 +120,9 @@ const LicenseSchema = new Schema<ILicense>(
 LicenseSchema.index({ "subscription.nextBillingAt": 1 });
 LicenseSchema.index({ cycleEndsAt: 1 });
 LicenseSchema.index({ "subscription.reminderSentAt": 1, cycleEndsAt: 1 });
+// `timestamps: true` adds the field but NOT an index. /api/admin/license/recent
+// sorts by updatedAt desc; without this index every admin page-load
+// collscans the entire licenses collection then sorts in memory.
+LicenseSchema.index({ updatedAt: -1 });
 
 export const License = mongoose.model<ILicense>("License", LicenseSchema);

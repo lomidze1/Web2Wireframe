@@ -31,6 +31,27 @@ describe("sanitizeContext", () => {
     expect(out).toEqual({ order_id: "x" });
   });
 
+  it("strips PII keys (email, sender_email, payment_id, rectoken)", () => {
+    const out = sanitizeContext({
+      order_id: "x",
+      figmaUserId: "u-1",
+      email: "user@example.com",
+      sender_email: "user@example.com",
+      payment_id: "pay_12345",
+      rectoken: "rt_xyz",
+    });
+    expect(out).toEqual({ order_id: "x", figmaUserId: "u-1" });
+  });
+
+  it("keeps figmaUserId (join key, already in MongoDB)", () => {
+    const out = sanitizeContext({
+      figmaUserId: "u-1",
+      email: "user@example.com",
+    });
+    expect(out?.figmaUserId).toBe("u-1");
+    expect(out?.email).toBeUndefined();
+  });
+
   it("returns undefined when given undefined", () => {
     expect(sanitizeContext(undefined)).toBeUndefined();
   });
