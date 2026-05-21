@@ -29,6 +29,14 @@ WebhookEventSchema.index(
   { expireAfterSeconds: 90 * 24 * 60 * 60 },
 );
 
+// /api/health/flitt's recent24h aggregates run three count queries per hit:
+//   { orderStatus: "approved",  processedAt: { $gte: <-24h> } }
+//   { orderStatus: { $in: ["declined","expired"] }, processedAt: ... }
+//   { orderStatus: "reversed",  processedAt: ... }
+// A compound (orderStatus, processedAt desc) index covers all three with an
+// index-only scan; without it, every health probe is a triple collscan.
+WebhookEventSchema.index({ orderStatus: 1, processedAt: -1 });
+
 export const WebhookEvent = mongoose.model<IWebhookEvent>(
   "WebhookEvent",
   WebhookEventSchema,

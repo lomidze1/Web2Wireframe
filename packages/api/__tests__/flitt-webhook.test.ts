@@ -47,9 +47,12 @@ vi.mock("../src/services/emailService.js", () => ({
   sendReceiptEmail: (...args: unknown[]) => mockSendReceipt(...args),
 }));
 
+const mockWebhookEventDelete = vi.fn();
+
 vi.mock("../src/models/WebhookEvent.js", () => ({
   WebhookEvent: {
     create: (...args: unknown[]) => mockWebhookEventCreate(...args),
+    deleteOne: (...args: unknown[]) => mockWebhookEventDelete(...args),
   },
 }));
 
@@ -79,6 +82,7 @@ function makeApp() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockWebhookEventCreate.mockResolvedValue({});
+  mockWebhookEventDelete.mockResolvedValue({ deletedCount: 1 });
 });
 
 // ============================================================================
@@ -175,6 +179,24 @@ describe("POST /api/webhooks/flitt — merchant_data", () => {
       .send(payload);
     expect(res.status).toBe(200);
     expect(mockApplyActivation).not.toHaveBeenCalled();
+  });
+
+  it("treats non-object merchant_data ('null', '\"x\"', '[1,2]') as empty without crashing", async () => {
+    // Each of these is valid JSON but not an object — accessing
+    // `.figmaUserId` would throw or return undefined inconsistently
+    // depending on the parsed shape. Pin the safe behavior.
+    for (const bad of ["null", '"a string"', "42", "[1,2,3]"]) {
+      const res = await request(makeApp())
+        .post("/api/webhooks/flitt")
+        .send(approvedPayload({
+          merchant_data: bad,
+          payment_id: `pay_nonobj_${bad}`,
+        }));
+      expect(res.status).toBe(200);
+      // No figmaUserId → no state mutation attempted.
+      expect(mockApplyOneTime).not.toHaveBeenCalled();
+      expect(mockApplyActivation).not.toHaveBeenCalled();
+    }
   });
 
   it("tolerates malformed merchant_data without crashing", async () => {
@@ -467,6 +489,93 @@ describe("POST /api/webhooks/flitt — body size limit (DoS guard)", () => {
           }),
         }),
       );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/webhooks/flitt — dedup lease release on mutation failure", () => {
+  beforeEach(() => {
+    mockVerifyCallback.mockReturnValue(true);
+  });
+
+  function oneTimeApproved(overrides: Record<string, unknown> = {}) {
+    return approvedPayload({
+      merchant_data: JSON.stringify({
+        figmaUserId: "u-1",
+        plan: "pro",
+        recurring: false,
+      }),
+      ...overrides,
+    });
+  }
+
+  it("deletes the WebhookEvent row when applyOneTimePurchase throws", async () => {
+    // Mongo blip mid-mutation. Without the rollback, the dedup row stays
+    // and the Flitt retry is deduped → user paid, never got Pro.
+    mockApplyOneTime.mockRejectedValue(new Error("mongo timeout"));
+
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimeApproved({ payment_id: "pay_rollback_1" }));
+
+    expect(res.status).toBe(200);
+    expect(mockWebhookEventDelete).toHaveBeenCalledWith({
+      transactionId: "pay_rollback_1",
+    });
+  });
+
+  it("does NOT delete the lease when the mutation succeeds (normal path)", async () => {
+    mockApplyOneTime.mockResolvedValue({
+      cycleEndsAt: new Date("2026-06-19T00:00:00Z"),
+    });
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimeApproved({ payment_id: "pay_normal_1" }));
+    expect(mockWebhookEventDelete).not.toHaveBeenCalled();
+  });
+
+  it("does NOT delete the lease for hostile/forged payloads (figmaUserId mismatch)", async () => {
+    // order_id doesn't match merchant_data.figmaUserId — payload is
+    // tampered, retention of the dedup row blocks retry storms of the
+    // same attack.
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          order_id: "w2w_pro_attacker_999",
+          merchant_data: JSON.stringify({
+            figmaUserId: "victim",
+            plan: "pro",
+            recurring: false,
+          }),
+          payment_id: "pay_hostile_1",
+        }),
+      );
+    expect(mockWebhookEventDelete).not.toHaveBeenCalled();
+  });
+
+  it("releases the lease when figmaUserId is missing in merchant_data", async () => {
+    // No figmaUserId → cannot apply state. Allow retry in case operator
+    // resends with a corrected payload.
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          merchant_data: JSON.stringify({ plan: "pro" }),
+          payment_id: "pay_no_uid",
+        }),
+      );
+    expect(mockWebhookEventDelete).toHaveBeenCalledWith({
+      transactionId: "pay_no_uid",
+    });
+  });
+
+  it("returns 200 even if lease deletion itself fails (graceful degradation)", async () => {
+    mockApplyOneTime.mockRejectedValue(new Error("mongo blip"));
+    mockWebhookEventDelete.mockRejectedValue(new Error("mongo also down"));
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimeApproved({ payment_id: "pay_double_fail" }));
     expect(res.status).toBe(200);
   });
 });

@@ -120,6 +120,9 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
     const orderId = String(payload.order_id ?? "unknown");
     const orderStatus = String(payload.order_status ?? "unknown");
 
+    // Acquire the idempotency lease BEFORE doing work so a concurrent
+    // Flitt retry can't double-apply. If state mutation later throws, the
+    // inner try/catch below deletes this row so the next retry can succeed.
     try {
       await WebhookEvent.create({
         transactionId,
@@ -139,6 +142,10 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
     metrics.webhook(orderStatus, "processed");
 
     // Parse merchant_data → figmaUserId + plan + recurring flag.
+    // The signature is verified at this point, but defense-in-depth: a
+    // future bug elsewhere shouldn't let a non-object payload crash the
+    // handler (which the outer catch would 200 — silently losing the
+    // already-deduped event).
     let merchantData: {
       figmaUserId?: string;
       plan?: string;
@@ -146,7 +153,19 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
     } = {};
     if (typeof payload.merchant_data === "string") {
       try {
-        merchantData = JSON.parse(payload.merchant_data);
+        const parsed: unknown = JSON.parse(payload.merchant_data);
+        if (
+          parsed !== null &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed)
+        ) {
+          merchantData = parsed as typeof merchantData;
+        } else {
+          log.warn("merchant_data parsed to non-object — treating as empty", {
+            order_id: orderId,
+            parsedType: Array.isArray(parsed) ? "array" : typeof parsed,
+          });
+        }
       } catch (err) {
         log.warn("merchant_data parse failed", {
           order_id: orderId,
@@ -154,10 +173,17 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
         });
       }
     }
-    const figmaUserId = merchantData.figmaUserId;
+    const figmaUserId =
+      typeof merchantData.figmaUserId === "string"
+        ? merchantData.figmaUserId
+        : undefined;
 
     if (!figmaUserId) {
       log.warn("missing figmaUserId in merchant_data", { order_id: orderId });
+      // No state change attempted, but the dedup lease above would still
+      // block a retry from re-attempting. Release it so Flitt's retry has
+      // a chance to land a corrected payload (e.g. operator-side fix).
+      await releaseLease(transactionId, log);
       res.status(200).json({ received: true });
       return;
     }
@@ -171,6 +197,8 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
         order_id: orderId,
         figmaUserId,
       });
+      // Tampered/forged mapping — payload is hostile. Keep the dedup row
+      // (drops any subsequent retry of the same hostile payload).
       res.status(200).json({ received: true });
       return;
     }
@@ -187,6 +215,7 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
         amount: payload.amount,
         expectedAmount: PLAN_PRICES.pro.priceCents,
       });
+      // Same as above — hostile or misconfigured payload. Lease retained.
       res.status(200).json({ received: true });
       return;
     }
@@ -197,6 +226,11 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
     // fall through to the subscription branch (backward-compatible).
     const isOneTime = merchantData.recurring === false;
 
+    // Wrap every state-mutating branch in a single try/catch so the dedup
+    // lease can be released if mutation fails. Without this, a Mongo blip
+    // mid-applyOneTimePurchase would leave the lease in place and the
+    // Flitt retry would dedup → silently lose the event.
+    try {
     if (isOneTime) {
       if (orderStatus === "approved") {
         const email =
@@ -335,6 +369,23 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
         });
       }
     }
+    } catch (mutationErr) {
+      // State mutation crashed mid-flight (Mongo blip, Resend init error,
+      // unexpected throw from a service layer). Release the dedup lease so
+      // Flitt's retry can land a fresh attempt — otherwise the user paid
+      // and never got Pro.
+      log.error("state mutation failed — releasing dedup lease for retry", {
+        order_id: orderId,
+        figmaUserId,
+        error:
+          mutationErr instanceof Error ? mutationErr.message : String(mutationErr),
+      });
+      await releaseLease(transactionId, log);
+      // Still 200 — Flitt's retry will redeliver; a 5xx here just delays
+      // the retry by Flitt's own backoff schedule with no benefit.
+      res.status(200).json({ received: true });
+      return;
+    }
 
     res.status(200).json({ received: true });
   } catch (err) {
@@ -346,6 +397,27 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
     res.status(200).json({ received: true });
   }
 });
+
+/**
+ * Drop the WebhookEvent idempotency row for `transactionId`. Used after a
+ * state-mutation failure so the next Flitt retry isn't deduped into a
+ * silent loss. Best-effort — failure here logs and continues; the worst
+ * case is "this specific webhook never reprocesses", which is the same
+ * state we'd be in without rollback.
+ */
+async function releaseLease(
+  transactionId: string,
+  log: { warn: (msg: string, ctx?: Record<string, unknown>) => void },
+): Promise<void> {
+  try {
+    await WebhookEvent.deleteOne({ transactionId });
+  } catch (err) {
+    log.warn("lease release failed (non-fatal)", {
+      transactionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 // ============================================================================
 // POST /api/subscription/cancel

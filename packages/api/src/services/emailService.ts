@@ -279,9 +279,9 @@ export const generateCustomerConfirmationHtml = (data: {
       <div class="container">
         <div class="header">
           <h2>We received your support request</h2>
-          <p style="margin: 6px 0 0 0; color: #5a6072;">Hi ${
-            data.name
-          }, thanks for reaching out.</p>
+          <p style="margin: 6px 0 0 0; color: #5a6072;">Hi ${escapeHtml(
+            data.name,
+          )}, thanks for reaching out.</p>
         </div>
 
         <p><strong>Topic:</strong> ${escapeHtml(data.topic)}</p>

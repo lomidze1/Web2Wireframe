@@ -70,13 +70,24 @@ let suiteEnabled = false;
 beforeAll(async () => {
   source = await resolveMongoSource();
   if (!source) return;
-  await mongoose.connect(source.uri);
+  // `mongoose.connect` mutates the module-level default connection — if
+  // another integration suite ran first in the same vitest process, this
+  // would silently rebind to a different DB. We only run mongoose.connect
+  // when the default connection is genuinely uninitialized; otherwise
+  // assume an earlier suite (or the caller) set it up and reuse it.
+  if (mongoose.connection.readyState === 0) {
+    await mongoose.connect(source.uri);
+  }
   suiteEnabled = true;
 }, 120_000);
 
 afterAll(async () => {
   if (!suiteEnabled) return;
-  await mongoose.disconnect();
+  // Only disconnect if WE established the connection. Reusing an outer
+  // connection means we don't own its lifecycle.
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.disconnect();
+  }
   if (source) await source.stop();
 });
 

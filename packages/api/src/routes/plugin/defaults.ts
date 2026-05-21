@@ -18,6 +18,7 @@ import {
   renderMetrics,
   getCounterSnapshot,
 } from "../../services/metrics.js";
+import { verifyAdminCredential } from "../../middleware/adminAuth.js";
 
 interface RecentCounts {
   approved: number;
@@ -87,18 +88,9 @@ router.get("/health", (req: Request, res: Response) => {
  * Auth accepts EITHER `X-Admin-Token: <value>` or `Authorization: Bearer <value>`.
  */
 router.get("/metrics", (req: Request, res: Response) => {
-  const adminToken = process.env.ADMIN_TOKEN;
-  if (adminToken) {
-    const xAdmin = req.header("x-admin-token");
-    const authHeader = req.header("authorization");
-    const bearer = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice("Bearer ".length)
-      : null;
-    const provided = xAdmin ?? bearer ?? "";
-    if (provided !== adminToken) {
-      res.status(401).type("text/plain").send("Unauthorized\n");
-      return;
-    }
+  if (!verifyAdminCredential(req)) {
+    res.status(401).type("text/plain").send("Unauthorized\n");
+    return;
   }
   // Prometheus expects this exact content-type with the version param.
   res
@@ -118,22 +110,9 @@ router.get("/metrics", (req: Request, res: Response) => {
  * In dev (no `ADMIN_TOKEN`), open — convenient for `curl localhost:3002`.
  */
 router.get("/health/flitt", async (req: Request, res: Response) => {
-  const adminToken = process.env.ADMIN_TOKEN;
-  if (adminToken) {
-    // Accept either `X-Admin-Token: <value>` or `Authorization: Bearer <value>`.
-    // The Bearer form matches what most CLIs (curl, Postman, httpie) and
-    // monitoring tools default to, and it's also what /api/admin/* uses, so
-    // operators don't juggle two header names.
-    const xAdmin = req.header("x-admin-token");
-    const authHeader = req.header("authorization");
-    const bearer = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice("Bearer ".length)
-      : null;
-    const provided = xAdmin ?? bearer ?? "";
-    if (provided !== adminToken) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
+  if (!verifyAdminCredential(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
   }
   const apiPublicUrl =
     process.env.API_PUBLIC_URL ?? "https://api.web2wireframe.design";
