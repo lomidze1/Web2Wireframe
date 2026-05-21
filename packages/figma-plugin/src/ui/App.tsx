@@ -16,7 +16,12 @@ import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 
 import ConnectFigma from "./components/ConnectFigma";
-import { applyAuthToken, refreshAuthToken } from "./shared/licenseClient";
+import {
+  applyAuthToken,
+  clearAuthToken,
+  refreshAuthToken,
+} from "./shared/licenseClient";
+import { API_BASE_URL } from "./shared/apiConfig";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
 
@@ -65,24 +70,46 @@ function ConnectionGate() {
   const [conn, setConn] = useState<ConnState>("loading");
 
   useEffect(() => {
-    const handler = (event: MessageEvent) => {
+    const handler = async (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
       if (!msg || msg.type !== "auth-token-loaded") return;
       const stored = msg.data as
         | { token?: string; expiresAt?: number }
         | null;
       if (
-        stored &&
-        typeof stored.token === "string" &&
-        typeof stored.expiresAt === "number" &&
-        stored.expiresAt - 60_000 > Date.now()
+        !stored ||
+        typeof stored.token !== "string" ||
+        typeof stored.expiresAt !== "number" ||
+        stored.expiresAt - 60_000 <= Date.now()
       ) {
-        applyAuthToken(stored.token, stored.expiresAt);
+        setConn("disconnected");
+        return;
+      }
+      // Local timestamp says the token is still fresh — but the backend may
+      // reject it anyway (AUTH_SECRET rotated, server-side revoke, schema
+      // change). Verify with a cheap /api/auth/me probe before trusting it.
+      // On a verified 401 we clear the stale token so the next render shows
+      // ConnectFigma; on network errors we keep the token and let downstream
+      // API calls surface the problem (don't lock the user out if the API is
+      // momentarily unreachable).
+      applyAuthToken(stored.token, stored.expiresAt);
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${stored.token}` },
+        });
+        if (res.status === 401) {
+          clearAuthToken();
+          setConn("disconnected");
+          return;
+        }
         setConn("connected");
         // Roll the long-lived token's expiry in the background.
         void refreshAuthToken();
-      } else {
-        setConn("disconnected");
+      } catch {
+        // Network failure — trust the local token for now; if it really is
+        // bad, the next user-driven API call will surface it.
+        setConn("connected");
+        void refreshAuthToken();
       }
     };
     window.addEventListener("message", handler);
