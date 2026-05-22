@@ -7,6 +7,43 @@ import {
   type ProDuration,
 } from "../models/License.js";
 
+// ----------------------------------------------------------------------------
+// returnUrl trust boundary
+//
+// `returnUrl` arrives from the public `/api/checkout/create` body — attacker
+// fully controls it. Flitt 302-redirects the browser to whatever we sign into
+// `response_url` after a successful charge, so an unconstrained pass-through
+// is an open-redirect / phishing primitive: a phisher pays $16, lands the
+// victim on `evil.com/login`, and harvests credentials there.
+//
+// Rule: only same-property hosts pass through. Anything else → `undefined`,
+// and the caller falls back to `${config.website.baseUrl}/checkout/success`.
+// Silent fallback (no 400) keeps a typo from killing a real user's payment.
+// ----------------------------------------------------------------------------
+
+const RETURN_URL_ALLOWED_HOSTS = new Set([
+  "web2wireframe.design",
+  "www.web2wireframe.design",
+  "localhost",
+  "127.0.0.1",
+]);
+
+function sanitizeReturnUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return undefined;
+  }
+  return RETURN_URL_ALLOWED_HOSTS.has(parsed.hostname.toLowerCase())
+    ? parsed.toString()
+    : undefined;
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -170,7 +207,8 @@ export async function createSubscriptionCheckout(params: {
   });
 
   const responseUrl =
-    params.returnUrl ?? `${config.website.baseUrl}/checkout/success`;
+    sanitizeReturnUrl(params.returnUrl) ??
+    `${config.website.baseUrl}/checkout/success`;
   const callbackUrl = `${
     process.env.API_PUBLIC_URL ?? "https://api.web2wireframe.design"
   }/api/webhooks/flitt`;
@@ -265,7 +303,8 @@ export async function createOneTimeCheckout(params: {
   });
 
   const responseUrl =
-    params.returnUrl ?? `${config.website.baseUrl}/checkout/success`;
+    sanitizeReturnUrl(params.returnUrl) ??
+    `${config.website.baseUrl}/checkout/success`;
   const callbackUrl = `${
     process.env.API_PUBLIC_URL ?? "https://api.web2wireframe.design"
   }/api/webhooks/flitt`;

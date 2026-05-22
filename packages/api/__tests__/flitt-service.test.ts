@@ -395,6 +395,156 @@ describe("createOneTimeCheckout", () => {
 });
 
 // ============================================================================
+// returnUrl sanitization — open-redirect protection
+//
+// `returnUrl` is attacker-controlled (the public /api/checkout/create
+// endpoint accepts anything). Flitt 302-redirects the browser there after
+// the charge clears, so without an allowlist a phisher can pay $16, capture
+// the victim's Pro session landing on evil.com/login, and harvest credentials.
+// We assert behavior end-to-end: untrusted URLs must NOT reach Flitt as the
+// response_url; the service silently falls back to the default success page.
+// ============================================================================
+
+describe("returnUrl sanitization (open-redirect protection)", () => {
+  const DEFAULT_RETURN = "https://web2wireframe.test/checkout/success";
+
+  const mockOkCheckout = (): ReturnType<typeof vi.spyOn> =>
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: {
+            response_status: "success",
+            checkout_url: "https://pay.flitt.test/checkout/x",
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+  const responseUrlOf = (fetchSpy: ReturnType<typeof vi.spyOn>): string => {
+    const [, init] = fetchSpy.mock.calls[0] as [unknown, RequestInit];
+    const payload = JSON.parse((init?.body as string) ?? "{}");
+    return payload.request.response_url as string;
+  };
+
+  it("keeps an apex-domain returnUrl", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "https://web2wireframe.design/thanks",
+    });
+    expect(responseUrlOf(spy)).toBe("https://web2wireframe.design/thanks");
+  });
+
+  it("keeps a www-subdomain returnUrl", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "https://www.web2wireframe.design/checkout/success",
+    });
+    expect(responseUrlOf(spy)).toBe(
+      "https://www.web2wireframe.design/checkout/success",
+    );
+  });
+
+  it("keeps localhost (dev callers)", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "http://localhost:5173/return",
+    });
+    expect(responseUrlOf(spy)).toBe("http://localhost:5173/return");
+  });
+
+  it("rejects an unknown host and falls back to default", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "https://evil.example/phish",
+    });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  it("rejects subdomain-confusion (web2wireframe.design.evil.com)", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "https://www.web2wireframe.design.evil.com/login",
+    });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  it("rejects javascript: protocol", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "javascript:alert(document.cookie)",
+    });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  it("rejects data: URL", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "data:text/html,<script>alert(1)</script>",
+    });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  it("rejects malformed URL string", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "not a url at all",
+    });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  it("rejects api.web2wireframe.design (not in allowlist)", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({
+      figmaUserId: "u",
+      returnUrl: "https://api.web2wireframe.design/somewhere",
+    });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  it("uses default when returnUrl is undefined", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({ figmaUserId: "u" });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  it("uses default when returnUrl is empty string", async () => {
+    const spy = mockOkCheckout();
+    await createOneTimeCheckout({ figmaUserId: "u", returnUrl: "" });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  // createSubscriptionCheckout shares the same vuln + helper; smoke-test it
+  // separately so a future refactor that forgets to wire the helper into one
+  // path doesn't silently regress.
+  it("also sanitizes returnUrl in createSubscriptionCheckout", async () => {
+    const spy = mockOkCheckout();
+    await createSubscriptionCheckout({
+      figmaUserId: "u",
+      returnUrl: "https://evil.example/phish",
+    });
+    expect(responseUrlOf(spy)).toBe(DEFAULT_RETURN);
+  });
+
+  it("createSubscriptionCheckout keeps a trusted returnUrl", async () => {
+    const spy = mockOkCheckout();
+    await createSubscriptionCheckout({
+      figmaUserId: "u",
+      returnUrl: "https://www.web2wireframe.design/yay",
+    });
+    expect(responseUrlOf(spy)).toBe("https://www.web2wireframe.design/yay");
+  });
+});
+
+// ============================================================================
 // cancelSubscription
 // ============================================================================
 
