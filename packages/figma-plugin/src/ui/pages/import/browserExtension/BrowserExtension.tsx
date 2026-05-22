@@ -76,6 +76,12 @@ export default function BrowserExtension() {
         { headers: { Authorization: authHeader() } },
       );
 
+      const { isAuthExpired } = await import("../../../shared/authEvents");
+      if (isAuthExpired(response)) {
+        stopPolling();
+        return;
+      }
+
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
         stopPolling();

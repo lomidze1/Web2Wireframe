@@ -124,13 +124,25 @@
 }
 
 .planPillPro {
+  border-color: var(--success);
+  color: var(--success-text);
+}
+
+/* Hover: unify border + text + dot in accent so the chip reads as one
+ * interactive thing instead of a 3-colour mishmash (which it was when the
+ * generic .planPill:hover changed only border + text, leaving the dot green). */
+.planPillPro:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.planPillPro:hover .proDot {
+  background: var(--accent);
 }
 
 .proDot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--success);
 }

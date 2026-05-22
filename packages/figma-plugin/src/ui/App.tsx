@@ -14,16 +14,19 @@ import Settings from "./components/modalPopup/Settings";
 import Help from "./components/modalPopup/Help";
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
+import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
 
 import ConnectFigma from "./components/ConnectFigma";
 import {
   applyAuthToken,
   clearAuthToken,
   refreshAuthToken,
+  fetchMyLicense,
 } from "./shared/licenseClient";
 import { API_BASE_URL } from "./shared/apiConfig";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
+import { onAuthExpired } from "./shared/authEvents";
 
 // Components
 import Footer from "./components/footer";
@@ -117,6 +120,18 @@ function ConnectionGate() {
     return () => window.removeEventListener("message", handler);
   }, []);
 
+  // Centralized 401 recovery: any API call (license fetch, import, checkout)
+  // that returns 401 dispatches w2w:auth-expired via shared/authEvents.ts.
+  // Here we clear the stale token and flip to disconnected so the user lands
+  // back on ConnectFigma instead of a "Session expired" / "Invalid signature"
+  // dead-end inside whatever modal or import page was active.
+  useEffect(() => {
+    return onAuthExpired(() => {
+      clearAuthToken();
+      setConn("disconnected");
+    });
+  }, []);
+
   if (conn === "loading") {
     return <div class={styles.loadingScreen}>Loading…</div>;
   }
@@ -134,6 +149,9 @@ function AppContent() {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isPlanOpen, setIsPlanOpen] = useState(false);
   const [isQuotaExceededOpen, setIsQuotaExceededOpen] = useState(false);
+  const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
+    number | null
+  >(null);
 
   // Listen for quota-exceeded events dispatched by import API callers
   // (see shared/quotaEvents.ts → isQuotaExceeded).
@@ -141,7 +159,31 @@ function AppContent() {
     return onQuotaExceeded(() => setIsQuotaExceededOpen(true));
   }, []);
 
-  const { setOpenSettingsCallback } = useConfig();
+  const { config, setOpenSettingsCallback } = useConfig();
+
+  // Expiry heads-up: on plugin open, if the user is Pro with ≤3 days left,
+  // surface ExpiringSoonModal once. Re-shows on every plugin reopen inside
+  // the window — no persistent dismissal. Once daysRemaining hits 0 the
+  // lazy-downgrade flips them to Free server-side and this gate naturally
+  // stops firing.
+  useEffect(() => {
+    if (!config.figmaUserId) return;
+    const controller = new AbortController();
+    fetchMyLicense(config.figmaUserId, controller.signal)
+      .then((license) => {
+        if (license.plan !== "pro") return;
+        const ms = new Date(license.cycleEndsAt).getTime() - Date.now();
+        if (!Number.isFinite(ms) || ms <= 0) return;
+        const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
+        if (days <= 3) setExpiringDaysRemaining(days);
+      })
+      .catch(() => {
+        // Best-effort heads-up — a transient license fetch failure shouldn't
+        // disrupt the rest of the app's startup. The user will see the
+        // reminder on their next plugin open.
+      });
+    return () => controller.abort();
+  }, [config.figmaUserId]);
 
   // Handle asset conversion requests from sandbox (AVIF/WebP → JPEG via Canvas)
   useEffect(() => {
@@ -284,6 +326,15 @@ function AppContent() {
       onClose={() => setIsQuotaExceededOpen(false)}
       onUpgrade={() => {
         setIsQuotaExceededOpen(false);
+        setIsPlanOpen(true);
+      }}
+    />
+    <ExpiringSoonModal
+      isOpen={expiringDaysRemaining !== null}
+      daysRemaining={expiringDaysRemaining ?? 0}
+      onClose={() => setExpiringDaysRemaining(null)}
+      onExtend={() => {
+        setExpiringDaysRemaining(null);
         setIsPlanOpen(true);
       }}
     />

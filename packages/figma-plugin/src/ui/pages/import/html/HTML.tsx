@@ -187,6 +187,9 @@ export default function HTML() {
         }),
       });
 
+      const { isAuthExpired } = await import("../../../shared/authEvents");
+      if (isAuthExpired(response)) return;
+
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
         setImportState({ status: "idle", message: "" });

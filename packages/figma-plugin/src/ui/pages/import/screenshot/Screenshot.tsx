@@ -119,6 +119,9 @@ export default function Screenshot() {
         }),
       });
 
+      const { isAuthExpired } = await import("../../../shared/authEvents");
+      if (isAuthExpired(response)) return;
+
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
         setIsGenerating(false);

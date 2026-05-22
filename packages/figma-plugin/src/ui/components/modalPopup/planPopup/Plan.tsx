@@ -6,10 +6,22 @@ import styles from "../Modal.css";
 import {
   fetchMyLicense,
   createCheckout,
+  clearAuthToken,
   type License,
 } from "../../../shared/licenseClient";
+import { dispatchAuthExpired } from "../../../shared/authEvents";
 import { useConfig } from "../../../shared/ConfigContext";
 import { useModal } from "../../../hooks/useModal";
+
+/**
+ * True when the rendered error message recommends reconnecting — i.e. it came
+ * from `httpErrorMessage(401|403)`. We only show the recovery button in that
+ * case so quota/network/5xx errors don't get a misleading "Reconnect" CTA.
+ */
+function isAuthRelatedError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("session expired") || lower.includes("reconnect");
+}
 
 interface PlanProps {
   isOpen: boolean;
@@ -223,7 +235,11 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
         <div class={styles.modalContent}>
           <div class={styles.planSummary}>
             <span class={styles.planLabel}>Current plan</span>
-            <span class={styles.planBadge}>{planLabel}</span>
+            <span
+              class={`${styles.planBadge} ${isPro ? styles.planBadgePro : ""}`}
+            >
+              {planLabel}
+            </span>
           </div>
 
           {!figmaUserId && (
@@ -237,9 +253,26 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
             </div>
           )}
           {error && (
-            <div class={styles.planError} role="alert" aria-live="assertive">
-              {error}
-            </div>
+            <Fragment>
+              <div class={styles.planError} role="alert" aria-live="assertive">
+                {error}
+              </div>
+              {isAuthRelatedError(error) && (
+                <button
+                  type="button"
+                  class={styles.planCtaLink}
+                  onClick={() => {
+                    // Same path a real 401 takes: clear the token and let
+                    // ConnectionGate flip the app to ConnectFigma. Unmounting
+                    // this modal in the process is the desired outcome.
+                    clearAuthToken();
+                    dispatchAuthExpired();
+                  }}
+                >
+                  Reconnect Figma
+                </button>
+              )}
+            </Fragment>
           )}
 
           {license && (
@@ -339,7 +372,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
             </>
           )}
 
-          {isPro && (
+          {isPro && license && daysUntil(license.cycleEndsAt) <= 7 && (
             <Fragment>
               <button
                 type="button"

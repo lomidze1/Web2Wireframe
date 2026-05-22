@@ -1,5 +1,6 @@
 import { API_BASE_URL, withFigmaUserId } from "./apiConfig";
 import { httpErrorMessage } from "./httpErrors";
+import { isAuthExpired } from "./authEvents";
 
 export type Plan = "free" | "pro";
 export type Status = "active" | "canceled" | "expired";
@@ -191,6 +192,9 @@ export async function requestPairingCode(
     signal,
   });
   if (!response.ok) {
+    if (isAuthExpired(response)) {
+      throw new Error("Reconnecting…");
+    }
     throw new Error(httpErrorMessage(response.status));
   }
   const data = (await response.json()) as { code?: string };
@@ -218,6 +222,9 @@ export async function fetchMyLicense(
     signal,
   });
   if (!response.ok) {
+    if (isAuthExpired(response)) {
+      throw new Error("Reconnecting…");
+    }
     throw new Error(httpErrorMessage(response.status));
   }
   return (await response.json()) as License;
@@ -249,6 +256,9 @@ export async function createCheckout(
     signal,
   });
   if (!response.ok) {
+    if (isAuthExpired(response)) {
+      throw new Error("Reconnecting…");
+    }
     const body = await response.json().catch(() => ({}));
     throw new Error(
       typeof (body as { error?: string }).error === "string"
@@ -289,6 +299,9 @@ export async function issueCancelToken(
     },
   );
   if (!response.ok) {
+    if (isAuthExpired(response)) {
+      throw new Error("Reconnecting…");
+    }
     throw new Error(httpErrorMessage(response.status));
   }
   return (await response.json()) as { token: string; expiresInSeconds: number };

@@ -21,10 +21,14 @@
   border-radius: var(--radius-lg);
   width: 95%;
   max-width: 680px;
-  padding: 20px 10px;
+  padding: 12px 14px 16px;
   color: var(--text);
-  box-shadow: var(--shadow-lg);
+  /* Softer modal shadow — the previous 0.32 alpha read as a flat black block
+   * against the plugin's dark canvas. Lower alpha + tighter blur lets the
+   * underlying dim overlay do the framing instead. */
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(14px);
+  overflow: hidden;
   /* Size to content, but never taller than the 560px plugin window minus a
      16px breathing margin top and bottom. .modalContent scrolls when full. */
   height: auto;
@@ -37,7 +41,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-weight: 700;
   font-size: var(--font-lg);
 }
@@ -57,7 +61,8 @@
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: var(--text);
-  font-size: 16px;
+  font-size: 20px;
+  line-height: 1;
   width: 32px;
   height: 32px;
   border-radius: var(--radius-input);
@@ -121,7 +126,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
@@ -142,6 +147,15 @@
   font-size: var(--font-sm);
   letter-spacing: 0.4px;
   background: rgba(var(--accent-rgb), 0.1);
+}
+
+/* PRO subscribers get a green badge so the active-subscription chip reads as
+ * "success / on" rather than the promotional accent (which we reserve for the
+ * upgrade/extend CTAs). Reuses the existing --success token. */
+.planBadgePro {
+  border-color: var(--success);
+  color: var(--success-text);
+  background: var(--success-bg);
 }
 
 .planNotice {
@@ -187,8 +201,8 @@
 .planMeta {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
@@ -221,8 +235,8 @@
   font-weight: 700;
   font-size: 13px;
   color: var(--text);
-  margin-top: 4px;
-  margin-bottom: 6px;
+  margin-top: 2px;
+  margin-bottom: 4px;
 }
 
 .planSectionLine {
@@ -265,7 +279,7 @@
 }
 
 .planCardHeader {
-  padding: 18px 16px 14px;
+  padding: 12px 16px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.05);
   font-weight: 800;
@@ -285,9 +299,6 @@
       rgba(var(--accent-rgb), 0.04) 60%,
       rgba(var(--accent-rgb), 0.02) 100%
     );
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.25),
-    0 8px 22px rgba(var(--accent-rgb), 0.12);
 }
 
 .planCardPro .planCardHeader {
@@ -305,17 +316,14 @@
 
 .planCardPro:hover {
   border-color: rgba(var(--accent-rgb), 1);
-  box-shadow:
-    0 0 0 1px rgba(var(--accent-rgb), 0.55),
-    0 18px 38px rgba(var(--accent-rgb), 0.28);
 }
 
 .planList {
-  padding: 14px 18px 12px;
+  padding: 10px 18px 8px;
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   color: var(--text);
   font-size: 13px;
   list-style: none;
@@ -348,7 +356,7 @@
 .planCardBtn {
   display: block;
   width: calc(100% - 24px);
-  margin: 6px 12px 14px;
+  margin: 4px 12px 10px;
   padding: 12px 16px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -416,9 +424,9 @@
 }
 
 .planTrustNote {
-  margin: 8px 0 0 0;
-  font-size: 11px;
-  line-height: 1.4;
+  margin: 6px 6px 0 6px;
+  font-size: var(--font-sm);
+  line-height: 1.5;
   color: var(--muted);
   text-align: center;
 }
