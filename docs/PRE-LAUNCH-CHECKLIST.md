@@ -1,8 +1,8 @@
 # Pre-Launch Checklist — One-Time Payment
 
-გადახდის (ერთჯერადი $16 → 30 დღე Pro) production-ზე ატვირთვამდე შესასრულებელი ნაბიჯები.
+გადახდის (ერთჯერადი: **$16 → 30 დღე Pro** ან **$144 → 365 დღე Pro**) production-ზე ატვირთვამდე შესასრულებელი ნაბიჯები.
 სტატუსი: `[ ]` = დარჩა, `[x]` = გაკეთდა.
-ბოლო განახლება: **2026-05-20**.
+ბოლო განახლება: **2026-05-22**.
 
 📚 ცნობარი:
 - [`Flitt.md`](./Flitt.md) — სრული integration study + roadmap
@@ -47,7 +47,7 @@
 
 ## 4. Flitt Merchant Portal (user action)
 
-- [ ] `server_callback_url` დააregistrირე: `https://api.web2wireframe.design/api/webhooks/flitt`
+- [x] `server_callback_url` დააregistrირე: `https://api.web2wireframe.design/api/webhooks/flitt` (Phase 5 done 2026-05-22)
 - [ ] დაადასტურე USD გადახდები ჩართულია
 - [ ] production `.env`-ში Live (და არა sandbox) credentials
 
@@ -59,9 +59,11 @@
 
 ## 6. Sandbox ტესტი (production-მდე)
 
-- [ ] პირველი შესყიდვა → webhook → Pro 30 დღით
-- [ ] Renew (ადრეული — დღეები ემატება, არ იკარგება)
-- [ ] ვადაგასული renew → `now + 30დ`
+- [ ] პირველი შესყიდვა (monthly $16) → webhook → Pro 30 დღით
+- [ ] პირველი შესყიდვა (yearly $144) → webhook → Pro 365 დღით
+- [ ] Tier mismatch reject — yearly payload $16 amount-ით → webhook 400 (და vice versa)
+- [ ] Renew (ადრეული — დღეები ემატება, არ იკარგება) ორივე tier-ისთვის
+- [ ] ვადაგასული renew → monthly: `now + 30დ`, yearly: `now + 365დ`
 - [ ] Declined ბარათი → Pro არ ეძლევა
 - [ ] Idempotency (იგივე webhook 2-ჯერ → 1 აქტივაცია)
 - [ ] Lazy-downgrade (ვადაგასული Pro → Free)
@@ -133,7 +135,7 @@ API **არ ჩაირთვება** production-ში თუ ეს place
 
 ## კონტექსტი
 
-- მოდელი: ერთჯერადი გადახდა, $16 = 30 დღე Pro, **auto-renew/subscription არ არის**, cancel არ არსებობს.
+- მოდელი: ერთჯერადი გადახდა ორი tier-ით — **$16 = 30 დღე Pro** ან **$144 = 365 დღე Pro** (25% off vs monthly). **Auto-renew/subscription არ არის**, cancel არ არსებობს. Renewal სტეკავს დღეებს დარჩენილზე.
 - Subscription კოდი პარკირებულია (Flitt subscription-ს რამდენიმე თვეში ჩართავს).
 - სრული გეგმა: `~/.claude/plans/effervescent-weaving-balloon.md`
 - ცალკე roadmap + audit: [`Flitt.md`](./Flitt.md)

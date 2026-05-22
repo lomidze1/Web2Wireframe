@@ -195,17 +195,20 @@ FLITT_MERCHANT_ID, FLITT_SECRET_KEY, FLITT_BASE_URL
 
 **Provider:** Flitt (Georgia/CIS PCI-DSS Level 1 gateway). **მხოლოდ Flitt** — Stripe/Paddle/LemonSqueezy/Polar **არასოდეს** ვახსენოთ კოდში ან დოკუმენტაციაში.
 
-### Plans (Single-tier launch — June 16, 2026)
+### Plans (launch — June 16, 2026)
 
-| Plan | Imports | ფასი (USD) |
-|------|---------|-----------|
-| Free | 10 / month | $0 |
-| Pro | unlimited | $16 / month |
+| Plan | Imports | ფასი (USD) | Cycle |
+|------|---------|-----------|-------|
+| Free | 10 / month | $0 | — |
+| Pro Monthly | unlimited | $16 | 30 days |
+| Pro Yearly | unlimited | $144 | 365 days (25% off vs monthly) |
 
 **Pricing rationale:**
-- $16 covers Flitt's 4% commission (net ≈ $15.36) — round whole-dollar pricing for simplicity
+- $16 monthly covers Flitt's 4% commission (net ≈ $15.36) — round whole-dollar pricing for simplicity
+- $144 yearly = 25% off vs 12×$16 ($192) — matches h2d's annual discount tier, encourages commitment
+- One-time payment model both tiers — no subscription. Renewal stacks days on top of remaining time
 - USD only globally; **EU VAT NOT collected at launch** (Terms disclaimer + non-EU seller posture); revisit at ~$30K/year EU revenue
-- **No refunds**, cancel-anytime; cancellation = end-of-period (Pro until cycleEndsAt, then Free)
+- **No refunds**, cancel-anytime (just stop renewing); cancellation = end-of-period (Pro until cycleEndsAt, then Free)
 - **No trial** — Free tier IS the trial (10 imports/month forever)
 - **Quota-exceeded UX:** hard block + upgrade modal on 11th import attempt
 

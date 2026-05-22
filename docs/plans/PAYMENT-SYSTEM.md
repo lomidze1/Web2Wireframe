@@ -27,12 +27,13 @@ Build a complete payment, subscription, and licensing system for the Web2Wirefra
 
 ### 2.1 Plans
 
-| Plan | Imports/month | Price (USD) |
-|------|---------------|-------------|
-| Free | 10            | $0          |
-| Pro  | unlimited     | $16 / month |
+| Plan | Imports/month | Price (USD) | Cycle |
+|------|---------------|-------------|-------|
+| Free | 10            | $0          | —     |
+| Pro Monthly | unlimited | $16     | 30 days |
+| Pro Yearly  | unlimited | $144    | 365 days (25% off vs monthly) |
 
-**Pricing rationale:** $16 covers Flitt's 4% commission (net ≈ $15.36) — round whole-dollar pricing for simplicity, absorbs minor Flitt variance/currency conversion. Indie SaaS launch posture: no VAT collection at launch (see §2.7).
+**Pricing rationale:** $16 monthly covers Flitt's 4% commission (net ≈ $15.36) — round whole-dollar pricing for simplicity. $144 yearly = 25% discount vs 12×$16 ($192), matches h2d's annual discount, encourages commitment. Both tiers are **one-time payments** (no subscription) — renewal stacks days. Indie SaaS launch posture: no VAT collection at launch (see §2.7).
 
 ### 2.2 Counter Semantics
 
@@ -292,6 +293,11 @@ export const PLAN_LIMITS = {
 export const PLAN_PRICES = {
   pro: { priceCents: 1600, period: "month", currency: "USD" },
 } as const;
+// NOTE (2026-05-22): superseded by tier-aware helpers in
+// packages/api/src/models/License.ts — see getProPriceCents() /
+// getProDurationMs() / getProOrderDescription(). Monthly = 1600c / 30d,
+// yearly = 14400c / 365d. The flat fields above remain for legacy
+// callers but new code should use the tier-aware helpers.
 ```
 
 ### 4.2 Webhook Idempotency
@@ -603,7 +609,6 @@ Implementation can proceed up to Phase 5 with mock Flitt SDK; Phase 5+ requires 
 
 ## 10. Out of Scope (For Now)
 
-- Yearly billing (only monthly initially)
 - Multi-seat / team plans
 - Coupon codes / promo discounts
 - Refund automation (no refunds policy)
