@@ -103,6 +103,42 @@ describe("POST /api/checkout/create", () => {
     expect(res.status).toBe(502);
     expect(res.body.error).toBe("Flitt down");
   });
+
+  it("defaults to monthly tier when plan is omitted", async () => {
+    mockCreateOneTimeCheckout.mockResolvedValue({
+      ok: true,
+      checkoutUrl: "https://pay.flitt.test/m",
+      orderId: "w2w_pro_u_m",
+    });
+    await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "u-1" });
+    expect(mockCreateOneTimeCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ figmaUserId: "u-1", duration: "monthly" }),
+    );
+  });
+
+  it("passes duration:'yearly' through when plan is 'yearly'", async () => {
+    mockCreateOneTimeCheckout.mockResolvedValue({
+      ok: true,
+      checkoutUrl: "https://pay.flitt.test/y",
+      orderId: "w2w_pro_u_y",
+    });
+    await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "u-1", plan: "yearly" });
+    expect(mockCreateOneTimeCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ figmaUserId: "u-1", duration: "yearly" }),
+    );
+  });
+
+  it("returns 400 for an unknown plan value", async () => {
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "u-1", plan: "lifetime" });
+    expect(res.status).toBe(400);
+    expect(mockCreateOneTimeCheckout).not.toHaveBeenCalled();
+  });
 });
 
 // ============================================================================

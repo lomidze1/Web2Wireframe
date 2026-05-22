@@ -245,17 +245,21 @@
   background: rgba(255, 255, 255, 0.16);
 }
 
-/* Plan card grid — single Pro card at launch, so center it. If we ever
- * add a second tier, switch back to a 2-column grid. */
+/* Plan card grid — two tiers (Monthly / Yearly) flex side-by-side on a wide
+ * modal, stack vertically on a narrow plugin frame so neither card collapses
+ * its CTA below the readable width. */
 .planCards {
   display: flex;
   justify-content: center;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 10px;
   margin: 4px 0;
 }
 
 .planCard {
   position: relative;
-  width: 100%;
+  flex: 1 1 240px;
   max-width: 360px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
@@ -269,6 +273,32 @@
     box-shadow 0.18s ease,
     border-color 0.18s ease,
     background 0.18s ease;
+}
+
+/* "Save 25%" pill in the upper-right corner of the Yearly card.
+ * Uses --success so it reads as a positive, money-saving signal rather
+ * than the promotional accent we reserve for the purchase CTA. */
+.planSavingsBadge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--success);
+  background: var(--success-bg);
+  color: var(--success-text);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* Small "30 days" / "365 days · $12/mo" line directly under the card title. */
+.planCardSubhead {
+  margin: 0;
+  padding: 0 16px 6px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
 }
 
 .planCard:hover {

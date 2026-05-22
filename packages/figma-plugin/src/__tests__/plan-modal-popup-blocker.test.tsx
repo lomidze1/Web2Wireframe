@@ -77,10 +77,10 @@ describe("Plan modal — popup blocker fallback (F7)", () => {
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
-    await waitFor(() => screen.getByText("Get Pro"));
+    await waitFor(() => screen.getByTestId("get-pro-monthly"));
 
     await act(async () => {
-      fireEvent.click(screen.getByText("Get Pro"));
+      fireEvent.click(screen.getByTestId("get-pro-monthly"));
     });
 
     await waitFor(() => {
@@ -117,10 +117,10 @@ describe("Plan modal — popup blocker fallback (F7)", () => {
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
-    await waitFor(() => screen.getByText("Get Pro"));
+    await waitFor(() => screen.getByTestId("get-pro-monthly"));
 
     await act(async () => {
-      fireEvent.click(screen.getByText("Get Pro"));
+      fireEvent.click(screen.getByTestId("get-pro-monthly"));
     });
 
     await waitFor(() => {

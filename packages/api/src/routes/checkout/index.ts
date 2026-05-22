@@ -18,7 +18,7 @@ import { metrics } from "../../services/metrics.js";
 import { verifyToken } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
-import { PLAN_PRICES } from "../../models/License.js";
+import { PLAN_PRICES, getProPriceCents, type ProDuration } from "../../models/License.js";
 
 const router = Router();
 
@@ -35,9 +35,10 @@ const router = Router();
 router.post("/create", async (req: Request, res: Response) => {
   const log = createLogger("checkout-create");
   try {
-    const { figmaUserId, returnUrl } = req.body as {
+    const { figmaUserId, returnUrl, plan } = req.body as {
       figmaUserId?: string;
       returnUrl?: string;
+      plan?: string;
     };
     if (!figmaUserId || typeof figmaUserId !== "string") {
       log.warn("missing figmaUserId");
@@ -45,17 +46,39 @@ router.post("/create", async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await createOneTimeCheckout({ figmaUserId, returnUrl });
+    // Plan tier — defaults to "monthly" if omitted so the existing single-tier
+    // CTA keeps working. Reject anything else explicitly so a typo can't
+    // silently fall back to monthly and undercharge a yearly buyer.
+    let duration: ProDuration = "monthly";
+    if (plan !== undefined) {
+      if (plan !== "monthly" && plan !== "yearly") {
+        log.warn("invalid plan", { figmaUserId, plan });
+        res.status(400).json({ error: "plan must be 'monthly' or 'yearly'" });
+        return;
+      }
+      duration = plan;
+    }
+
+    const result = await createOneTimeCheckout({
+      figmaUserId,
+      returnUrl,
+      duration,
+    });
     if (!result.ok) {
       log.warn("Flitt rejected checkout creation", {
         figmaUserId,
+        plan: duration,
         error: result.error,
       });
       metrics.checkoutCreate("fail");
       res.status(502).json({ error: result.error });
       return;
     }
-    log.info("checkout created", { figmaUserId, orderId: result.orderId });
+    log.info("checkout created", {
+      figmaUserId,
+      plan: duration,
+      orderId: result.orderId,
+    });
     metrics.checkoutCreate("success");
     res.json({ checkoutUrl: result.checkoutUrl, orderId: result.orderId });
   } catch (err) {
@@ -150,6 +173,7 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       figmaUserId?: string;
       plan?: string;
       recurring?: boolean;
+      duration?: string;
     } = {};
     if (typeof payload.merchant_data === "string") {
       try {
@@ -203,17 +227,25 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       return;
     }
 
-    // An approved charge must be for the expected Pro price — a webhook with
-    // a smaller (or absent) amount must never grant Pro access.
+    // Tier-aware amount validation. Legacy payloads with no `duration` field
+    // are treated as monthly (the only tier that existed before this). Any
+    // other value is suspicious and never grants Pro access.
+    const durationField =
+      merchantData.duration === "yearly" ||
+      merchantData.duration === "monthly"
+        ? (merchantData.duration as ProDuration)
+        : "monthly";
+    const expectedAmount = getProPriceCents(durationField);
     if (
       orderStatus === "approved" &&
-      Number(payload.amount) !== PLAN_PRICES.pro.priceCents
+      Number(payload.amount) !== expectedAmount
     ) {
       log.warn("approved charge with unexpected amount — not granting Pro", {
         order_id: orderId,
         figmaUserId,
         amount: payload.amount,
-        expectedAmount: PLAN_PRICES.pro.priceCents,
+        expectedAmount,
+        duration: durationField,
       });
       // Same as above — hostile or misconfigured payload. Lease retained.
       res.status(200).json({ received: true });
@@ -241,11 +273,13 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           figmaUserId,
           email,
           flittOrderId: orderId,
+          duration: durationField,
         });
         log.info("one-time purchase approved", {
           order_id: orderId,
           figmaUserId,
           amount: payload.amount,
+          duration: durationField,
         });
         if (email) {
           await sendReceiptEmail({

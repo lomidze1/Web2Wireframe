@@ -239,21 +239,33 @@ export interface CheckoutResponse {
   orderId: string;
 }
 
+/** Pro tier the plugin can ask the backend to create a checkout for. */
+export type CheckoutPlan = "monthly" | "yearly";
+
 export async function createCheckout(
   figmaUserId: string,
+  planOrSignal?: CheckoutPlan | AbortSignal,
   signal?: AbortSignal,
 ): Promise<CheckoutResponse> {
   if (!figmaUserId) {
     throw new Error("createCheckout: figmaUserId is required");
   }
+  // Two-arg backward compat: callers pre-yearly passed `(id, signal)`. New
+  // callers pass `(id, plan, signal?)`. The argument-shape sniff means we
+  // don't have to touch every existing call site.
+  const plan: CheckoutPlan | undefined =
+    typeof planOrSignal === "string" ? planOrSignal : undefined;
+  const abortSignal: AbortSignal | undefined =
+    planOrSignal instanceof AbortSignal ? planOrSignal : signal;
+
   const response = await fetch(`${API_BASE_URL}/api/checkout/create`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: authHeader(),
     },
-    body: JSON.stringify({ figmaUserId }),
-    signal,
+    body: JSON.stringify({ figmaUserId, ...(plan ? { plan } : {}) }),
+    signal: abortSignal,
   });
   if (!response.ok) {
     if (isAuthExpired(response)) {

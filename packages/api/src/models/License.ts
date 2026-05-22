@@ -45,6 +45,7 @@ export interface ILicense extends Document {
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 export const CYCLE_DURATION_MS = 30 * MILLISECONDS_PER_DAY;
+export const CYCLE_DURATION_YEARLY_MS = 365 * MILLISECONDS_PER_DAY;
 
 /** Per-plan import limits. Pro is unlimited. */
 export const PLAN_LIMITS = {
@@ -52,10 +53,41 @@ export const PLAN_LIMITS = {
   pro: { imports: Number.POSITIVE_INFINITY },
 } as const;
 
-/** Pro pricing — single tier at launch. */
+/**
+ * Pro pricing — both Monthly and Yearly tiers. The flat `priceCents` /
+ * `period` fields preserve the original single-tier shape so existing
+ * callers keep compiling without changes; new code should prefer the
+ * tier-aware helpers below.
+ */
 export const PLAN_PRICES = {
-  pro: { priceCents: 1600, period: "month" as const, currency: "USD" as const },
+  pro: {
+    priceCents: 1600, // legacy alias — equals monthly tier
+    yearlyPriceCents: 14400, // 25% off vs 12× monthly (= $144 / yr)
+    period: "month" as const,
+    currency: "USD" as const,
+  },
 } as const;
+
+export type ProDuration = "monthly" | "yearly";
+
+/** Tier-aware price lookup. Monthly is the default for legacy payloads. */
+export function getProPriceCents(duration: ProDuration): number {
+  return duration === "yearly"
+    ? PLAN_PRICES.pro.yearlyPriceCents
+    : PLAN_PRICES.pro.priceCents;
+}
+
+/** Tier-aware duration in ms. Monthly is the default for legacy payloads. */
+export function getProDurationMs(duration: ProDuration): number {
+  return duration === "yearly" ? CYCLE_DURATION_YEARLY_MS : CYCLE_DURATION_MS;
+}
+
+/** Human-readable order description Flitt shows on the checkout page. */
+export function getProOrderDescription(duration: ProDuration): string {
+  return duration === "yearly"
+    ? "Web2Wireframe Pro — 1 Year"
+    : "Web2Wireframe Pro — 1 Month";
+}
 
 // ============================================================================
 // Schemas

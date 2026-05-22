@@ -384,6 +384,7 @@ describe("POST /api/webhooks/flitt — one-time purchase", () => {
       figmaUserId: "u-1",
       email: "user@example.com",
       flittOrderId: "w2w_pro_u-1_123",
+      duration: "monthly",
     });
     expect(mockApplyActivation).not.toHaveBeenCalled();
     expect(mockApplyRecurring).not.toHaveBeenCalled();
@@ -395,6 +396,45 @@ describe("POST /api/webhooks/flitt — one-time purchase", () => {
       .send(oneTimePayload({ parent_order_id: "x", payment_id: "pay_p" }));
     expect(mockApplyOneTime).toHaveBeenCalledOnce();
     expect(mockApplyRecurring).not.toHaveBeenCalled();
+  });
+
+  it("yearly tier: merchant_data.duration='yearly' + amount 14400 → applyOneTimePurchase({ duration: 'yearly' })", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          amount: 14400,
+          merchant_data: JSON.stringify({
+            figmaUserId: "u-1",
+            plan: "pro",
+            recurring: false,
+            duration: "yearly",
+          }),
+        }),
+      );
+    expect(mockApplyOneTime).toHaveBeenCalledWith(
+      expect.objectContaining({ figmaUserId: "u-1", duration: "yearly" }),
+    );
+  });
+
+  it("rejects yearly payload that arrives with the monthly $16 amount (tampered)", async () => {
+    // merchant_data says yearly but payload.amount is monthly (1600). Hostile
+    // or misconfigured — we must not grant Pro because the amount-vs-tier
+    // mismatch could be a downgrade attack on the activation cycle.
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          amount: 1600,
+          merchant_data: JSON.stringify({
+            figmaUserId: "u-1",
+            plan: "pro",
+            recurring: false,
+            duration: "yearly",
+          }),
+        }),
+      );
+    expect(mockApplyOneTime).not.toHaveBeenCalled();
   });
 
   it("recurring:false declined → no service call (logged only)", async () => {

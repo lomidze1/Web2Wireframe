@@ -2,7 +2,9 @@ import {
   License,
   PLAN_LIMITS,
   CYCLE_DURATION_MS,
+  getProDurationMs,
   type ILicense,
+  type ProDuration,
 } from "../models/License.js";
 import {
   LicenseAudit,
@@ -238,7 +240,15 @@ export const licenseService = {
     figmaUserId: string;
     email: string | null;
     flittOrderId: string;
+    /**
+     * Pro tier duration. Defaults to `"monthly"` so older webhook payloads
+     * (which had no `duration` field in `merchant_data`) keep granting the
+     * same 30-day cycle they used to.
+     */
+    duration?: ProDuration;
   }): Promise<ILicense> {
+    const duration: ProDuration = params.duration ?? "monthly";
+    const durationMs = getProDurationMs(duration);
     const now = new Date();
     const existing = await License.findOne({ figmaUserId: params.figmaUserId });
     const stillActivePro =
@@ -248,7 +258,7 @@ export const licenseService = {
     const base = stillActivePro
       ? existing.cycleEndsAt.getTime()
       : now.getTime();
-    const cycleEnd = new Date(base + CYCLE_DURATION_MS);
+    const cycleEnd = new Date(base + durationMs);
 
     const updated = await License.findOneAndUpdate(
       { figmaUserId: params.figmaUserId },

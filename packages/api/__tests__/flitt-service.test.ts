@@ -321,9 +321,46 @@ describe("createOneTimeCheckout", () => {
     expect(payload.request.subscription).toBeUndefined();
     expect(payload.request.recurring_data).toBeUndefined();
 
-    // merchant_data flags this as a one-time purchase for the webhook
+    // merchant_data flags this as a one-time purchase for the webhook;
+    // duration round-trips back to applyOneTimePurchase so the cycle length
+    // matches the price tier. Default tier is monthly.
     const md = JSON.parse(payload.request.merchant_data);
-    expect(md).toEqual({ figmaUserId: "user-1", plan: "pro", recurring: false });
+    expect(md).toEqual({
+      figmaUserId: "user-1",
+      plan: "pro",
+      recurring: false,
+      duration: "monthly",
+    });
+  });
+
+  it("posts a yearly one-time order with $144 + 1 Year description", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          response: {
+            response_status: "success",
+            checkout_url: "https://pay.flitt.test/checkout/y1",
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await createOneTimeCheckout({
+      figmaUserId: "user-1",
+      duration: "yearly",
+    });
+    expect(result.ok).toBe(true);
+
+    const [, init] = fetchSpy.mock.calls[0];
+    const payload = JSON.parse((init?.body as string) ?? "{}");
+    expect(payload.request.amount).toBe(14400);
+    expect(payload.request.order_desc).toBe("Web2Wireframe Pro — 1 Year");
+    const md = JSON.parse(payload.request.merchant_data);
+    expect(md.duration).toBe("yearly");
+    // one-time semantics unchanged across tiers
+    expect(md.recurring).toBe(false);
+    expect(payload.request.subscription).toBeUndefined();
   });
 
   it("returns error when Flitt returns a non-success response", async () => {

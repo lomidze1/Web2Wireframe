@@ -1,6 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { config } from "../config/env.js";
-import { PLAN_PRICES } from "../models/License.js";
+import {
+  PLAN_PRICES,
+  getProPriceCents,
+  getProOrderDescription,
+  type ProDuration,
+} from "../models/License.js";
 
 // ============================================================================
 // Types
@@ -232,22 +237,31 @@ export async function createSubscriptionCheckout(params: {
 export async function createOneTimeCheckout(params: {
   figmaUserId: string;
   returnUrl?: string;
+  /**
+   * Pro tier duration. Defaults to `"monthly"` so legacy callers (and the
+   * old "Get Pro" button before the yearly UI lands) keep getting the
+   * 30-day / $16 checkout they used to get.
+   */
+  duration?: ProDuration;
 }): Promise<CheckoutResult | CheckoutError> {
   const { merchantId, secretKey, baseUrl } = config.flitt;
   if (!merchantId || !secretKey) {
     return { ok: false, error: "Flitt is not configured" };
   }
 
+  const duration: ProDuration = params.duration ?? "monthly";
   const orderId = buildSubscriptionOrderId(params.figmaUserId);
-  const amount = PLAN_PRICES.pro.priceCents;
+  const amount = getProPriceCents(duration);
   const currency = PLAN_PRICES.pro.currency;
 
   // merchant_data round-trips back to us in the webhook so we can map the
-  // payment to the correct figmaUserId and route it as a one-time purchase.
+  // payment to the correct figmaUserId, route it as a one-time purchase,
+  // and pick the right cycle length on activation.
   const merchantData = JSON.stringify({
     figmaUserId: params.figmaUserId,
     plan: "pro",
     recurring: false,
+    duration,
   });
 
   const responseUrl =
@@ -261,7 +275,7 @@ export async function createOneTimeCheckout(params: {
     order_id: orderId,
     amount,
     currency,
-    order_desc: "Web2Wireframe Pro — 1 Month",
+    order_desc: getProOrderDescription(duration),
     server_callback_url: callbackUrl,
     response_url: responseUrl,
     merchant_data: merchantData,

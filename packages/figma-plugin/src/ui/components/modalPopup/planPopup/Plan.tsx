@@ -110,7 +110,9 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   // ------------------------------------------------------------------
   // Get Pro → open checkout + start polling
   // ------------------------------------------------------------------
-  async function handleGetPro(): Promise<void> {
+  async function handleGetPro(
+    duration: "monthly" | "yearly" = "monthly",
+  ): Promise<void> {
     if (!figmaUserId || isCheckoutPending) return;
     setIsCheckoutPending(true);
     setCheckoutMessage("Opening secure checkout…");
@@ -119,7 +121,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
       ? { plan: license.plan, cycleEndsAt: license.cycleEndsAt }
       : null;
     try {
-      const { checkoutUrl } = await createCheckout(figmaUserId);
+      const { checkoutUrl } = await createCheckout(figmaUserId, duration);
       // window.open returns null when the popup is blocked, e.g. because the
       // call awaited the API response and lost the user-gesture context.
       // Render an explicit click-to-open link rather than appearing to hang.
@@ -341,34 +343,63 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                 <span class={styles.planSectionLine}></span>
               </div>
               <div class={styles.planCards}>
-                <div class={`${styles.planCard} ${styles.planCardPro}`}>
-                  <div class={styles.planCardHeader}>PRO — $16 / 30 days</div>
+                <div class={styles.planCard}>
+                  <div class={styles.planCardHeader}>Monthly · $16</div>
+                  <p class={styles.planCardSubhead}>Pro for 30 days</p>
                   <ul class={styles.planList}>
                     <li class={styles.planListItem}>Unlimited imports</li>
                     <li class={styles.planListItem}>
-                      Full colors, fonts, and all viewports
+                      Full colors, fonts, all viewports
                     </li>
                     <li class={styles.planListItem}>Real text content</li>
-                    <li class={styles.planListItem}>Styles & assets included</li>
+                    <li class={styles.planListItem}>
+                      Styles &amp; assets included
+                    </li>
+                  </ul>
+                  <button
+                    type="button"
+                    class={styles.planCardBtn}
+                    onClick={() => handleGetPro("monthly")}
+                    disabled={!figmaUserId || isCheckoutPending}
+                    aria-label="Get Pro — Monthly $16 for 30 days"
+                    data-testid="get-pro-monthly"
+                  >
+                    {isCheckoutPending ? "Waiting for payment…" : "Get Pro"}
+                  </button>
+                </div>
+
+                <div class={`${styles.planCard} ${styles.planCardPro}`}>
+                  <span class={styles.planSavingsBadge}>Save 25%</span>
+                  <div class={styles.planCardHeader}>Yearly · $144</div>
+                  <p class={styles.planCardSubhead}>
+                    Pro for 365 days · just $12/mo
+                  </p>
+                  <ul class={styles.planList}>
+                    <li class={styles.planListItem}>Everything in Monthly</li>
                     <li class={styles.planListItem}>Priority email support</li>
                     <li class={styles.planListItem}>
-                      One-time payment — you're charged once, no auto-renewal
+                      Lock in pricing for the whole year
+                    </li>
+                    <li class={styles.planListItem}>
+                      One-time payment — no auto-renewal
                     </li>
                   </ul>
                   <button
                     type="button"
                     class={`${styles.planCardBtn} ${styles.planCardBtnPro}`}
-                    onClick={handleGetPro}
+                    onClick={() => handleGetPro("yearly")}
                     disabled={!figmaUserId || isCheckoutPending}
+                    aria-label="Get Pro — Yearly $144 for 365 days"
+                    data-testid="get-pro-yearly"
                   >
                     {isCheckoutPending ? "Waiting for payment…" : "Get Pro"}
                   </button>
-                  <p class={styles.planTrustNote}>
-                    Secure checkout by Flitt · Apple Pay, Google Pay & all
-                    major cards
-                  </p>
                 </div>
               </div>
+              <p class={styles.planTrustNote}>
+                Secure checkout by Flitt · Apple Pay, Google Pay &amp; all
+                major cards
+              </p>
             </>
           )}
 
@@ -377,7 +408,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               <button
                 type="button"
                 class={styles.planCtaLink}
-                onClick={handleGetPro}
+                onClick={() => handleGetPro("monthly")}
                 disabled={!figmaUserId || isCheckoutPending}
               >
                 {isCheckoutPending
