@@ -102,6 +102,33 @@ Browser Extension (Content Script primary + CDP for specific tasks)
 
 ### IMPORTANT: არ ატვირთო კოდი GitHub-ზე დადასტურების გარეშე
 
+### IMPORTANT: USE_PRODUCTION = false — Git commit/push-ის წინ
+
+**წესი:** `packages/figma-plugin/src/ui/shared/apiConfig.ts`-ში `USE_PRODUCTION`
+**აუცილებლად `false`-ად უნდა იყოს ნებისმიერი `git add` / `git commit` /
+`git push` ოპერაციის შესრულებამდე.** ეს ვრცელდება **ყველა ბრანჩზე** (`dev`,
+`main`, feature branches).
+
+**რატომ:**
+- `USE_PRODUCTION = true` = build-time toggle რომელიც plugin-ს
+  `https://api.web2wireframe.design`-ზე უსაუბრებს.
+- მერე ვაკეთებთ `npm run build` და Figma Community-ზე ვიწერთ პაკეტს.
+- ეს მხოლოდ **production plugin build-ის** დროს გვჭირდება.
+- Repo-ში `true` ფიქსირებამ შეიძლება ცარიელად შემოიყვანოს ahead-of-time
+  prod URL local dev-ში → broken cold-starts, confused testing, lost work.
+
+**Pre-commit / pre-push checklist:**
+
+1. `grep "USE_PRODUCTION" packages/figma-plugin/src/ui/shared/apiConfig.ts`
+2. თუ `true` ჩანს — flip back to `false` **სანამ stage არგი**.
+3. ფაილი dirty if (commit-მდე გადაამოწმე `git status`-ით):
+   - თუ false-დადაა → no diff → no need to commit.
+   - თუ true-ად დარჩა → არ stage არ commit არ push.
+
+**Override:** მხოლოდ მაშინ commit შესაძლებელია `USE_PRODUCTION = true`,
+თუ მომხმარებელი explicitly მოითხოვს (მაგ. release tag-ისთვის). Default
+ქცევა = ყოველთვის false-ად ვტოვებთ.
+
 ### IMPORTANT: ყოველთვის მონიშნე Recommended
 
 `AskUserQuestion`-ით კითხვისას **აუცილებლად** მონიშნე რომელია რეკომენდებული ვარიანტი.
