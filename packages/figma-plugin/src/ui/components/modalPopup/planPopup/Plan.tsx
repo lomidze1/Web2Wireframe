@@ -403,6 +403,25 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
             </>
           )}
 
+          {isPro && license?.subscription?.lastDuration === "monthly" && (
+            <Fragment>
+              <button
+                type="button"
+                class={styles.planCtaLink}
+                onClick={() => handleGetPro("yearly")}
+                disabled={!figmaUserId || isCheckoutPending}
+                data-testid="upgrade-to-yearly"
+              >
+                {isCheckoutPending
+                  ? "Waiting for payment…"
+                  : "Upgrade to Yearly — Save 25% ($144 / 365 days)"}
+              </button>
+              <p class={styles.planTrustNote}>
+                Adds 365 days onto your remaining time — no days are lost.
+              </p>
+            </Fragment>
+          )}
+
           {isPro && license && daysUntil(license.cycleEndsAt) <= 7 && (
             <Fragment>
               <button

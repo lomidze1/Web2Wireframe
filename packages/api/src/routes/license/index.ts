@@ -57,6 +57,11 @@ interface SerializedLicense {
     failureCount: number;
     /** true = native Flitt recurring subscription; false = one-time purchase. */
     autoRenew: boolean;
+    /**
+     * Tier of the most-recent one-time purchase. Lets the plugin decide
+     * whether to surface "Upgrade to Yearly" to a monthly Pro user.
+     */
+    lastDuration: "monthly" | "yearly";
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -89,6 +94,7 @@ function serialize(license: ILicense): SerializedLicense {
             license.subscription.lastFailedAt?.toISOString() ?? null,
           failureCount: license.subscription.failureCount,
           autoRenew: license.subscription.autoRenew === true,
+          lastDuration: license.subscription.lastDuration ?? "monthly",
         }
       : null,
     createdAt: license.createdAt.toISOString(),

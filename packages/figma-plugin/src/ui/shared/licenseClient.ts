@@ -14,6 +14,11 @@ export interface LicenseSubscription {
   failureCount: number;
   /** true = recurring subscription; false = one-time purchase. */
   autoRenew: boolean;
+  /**
+   * Tier of the most recent one-time purchase. Lets the Plan modal decide
+   * whether a Pro user qualifies for the "Upgrade to Yearly" CTA.
+   */
+  lastDuration: "monthly" | "yearly";
 }
 
 export interface License {
