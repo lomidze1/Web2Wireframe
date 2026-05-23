@@ -82,20 +82,6 @@ export const config = {
     port: parseInt(process.env.PORT || "3001", 10),
     nodeEnv,
   },
-  cors: {
-    allowedOrigins: Array.from(
-      new Set(
-        (process.env.ALLOWED_ORIGIN || "")
-          .split(",")
-          .map((origin) => origin.trim())
-          .filter(Boolean)
-          .concat([
-            "http://localhost:5173",
-            "https://www.web2wireframe.design",
-          ])
-      )
-    ),
-  },
   session: {
     secret: sessionSecret,
   },
