@@ -307,6 +307,29 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
             figmaUserId,
           });
         }
+      } else if (orderStatus === "reversed") {
+        // Refund / chargeback for a one-time purchase. Same revocation rule as
+        // the subscription branch: applyRefund only revokes if the refunded
+        // order_id is still the user's current order — a refund for an older
+        // (since-replaced) order is a no-op. Email is best-effort.
+        const result = await licenseService.applyRefund({
+          figmaUserId,
+          flittOrderId: orderId,
+        });
+        if (result.revoked) {
+          log.warn("reversed → Pro revoked (one-time)", {
+            order_id: orderId,
+            figmaUserId,
+          });
+          if (result.license?.email) {
+            await sendRefundNotification({ email: result.license.email });
+          }
+        } else {
+          log.info("reversed for stale/missing one-time order — no action", {
+            order_id: orderId,
+            figmaUserId,
+          });
+        }
       } else {
         log.info("one-time unhandled order_status", {
           order_id: orderId,

@@ -2,7 +2,7 @@
 
 გადახდის (ერთჯერადი: **$16 → 30 დღე Pro** ან **$144 → 365 დღე Pro**) production-ზე ატვირთვამდე შესასრულებელი ნაბიჯები.
 სტატუსი: `[ ]` = დარჩა, `[x]` = გაკეთდა.
-ბოლო განახლება: **2026-05-22**.
+ბოლო განახლება: **2026-05-23** (§6 Sandbox testing — 13/13 E2E scenarios pass).
 
 📚 ცნობარი:
 - [`Flitt.md`](./Flitt.md) — სრული integration study + roadmap
@@ -59,15 +59,18 @@
 
 ## 6. Sandbox ტესტი (production-მდე)
 
-- [ ] პირველი შესყიდვა (monthly $16) → webhook → Pro 30 დღით
-- [ ] პირველი შესყიდვა (yearly $144) → webhook → Pro 365 დღით
-- [ ] Tier mismatch reject — yearly payload $16 amount-ით → webhook 400 (და vice versa)
-- [ ] Renew (ადრეული — დღეები ემატება, არ იკარგება) ორივე tier-ისთვის
-- [ ] ვადაგასული renew → monthly: `now + 30დ`, yearly: `now + 365დ`
-- [ ] Declined ბარათი → Pro არ ეძლევა
-- [ ] Idempotency (იგივე webhook 2-ჯერ → 1 აქტივაცია)
-- [ ] Lazy-downgrade (ვადაგასული Pro → Free)
-- [ ] `/renew?uid=` ლინკი → Flitt checkout იხსნება
+გადატარდა 2026-05-23 ლოკალურ Docker stack-ზე ([packages/api/scripts/e2e-flitt-webhook.ts](../packages/api/scripts/e2e-flitt-webhook.ts), 13 scenarios, all pass). E2E შესრულდა `pnpm --filter @w2w/api test:e2e:flitt`.
+
+- [x] პირველი შესყიდვა (monthly $16) → webhook → Pro 30 დღით (s1)
+- [x] პირველი შესყიდვა (yearly $144) → webhook → Pro 365 დღით (s8)
+- [x] Tier mismatch reject — yearly payload $16 → reject (s10); monthly payload $144 → reject (s11)
+- [x] Renew (ადრეული — დღეები ემატება) monthly (s2) + yearly (s9)
+- [x] ვადაგასული renew → fresh `now + 30დ` cycle, no stacking (s13)
+- [x] Declined ბარათი → Pro არ ეძლევა (s3)
+- [x] Idempotency — იგივე `payment_id` 2-ჯერ → deduped (s4)
+- [x] Lazy-downgrade — ვადაგასული Pro → Free at read time (s12)
+- [x] Tampered amount → reject (s5); Bad signature → reject (s7); Reversed webhook → Pro revoked (s6, fixed one-time path)
+- [x] `/renew?uid=` flow → `POST /api/checkout/create` returns valid Flitt checkout URL for monthly + yearly tiers (manual curl verified)
 
 ## 7. Flitt support-თან დასაზუსტებელი
 
