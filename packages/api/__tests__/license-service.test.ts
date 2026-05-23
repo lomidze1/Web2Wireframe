@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { CYCLE_DURATION_MS, PLAN_LIMITS } from "../src/models/License.js";
+import {
+  CYCLE_DURATION_MS,
+  CYCLE_DURATION_YEARLY_MS,
+  PLAN_LIMITS,
+} from "../src/models/License.js";
 
 // ============================================================================
 // Mock the License model BEFORE importing the service
@@ -431,12 +435,41 @@ describe("licenseService.applyOneTimePurchase", () => {
       reminderSentAt: Date | null;
       nextBillingAt: Date;
       flittOrderId: string;
+      lastDuration: "monthly" | "yearly";
     };
     expect(sub.autoRenew).toBe(false);
     expect(sub.reminderSentAt).toBe(null);
     expect(sub.flittOrderId).toBe("w2w_pro_u_1");
     expect(sub.nextBillingAt.getTime()).toBe(cycleEnd.getTime());
+    expect(sub.lastDuration).toBe("monthly");
     expect(options).toMatchObject({ new: true, upsert: true });
+  });
+
+  it("activates a fresh 365-day Pro cycle and persists lastDuration=yearly", async () => {
+    const fakeNow = new Date("2026-05-10T10:00:00Z");
+    vi.setSystemTime(fakeNow);
+    mockFindOne.mockResolvedValue(null);
+    mockFindOneAndUpdate.mockResolvedValue(makeLicense({ plan: "pro" }));
+
+    await licenseService.applyOneTimePurchase({
+      figmaUserId: "u-1",
+      email: "user@example.com",
+      flittOrderId: "w2w_pro_u_1_yr",
+      duration: "yearly",
+    });
+
+    const [, update] = mockFindOneAndUpdate.mock.calls[0] as [
+      unknown,
+      { $set: Record<string, unknown> },
+    ];
+    const cycleEnd = update.$set.cycleEndsAt as Date;
+    expect(cycleEnd.getTime() - fakeNow.getTime()).toBe(
+      CYCLE_DURATION_YEARLY_MS,
+    );
+    const sub = update.$set.subscription as {
+      lastDuration: "monthly" | "yearly";
+    };
+    expect(sub.lastDuration).toBe("yearly");
   });
 
   it("stacks +30 days onto cycleEndsAt for an already-active Pro (early renewal)", async () => {

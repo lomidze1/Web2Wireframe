@@ -19,6 +19,13 @@ export interface ISubscription {
   autoRenew: boolean;
   /** Set when an expiry reminder email has been sent for the current cycle. */
   reminderSentAt: Date | null;
+  /**
+   * Tier purchased on the most recent one-time charge. Used by the expiry
+   * reminder to render the correct price/duration and to forward `plan=` to
+   * the Renew page so yearly users are re-billed yearly instead of silently
+   * downgraded to monthly. Defaults to "monthly" for legacy documents.
+   */
+  lastDuration: ProDuration;
 }
 
 export interface IUsage {
@@ -104,6 +111,11 @@ const SubscriptionSchema = new Schema<ISubscription>(
     failureCount: { type: Number, default: 0 },
     autoRenew: { type: Boolean, default: false },
     reminderSentAt: { type: Date, default: null },
+    lastDuration: {
+      type: String,
+      enum: ["monthly", "yearly"] as const,
+      default: "monthly",
+    },
   },
   { _id: false },
 );

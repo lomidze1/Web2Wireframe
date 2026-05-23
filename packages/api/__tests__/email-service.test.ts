@@ -16,6 +16,7 @@ const data = {
   email: "user@example.com",
   expiresAt: "2026-06-15",
   renewUrl: "https://web2wireframe.test/renew?uid=u-1",
+  duration: "monthly" as const,
 };
 
 describe("generateExpiryReminderHtml", () => {
@@ -31,6 +32,22 @@ describe("generateExpiryReminderHtml", () => {
     expect(html).not.toContain("auto-renew");
     expect(html).not.toContain("subscription");
   });
+
+  it("renders monthly price/cycle copy when duration is monthly", () => {
+    const html = generateExpiryReminderHtml(data);
+    expect(html).toContain("$16");
+    expect(html).toContain("30 days");
+    expect(html).not.toContain("$144");
+    expect(html).not.toContain("365 days");
+  });
+
+  it("renders yearly price/cycle copy when duration is yearly", () => {
+    const html = generateExpiryReminderHtml({ ...data, duration: "yearly" });
+    expect(html).toContain("$144");
+    expect(html).toContain("365 days");
+    expect(html).not.toContain("$16");
+    expect(html).not.toContain("30 days");
+  });
 });
 
 describe("generateExpiryReminderText", () => {
@@ -40,6 +57,14 @@ describe("generateExpiryReminderText", () => {
     expect(text).toContain("https://web2wireframe.test/renew?uid=u-1");
     expect(text.toLowerCase()).toContain("expire");
     expect(text).not.toContain("<");
+  });
+
+  it("swaps to $144 / 365 days for yearly", () => {
+    const text = generateExpiryReminderText({ ...data, duration: "yearly" });
+    expect(text).toContain("$144");
+    expect(text).toContain("365 days");
+    expect(text).not.toContain("$16");
+    expect(text).not.toContain("30 days");
   });
 });
 

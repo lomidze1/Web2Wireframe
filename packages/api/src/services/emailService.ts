@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { config } from "../config/env.js";
 import type { EmailPayload } from "../config/website-types.js";
+import type { ProDuration } from "../models/License.js";
 import { metrics } from "./metrics.js";
 
 // Lazy init — avoid crash when RESEND_API_KEY is not set (e.g., in tests)
@@ -328,11 +329,23 @@ Detected plan: ${data.plan} (${data.planVerified ? "verified" : "unverified"})
 `;
 };
 
+/** Price + cycle copy shown in the expiry reminder. */
+function reminderTierCopy(duration: ProDuration): {
+  priceLabel: string;
+  cycleLabel: string;
+} {
+  return duration === "yearly"
+    ? { priceLabel: "$144", cycleLabel: "365 days" }
+    : { priceLabel: "$16", cycleLabel: "30 days" };
+}
+
 export const generateExpiryReminderHtml = (data: {
   email: string;
   expiresAt: string;
   renewUrl: string;
+  duration: ProDuration;
 }): string => {
+  const { priceLabel, cycleLabel } = reminderTierCopy(data.duration);
   return `
     <!DOCTYPE html>
     <html lang="en">
@@ -357,8 +370,8 @@ export const generateExpiryReminderHtml = (data: {
         <p>Your Pro access ends on <strong>${escapeHtml(
           data.expiresAt,
         )}</strong>. After that your account returns to the Free plan (10 imports per month).</p>
-        <p>Renew for $16 to keep unlimited imports for another 30 days.</p>
-        <p><a class="cta" href="${escapeHtml(data.renewUrl)}">Renew Pro — $16</a></p>
+        <p>Renew for ${priceLabel} to keep unlimited imports for another ${cycleLabel}.</p>
+        <p><a class="cta" href="${escapeHtml(data.renewUrl)}">Renew Pro — ${priceLabel}</a></p>
         <p class="meta">One-time payment — you're only charged when you choose to renew.</p>
         <div class="footer">
           <p>You're receiving this because Pro access is linked to ${escapeHtml(
@@ -375,13 +388,15 @@ export const generateExpiryReminderText = (data: {
   email: string;
   expiresAt: string;
   renewUrl: string;
+  duration: ProDuration;
 }): string => {
+  const { priceLabel, cycleLabel } = reminderTierCopy(data.duration);
   return `
 Your Web2Wireframe Pro access is about to expire.
 
 Your Pro access ends on ${data.expiresAt}. After that your account returns to the Free plan (10 imports per month).
 
-Renew for $16 to keep unlimited imports for another 30 days:
+Renew for ${priceLabel} to keep unlimited imports for another ${cycleLabel}:
 ${data.renewUrl}
 
 One-time payment — you're only charged when you choose to renew.

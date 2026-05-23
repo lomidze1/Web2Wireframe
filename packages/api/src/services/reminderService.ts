@@ -45,9 +45,10 @@ export async function runExpiryReminders(): Promise<{
     );
     if (!claimed || !claimed.email) continue;
 
+    const duration = claimed.subscription?.lastDuration ?? "monthly";
     const renewUrl = `${config.website.baseUrl}/renew?uid=${encodeURIComponent(
       claimed.figmaUserId,
-    )}`;
+    )}&plan=${duration}`;
     const expiresAt = claimed.cycleEndsAt.toISOString().slice(0, 10);
 
     try {
@@ -59,11 +60,13 @@ export async function runExpiryReminders(): Promise<{
           email: claimed.email,
           expiresAt,
           renewUrl,
+          duration,
         }),
         text: generateExpiryReminderText({
           email: claimed.email,
           expiresAt,
           renewUrl,
+          duration,
         }),
       });
       sent += 1;

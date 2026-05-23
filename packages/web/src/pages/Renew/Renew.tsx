@@ -21,9 +21,18 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3002";
  * The checkout URL is pre-fetched on mount so the click is instantaneous —
  * the friction added is just the visual confirmation step.
  */
+type RenewPlan = "monthly" | "yearly";
+
 const Renew = (): ReactElement => {
   const [params] = useSearchParams();
   const uid = params.get("uid");
+  // Whitelist — anything other than "yearly" falls back to monthly so an
+  // unrecognized or attacker-supplied `?plan=` value can only ever undercharge
+  // the page copy, never display $0 or trigger a backend reject.
+  const planParam = params.get("plan");
+  const plan: RenewPlan = planParam === "yearly" ? "yearly" : "monthly";
+  const priceLabel = plan === "yearly" ? "$144 USD" : "$16 USD";
+  const cycleLabel = plan === "yearly" ? "365 days" : "30 days";
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,7 +46,7 @@ const Renew = (): ReactElement => {
         const res = await fetch(`${API_URL}/api/checkout/create`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ figmaUserId: uid }),
+          body: JSON.stringify({ figmaUserId: uid, plan }),
         });
         const data = (await res.json()) as {
           checkoutUrl?: string;
@@ -66,7 +75,7 @@ const Renew = (): ReactElement => {
     return () => {
       cancelled = true;
     };
-  }, [uid]);
+  }, [uid, plan]);
 
   function handleConfirmRenew(): void {
     if (checkoutUrl) {
@@ -118,8 +127,8 @@ const Renew = (): ReactElement => {
                 <div className={styles.uidValue}>{uid}</div>
               </div>
               <p>
-                <strong>$16 USD</strong> · 30 days of unlimited imports ·
-                One-time payment, no auto-renewal.
+                <strong>{priceLabel}</strong> · {cycleLabel} of unlimited
+                imports · One-time payment, no auto-renewal.
               </p>
               <button
                 type="button"

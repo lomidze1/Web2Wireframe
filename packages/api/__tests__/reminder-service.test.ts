@@ -89,10 +89,29 @@ describe("runExpiryReminders", () => {
     );
     expect(mockSendSupportEmail).toHaveBeenCalledOnce();
     expect(mockSendSupportEmail.mock.calls[0][0].to).toBe("user@example.com");
+    // Default (missing subscription.lastDuration) → monthly.
     expect(mockGenHtml.mock.calls[0][0].renewUrl).toBe(
-      "https://web2wireframe.test/renew?uid=u-1",
+      "https://web2wireframe.test/renew?uid=u-1&plan=monthly",
     );
+    expect(mockGenHtml.mock.calls[0][0].duration).toBe("monthly");
+    expect(mockGenText.mock.calls[0][0].duration).toBe("monthly");
     expect(result).toEqual({ sent: 1, failed: 0 });
+  });
+
+  it("forwards plan=yearly when the license's last purchase was yearly", async () => {
+    const cand = makeCandidate({
+      subscription: { lastDuration: "yearly" },
+    });
+    mockFind.mockResolvedValue([cand]);
+    mockFindOneAndUpdate.mockResolvedValue(cand);
+
+    await runExpiryReminders();
+
+    expect(mockGenHtml.mock.calls[0][0].renewUrl).toBe(
+      "https://web2wireframe.test/renew?uid=u-1&plan=yearly",
+    );
+    expect(mockGenHtml.mock.calls[0][0].duration).toBe("yearly");
+    expect(mockGenText.mock.calls[0][0].duration).toBe("yearly");
   });
 
   it("does not send when the atomic claim is lost to another runner", async () => {
