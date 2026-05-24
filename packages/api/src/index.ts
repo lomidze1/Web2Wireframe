@@ -32,6 +32,7 @@ import checkoutRoutes, {
 import authTokenRoutes from "./routes/plugin/auth-token.js";
 import adminLicenseRoutes from "./routes/admin/license.js";
 import adminStatsRoutes from "./routes/admin/stats.js";
+import adminPanelRoutes from "./routes/admin/panel.js";
 import {
   authRateLimiter,
   checkoutRateLimiter,
@@ -233,6 +234,7 @@ pluginRouter.use("/api/subscription", checkoutRateLimiter, cancelRouter);
 // Admin endpoints (curl-driven, ADMIN_TOKEN-protected)
 pluginRouter.use("/api/admin/license", adminLicenseRoutes);
 pluginRouter.use("/api/admin/stats", adminStatsRoutes);
+pluginRouter.use("/api/admin/panel", adminPanelRoutes);
 
 // Functional plugin routes (optional auth)
 // Every functional route applies its own auth per-route: import/ai/wireframe/
