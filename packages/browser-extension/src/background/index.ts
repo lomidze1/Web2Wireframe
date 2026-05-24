@@ -89,17 +89,17 @@ import {
 
 // Browser extension-specific types (local)
 import type { ExtensionMessage, SelectionBounds } from "@/shared/types";
-import { DEFAULT_SETTINGS, STORAGE_KEYS } from "@/shared/constants";
 import { analyzeColorsFromTree } from "@/shared/utils";
 
-// Current capture state
-let isCapturing = false;
-let _captureProgress = 0;
+// Module-level state (extracted from monolithic index.ts).
+import { state, updateProgress } from "./state";
+import { getSettings, updateSettings } from "./utils/settings";
+import { autoDownloadResult, getDomainFromUrl, sendToBackend } from "./utils/download";
+import { createEmptyElement, categorizeCSSVariable } from "./utils/misc";
 
-// CDP Inspect Mode state
-let inspectModeClient: CDPClient | null = null;
-let inspectModeTabId: number | null = null;
-let inspectModeOptions: CaptureOptions = DEFAULT_CAPTURE_OPTIONS;
+// Current capture state — see ./state.ts for the canonical definitions.
+// We read/write through `state.*` directly so the same module-scope
+// values stay reachable from the handlers extracted in follow-up phases.
 
 /**
  * Listen for messages from popup/content scripts
@@ -194,7 +194,7 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (message.type === "GET_CAPTURE_STATUS") {
-      sendResponse({ isCapturing, progress: _captureProgress });
+      sendResponse({ isCapturing: state.isCapturing, progress: state.captureProgress });
       return false;
     }
 
@@ -255,9 +255,9 @@ async function startInspectMode(
     await client.attach();
     await client.enableDomains("DOM", "Overlay", "CSS", "DOMSnapshot");
 
-    inspectModeClient = client;
-    inspectModeTabId = tabId;
-    inspectModeOptions = options;
+    state.inspectModeClient = client;
+    state.inspectModeTabId = tabId;
+    state.inspectModeOptions = options;
 
     // Highlight configuration (similar to DevTools)
     const highlightConfig = {
@@ -287,7 +287,7 @@ async function startInspectMode(
         const result = await handleCaptureElementByBackendId(
           tabId,
           backendNodeId,
-          inspectModeOptions,
+          state.inspectModeOptions,
           client,
         );
         console.log("[W2W] Element capture complete, downloading...");
@@ -324,33 +324,33 @@ async function startInspectMode(
  * Cancel CDP Inspect Mode
  */
 async function cancelInspectMode(): Promise<void> {
-  if (inspectModeClient) {
+  if (state.inspectModeClient) {
     try {
       // Disable inspect mode
-      await inspectModeClient.send("Overlay.setInspectMode", {
+      await state.inspectModeClient.send("Overlay.setInspectMode", {
         mode: "none",
         highlightConfig: {},
       }).catch(() => {});
 
       // Destroy client
-      await inspectModeClient.destroy();
+      await state.inspectModeClient.destroy();
     } catch {
       // Ignore cleanup errors
     }
-    inspectModeClient = null;
+    state.inspectModeClient = null;
   }
 
   // Remove UI from page
-  if (inspectModeTabId) {
+  if (state.inspectModeTabId) {
     try {
-      await chrome.tabs.sendMessage(inspectModeTabId, { type: "HIDE_SELECTION_UI" });
+      await chrome.tabs.sendMessage(state.inspectModeTabId, { type: "HIDE_SELECTION_UI" });
     } catch {
       // Content script might not be ready
     }
   }
 
-  inspectModeTabId = null;
-  inspectModeOptions = DEFAULT_CAPTURE_OPTIONS;
+  state.inspectModeTabId = null;
+  state.inspectModeOptions = DEFAULT_CAPTURE_OPTIONS;
 }
 
 /**
@@ -493,12 +493,12 @@ async function handleCapturePage(
   tabId: number,
   options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS,
 ): Promise<CaptureResult> {
-  if (isCapturing) {
+  if (state.isCapturing) {
     throw new Error("Capture already in progress");
   }
 
-  isCapturing = true;
-  _captureProgress = 0;
+  state.isCapturing = true;
+  state.captureProgress = 0;
   let client: CDPClient | null = null;
 
   try {
@@ -819,7 +819,7 @@ async function handleCapturePage(
       }
       await client.destroy();
     }
-    isCapturing = false;
+    state.isCapturing = false;
   }
 }
 
@@ -843,12 +843,12 @@ async function handleCapturePageW2W(
   tabId: number,
   options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS,
 ): Promise<W2WMultiCaptureResult> {
-  if (isCapturing) {
+  if (state.isCapturing) {
     throw new Error("Capture already in progress");
   }
 
-  isCapturing = true;
-  _captureProgress = 0;
+  state.isCapturing = true;
+  state.captureProgress = 0;
   let client: CDPClient | null = null;
 
   try {
@@ -1486,7 +1486,7 @@ async function handleCapturePageW2W(
       }
       await client.destroy();
     }
-    isCapturing = false;
+    state.isCapturing = false;
     // [W2W-VERIFY] safety: close any open console group on error path
     try { console.groupEnd(); } catch { /* noop */ }
   }
@@ -1578,12 +1578,12 @@ async function handleCaptureElement(
   bounds: SelectionBounds,
   options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS,
 ): Promise<CaptureResult> {
-  if (isCapturing) {
+  if (state.isCapturing) {
     throw new Error("Capture already in progress");
   }
 
-  isCapturing = true;
-  _captureProgress = 0;
+  state.isCapturing = true;
+  state.captureProgress = 0;
   let client: CDPClient | null = null;
 
   try {
@@ -1755,7 +1755,7 @@ async function handleCaptureElement(
     if (client) {
       await client.destroy();
     }
-    isCapturing = false;
+    state.isCapturing = false;
   }
 }
 
@@ -1769,12 +1769,12 @@ async function handleCaptureElementByBackendId(
   options: CaptureOptions = DEFAULT_CAPTURE_OPTIONS,
   existingClient?: CDPClient,
 ): Promise<CaptureResult> {
-  if (isCapturing) {
+  if (state.isCapturing) {
     throw new Error("Capture already in progress");
   }
 
-  isCapturing = true;
-  _captureProgress = 0;
+  state.isCapturing = true;
+  state.captureProgress = 0;
   let client: CDPClient | null = existingClient || null;
   const shouldDestroyClient = !existingClient;
 
@@ -1949,7 +1949,7 @@ async function handleCaptureElementByBackendId(
     if (shouldDestroyClient && client) {
       await client.destroy();
     }
-    isCapturing = false;
+    state.isCapturing = false;
   }
 }
 
@@ -2751,237 +2751,5 @@ function needsFrameWrapper(
   return false;
 }
 
-/**
- * Create an empty element for the selection area
- */
-function createEmptyElement(width: number, height: number): ExtractedElement {
-  return {
-    id: generateId(),
-    type: "frame",
-    tag: "div",
-    name: "Selected Area",
-    x: 0,
-    y: 0,
-    width,
-    height,
-    layoutMode: "NONE",
-    itemSpacing: 0,
-    padding: { top: 0, right: 0, bottom: 0, left: 0 },
-    fills: [],
-    strokes: [],
-    effects: [],
-    backgroundColor: null,
-    backgroundGradient: null,
-    textColor: null,
-    borderColor: null,
-    borderWidth: 0,
-    borderRadius: { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 },
-    boxShadow: null,
-    fontFamily: "Inter",
-    fontSize: 16,
-    fontWeight: 400,
-    lineHeight: 1.5,
-    letterSpacing: 0,
-    textAlign: "left",
-    textContent: "",
-    opacity: 1,
-    isPlaceholder: false,
-    children: [],
-  };
-}
-
-/**
- * Categorize a CSS variable based on its name and value
- */
-function categorizeCSSVariable(name: string, value: string): string {
-  const nameLower = name.toLowerCase();
-
-  // Check name patterns first
-  if (
-    nameLower.includes("color") ||
-    nameLower.includes("bg") ||
-    nameLower.includes("text")
-  ) {
-    return "color";
-  }
-  if (
-    nameLower.includes("font") ||
-    nameLower.includes("text-size") ||
-    nameLower.includes("line-height")
-  ) {
-    return "typography";
-  }
-  if (
-    nameLower.includes("spacing") ||
-    nameLower.includes("gap") ||
-    nameLower.includes("padding") ||
-    nameLower.includes("margin")
-  ) {
-    return "spacing";
-  }
-  if (nameLower.includes("radius") || nameLower.includes("rounded")) {
-    return "radius";
-  }
-  if (nameLower.includes("shadow")) {
-    return "shadow";
-  }
-  if (nameLower.includes("border")) {
-    return "border";
-  }
-
-  // Check value patterns
-  const valueLower = value.toLowerCase();
-  if (
-    valueLower.startsWith("#") ||
-    valueLower.startsWith("rgb") ||
-    valueLower.startsWith("hsl")
-  ) {
-    return "color";
-  }
-  if (
-    valueLower.includes("px") ||
-    valueLower.includes("rem") ||
-    valueLower.includes("em")
-  ) {
-    // Could be spacing or typography
-    if (nameLower.includes("size")) {
-      return "typography";
-    }
-    return "spacing";
-  }
-
-  return "other";
-}
-
-/**
- * Update capture progress
- */
-function updateProgress(progress: number, status: string) {
-  _captureProgress = progress;
-  chrome.runtime
-    .sendMessage({
-      type: "CAPTURE_PROGRESS",
-      progress,
-      status,
-    })
-    .catch(() => {});
-}
-
-/**
- * Auto-download capture result from background service worker.
- * Uses chrome.offscreen API for large JSON (data URL has ~2MB limit),
- * falls back to data URL for smaller payloads.
- */
-async function autoDownloadResult(
-  result: CaptureResult,
-  tabId: number,
-  captureType: "page" | "area" | "element",
-): Promise<void> {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    const domain = getDomainFromUrl(tab.url || "");
-    const viewportLabel = result.frames.map((f) => f.viewport.width).join("_");
-    const filename = `${domain}_${viewportLabel}_wireframe.json`;
-
-    const jsonString = JSON.stringify(result, null, 2);
-    console.log(`[W2W] Auto-download: ${filename} (${(jsonString.length / 1024).toFixed(0)}KB)`);
-
-    // Use data URL approach (works in service worker since Chrome 116+)
-    const blob = new Blob([jsonString], { type: "application/json" });
-    const reader = new FileReader();
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-
-    await chrome.downloads.download({
-      url: dataUrl,
-      filename,
-      saveAs: false,
-    });
-    console.log("[W2W] Download triggered:", filename);
-  } catch (err) {
-    console.error("[W2W] Auto-download primary failed:", err);
-    // Fallback: inject script into the tab to trigger download from page context
-    // (page context has full DOM API support including URL.createObjectURL)
-    try {
-      const jsonString = JSON.stringify(result, null, 2);
-      const domain = getDomainFromUrl(result.url || "");
-      const fallbackName = `${domain}_${captureType}_wireframe.json`;
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        func: (json: string, name: string) => {
-          const blob = new Blob([json], { type: "application/json" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = name;
-          a.click();
-          URL.revokeObjectURL(url);
-        },
-        args: [jsonString, fallbackName],
-      });
-      console.log("[W2W] Fallback download via page injection succeeded");
-    } catch (fallbackErr) {
-      console.error("[W2W] Fallback download also failed:", fallbackErr);
-    }
-  }
-}
-
-/**
- * Extract domain from URL for filename
- */
-function getDomainFromUrl(url: string): string {
-  try {
-    const hostname = new URL(url).hostname;
-    return hostname.replace(/^www\./, "").replace(/\./g, "_");
-  } catch {
-    return "website";
-  }
-}
-
-/**
- * Send captured data to backend
- */
-async function sendToBackend(data: CaptureResult): Promise<unknown> {
-  const settings = await getSettings();
-
-  const response = await fetch(settings.backendUrl + "/api/import-cdp", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      captureData: data,
-      pairingCode: settings.pairingCode,
-      timestamp: Date.now(),
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Backend error: ${response.status}`);
-  }
-
-  return response.json();
-}
-
-/**
- * Get extension settings
- */
-async function getSettings() {
-  const result = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS);
-  return { ...DEFAULT_SETTINGS, ...result[STORAGE_KEYS.SETTINGS] };
-}
-
-/**
- * Update extension settings
- */
-async function updateSettings(settings: object) {
-  const current = await getSettings();
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.SETTINGS]: { ...current, ...settings },
-  });
-}
 
 // Extension loaded
