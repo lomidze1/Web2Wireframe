@@ -1,4 +1,11 @@
 import "dotenv/config";
+import { gateConsoleInProduction } from "./utils/consoleGating.js";
+
+// Run BEFORE any other imports execute logging code. Once Node has resolved
+// the rest of the module graph, debug `console.log` calls from libraries
+// are no-ops in production.
+gateConsoleInProduction();
+
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import session from "express-session";

@@ -9,6 +9,11 @@
  * Uses shared-extraction package for unified extraction logic.
  */
 
+import { gateConsoleInProduction } from "../shared/consoleGating";
+
+// Service worker is its own JS context — gate console here too.
+gateConsoleInProduction();
+
 // Browser-specific CDP client (local - uses chrome.debugger)
 import { createCDPClient, CDPClient } from "./cdp/client";
 import { getDocument, getScrollDimensions } from "./cdp/dom";

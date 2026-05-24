@@ -5,6 +5,11 @@
  * and W2W DOM extraction.
  */
 
+import { gateConsoleInProduction } from "../shared/consoleGating";
+
+// Content scripts get a fresh JS context per page load — gate here.
+gateConsoleInProduction();
+
 import {
   extractPage,
   cleanupMarkers,
