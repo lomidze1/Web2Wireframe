@@ -1,19 +1,20 @@
 /**
- * Background Service Worker
- * Main entry point for the extension's background processes
+ * Background Service Worker — entry point.
  *
- * NEW EFFICIENT APPROACH:
- * 1. DOMSnapshot.captureSnapshot - ONE call for entire page (layout + computed styles)
- * 2. CSS.getMatchedStylesForNode - ONLY for nodes with gradients/variables (10-20 calls, not 500+)
+ * Thin shim: gate console output, wire cross-module state, and route
+ * `chrome.runtime.onMessage` to the appropriate handler. The actual
+ * capture pipelines live in:
  *
- * Uses shared-extraction package for unified extraction logic.
+ *   capture/legacy.ts   — DOMSnapshot-only flow (unreachable from UI;
+ *                          kept for /api/import-cdp parity)
+ *   capture/w2w.ts      — active hybrid content-script + CDP flow
+ *   capture/element.ts  — area-capture / inspect-mode subtree extraction
+ *   inspect/index.ts    — CDP element-picker mode
+ *   state.ts            — cross-handler mutable state
+ *   utils/              — settings, downloads, helpers
  *
- * Note on `eslint-disable no-console`: the `[W2W]`-tagged capture-flow
- * tracing in this file is the primary tool for diagnosing CDP timing /
- * resource-load issues against new sites. It's silenced in production
- * builds via `gateConsoleInProduction()` (see ../shared/consoleGating).
- * The lint rule would otherwise flag every line, drowning out new
- * accidental debug logs we DO want to catch elsewhere.
+ * The `[W2W]` traces below are silenced in prod by
+ * `gateConsoleInProduction()` (see ../shared/consoleGating).
  */
 /* eslint-disable no-console */
 
@@ -22,10 +23,8 @@ import { gateConsoleInProduction } from "../shared/consoleGating";
 // Service worker is its own JS context — gate console here too.
 gateConsoleInProduction();
 
-// Browser extension-specific types (local)
 import type { ExtensionMessage, CaptureOptions } from "@/shared/types";
 
-// Module-level state (extracted from monolithic index.ts).
 import { state } from "./state";
 import { getSettings, updateSettings } from "./utils/settings";
 import { autoDownloadResult, getDomainFromUrl, sendToBackend } from "./utils/download";
@@ -47,12 +46,10 @@ registerCaptureByBackendId((tabId, backendNodeId, options, client) =>
   handleCaptureElementByBackendId(tabId, backendNodeId, options, client),
 );
 
-// Current capture state — see ./state.ts for the canonical definitions.
-// We read/write through `state.*` directly so the same module-scope
-// values stay reachable from the handlers extracted in follow-up phases.
-
 /**
- * Listen for messages from popup/content scripts
+ * Dispatch messages from popup, options, and content scripts to the
+ * appropriate handler. Returning `true` keeps the message channel open
+ * so the handler can resolve the promise and call sendResponse later.
  */
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, sender, sendResponse) => {
@@ -187,6 +184,3 @@ chrome.runtime.onMessage.addListener(
     return false;
   },
 );
-
-
-// Extension loaded
