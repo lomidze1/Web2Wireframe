@@ -578,7 +578,10 @@ export async function renderHTMLContentW2W(
       let parsed: URL;
       try { parsed = new URL(reqUrl); } catch { void req.abort(); return; }
       if (isPrivateHost(parsed.hostname)) { void req.abort(); return; }
-      if (parsed.protocol !== "https:" && !/^(localhost|127\.)/i.test(parsed.hostname)) {
+      if (
+        parsed.protocol !== "https:" &&
+        !/^(?:localhost|127\.\d+\.\d+\.\d+)$/i.test(parsed.hostname)
+      ) {
         void req.abort();
         return;
       }

@@ -33,7 +33,9 @@ import authTokenRoutes from "./routes/plugin/auth-token.js";
 import adminLicenseRoutes from "./routes/admin/license.js";
 import adminStatsRoutes from "./routes/admin/stats.js";
 import {
+  authRateLimiter,
   checkoutRateLimiter,
+  checkoutByUserRateLimiter,
   webhookRateLimiter,
 } from "./middleware/rateLimit.js";
 import { flittIpAllowlist } from "./middleware/flittIpAllowlist.js";
@@ -146,6 +148,17 @@ const allowedOriginHosts = (corsOrigin ?? "")
   .map((o) => o.trim())
   .filter((o) => o.length > 0 && o !== "*");
 
+/**
+ * Subdomains we trust for each whitelisted parent host. Used to bound the
+ * "endsWith" match so e.g. an attacker-controlled `evil.figma.com` user-content
+ * subdomain can't pivot through CORS with credentials. Add new subdomains here
+ * explicitly when Figma legitimately ships them.
+ */
+const ALLOWED_SUBDOMAINS: Record<string, ReadonlySet<string>> = {
+  "figma.com": new Set(["www", "static", "app"]),
+  "web2wireframe.design": new Set(["www", "api"]),
+};
+
 // Dev-only wildcard. Production paths can never reach this branch because
 // of the guard above.
 const allowAllOrigins = !isProduction && (!corsOrigin || corsOrigin === "*");
@@ -172,8 +185,17 @@ pluginRouter.use(
       }
       const ok = allowedOriginHosts.some((allowed) => {
         const a = allowed.toLowerCase();
-        // Exact match, or subdomain match (e.g. "figma.com" matches "www.figma.com")
-        return hostname === a || hostname.endsWith("." + a);
+        if (hostname === a) return true;
+        // Subdomain match must come from a small known list (see
+        // ALLOWED_SUBDOMAINS). Open-ended `endsWith(.figma.com)` previously
+        // accepted any subdomain — including user-content sandboxes that
+        // can host attacker JS, which could pivot via credentialed CORS.
+        if (!hostname.endsWith("." + a)) return false;
+        const subdomain = hostname.slice(0, -("." + a).length);
+        // Reject deeply nested subdomains entirely (no `foo.bar.figma.com`).
+        if (subdomain.includes(".")) return false;
+        const allowList = ALLOWED_SUBDOMAINS[a];
+        return allowList?.has(subdomain) ?? false;
       });
       if (ok) {
         callback(null, true);
@@ -188,13 +210,18 @@ pluginRouter.use(
 // Public plugin routes (no auth)
 pluginRouter.use("/api", pluginAuthRoutes);
 pluginRouter.use("/api", pluginDefaultsRoutes);
-pluginRouter.use("/api/auth", authTokenRoutes);
+pluginRouter.use("/api/auth", authRateLimiter, authTokenRoutes);
 
 // License routes (direct MongoDB — no more proxy)
 pluginRouter.use("/api/license", licenseRoutes);
 
 // Flitt payment routes — unique prefixes, so mount-level rate limiting is safe.
-pluginRouter.use("/api/checkout", checkoutRateLimiter, checkoutRoutes);
+pluginRouter.use(
+  "/api/checkout",
+  checkoutRateLimiter,
+  checkoutByUserRateLimiter,
+  checkoutRoutes,
+);
 pluginRouter.use(
   "/api/webhooks",
   webhookRateLimiter,
