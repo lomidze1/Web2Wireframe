@@ -47,7 +47,6 @@ import { config } from "./config/env.js";
 import websiteSupportRoutes from "./routes/website/support.js";
 import websiteFigmaAuthRoutes from "./routes/website/figmaAuth.js";
 import websiteSessionRoutes from "./routes/website/session.js";
-import { errorHandler } from "./middleware/errorHandler.js";
 import {
   assertProductionSecrets,
   assertProductionUrls,

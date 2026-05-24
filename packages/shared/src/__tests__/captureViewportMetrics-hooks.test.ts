@@ -18,15 +18,8 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import {
-  captureViewportMetrics,
-  getStabilizationConfig,
-  cleanupViewportCapture,
-} from "../viewport-orchestration";
-import type {
-  StabilizationClient,
-  ViewportMetadata,
-} from "../viewport-orchestration";
+import { captureViewportMetrics } from "../viewport-orchestration";
+import type { StabilizationClient } from "../viewport-orchestration";
 
 // ============================================================================
 // MOCK CDP CLIENT (იგივე pattern რაც viewport-orchestration.test.ts-ში)
@@ -331,13 +324,11 @@ describe("captureViewportMetrics — onAfterStabilization hook", () => {
 
   it("should allow hook to modify page state before metrics capture (auto-scroll simulation)", async () => {
     const client = new MockCDPClient();
-    let metricsCallCount = 0;
     let hookCalled = false;
 
     // Before hook: page height is 2000 (no lazy content loaded)
     // After hook (auto-scroll): page height grows to 8000
     client.onSend("Page.getLayoutMetrics", () => {
-      metricsCallCount++;
       const height = hookCalled ? 8000 : 2000;
       return {
         contentSize: { width: 1440, height },
@@ -583,14 +574,7 @@ describe("captureViewportMetrics — navigationFn option", () => {
 
   it("should call navigationFn AFTER stabilization listeners are registered", async () => {
     const client = new MockCDPClient();
-    let listenersRegisteredBeforeNav = false;
-
     const navFn = vi.fn().mockImplementation(async () => {
-      // Check that listeners exist at navigation time
-      listenersRegisteredBeforeNav =
-        (client as unknown as { listeners: Map<string, Set<unknown>> })
-          // Access private field for verification — checking listener registration timing
-          !== undefined;
       // Emit events
       setTimeout(() => {
         client.emit("Page.loadEventFired");

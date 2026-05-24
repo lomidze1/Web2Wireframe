@@ -8,7 +8,6 @@ import {
   parseTrackValue,
   getGridSpan,
   parseGridLineIndex,
-  type FigmaGridTrackSize,
 } from "../grid-parser";
 
 describe("parseTrackValue", () => {

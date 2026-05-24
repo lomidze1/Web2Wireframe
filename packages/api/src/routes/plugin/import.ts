@@ -6,7 +6,7 @@
 
 import { Router, Request, Response } from "express";
 import Wireframe from "../../models/Wireframe.js";
-import { createWireframeData, buildFullPage, createWireframeDataFromHTML, createWireframeDataW2W, createWireframeDataFromHTMLW2W } from "../../lib/htmlExtractor.js";
+import { createWireframeDataW2W, createWireframeDataFromHTMLW2W } from "../../lib/htmlExtractor.js";
 import {
   DEFAULT_PLUGIN_COLORS,
   createLocalStylesStructure,

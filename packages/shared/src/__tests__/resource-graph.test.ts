@@ -474,7 +474,7 @@ describe("getResourceText", () => {
       type: "stylesheet",
     };
 
-    const client = makeMockClient(async (_method, params) => ({
+    const client = makeMockClient(async () => ({
       content: "body {}",
       base64Encoded: false,
     }));

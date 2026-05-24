@@ -461,7 +461,6 @@ export async function analyzeScreenshot({ imageBase64, imageWidth, imageHeight, 
 // ============================================================================
 
 const VALID_LAYOUTS: readonly string[] = ["center-stacked", "two-column", "three-column-grid", "four-column-grid", "sidebar-left", "sidebar-right"];
-const VALID_BACKGROUNDS: readonly string[] = ["background", "surface", "accent", "transparent"];
 
 const LAYOUT_CORRECTIONS: Record<string, LayoutType> = {
   "centered": "center-stacked",
