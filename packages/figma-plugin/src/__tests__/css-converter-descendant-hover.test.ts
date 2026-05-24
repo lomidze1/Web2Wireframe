@@ -41,7 +41,7 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
       classList: ['container'],
       children: [curtainChild],
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(parent as any, { interactionMode: 'variants' });
     expect(result.hasDescendantHover).toBe(true);
   });
@@ -65,14 +65,14 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
       tag: 'section',
       children: [child],
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(root as any, { interactionMode: 'variants' });
     expect(result.hasDescendantHover).toBe(true);
   });
 
   it('hasDescendantHover=undefined for leaf node with no hover', () => {
     const leaf = makeFrame({ tag: 'div', styles: {} });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(leaf as any);
     expect(result.hasDescendantHover).toBeUndefined();
   });
@@ -86,7 +86,7 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
         styles: { backgroundColor: 'rgb(255,0,0)' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(btn as any, { interactionMode: 'variants' });
     expect(result.hasDescendantHover).toBeUndefined();
     // But own pseudoStateStyles should be set:
@@ -112,7 +112,7 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
       children: [childWithHover],
       // NO own hover field
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(btn as any, { interactionMode: 'variants' });
     // Parent should NOT have synthetic FIX 2 diff:
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -135,7 +135,7 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
       styles: { backgroundColor: 'rgb(0,0,0)' },
       children: [passiveChild],
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(btn as any, { interactionMode: 'variants' });
     expect(result.pseudoStateStyles).toBeUndefined();
     expect(result.needsCursorPointer).toBe(true);
@@ -165,7 +165,7 @@ describe('css-converter: FIX 4 hasDescendantHover + FIX 2 gating', () => {
         styles: {},
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(navItem as any, { interactionMode: 'variants' });
     expect(result.pseudoStateStyles).toBeUndefined(); // no self diff (FIX 2 gated)
     expect(result.hasDescendantHover).toBe(true);

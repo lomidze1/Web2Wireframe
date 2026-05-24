@@ -228,7 +228,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         styles: { filter: 'blur(10px)' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     expect(result.pseudoStateStyles?.hover).toBeDefined();
     expect(result.pseudoStateStyles?.hover?.['filter']).toBe('blur(10px)');
@@ -243,7 +243,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         styles: { filter: 'drop-shadow(2px 2px 4px rgba(0,0,0,0.5))' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     expect(result.pseudoStateStyles?.hover?.['filter']).toContain('drop-shadow');
   });
@@ -257,7 +257,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         styles: { filter: 'none', backgroundColor: 'rgb(255,0,0)' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     // Only bg change is in diff
     expect(result.pseudoStateStyles?.hover?.['filter']).toBeUndefined();
@@ -273,7 +273,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         styles: { backdropFilter: 'blur(10px)' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     expect(result.pseudoStateStyles?.hover?.['backdrop-filter']).toBe('blur(10px)');
   });
@@ -287,7 +287,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         styles: { textShadow: '2px 2px 4px rgb(0,0,0)' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     expect(result.pseudoStateStyles?.hover?.['text-shadow']).toBe('2px 2px 4px rgb(0,0,0)');
   });
@@ -301,7 +301,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         styles: { textShadow: '2px 2px 4px black, 0 0 10px blue' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     expect(result.pseudoStateStyles?.hover?.['text-shadow']).toBe(
       '2px 2px 4px black, 0 0 10px blue',
@@ -317,7 +317,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         styles: { clipPath: 'inset(10px)' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     expect(result.pseudoStateStyles?.hover?.['clip-path']).toBe('inset(10px)');
   });
@@ -331,7 +331,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         styles: { clipPath: 'inset(5px 10px)' },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     expect(result.pseudoStateStyles?.hover?.['clip-path']).toBe('inset(5px 10px)');
   });
@@ -355,7 +355,7 @@ describe('css-converter: FIX 3 — effect-producing hover properties', () => {
         },
       }),
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
     const hover = result.pseudoStateStyles?.hover;
     expect(hover).toBeDefined();

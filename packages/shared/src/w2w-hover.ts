@@ -106,7 +106,7 @@ export function w2wFindInteractiveNodes(
   walk(frame);
 
   if (results.length > maxResults) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `[w2w-hover] Truncated interactive-node pool: found ${results.length}, cap=${maxResults}`,
     );
@@ -552,7 +552,7 @@ export function w2wFindHoverCandidates(
   }
 
   if (truncatedExtras > 0) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `[w2w-hover] Truncated ${truncatedExtras} extra selectors past cap=${maxResults}`,
     );

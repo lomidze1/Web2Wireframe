@@ -475,7 +475,7 @@ export default function AreaSelection() {
       });
     } else {
       // Legacy format — use old conversion pipeline
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       framesData = prepareFramesForRendering(
         transformedFrames as any,
         {

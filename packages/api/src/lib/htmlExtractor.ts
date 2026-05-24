@@ -12,7 +12,7 @@
  */
 
 /* Browser globals used inside page.evaluate() callbacks (runs in Chromium, not Node) */
-/* eslint-disable no-var */
+ 
 declare const document: { documentElement: { scrollHeight: number } };
 declare const window: { scrollBy(x: number, y: number): void; scrollTo(x: number, y: number): void };
 declare const localStorage: { setItem(key: string, value: string): void };

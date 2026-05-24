@@ -218,7 +218,7 @@ const dotnav = {
 };
 
 const mockContext: RenderContext = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   fontsToLoad: new Set() as any,
   layoutMode: "autoLayout",
   colorMode: "website",
@@ -227,20 +227,20 @@ const mockContext: RenderContext = {
   assetMode: "placeholders",
   interactionMode: "none",
   variableMode: "none",
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   pluginColors: { text: "#11151A", primary: "#000", secondary: "#888", background: "#FFF" } as any,
   pluginFont: { family: "Inter", weight: 400 },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   colorStyleMap: new Map() as any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   textStyleMap: new Map() as any,
   variableValueMap: new Map(),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
 } as any;
 
 describe("Apple.com .media-gallery-dotnav centering", () => {
   it("css-converter preserves layoutMode and justifyContent", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const node = convertW2WToWireframe(dotnav as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -258,7 +258,7 @@ describe("Apple.com .media-gallery-dotnav centering", () => {
   });
 
   it("nodes.ts createNodeInFigma applies primaryAxisAlignItems=CENTER to the dotnav frame", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframeNode = convertW2WToWireframe(dotnav as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -268,7 +268,7 @@ describe("Apple.com .media-gallery-dotnav centering", () => {
     expect(created).not.toBeNull();
     const frame = created as unknown as MockNode;
 
-    // eslint-disable-next-line no-console
+     
     console.log("Rendered dotnav frame:", JSON.stringify({
       name: frame.name,
       layoutMode: frame.layoutMode,

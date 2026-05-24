@@ -1787,7 +1787,7 @@ export function sortChildrenForStacking(
     }
   }
 
-  let result = hasBgImages && rest.length > 0
+  const result = hasBgImages && rest.length > 0
     ? [...bgImages, ...rest]
     : children;
 

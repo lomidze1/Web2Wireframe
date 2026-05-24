@@ -233,7 +233,7 @@ describe("parseBordersToStrokes — per-side signature", () => {
     // The old 4 tests in style-parsers.test.ts use positional args —
     // verify the shim still works for existing callers.
     it("accepts legacy positional arguments for shorthand", () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const strokes = (parseBordersToStrokes as any)(
         "2",
         "#FF0000",
@@ -248,7 +248,7 @@ describe("parseBordersToStrokes — per-side signature", () => {
     });
 
     it("accepts legacy positional per-side shorthand strings", () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const strokes = (parseBordersToStrokes as any)(
         null, null, null,
         "1px solid red",

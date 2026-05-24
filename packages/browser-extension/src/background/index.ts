@@ -519,7 +519,7 @@ async function handleCapturePage(
     const progressPerViewport = 70 / viewports.length;
 
     // CSS Variables map - extracted once on first viewport, reused across all viewports
-    let sharedCssVariablesMap = new Map<string, string>();
+    const sharedCssVariablesMap = new Map<string, string>();
 
     // =========================================================================
     // CAPTURE EACH VIEWPORT SEQUENTIALLY

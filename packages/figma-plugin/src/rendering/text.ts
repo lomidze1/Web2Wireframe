@@ -855,7 +855,7 @@ export async function createTextNode(
       // Use first candidate (preferred for this CSS weight); fall back to next
       // when the font family lacks the preferred style.
       const segCandidates = fontWeightToStyleCandidates(segment.fontWeight);
-      let segStyle = segCandidates[0];
+      const segStyle = segCandidates[0];
 
       let segFontFamily: string;
       if (context?.fontMode === "plugin") {

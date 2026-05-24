@@ -87,7 +87,7 @@ describe("convertStrokesToFigma", () => {
 
   it("plugin-colors mode overrides stroke color with pluginColors.text", () => {
     const result = convertStrokesToFigma([uniformStroke()], {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       colorMode: "plugin",
       pluginColors: { text: "#11151A", primary: "#000", secondary: "#888", background: "#FFF" },
     } as unknown as Parameters<typeof convertStrokesToFigma>[1]);

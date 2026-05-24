@@ -1224,7 +1224,7 @@ export function collectHoverSelectors(): Array<{ trigger: string; target: string
   let hoverCandidates = 0;
   let splitFails = 0;
   let queryFails = 0;
-  let queryThrows = 0;
+  const queryThrows = 0;
   let dedupSkips = 0;
 
   function processRule(rule: CSSRule): void {

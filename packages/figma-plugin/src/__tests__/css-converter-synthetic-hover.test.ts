@@ -43,7 +43,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: { backgroundColor: 'rgb(0, 0, 255)' },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -57,7 +57,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: { color: 'rgb(0, 0, 255)' },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -71,7 +71,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: {},
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -85,7 +85,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: { backgroundColor: 'rgb(200, 200, 200)' },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -99,7 +99,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: {},
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -113,7 +113,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: {},
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -127,7 +127,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: { cursor: 'pointer', backgroundColor: 'rgb(255, 0, 0)' },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -141,7 +141,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: {},
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -154,7 +154,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: { backgroundColor: 'rgb(200, 200, 200)' },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -167,7 +167,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       styles: { color: 'rgb(0, 0, 0)' },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -181,7 +181,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
         attr: { role },
         styles: {},
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const result = convertW2WToWireframe(node as any);
       expect(result.pseudoStateStyles).toBeUndefined();
       expect(result.needsCursorPointer).toBe(true);
@@ -201,7 +201,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       }),
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -222,7 +222,7 @@ describe('css-converter: interactive elements without real hover diff → needsC
       }),
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();
@@ -241,7 +241,7 @@ describe('css-converter: real hover diff still produces pseudoStateStyles', () =
       }),
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles?.hover).toEqual({
@@ -261,7 +261,7 @@ describe('css-converter: real hover diff still produces pseudoStateStyles', () =
       }),
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles?.hover).toBeDefined();
@@ -289,7 +289,7 @@ describe('css-converter: real hover diff still produces pseudoStateStyles', () =
       }),
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const result = convertW2WToWireframe(node as any);
 
     expect(result.pseudoStateStyles).toBeUndefined();

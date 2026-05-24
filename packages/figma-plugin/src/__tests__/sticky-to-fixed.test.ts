@@ -135,7 +135,7 @@ function makeFixedHeader(overrides: Record<string, unknown> = {}) {
 }
 
 const mockContext: RenderContext = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   fontsToLoad: new Set() as any,
   layoutMode: "autoLayout",
   colorMode: "website",
@@ -144,15 +144,15 @@ const mockContext: RenderContext = {
   assetMode: "placeholders",
   interactionMode: "none",
   variableMode: "none",
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   pluginColors: { text: "#000", primary: "#000", secondary: "#888", background: "#FFF" } as any,
   pluginFont: { family: "Inter", weight: 400 },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   colorStyleMap: new Map() as any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   textStyleMap: new Map() as any,
   variableValueMap: new Map(),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
 } as any;
 
 // ============================================================================
@@ -165,7 +165,7 @@ describe("sticky → fixed coercion (nodes.ts)", () => {
   });
 
   it("tags position:sticky frames with w2w_position_fixed pluginData", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframe = convertW2WToWireframe(makeStickyHeader() as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -179,7 +179,7 @@ describe("sticky → fixed coercion (nodes.ts)", () => {
   });
 
   it("tags position:fixed frames with w2w_position_fixed pluginData (regression)", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframe = convertW2WToWireframe(makeFixedHeader() as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -196,7 +196,7 @@ describe("sticky → fixed coercion (nodes.ts)", () => {
     const staticHeader = makeStickyHeader({
       styles: { position: "static" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframe = convertW2WToWireframe(staticHeader as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -213,7 +213,7 @@ describe("sticky → fixed coercion (nodes.ts)", () => {
     const relativeHeader = makeStickyHeader({
       styles: { position: "relative" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframe = convertW2WToWireframe(relativeHeader as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -230,7 +230,7 @@ describe("sticky → fixed coercion (nodes.ts)", () => {
     const header = makeStickyHeader({
       styles: { position: "sticky", top: "10px" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframe = convertW2WToWireframe(header as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -247,7 +247,7 @@ describe("sticky → fixed coercion (nodes.ts)", () => {
     const header = makeStickyHeader({
       styles: { position: "sticky", top: "auto" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframe = convertW2WToWireframe(header as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -263,7 +263,7 @@ describe("sticky → fixed coercion (nodes.ts)", () => {
     const header = makeStickyHeader({
       styles: { position: "sticky", top: "0px" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframe = convertW2WToWireframe(header as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
@@ -276,7 +276,7 @@ describe("sticky → fixed coercion (nodes.ts)", () => {
       styles: { position: "sticky", opacity: "0" },
       opacity: 0,
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const wireframe = convertW2WToWireframe(hiddenSticky as any, {
       layoutMode: "autoLayout",
       interactionMode: "none",
