@@ -11,6 +11,7 @@ import {
 
 import Plan from "../ui/components/modalPopup/planPopup/Plan";
 import { ConfigProvider } from "../ui/shared/ConfigContext";
+import { LicenseProvider } from "../ui/shared/LicenseContext";
 import { applyAuthToken, type License } from "../ui/shared/licenseClient";
 
 const FIGMA_USER_ID = "yearly-test-user";
@@ -90,7 +91,9 @@ describe("Plan modal — Monthly vs Yearly tier UI", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -106,7 +109,7 @@ describe("Plan modal — Monthly vs Yearly tier UI", () => {
 
   it("clicking the Monthly button posts plan='monthly' to /api/checkout/create", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
-      if (typeof url === "string" && url.endsWith("/api/license/me")) {
+      if (typeof url === "string" && url.includes("/api/license/me")) {
         return Promise.resolve(
           new Response(JSON.stringify(freeLicense()), {
             status: 200,
@@ -130,7 +133,9 @@ describe("Plan modal — Monthly vs Yearly tier UI", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -155,7 +160,7 @@ describe("Plan modal — Monthly vs Yearly tier UI", () => {
 
   it("clicking the Yearly button posts plan='yearly' to /api/checkout/create", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
-      if (typeof url === "string" && url.endsWith("/api/license/me")) {
+      if (typeof url === "string" && url.includes("/api/license/me")) {
         return Promise.resolve(
           new Response(JSON.stringify(freeLicense()), {
             status: 200,
@@ -177,7 +182,9 @@ describe("Plan modal — Monthly vs Yearly tier UI", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -208,7 +215,9 @@ describe("Plan modal — Monthly vs Yearly tier UI", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -229,7 +238,9 @@ describe("Plan modal — Monthly vs Yearly tier UI", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -264,7 +275,9 @@ describe("Plan modal — Monthly vs Yearly tier UI", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));

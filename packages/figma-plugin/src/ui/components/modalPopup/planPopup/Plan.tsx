@@ -7,10 +7,10 @@ import {
   fetchMyLicense,
   createCheckout,
   clearAuthToken,
-  type License,
 } from "../../../shared/licenseClient";
 import { dispatchAuthExpired } from "../../../shared/authEvents";
 import { useConfig } from "../../../shared/ConfigContext";
+import { useLicense } from "../../../shared/LicenseContext";
 import { useModal } from "../../../hooks/useModal";
 
 /**
@@ -50,8 +50,18 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   const { config } = useConfig();
   const figmaUserId = config.figmaUserId;
 
-  const [license, setLicense] = useState<License | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // License is preloaded + cached by LicenseProvider on plugin startup, so
+  // the modal renders with data immediately on first open (no blink). The
+  // context also handles refresh after quota-exceeded events and exposes a
+  // refresh() we can call after a successful checkout.
+  const {
+    license,
+    isLoading: isLicenseLoading,
+    error: licenseError,
+    refresh: refreshLicense,
+  } = useLicense();
+  // Local error is reserved for actions that happen inside this modal
+  // (handleGetPro). License fetch errors come from context.
   const [error, setError] = useState<string | null>(null);
   const [isCheckoutPending, setIsCheckoutPending] = useState(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
@@ -72,28 +82,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
     null,
   );
 
-  // ------------------------------------------------------------------
-  // Initial load
-  // ------------------------------------------------------------------
-  useEffect(() => {
-    if (!isOpen || !figmaUserId) return;
-
-    const controller = new AbortController();
-    setIsLoading(true);
-    setError(null);
-
-    fetchMyLicense(figmaUserId, controller.signal)
-      .then(setLicense)
-      .catch((err) => {
-        if (controller.signal.aborted) return;
-        setError(err instanceof Error ? err.message : "Failed to load license");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [isOpen, figmaUserId]);
+  const displayError = error ?? licenseError;
 
   // ------------------------------------------------------------------
   // Stop polling on unmount or close
@@ -184,7 +173,10 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
         if (upgraded || renewed) {
           window.clearInterval(pollTimerRef.current!);
           pollTimerRef.current = null;
-          setLicense(fresh);
+          // Push the just-confirmed license into the shared context so the
+          // footer pill, expiry banner, and any other consumer update too —
+          // not just this modal.
+          void refreshLicense();
           setIsCheckoutPending(false);
           setCheckoutMessage(
             renewed ? "🎉 Pro extended — thanks!" : "🎉 Welcome to Pro!",
@@ -199,7 +191,19 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   // ------------------------------------------------------------------
   // Derived display
   // ------------------------------------------------------------------
-  const planLabel = license?.plan ? license.plan.toUpperCase() : "—";
+  // For Pro, append the tier — "PRO · YEARLY" / "PRO · MONTHLY" — so the
+  // user can tell at a glance which renewal cycle they're on. Falls back to
+  // bare "PRO" when subscription metadata is missing (e.g., legacy license
+  // documents written before `lastDuration` was persisted).
+  const planLabel = (() => {
+    if (!license?.plan) return "—";
+    const base = license.plan.toUpperCase();
+    if (license.plan !== "pro") return base;
+    const tier = license.subscription?.lastDuration;
+    if (tier === "yearly") return `${base} · YEARLY`;
+    if (tier === "monthly") return `${base} · MONTHLY`;
+    return base;
+  })();
   const statusLabel = license?.status
     ? license.status[0].toUpperCase() + license.status.slice(1)
     : "—";
@@ -249,17 +253,17 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               Identifying Figma user…
             </div>
           )}
-          {isLoading && (
+          {!license && isLicenseLoading && (
             <div class={styles.planNotice} role="status" aria-live="polite">
               Loading license…
             </div>
           )}
-          {error && (
+          {displayError && (
             <Fragment>
               <div class={styles.planError} role="alert" aria-live="assertive">
-                {error}
+                {displayError}
               </div>
-              {isAuthRelatedError(error) && (
+              {isAuthRelatedError(displayError) && (
                 <button
                   type="button"
                   class={styles.planCtaLink}

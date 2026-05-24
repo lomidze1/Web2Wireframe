@@ -296,7 +296,7 @@
 /* Small "30 days" / "365 days · $12/mo" line directly under the card title. */
 .planCardSubhead {
   margin: 0;
-  padding: 0 16px 6px;
+  padding: 10px 16px 6px;
   font-size: var(--font-xs);
   color: var(--text-secondary);
 }

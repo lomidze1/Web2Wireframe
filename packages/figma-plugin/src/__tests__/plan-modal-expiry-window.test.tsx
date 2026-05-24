@@ -12,6 +12,7 @@ import {
 import Plan from "../ui/components/modalPopup/planPopup/Plan";
 import ExpiringSoonModal from "../ui/components/modalPopup/ExpiringSoonModal";
 import { ConfigProvider } from "../ui/shared/ConfigContext";
+import { LicenseProvider } from "../ui/shared/LicenseContext";
 import { applyAuthToken, type License } from "../ui/shared/licenseClient";
 
 const FIGMA_USER_ID = "expiry-window-test-user";
@@ -63,7 +64,9 @@ describe("Plan modal — Extend Pro visibility by days remaining", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -88,7 +91,9 @@ describe("Plan modal — Extend Pro visibility by days remaining", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));

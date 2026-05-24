@@ -21,7 +21,6 @@ import {
   applyAuthToken,
   clearAuthToken,
   refreshAuthToken,
-  fetchMyLicense,
 } from "./shared/licenseClient";
 import { API_BASE_URL } from "./shared/apiConfig";
 
@@ -38,6 +37,7 @@ import {
   useConfig,
   SettingsPanel,
 } from "./shared/ConfigContext";
+import { LicenseProvider, useLicense } from "./shared/LicenseContext";
 
 // Import global and base styles
 import styles from "./styles/ui.css";
@@ -138,7 +138,14 @@ function ConnectionGate() {
   if (conn === "disconnected") {
     return <ConnectFigma onConnected={() => setConn("connected")} />;
   }
-  return <AppContent />;
+  // LicenseProvider preloads the user's license during plugin startup so the
+  // Plan modal (and footer pill) render with cached data immediately. Mounted
+  // here — after Connect succeeded — so figmaUserId is reliably present.
+  return (
+    <LicenseProvider>
+      <AppContent />
+    </LicenseProvider>
+  );
 }
 
 function AppContent() {
@@ -159,7 +166,8 @@ function AppContent() {
     return onQuotaExceeded(() => setIsQuotaExceededOpen(true));
   }, []);
 
-  const { config, setOpenSettingsCallback } = useConfig();
+  const { setOpenSettingsCallback } = useConfig();
+  const { license } = useLicense();
 
   // Expiry heads-up: on plugin open, if the user is Pro with ≤3 days left,
   // surface ExpiringSoonModal once. Re-shows on every plugin reopen inside
@@ -167,23 +175,12 @@ function AppContent() {
   // lazy-downgrade flips them to Free server-side and this gate naturally
   // stops firing.
   useEffect(() => {
-    if (!config.figmaUserId) return;
-    const controller = new AbortController();
-    fetchMyLicense(config.figmaUserId, controller.signal)
-      .then((license) => {
-        if (license.plan !== "pro") return;
-        const ms = new Date(license.cycleEndsAt).getTime() - Date.now();
-        if (!Number.isFinite(ms) || ms <= 0) return;
-        const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
-        if (days <= 3) setExpiringDaysRemaining(days);
-      })
-      .catch(() => {
-        // Best-effort heads-up — a transient license fetch failure shouldn't
-        // disrupt the rest of the app's startup. The user will see the
-        // reminder on their next plugin open.
-      });
-    return () => controller.abort();
-  }, [config.figmaUserId]);
+    if (!license || license.plan !== "pro") return;
+    const ms = new Date(license.cycleEndsAt).getTime() - Date.now();
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
+    if (days <= 3) setExpiringDaysRemaining(days);
+  }, [license]);
 
   // Handle asset conversion requests from sandbox (AVIF/WebP → JPEG via Canvas)
   useEffect(() => {

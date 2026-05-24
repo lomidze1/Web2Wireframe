@@ -11,6 +11,7 @@ import {
 
 import Plan from "../ui/components/modalPopup/planPopup/Plan";
 import { ConfigProvider } from "../ui/shared/ConfigContext";
+import { LicenseProvider } from "../ui/shared/LicenseContext";
 import { applyAuthToken } from "../ui/shared/licenseClient";
 
 const FIGMA_USER_ID = "auth-reconnect-test-user";
@@ -46,7 +47,9 @@ describe("Plan modal — auth-failure recovery (Bug 3)", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -70,7 +73,9 @@ describe("Plan modal — auth-failure recovery (Bug 3)", () => {
     try {
       render(
         <ConfigProvider>
-          <Plan isOpen onClose={vi.fn()} />
+          <LicenseProvider>
+            <Plan isOpen onClose={vi.fn()} />
+          </LicenseProvider>
         </ConfigProvider>,
       );
       act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -101,7 +106,9 @@ describe("Plan modal — auth-failure recovery (Bug 3)", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));

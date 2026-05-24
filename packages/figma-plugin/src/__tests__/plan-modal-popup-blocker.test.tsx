@@ -5,6 +5,7 @@ import { render, screen, act, fireEvent, waitFor } from "@testing-library/preact
 
 import Plan from "../ui/components/modalPopup/planPopup/Plan";
 import { ConfigProvider } from "../ui/shared/ConfigContext";
+import { LicenseProvider } from "../ui/shared/LicenseContext";
 import { applyAuthToken, type License } from "../ui/shared/licenseClient";
 
 const FIGMA_USER_ID = "popup-blocker-test-user";
@@ -73,7 +74,9 @@ describe("Plan modal — popup blocker fallback (F7)", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));
@@ -113,7 +116,9 @@ describe("Plan modal — popup blocker fallback (F7)", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
     act(() => dispatchCurrentUser(FIGMA_USER_ID));

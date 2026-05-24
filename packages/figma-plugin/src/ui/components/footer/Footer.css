@@ -99,7 +99,10 @@
   gap: 6px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
+  /* Match the Extension button radius (6px) and the rounded-square shape
+   * shown on the other footer icons' hover state — keeps all footer
+   * interactive elements visually aligned instead of mixing pill + square. */
+  border-radius: var(--radius-input);
   color: var(--text-secondary);
   font-family: var(--font-display);
   font-size: var(--font-xs);

@@ -5,6 +5,7 @@ import { render, screen, act, waitFor } from "@testing-library/preact";
 
 import Plan from "../ui/components/modalPopup/planPopup/Plan";
 import { ConfigProvider } from "../ui/shared/ConfigContext";
+import { LicenseProvider } from "../ui/shared/LicenseContext";
 import { applyAuthToken, type License } from "../ui/shared/licenseClient";
 
 const FIGMA_USER_ID = "figma-user-billing-test";
@@ -78,7 +79,9 @@ describe("Plan modal — Billing email row", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
 
@@ -102,7 +105,9 @@ describe("Plan modal — Billing email row", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
 
@@ -137,7 +142,9 @@ describe("Plan modal — Billing email row", () => {
 
     render(
       <ConfigProvider>
-        <Plan isOpen onClose={vi.fn()} />
+        <LicenseProvider>
+          <Plan isOpen onClose={vi.fn()} />
+        </LicenseProvider>
       </ConfigProvider>,
     );
 

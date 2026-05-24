@@ -1,10 +1,8 @@
 /** @jsx h */
 import { h } from "preact";
-import { useEffect, useState, useCallback } from "preact/hooks";
 import styles from "./Footer.css";
-import { useConfig } from "../../shared/ConfigContext";
-import { fetchMyLicense, type License } from "../../shared/licenseClient";
-import { onQuotaExceeded } from "../../shared/quotaEvents";
+import { type License } from "../../shared/licenseClient";
+import { useLicense } from "../../shared/LicenseContext";
 
 interface FooterProps {
   onSettingsClick: () => void;
@@ -13,11 +11,6 @@ interface FooterProps {
   showExtension?: boolean;
   onExtensionClick?: () => void;
   onRebindFontsClick?: () => void;
-  /**
-   * Trigger to refetch license — increment from parent after Plan modal close
-   * (e.g., when user just upgraded). Footer also refreshes on quota-exceeded.
-   */
-  licenseRefreshKey?: number;
 }
 
 interface PlanLabel {
@@ -57,32 +50,10 @@ export default function Footer({
   showExtension = true,
   onExtensionClick,
   onRebindFontsClick,
-  licenseRefreshKey = 0,
 }: FooterProps) {
-  const { config } = useConfig();
-  const figmaUserId = config.figmaUserId;
-  const [license, setLicense] = useState<License | null>(null);
-
-  const refresh = useCallback(() => {
-    if (!figmaUserId) return;
-    fetchMyLicense(figmaUserId).then(
-      (l) => setLicense(l),
-      () => {
-        /* swallow — pill shows "—" until next refresh */
-      },
-    );
-  }, [figmaUserId]);
-
-  // Fetch on mount + when figmaUserId becomes available + on parent refresh trigger
-  useEffect(() => {
-    refresh();
-  }, [refresh, licenseRefreshKey]);
-
-  // Refresh on quota-exceeded events (server told us we're at the limit)
-  useEffect(() => {
-    return onQuotaExceeded(() => refresh());
-  }, [refresh]);
-
+  // License is preloaded + cached by LicenseProvider (mounted in App.tsx).
+  // Quota-exceeded refresh also lives in the provider — no per-consumer wiring.
+  const { license } = useLicense();
   const planLabel = deriveLabel(license);
 
   return (
