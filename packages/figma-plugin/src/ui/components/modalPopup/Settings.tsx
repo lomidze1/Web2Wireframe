@@ -171,6 +171,7 @@ export default function Settings({
           </button>
           {/* Tutorials panel — TEMPORARILY HIDDEN FOR LAUNCH: tutorial videos
               are not recorded yet. Restore by removing the `false &&` wrapper. */}
+          {/* eslint-disable-next-line no-constant-binary-expression */}
           {false && (
             <button
               type="button"
@@ -234,7 +235,8 @@ export default function Settings({
                     Layout Mode
                   </button>
                   {/* Interactions sidebar button — TEMPORARILY HIDDEN FOR LAUNCH (2026-05-12). Restore by removing `false &&` wrapper. */}
-                  {false && (
+                  {/* eslint-disable-next-line no-constant-binary-expression */}
+          {false && (
                     <button
                       class={`${styles.termSidebarBtn} ${activeTermTab === "interactions" ? styles.termSidebarBtnActive : ""}`}
                       onClick={() => setActiveTermTab("interactions")}
@@ -506,6 +508,7 @@ export default function Settings({
                 )}
 
                 {/* Interactions Tab — TEMPORARILY HIDDEN FOR LAUNCH (2026-05-12). Restore by removing `false &&`. */}
+                {/* eslint-disable-next-line no-constant-binary-expression */}
                 {false && activeTermTab === "interactions" && (
                   <div class={styles.accordionList}>
                     <details class={styles.accordion} open>
@@ -1410,7 +1413,8 @@ export default function Settings({
                 </div>
 
                 {/* Interactions - Collapsible — TEMPORARILY HIDDEN FOR LAUNCH (2026-05-12). Restore by removing `false &&` wrapper. */}
-                {false && (
+                {/* eslint-disable-next-line no-constant-binary-expression */}
+          {false && (
                   <div
                     class={`${styles.configSection} ${!collapsed.interactions ? styles.configSectionActive : ""}`}
                   >

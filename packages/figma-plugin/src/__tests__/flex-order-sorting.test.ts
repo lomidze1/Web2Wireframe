@@ -10,7 +10,7 @@
  * them in the DOM.
  */
 import { describe, it, expect } from "vitest";
-import { sortByFlexOrder, sortChildrenForStacking } from "../rendering/nodes";
+import { sortByFlexOrder } from "../rendering/nodes";
 import { convertW2WToWireframe } from "../rendering/css-converter";
 import type { WireframeNode } from "../types";
 

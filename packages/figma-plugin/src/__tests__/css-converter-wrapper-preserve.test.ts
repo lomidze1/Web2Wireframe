@@ -51,19 +51,6 @@ function findChildByTag(parent: Tree, tag: string): Tree | null {
   return children.find((c) => c.tag === tag) ?? null;
 }
 
-function findTextDescendant(node: Tree, textSubstring: string): Tree | null {
-  if (node.type === 'text' && typeof node.textContent === 'string' && node.textContent.includes(textSubstring)) {
-    return node;
-  }
-  const children = node.children as Tree[] | undefined;
-  if (!Array.isArray(children)) return null;
-  for (const c of children) {
-    const hit = findTextDescendant(c, textSubstring);
-    if (hit) return hit;
-  }
-  return null;
-}
-
 describe("css-converter: text-only wrapper preserves box CSS", () => {
   // -----------------------------------------------------------------------
   // 1. Apple.com footer regression — <span> with display:block + margins

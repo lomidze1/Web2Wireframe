@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "preact/hooks";
-import { useConfig, DEFAULT_CONFIG } from "../shared/ConfigContext";
+import { useConfig } from "../shared/ConfigContext";
 
 // Safe localStorage helper for Figma plugin environment
 const safeGetStorage = (key: string, defaultValue: boolean): boolean => {
@@ -119,8 +119,12 @@ export function useTabSettings(
   // Track if this is the initial mount to avoid unnecessary sync
   const isInitialMount = useRef(true);
 
-  // Sync with config when config changes (and no overrides exist)
-  // Use getEffectiveConfig instead of config directly for correct behavior
+  // Sync with config when config changes (and no overrides exist).
+  // We track viewports by their stable string-join (instead of array
+  // identity) so referentially-new-but-equal arrays don't re-fire the
+  // effect. Extracted to a const because the inline `.join(",")` triggers
+  // react-hooks/exhaustive-deps "complex expression in dep" warning.
+  const viewportsKey = config.viewports.join(",");
   useEffect(() => {
     // Skip initial mount since we already initialized from effectiveConfig
     if (isInitialMount.current) {
@@ -142,7 +146,7 @@ export function useTabSettings(
     }
   }, [
     // Use config values as dependencies since getEffectiveConfig returns config when no overrides
-    config.viewports.join(","),
+    viewportsKey,
     config.colorMode,
     config.fontMode,
     config.textMode,
@@ -153,15 +157,6 @@ export function useTabSettings(
     tabId,
     getEffectiveConfig,
   ]);
-
-  // Update session override when local viewports change
-  const updateLocalViewports = useCallback(
-    (viewports: string[]) => {
-      setLocalViewports(viewports);
-      setSessionOverride(tabId, { viewports });
-    },
-    [tabId, setSessionOverride]
-  );
 
   // Update session override when color mode changes
   const setColorModeHandler = useCallback(
@@ -287,6 +282,7 @@ export function useTabSettings(
     localCssVariablesMode,
     localLayoutMode,
     localAssetMode,
+    localInteractionMode,
     updateConfig,
     resetToConfig,
     tabId,

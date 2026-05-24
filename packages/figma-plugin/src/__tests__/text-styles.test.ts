@@ -11,7 +11,6 @@ import { describe, it, expect } from "vitest";
 import {
   collectTypographyFromTree,
   fontWeightToStyle,
-  parseFigmaLineHeight,
   lineHeightKeyStr,
 } from "../rendering/styles";
 import type { TypographyCombo } from "../rendering/styles";

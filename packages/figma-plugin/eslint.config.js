@@ -17,13 +17,15 @@ export default [
     rules: {
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
-      // Preact JSX pragma — `h` is referenced by /** @jsx h */ comments,
-      // not directly by code, so eslint sees it as unused. It's required.
+      // Preact JSX pragma — `h` and `Fragment` are referenced by the
+      // /** @jsx h */ comments, not directly by code, so eslint sees them
+      // as unused. They're required. Also allow any `_`-prefixed binding
+      // (e.g. `_omit`) — convention for "deliberately discarded".
       "@typescript-eslint/no-unused-vars": [
         "warn",
         {
           argsIgnorePattern: "^_",
-          varsIgnorePattern: "^(_|h|Fragment)$",
+          varsIgnorePattern: "^(_|h$|Fragment$)",
           caughtErrorsIgnorePattern: "^_",
         },
       ],

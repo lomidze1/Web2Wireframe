@@ -139,7 +139,7 @@ function makeContext(overrides?: Partial<RenderContext>): RenderContext {
 }
 
 function makePlaceholderNode(
-  overrides?: Partial<WireframeNode>
+  _overrides?: Partial<WireframeNode>
 ): WireframeNode {
   return {
     id: "test-placeholder",

@@ -43,15 +43,6 @@ import { LicenseProvider, useLicense } from "./shared/LicenseContext";
 import styles from "./styles/ui.css";
 import importStyles from "./pages/import/Import.css";
 
-// CSS Variables to validate in development
-const CSS_VARS_TO_CHECK = [
-  "--bg",
-  "--panel",
-  "--accent",
-  "--text",
-  "--main-gradient",
-];
-
 type ImportTab = "web" | "screenshot" | "html" | "area" | "extension";
 
 export default function App() {

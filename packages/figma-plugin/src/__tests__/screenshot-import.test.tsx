@@ -459,7 +459,7 @@ describe("Screenshot", () => {
 
       // Restore
       mockContext.config.fontMode = "plugin";
-      mockContext.getEffectiveConfig.mockImplementation((tabId: string) => mockContext.config);
+      mockContext.getEffectiveConfig.mockImplementation((_tabId: string) => mockContext.config);
     });
 
     it("passes disableFontWebsiteOption to SettingsPanel", () => {

@@ -35,7 +35,7 @@ beforeEach(() => {
 // Helpers
 // ============================================================================
 
-function makeNode(overrides: Partial<WireframeNode>): WireframeNode {
+function _makeNode(overrides: Partial<WireframeNode>): WireframeNode {
   return {
     id: "test-1",
     name: "Test",
@@ -74,9 +74,7 @@ function makeNode(overrides: Partial<WireframeNode>): WireframeNode {
 // ============================================================================
 
 import {
-  collectAllFonts,
   checkFontsAvailability,
-  buildDefaultFontMapping,
   buildFontsNotAvailableMessage,
   buildPluginModeFontMapping,
 } from "../utils/fontUtils";

@@ -407,7 +407,7 @@ describe("variant creation", () => {
 
   it("creates variants only for states that have data", async () => {
     const frame = createMockFrame();
-    const result = await createPseudoStateVariants(frame, {
+    await createPseudoStateVariants(frame, {
       hover: { "background-color": "#2563EB" },
     });
 
@@ -418,7 +418,7 @@ describe("variant creation", () => {
 
   it("names multi-state variants with State= convention", async () => {
     const frame = createMockFrame();
-    const result = await createPseudoStateVariants(frame, {
+    await createPseudoStateVariants(frame, {
       hover: { "background-color": "#2563EB" },
       focus: { "outline-color": "#3B82F6" },
       active: { "background-color": "#1E40AF" },
@@ -449,7 +449,7 @@ describe("variant creation", () => {
 
   it("returns ComponentSetNode with correct variant count", async () => {
     const frame = createMockFrame();
-    const result = await createPseudoStateVariants(frame, {
+    await createPseudoStateVariants(frame, {
       hover: { "background-color": "#2563EB" },
       active: { "background-color": "#1E40AF" },
     });

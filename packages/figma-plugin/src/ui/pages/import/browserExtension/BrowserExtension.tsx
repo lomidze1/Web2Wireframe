@@ -44,7 +44,7 @@ export default function BrowserExtension() {
     message: "",
   });
   const [pendingData, setPendingData] = useState<PendingData | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
+  const [, setIsPolling] = useState(false);
   // Pairing code the user enters into the browser extension so its captures
   // are scoped to this user (see /api/extension-pair).
   const [pairingCode, setPairingCode] = useState<string | null>(null);

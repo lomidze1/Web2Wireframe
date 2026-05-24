@@ -31,17 +31,6 @@ function makeFrame(overrides: Record<string, unknown> = {}): Record<string, unkn
   };
 }
 
-function makeText(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    type: 'TEXT',
-    x: 0, y: 0, width: 50, height: 16,
-    quad: [0, 0, 50, 0, 50, 16, 0, 16],
-    value: 'text',
-    font: 'Arial',
-    ...overrides,
-  };
-}
-
 function makeSVG(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     type: 'SVG',

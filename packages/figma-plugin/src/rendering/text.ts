@@ -7,7 +7,6 @@ import type {
   WireframeNode,
   RenderContext,
   TextSegment,
-  FigmaFill,
 } from "../types";
 
 /**
@@ -1255,7 +1254,6 @@ export async function createTextNode(
   // Step 1: Measure Figma's HUG dimensions
   textNode.textAutoResize = "WIDTH_AND_HEIGHT";
   const hugWidth = textNode.width;
-  const hugHeight = textNode.height;
 
   // Step 2: Compare HUG width with browser width
   const widthDiff = hugWidth - browserWidth;
@@ -1270,8 +1268,6 @@ export async function createTextNode(
 
     if (browserLineCount > 1) {
       // Multi-line text — check if hugWidth is close or fits in parent
-      const parentWMulti = context?.parentWidth || 0;
-
       if (Math.abs(hugWidth - browserWidth) <= 1) {
         // Font metrics nearly identical — use hugWidth
         textNode.resize(hugWidth, browserHeight);

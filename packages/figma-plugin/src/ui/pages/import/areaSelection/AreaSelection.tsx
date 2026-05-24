@@ -19,62 +19,6 @@ import { buildFontDownloads } from "../../../../utils/fontDownload";
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
 // ============================================================================
 
-/** RGBA color normalized to 0-1 range (Figma format) */
-interface FigmaColor {
-  r: number;  // 0-1
-  g: number;  // 0-1
-  b: number;  // 0-1
-  a: number;  // 0-1
-}
-
-/** Gradient stop */
-interface FigmaGradientStop {
-  color: FigmaColor;
-  position: number;  // 0-1
-  cssVariableName?: string;
-}
-
-/** Fill layer - supports solid, gradient, image placeholder */
-interface FigmaFill {
-  type: 'SOLID' | 'GRADIENT_LINEAR' | 'GRADIENT_RADIAL' | 'GRADIENT_CONIC' | 'IMAGE_PLACEHOLDER';
-  visible: boolean;
-  opacity: number;
-  blendMode?: string;
-  // SOLID
-  color?: FigmaColor;
-  // GRADIENT_*
-  angle?: number;  // degrees (0-360)
-  stops?: FigmaGradientStop[];
-  center?: { x: number; y: number };  // 0-1 (radial/conic)
-  // IMAGE → placeholder
-  isImagePlaceholder?: boolean;
-}
-
-/** Stroke layer - border */
-interface FigmaStroke {
-  color: FigmaColor;
-  weight: number;
-  position: 'INSIDE' | 'CENTER' | 'OUTSIDE';
-  style: 'SOLID' | 'DASHED' | 'DOTTED';
-  sides?: {
-    top: boolean;
-    right: boolean;
-    bottom: boolean;
-    left: boolean;
-  };
-}
-
-/** Effect layer - shadow or blur */
-interface FigmaEffect {
-  type: 'DROP_SHADOW' | 'INNER_SHADOW' | 'LAYER_BLUR' | 'BACKGROUND_BLUR';
-  visible: boolean;
-  color?: FigmaColor;
-  offset?: { x: number; y: number };
-  radius?: number;
-  spread?: number;
-  blurRadius?: number;
-}
-
 // ExtractedElement is imported from shared/absoluteModeRenderer.ts
 
 // CSS Variable extracted from the page
@@ -477,7 +421,7 @@ export default function AreaSelection() {
       // Legacy format — use old conversion pipeline
        
       framesData = prepareFramesForRendering(
-        transformedFrames as any,
+        transformedFrames as Parameters<typeof prepareFramesForRendering>[0],
         {
           text: config.pluginColors.text,
           surface: config.pluginColors.surface,

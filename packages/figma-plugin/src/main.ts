@@ -22,9 +22,7 @@ import { showUI } from "@create-figma-plugin/utilities";
 import { logger } from "./utils/logger";
 import { errorHandler, ErrorCode } from "./utils/errorHandler";
 import type {
-  WireframeNode,
   WireframeFrame,
-  RenderWireframeData,
   RenderContext,
   FontMapping,
 } from "./types";
@@ -152,7 +150,6 @@ export default function () {
 
       // Determine font family based on fontMode
       const websiteFont = frames[0]?.tree?.fontFamily || "Inter";
-      const websiteFontList = frames[0]?.tree?.fontFamilyList || [];
       const initialFontFamily =
         effectiveFontMode === "plugin"
           ? pluginFont || "Montserrat"
@@ -354,11 +351,6 @@ export default function () {
 
         // Send to UI for conversion and wait for response
         const convertedAssets = await new Promise<Array<{ url: string; dataUri: string; frameIdx: number }>>((resolve) => {
-          const handler = (msg: { type: string; data?: { convertedAssets?: Array<{ url: string; dataUri: string; frameIdx: number }> } }) => {
-            if (msg.type === "assets-converted") {
-              resolve(msg.data?.convertedAssets || []);
-            }
-          };
           // Temporarily add handler (will be overridden by next onmessage call)
           const origHandler = figma.ui.onmessage;
           figma.ui.onmessage = (msg) => {
@@ -978,11 +970,13 @@ export default function () {
       let userId: string | null = null;
       try {
         // SOLE debug log — verifies the sandbox really sees the Figma user.
-        console.log("[W2W] figma.currentUser:", figma.currentUser);
+        // Promoted to console.warn so it survives any future console gating
+        // — these traces are critical when figmaUserId comes back null.
+        console.warn("[W2W] figma.currentUser:", figma.currentUser);
         userId = figma.currentUser?.id ?? null;
-        console.log("[W2W] figma.currentUser.id =", userId);
+        console.warn("[W2W] figma.currentUser.id =", userId);
       } catch (err) {
-        console.log("[W2W] figma.currentUser threw:", err);
+        console.warn("[W2W] figma.currentUser threw:", err);
       }
       figma.ui.postMessage({
         type: "current-user",

@@ -7,7 +7,6 @@ import type {
   WireframeNode,
   WireframeFrame,
   RenderContext,
-  RenderWireframeData,
 } from "../types";
 import { logger } from "../utils/logger";
 import {
@@ -1614,7 +1613,7 @@ function applyGridContentAlignment(
   columnSizes: FigmaGridTrackSize[],
   rowSizes: FigmaGridTrackSize[],
   colGap: number,
-  rowGap: number
+  _rowGap: number
 ): void {
   const gridFrame = frame as unknown as Record<string, unknown>;
 

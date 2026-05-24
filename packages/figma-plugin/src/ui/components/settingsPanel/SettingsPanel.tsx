@@ -364,6 +364,7 @@ export default function SettingsPanel({
           )}
 
           {/* Interactions — TEMPORARILY HIDDEN FOR LAUNCH (2026-05-12). Restore by removing `false &&` wrapper. */}
+          {/* eslint-disable-next-line no-constant-binary-expression */}
           {false && setInteractionMode && (
             <div class={styles.settingRow}>
               <div class={styles.settingLabel}>

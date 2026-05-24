@@ -21,7 +21,7 @@ export default [
         "warn",
         {
           argsIgnorePattern: "^_",
-          varsIgnorePattern: "^(_|h|Fragment)$",
+          varsIgnorePattern: "^(_|h$|Fragment$)",
           caughtErrorsIgnorePattern: "^_",
         },
       ],
