@@ -25,7 +25,10 @@ interface AccountLicense {
   subscription: Subscription | null;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3002";
+// Relative URLs by design — nginx proxies /api/* to the backend in
+// production (see packages/web/nginx.conf), and the Vite dev server
+// proxies the same paths (see vite.config.ts). An absolute URL would
+// violate the page's CSP (`connect-src 'self'`).
 
 function formatDate(iso: string): string {
   try {
@@ -64,7 +67,7 @@ const Account = (): ReactElement => {
       setIsLoading(false);
       return;
     }
-    fetch(`${API_URL}/api/license/by-token`, {
+    fetch(`/api/license/by-token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ figmaUserId, token }),
@@ -85,7 +88,7 @@ const Account = (): ReactElement => {
     setCancelStatus("submitting");
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/subscription/cancel`, {
+      const res = await fetch(`/api/subscription/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ figmaUserId, token }),

@@ -107,9 +107,10 @@ const Support = (): ReactElement => {
     setCopyState("idle");
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3002";
-
-      const response = await fetch(`${apiUrl}/web/support`, {
+      // Relative path — nginx proxies /web/* to the backend in production;
+      // Vite proxies it to :3002 in dev. An absolute URL would violate the
+      // page's CSP (`connect-src 'self'`).
+      const response = await fetch(`/web/support`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
