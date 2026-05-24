@@ -12,7 +12,7 @@
  */
 
 /* Browser globals used inside page.evaluate() callbacks (runs in Chromium, not Node) */
-/* eslint-disable no-var */
+ 
 declare const document: { documentElement: { scrollHeight: number } };
 declare const window: { scrollBy(x: number, y: number): void; scrollTo(x: number, y: number): void };
 declare const localStorage: { setItem(key: string, value: string): void };
@@ -578,7 +578,10 @@ export async function renderHTMLContentW2W(
       let parsed: URL;
       try { parsed = new URL(reqUrl); } catch { void req.abort(); return; }
       if (isPrivateHost(parsed.hostname)) { void req.abort(); return; }
-      if (parsed.protocol !== "https:" && !/^(localhost|127\.)/i.test(parsed.hostname)) {
+      if (
+        parsed.protocol !== "https:" &&
+        !/^(?:localhost|127\.\d+\.\d+\.\d+)$/i.test(parsed.hostname)
+      ) {
         void req.abort();
         return;
       }

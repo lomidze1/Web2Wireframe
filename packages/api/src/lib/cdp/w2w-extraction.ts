@@ -1,3 +1,7 @@
+/* eslint-disable no-console -- `[W2W]` traces are the primary diagnostic
+ * surface for Puppeteer + CDP extraction issues; silenced in prod by
+ * gateConsoleInProduction() in src/index.ts. */
+
 /**
  * W2W Content Script Extraction for Puppeteer
  *
@@ -209,7 +213,7 @@ export async function extractWithContentScript(
     await page.evaluate(bundleCode);
 
     // --- 5. Call extractPage() ---
-    /* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
+     
     const extractResult = await page.evaluate(() => {
       // Runs in browser context — window is available
       const extractFn = (globalThis as Record<string, unknown>).__w2w_extractPage as (() => unknown) | undefined;
@@ -218,7 +222,7 @@ export async function extractWithContentScript(
       }
       return extractFn();
     }) as { doc: W2WDocMeta; frame: W2WFrameNode; textHostCount: number };
-    /* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
+     
 
     const { doc, frame, textHostCount } = extractResult;
     console.log(`[W2W] DOM extracted: ${countNodes(frame)} nodes, ${textHostCount} text hosts`);

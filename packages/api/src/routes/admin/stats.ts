@@ -197,11 +197,24 @@ function token() {
   return m ? decodeURIComponent(m[1]) : "";
 }
 
+// HTML-escape any value before interpolating into innerHTML. The dashboard
+// only renders numeric fields from a trusted admin endpoint today, but
+// future contributors should not have to audit this template every time the
+// stats payload grows — defense in depth.
+function esc(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function card(label, value, meta) {
   return '<div class="card">'
-    + '<div class="card-label">' + label + '</div>'
-    + '<div class="card-value">' + value + '</div>'
-    + (meta ? '<div class="card-meta">' + meta + '</div>' : '')
+    + '<div class="card-label">' + esc(label) + '</div>'
+    + '<div class="card-value">' + esc(value) + '</div>'
+    + (meta ? '<div class="card-meta">' + esc(meta) + '</div>' : '')
     + '</div>';
 }
 
@@ -215,7 +228,7 @@ async function load() {
       headers: t ? { "Authorization": "Bearer " + t } : {},
     });
   } catch (e) {
-    document.getElementById("root").innerHTML = '<div class="error">Network error: ' + e.message + '</div>';
+    document.getElementById("root").innerHTML = '<div class="error">Network error: ' + esc(e.message) + '</div>';
     return;
   }
   if (res.status === 401) {
@@ -223,7 +236,7 @@ async function load() {
     return;
   }
   if (!res.ok) {
-    document.getElementById("root").innerHTML = '<div class="error">Failed: HTTP ' + res.status + '</div>';
+    document.getElementById("root").innerHTML = '<div class="error">Failed: HTTP ' + esc(res.status) + '</div>';
     return;
   }
   const d = await res.json();

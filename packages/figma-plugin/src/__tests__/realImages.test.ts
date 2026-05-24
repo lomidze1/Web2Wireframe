@@ -163,7 +163,7 @@ describe("createRealImage", () => {
     const node = makeNode();
     const context = makeContext();
 
-    const result = await createRealImage(node, SVG_DATA_URI, context);
+    await createRealImage(node, SVG_DATA_URI, context);
 
     // Should detect SVG and use createNodeFromSvg
     expect(figma.createNodeFromSvg).toHaveBeenCalled();

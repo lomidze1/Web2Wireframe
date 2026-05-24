@@ -10,7 +10,6 @@
 
 import { describe, it, expect } from "vitest";
 import { buildElementTree } from "../tree-builder";
-import type { BuildTreeOptions } from "../tree-builder";
 import type { ParsedSnapshotNode } from "../snapshot";
 import type { ParsedIframeDocument } from "../snapshot";
 

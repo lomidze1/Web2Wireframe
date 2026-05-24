@@ -1,4 +1,9 @@
 User-agent: *
 Allow: /
 
+# Dynamic pages with query params — not useful in index
+Disallow: /account
+Disallow: /checkout/
+Disallow: /renew
+
 Sitemap: https://web2wireframe.design/sitemap.xml

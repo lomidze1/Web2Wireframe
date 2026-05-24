@@ -160,7 +160,10 @@ export default function Screenshot() {
       setIsGenerating(false);
       setError(toUserMessage(err, "Screenshot analysis failed"));
     }
-  }, [imagePreview, settings.localViewports, textMode, settings.localColorMode, config]);
+    // `settings` is the full hook return value (collapseSettings + local*
+    // state) — include it whole; eslint's exhaustive-deps can't track the
+    // individual fields we use across the callback body.
+  }, [imagePreview, textMode, config, settings]);
 
   return (
     <div class={styles.screenshotContainer}>

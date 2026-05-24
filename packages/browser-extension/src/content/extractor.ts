@@ -1,3 +1,7 @@
+/* eslint-disable no-console -- `[W2W-VERIFY-CONTENT]` + `[W2W-HOVER-DIAG]`
+ * traces are the primary diagnostic surface for new-site extraction bugs;
+ * silenced in prod by gateConsoleInProduction(). */
+
 /**
  * Content Script DOM Extractor
  *
@@ -1224,7 +1228,7 @@ export function collectHoverSelectors(): Array<{ trigger: string; target: string
   let hoverCandidates = 0;
   let splitFails = 0;
   let queryFails = 0;
-  let queryThrows = 0;
+  const queryThrows = 0;
   let dedupSkips = 0;
 
   function processRule(rule: CSSRule): void {

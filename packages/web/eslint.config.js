@@ -39,6 +39,12 @@ export default defineConfig([
         "error",
         { varsIgnorePattern: "^[A-Z_]" },
       ],
+      // Allow co-exporting tiny constants alongside the page component
+      // (e.g. `staticRoutes` in AppRoutes.tsx for the prerender step).
+      "react-refresh/only-export-components": [
+        "warn",
+        { allowConstantExport: true },
+      ],
     },
   },
 ]);

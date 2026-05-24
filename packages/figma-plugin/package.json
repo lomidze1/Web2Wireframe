@@ -20,6 +20,7 @@
     "dev": "build-figma-plugin --typecheck --watch",
     "build": "node scripts/build-prod.mjs",
     "watch": "build-figma-plugin --typecheck --watch",
+    "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest"
   },

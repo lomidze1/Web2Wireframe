@@ -698,7 +698,7 @@ export async function buildHoverMasterRegistry(
     // so the master holds sensible defaults.
     const allComponents: ComponentNode[] = [];
     const hoverPairs: Array<{ rest: ComponentNode; hover: ComponentNode }> = [];
-    let textPropIds: string[] = [];
+    const textPropIds: string[] = [];
     let representativeTextCount = 0;
 
     // Import the diff applier once for the whole category.

@@ -90,7 +90,7 @@ describe("prePassConvertFrames + collectAllFonts integration", () => {
     const frames = [
       {
         viewport: { width: 1440, height: 900 },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         tree: null as any,
         capturedData: { frame: makeRealisticW2WFrame() },
       },
@@ -106,7 +106,7 @@ describe("prePassConvertFrames + collectAllFonts integration", () => {
     const frames = [
       {
         viewport: { width: 1440, height: 900 },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         tree: null as any,
         capturedData: { frame: makeRealisticW2WFrame() },
       },
@@ -129,7 +129,7 @@ describe("prePassConvertFrames + collectAllFonts integration", () => {
     const frames = [
       {
         viewport: { width: 1440, height: 900 },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         tree: {} as any, // AreaSelection's empty-object placeholder
         capturedData: { frame: makeRealisticW2WFrame() },
       },
@@ -145,7 +145,7 @@ describe("prePassConvertFrames + collectAllFonts integration", () => {
     const frames = [
       {
         viewport: { width: 1440, height: 900 },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         tree: null as any,
         capturedData: { frame: makeRealisticW2WFrame() },
       },
@@ -170,7 +170,7 @@ describe("prePassConvertFrames + collectAllFonts integration", () => {
       type: "FRAME",
       fontFamily: "Inter",
       children: [],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
     } as any;
 
     const frames = [

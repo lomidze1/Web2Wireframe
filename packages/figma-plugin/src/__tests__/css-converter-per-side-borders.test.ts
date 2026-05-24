@@ -25,7 +25,7 @@ function makeFrame(styles: Record<string, string>): Record<string, unknown> {
 }
 
 function convert(styles: Record<string, string>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   return convertW2WToWireframe(makeFrame(styles) as any, {
     layoutMode: "absolute",
     interactionMode: "none",

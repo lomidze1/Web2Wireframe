@@ -1,3 +1,7 @@
+/* eslint-disable no-console -- font fallback resolution is a major source
+ * of extraction bugs; these traces are essential for debugging unfamiliar
+ * sites and are silenced in prod by the consumer's gateConsoleInProduction(). */
+
 /**
  * Font Binary Extraction (content script approach)
  *

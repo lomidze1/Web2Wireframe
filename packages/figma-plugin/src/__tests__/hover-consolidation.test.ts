@@ -625,7 +625,6 @@ describe("collectTextValues", () => {
 
 describe("buildHoverMasterRegistry", () => {
   let buildHoverMasterRegistry: typeof import("../rendering/hoverConsolidation").buildHoverMasterRegistry;
-  let lookupHoverMaster: typeof import("../rendering/hoverConsolidation").lookupHoverMaster;
 
   let mockCombineAsVariants: ReturnType<typeof vi.fn>;
   let mockCreateComponent: ReturnType<typeof vi.fn>;
@@ -729,7 +728,6 @@ describe("buildHoverMasterRegistry", () => {
 
     const mod = await import("../rendering/hoverConsolidation");
     buildHoverMasterRegistry = mod.buildHoverMasterRegistry;
-    lookupHoverMaster = mod.lookupHoverMaster;
   });
 
   function minimalContext() {

@@ -37,7 +37,9 @@ const Footer = (): ReactElement => (
           <a href="https://www.figma.com/community" target="_blank" rel="noreferrer">
             Start Free
           </a>
-          <a href="#">Install Browser Extension</a>
+          <Link to="/docs/browser-extension/extension-overview">
+            Browser Extension
+          </Link>
           <a href={checkoutLinks.pro} target="_blank" rel="noreferrer">
             Get Pro
           </a>

@@ -110,7 +110,7 @@ function findTopLevelHover(selector: string): number {
     else if (c === ")") depth--;
     else if (depth === 0 && selector.slice(i, i + 6) === ":hover") {
       const next = selector[i + 6];
-      if (next === undefined || /[ >+~:.#[\),]/.test(next)) {
+      if (next === undefined || /[ >+~:.#[),]/.test(next)) {
         return i;
       }
     }

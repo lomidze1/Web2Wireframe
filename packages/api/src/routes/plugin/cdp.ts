@@ -32,14 +32,32 @@ const router = Router();
 
 // Unambiguous charset — no 0/O, 1/I/L — for human-typed pairing codes.
 const PAIRING_CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const PAIRING_CODE_LENGTH = 8;
 
 function generatePairingCode(): string {
-  const bytes = randomBytes(6);
+  // 8 chars × 31-char alphabet ≈ 39 bits of entropy. With a 10-min TTL this
+  // makes online brute-force against live codes infeasible for any
+  // realistic concurrent-user count.
+  const bytes = randomBytes(PAIRING_CODE_LENGTH);
   let code = "";
-  for (let i = 0; i < 6; i += 1) {
+  for (let i = 0; i < PAIRING_CODE_LENGTH; i += 1) {
     code += PAIRING_CHARSET[bytes[i] % PAIRING_CHARSET.length];
   }
   return code;
+}
+
+/**
+ * Invalidate any pairing codes already outstanding for `figmaUserId`. Called
+ * before issuing a fresh one so a user can't accumulate multiple live codes
+ * (each was previously valid until its independent 10-min TTL elapsed, which
+ * widened the brute-force surface unnecessarily).
+ */
+function invalidatePriorCodesForUser(figmaUserId: string): void {
+  for (const [code, entry] of pendingPairings.entries()) {
+    if (entry.figmaUserId === figmaUserId) {
+      pendingPairings.delete(code);
+    }
+  }
 }
 
 /**
@@ -71,9 +89,14 @@ router.post(
   authRateLimiter,
   authenticatePlugin,
   (req: Request, res: Response) => {
+    const figmaUserId = req.userId!;
+    // A user calling /extension-pair repeatedly previously accumulated valid
+    // codes, each independently alive for 10 min — widening the brute-force
+    // surface for no operational benefit. Drop the older ones first.
+    invalidatePriorCodesForUser(figmaUserId);
     const code = generatePairingCode();
     pendingPairings.set(code, {
-      figmaUserId: req.userId!,
+      figmaUserId,
       expires: Date.now() + PAIRING_CODE_TTL_MS,
     });
     res.json({

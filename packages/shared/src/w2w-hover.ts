@@ -106,7 +106,7 @@ export function w2wFindInteractiveNodes(
   walk(frame);
 
   if (results.length > maxResults) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `[w2w-hover] Truncated interactive-node pool: found ${results.length}, cap=${maxResults}`,
     );
@@ -227,7 +227,7 @@ function findTopLevelHover(selector: string): number {
       const next = selector[i + 6];
       if (
         next === undefined ||
-        /[ >+~:.#\[\),]/.test(next)
+        /[ >+~:.#[),]/.test(next)
       ) {
         return i;
       }
@@ -399,12 +399,12 @@ function compileSimpleSelector(
   while (i < s.length) {
     const c = s[i];
     if (c === "#") {
-      const m = /^#([^.#\[]+)/.exec(s.slice(i));
+      const m = /^#([^.#[]+)/.exec(s.slice(i));
       if (!m) return null;
       id = unescapeCssIdentifier(m[1]);
       i += m[0].length;
     } else if (c === ".") {
-      const m = /^\.([^.#\[]+)/.exec(s.slice(i));
+      const m = /^\.([^.#[]+)/.exec(s.slice(i));
       if (!m) return null;
       classes.push(unescapeCssIdentifier(m[1]));
       i += m[0].length;
@@ -419,7 +419,7 @@ function compileSimpleSelector(
         const name = expr.slice(0, eqIdx).trim();
         // Strip matcher suffix chars (`^`, `$`, `*`, `|`, `~`) — Phase 2 treats
         // them all as equality for simplicity.
-        const cleanName = name.replace(/[\^\$\*\|~]$/, "");
+        const cleanName = name.replace(/[\^$*|~]$/, "");
         let value = expr.slice(eqIdx + 1).trim();
         if (
           (value.startsWith('"') && value.endsWith('"')) ||
@@ -552,7 +552,7 @@ export function w2wFindHoverCandidates(
   }
 
   if (truncatedExtras > 0) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `[w2w-hover] Truncated ${truncatedExtras} extra selectors past cap=${maxResults}`,
     );

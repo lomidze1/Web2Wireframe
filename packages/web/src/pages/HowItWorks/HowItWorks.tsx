@@ -266,6 +266,8 @@ const HowItWorks = (): ReactElement => {
                         className={styles.cardIcon}
                         width="40"
                         height="40"
+                        loading="lazy"
+                        decoding="async"
                       />
                     )}{" "}
                     <h3>{card.title}</h3>
@@ -284,6 +286,8 @@ const HowItWorks = (): ReactElement => {
                           src={card.cardImage}
                           alt={`${card.title} preview`}
                           className={styles.cardPreviewImg}
+                          loading="lazy"
+                          decoding="async"
                         />
                       )}
                     </div>
@@ -342,6 +346,8 @@ const HowItWorks = (): ReactElement => {
                             }`}
                             width="300"
                             height="200"
+                            loading="lazy"
+                            decoding="async"
                           />
                         </div>
                       )

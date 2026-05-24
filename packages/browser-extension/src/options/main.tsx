@@ -1,7 +1,10 @@
 import { render } from "preact";
 import { useState, useEffect } from "preact/hooks";
+import { gateConsoleInProduction } from "@/shared/consoleGating";
 import type { ExtensionSettings } from "@/shared/types";
 import { DEFAULT_SETTINGS, VIEWPORTS } from "@/shared/constants";
+
+gateConsoleInProduction();
 
 function Options() {
   const [settings, setSettings] = useState<ExtensionSettings>(DEFAULT_SETTINGS);

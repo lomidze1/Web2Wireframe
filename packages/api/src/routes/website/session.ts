@@ -5,6 +5,8 @@ import { config } from "../../config/env.js";
 const router = express.Router();
 
 router.get("/me", requireSessionAuth, (req: Request, res: Response) => {
+  // Session-bound identity — never cache (proxy or browser).
+  res.set("Cache-Control", "no-store");
   res.json({
     ok: true,
     figmaUserId: req.session.figmaUserId,
@@ -52,6 +54,7 @@ router.get(
       }
 
       const payload = (await licenseResponse.json()) as Record<string, unknown>;
+      res.set("Cache-Control", "no-store");
       res.json(payload);
     } catch (error) {
       console.error("License service request failed:", error);

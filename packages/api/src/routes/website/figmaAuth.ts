@@ -75,7 +75,12 @@ router.get(
   "/auth/figma/callback",
   authRateLimiter,
   async (
-    req: Request<{}, {}, {}, { code?: string; state?: string }>,
+    req: Request<
+      Record<string, never>,
+      unknown,
+      unknown,
+      { code?: string; state?: string }
+    >,
     res: Response,
   ) => {
     const code = req.query.code;

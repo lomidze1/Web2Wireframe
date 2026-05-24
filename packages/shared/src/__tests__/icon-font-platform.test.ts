@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { extractPseudoIconContent, isIconFont } from "../tree-builder";
+import { extractPseudoIconContent } from "../tree-builder";
 import type { ParsedSnapshotNode } from "../snapshot";
 import type { PlatformFontInfo, CDPClientInterface } from "../types";
 
@@ -399,7 +399,7 @@ describe("getPlatformFontForPseudoElement", () => {
     const { getPlatformFontForPseudoElement } = await import("../css");
 
     const callLog: string[] = [];
-    const client = makeMockClient(async (method, params) => {
+    const client = makeMockClient(async (method) => {
       callLog.push(method);
 
       if (method === "DOM.resolveNode") {

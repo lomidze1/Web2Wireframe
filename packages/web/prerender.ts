@@ -4,24 +4,44 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const HEAD_MARKER_START = "<!--seo-head-->";
+const HEAD_FALLBACK_TITLE = /<title>[\s\S]*?<\/title>/;
+const HEAD_FALLBACK_DESCRIPTION = /<meta name="description"[\s\S]*?\/>/;
+const HEAD_FALLBACK_CANONICAL = /<link rel="canonical"[\s\S]*?\/>/;
+
 async function prerender() {
   // Load the server entry built by Vite SSR build
   const { render, staticRoutes } = await import(
     "./dist/server/entry-server.js"
   );
+  // SEO config + render helpers are pure TS modules (no React imports) so we
+  // load them directly from source via tsx — no need to bundle them via SSR.
+  const { getSeoConfig } = await import("./src/seo/config.js");
+  const { renderHead } = await import("./src/seo/render.js");
 
   // Read the client HTML template
   const template = fs.readFileSync(
     path.resolve(__dirname, "dist/client/index.html"),
-    "utf-8"
+    "utf-8",
   );
 
   for (const route of staticRoutes) {
     const html = render(route);
-    const page = template.replace(
+    const seo = getSeoConfig(route);
+    const headHtml = renderHead(seo);
+
+    let page = template.replace(
       '<div id="root"></div>',
-      `<div id="root">${html}</div>`
+      `<div id="root">${html}</div>`,
     );
+
+    // Inject SEO head: replace fallback title/description/canonical from
+    // index.html (which are static defaults) with the per-route values.
+    page = page
+      .replace(HEAD_FALLBACK_TITLE, "")
+      .replace(HEAD_FALLBACK_DESCRIPTION, "")
+      .replace(HEAD_FALLBACK_CANONICAL, "")
+      .replace(HEAD_MARKER_START, `${HEAD_MARKER_START}\n    ${headHtml}`);
 
     // Create directory structure: / → dist/client/index.html, /pricing → dist/client/pricing/index.html
     const outDir =
@@ -30,20 +50,18 @@ async function prerender() {
         : path.resolve(__dirname, `dist/client${route}`);
 
     fs.mkdirSync(outDir, { recursive: true });
-
-    const outFile =
-      route === "/"
-        ? path.resolve(outDir, "index.html")
-        : path.resolve(outDir, "index.html");
+    const outFile = path.resolve(outDir, "index.html");
 
     fs.writeFileSync(outFile, page);
-    console.log(`Pre-rendered: ${route} → ${path.relative(__dirname, outFile)}`);
+    process.stdout.write(
+      `Pre-rendered: ${route} → ${path.relative(__dirname, outFile)}\n`,
+    );
   }
 
-  console.log(`\nDone! ${staticRoutes.length} pages pre-rendered.`);
+  process.stdout.write(`\nDone! ${staticRoutes.length} pages pre-rendered.\n`);
 }
 
 prerender().catch((err) => {
-  console.error("Prerender failed:", err);
+  process.stderr.write(`Prerender failed: ${err}\n`);
   process.exit(1);
 });

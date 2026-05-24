@@ -47,14 +47,32 @@ describe("POST /api/extension-pair", () => {
     expect(res.status).toBe(401);
   });
 
-  it("issues a 6-char code bound to the authenticated user", async () => {
+  it("issues an 8-char code bound to the authenticated user", async () => {
     const res = await request(app)
       .post("/api/extension-pair")
       .set("Authorization", tokenA);
     expect(res.status).toBe(200);
     expect(typeof res.body.code).toBe("string");
-    expect(res.body.code).toHaveLength(6);
+    expect(res.body.code).toHaveLength(8);
     expect(pendingPairings.get(res.body.code)?.figmaUserId).toBe("userA");
+  });
+
+  it("invalidates prior codes for the same user when re-issued", async () => {
+    const first = await request(app)
+      .post("/api/extension-pair")
+      .set("Authorization", tokenA);
+    expect(first.status).toBe(200);
+    const firstCode = first.body.code as string;
+    expect(pendingPairings.has(firstCode)).toBe(true);
+
+    const second = await request(app)
+      .post("/api/extension-pair")
+      .set("Authorization", tokenA);
+    expect(second.status).toBe(200);
+    const secondCode = second.body.code as string;
+
+    expect(pendingPairings.has(firstCode)).toBe(false);
+    expect(pendingPairings.has(secondCode)).toBe(true);
   });
 });
 

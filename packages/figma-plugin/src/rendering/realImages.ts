@@ -20,7 +20,7 @@ for (let i = 0; i < B64_CHARS.length; i++) {
  * Works in Figma's restricted sandbox environment.
  */
 function base64ToBytes(base64: string): Uint8Array {
-  let len = base64.length;
+  const len = base64.length;
   let bufferLength = Math.floor(len * 3 / 4);
   if (base64[len - 1] === "=") bufferLength--;
   if (base64[len - 2] === "=") bufferLength--;

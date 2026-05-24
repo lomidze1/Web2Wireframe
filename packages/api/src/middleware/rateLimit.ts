@@ -47,6 +47,35 @@ export const checkoutRateLimiter = makeLimiter(
   "Too many checkout requests, please try again later",
 );
 
+/**
+ * Per-figmaUserId rate limiter for /api/checkout/create. The IP-keyed
+ * `checkoutRateLimiter` above only bounds requests-per-IP — a distributed
+ * caller (botnet, shared CDN egress, mobile carrier NAT) can still flood
+ * a single victim's identifier with fake checkout invoices.
+ *
+ * Keying by `figmaUserId` in the body forces every attempt against the
+ * same user into the same bucket regardless of source IP. Legit usage
+ * peaks at ~3 attempts (typo, retry, plan-tier switch) so 10/10min is
+ * generous. Malformed bodies fall back to IP keying so an attacker can't
+ * reset the bucket by omitting the field.
+ */
+export const checkoutByUserRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  message: "Too many checkout attempts for this account, try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: { ip?: string; body?: unknown }): string => {
+    const body = req.body as { figmaUserId?: unknown } | undefined;
+    const uid = body?.figmaUserId;
+    if (typeof uid === "string" && uid.length > 0) {
+      return `checkout:uid:${uid}`;
+    }
+    return `checkout:ip:${req.ip ?? "unknown"}`;
+  },
+  skip: skipInDevelopment,
+});
+
 // Flitt webhook — Flitt-initiated; generous ceiling, just brute-force defence
 // against signature/replay probing.
 export const webhookRateLimiter = makeLimiter(

@@ -945,57 +945,6 @@ export function collectStyledText(
 }
 
 /**
- * Get bullet character based on list-style-type
- */
-function getBulletCharacter(listStyleType: string, index: number = 0): string {
-  switch (listStyleType) {
-    case "disc":
-      return "•";
-    case "circle":
-      return "○";
-    case "square":
-      return "■";
-    case "decimal":
-      return `${index + 1}.`;
-    case "decimal-leading-zero":
-      return `${String(index + 1).padStart(2, "0")}.`;
-    case "lower-alpha":
-    case "lower-latin":
-      return `${String.fromCharCode(97 + (index % 26))}.`;
-    case "upper-alpha":
-    case "upper-latin":
-      return `${String.fromCharCode(65 + (index % 26))}.`;
-    case "lower-roman":
-      return `${toRoman(index + 1).toLowerCase()}.`;
-    case "upper-roman":
-      return `${toRoman(index + 1)}.`;
-    case "none":
-      return "";
-    default:
-      return "•"; // Default to disc
-  }
-}
-
-/**
- * Convert number to Roman numeral
- */
-function toRoman(num: number): string {
-  const romanNumerals: [number, string][] = [
-    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"],
-    [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
-    [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"]
-  ];
-  let result = "";
-  for (const [value, numeral] of romanNumerals) {
-    while (num >= value) {
-      result += numeral;
-      num -= value;
-    }
-  }
-  return result;
-}
-
-/**
  * Count text lines from textBoxes
  * Each textBox represents one rendered line of text
  *

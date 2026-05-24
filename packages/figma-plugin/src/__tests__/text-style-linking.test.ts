@@ -14,7 +14,6 @@ import { describe, it, expect } from "vitest";
 import {
   buildTextStyleKey,
   collectTypographyFromTree,
-  fontWeightToStyle,
   parseFigmaLineHeight,
   lineHeightKeyStr,
 } from "../rendering/styles";

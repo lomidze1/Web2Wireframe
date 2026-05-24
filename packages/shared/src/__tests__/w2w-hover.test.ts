@@ -742,12 +742,12 @@ describe("attachHoverToDescendants (FIX 4)", () => {
     const textChild = { type: "TEXT" as const, value: "hi" };
     const normal: W2WFrameNode = makeFrame({
       tag: "div",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       children: [textChild as any],
     });
     const hover: W2WFrameNode = makeFrame({
       tag: "div",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       children: [textChild as any],
     });
     expect(() => attachHoverToDescendants(normal, hover)).not.toThrow();
