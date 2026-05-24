@@ -18,7 +18,7 @@
   },
   "scripts": {
     "dev": "build-figma-plugin --typecheck --watch",
-    "build": "build-figma-plugin --typecheck --minify",
+    "build": "node scripts/build-prod.mjs",
     "watch": "build-figma-plugin --typecheck --watch",
     "test": "vitest run",
     "test:watch": "vitest"
