@@ -1,3 +1,7 @@
+/* eslint-disable no-console -- `[W2W-VERIFY-CONTENT]` + `[W2W-HOVER-DIAG]`
+ * traces are the primary diagnostic surface for new-site extraction bugs;
+ * silenced in prod by gateConsoleInProduction(). */
+
 /**
  * Content Script DOM Extractor
  *

@@ -337,7 +337,8 @@ app.use((req: Request, res: Response) => {
 
 const PORT = process.env.API_PORT || 3002;
 app.listen(PORT, () => {
-  console.log(`[W2W API] Running on port ${PORT}`);
+  // One-time startup signal — must survive production console gating.
+  console.warn(`[W2W API] Running on port ${PORT}`);
 });
 
 // For Vercel

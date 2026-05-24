@@ -441,7 +441,8 @@ export async function analyzeScreenshot({ imageBase64, imageWidth, imageHeight, 
   });
 
   const u = response.usage;
-  console.log(
+  // AI cost telemetry — must survive prod console gating (cost tracking).
+  console.warn(
     `[AI] fn=analyzeScreenshot model=${model} ` +
       `input=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} ` +
       `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens}`
@@ -824,7 +825,8 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
   });
 
   const u = response.usage;
-  console.log(
+  // AI cost telemetry — must survive prod console gating (cost tracking).
+  console.warn(
     `[AI] fn=analyzeScreenshotAbsolute model=${model} ` +
       `input=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} ` +
       `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens}`

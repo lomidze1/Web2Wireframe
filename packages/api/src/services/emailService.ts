@@ -56,7 +56,9 @@ async function sendWithRetry(
       const result = await send();
       if (!result.error) {
         if (i > 0) {
-          console.info(`[Email/${label}] succeeded on attempt ${i + 1}`);
+          // Recovered-from-retry is operationally significant — surface
+          // via warn so it survives prod console gating.
+          console.warn(`[Email/${label}] succeeded on attempt ${i + 1}`);
         }
         metrics.email(label, "ok");
         return { ok: true };

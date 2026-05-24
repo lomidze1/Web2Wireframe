@@ -1,3 +1,7 @@
+/* eslint-disable no-console -- resource-graph mismatches between
+ * Page.getResourceTree and the live DOM are diagnosed via these traces;
+ * silenced in prod by the consumer's gateConsoleInProduction(). */
+
 /**
  * Unified Resource Graph — single Page.getResourceTree call, shared across fonts + assets.
  *

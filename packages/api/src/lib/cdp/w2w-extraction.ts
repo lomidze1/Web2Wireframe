@@ -1,3 +1,7 @@
+/* eslint-disable no-console -- `[W2W]` traces are the primary diagnostic
+ * surface for Puppeteer + CDP extraction issues; silenced in prod by
+ * gateConsoleInProduction() in src/index.ts. */
+
 /**
  * W2W Content Script Extraction for Puppeteer
  *

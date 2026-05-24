@@ -185,7 +185,10 @@ function raceWithTimeout(
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true;
-        console.log(`[W2W] Stabilization timeout: ${label} (${timeoutMs}ms)`);
+        // Stabilization timeout means the page never fired the expected
+        // events — this matters operationally (capture may be incomplete),
+        // so surface it as a warn so it survives prod log gating.
+        console.warn(`[W2W] Stabilization timeout: ${label} (${timeoutMs}ms)`);
         resolve();
       }
     }, timeoutMs);

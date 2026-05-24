@@ -82,6 +82,8 @@ function emit(
   // and lets log aggregators separate severity by stream.
   const serialized = JSON.stringify(line);
   if (level === "info") {
+    // Structured info-level webhook log — stdout is the intended stream.
+    // eslint-disable-next-line no-console
     console.log(serialized);
   } else if (level === "warn") {
     console.warn(serialized);

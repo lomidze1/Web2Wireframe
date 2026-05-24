@@ -7,7 +7,15 @@
  * 2. CSS.getMatchedStylesForNode - ONLY for nodes with gradients/variables (10-20 calls, not 500+)
  *
  * Uses shared-extraction package for unified extraction logic.
+ *
+ * Note on `eslint-disable no-console`: the `[W2W]`-tagged capture-flow
+ * tracing in this file is the primary tool for diagnosing CDP timing /
+ * resource-load issues against new sites. It's silenced in production
+ * builds via `gateConsoleInProduction()` (see ../shared/consoleGating).
+ * The lint rule would otherwise flag every line, drowning out new
+ * accidental debug logs we DO want to catch elsewhere.
  */
+/* eslint-disable no-console */
 
 import { gateConsoleInProduction } from "../shared/consoleGating";
 

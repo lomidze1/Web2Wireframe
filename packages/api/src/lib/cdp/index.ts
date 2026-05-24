@@ -1,3 +1,6 @@
+/* eslint-disable no-console -- CDP extraction tracing; silenced in prod
+ * by gateConsoleInProduction(). */
+
 /**
  * CDP Extraction Module for Puppeteer
  *

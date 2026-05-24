@@ -1,3 +1,6 @@
+/* eslint-disable no-console -- per-asset conversion traces; CDP-adjacent
+ * debug, silenced in prod by gateConsoleInProduction(). */
+
 import sharp from "sharp";
 
 /** MIME types that figma.createImage() supports natively */

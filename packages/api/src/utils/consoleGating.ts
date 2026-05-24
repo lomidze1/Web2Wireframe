@@ -18,9 +18,12 @@ export function gateConsoleInProduction(): void {
 
   if (isProduction && !debugForced) {
     const noop = (): void => undefined;
+    /* eslint-disable no-console -- the whole point of this helper is to
+     * mutate console.{log,debug,info,trace} into no-ops. */
     console.log = noop;
     console.debug = noop;
     console.info = noop;
     console.trace = noop;
+    /* eslint-enable no-console */
   }
 }

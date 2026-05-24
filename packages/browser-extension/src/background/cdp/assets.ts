@@ -1,3 +1,6 @@
+/* eslint-disable no-console -- `[W2W]` traces document mime-conversion +
+ * asset-resolution failures; silenced in prod by gateConsoleInProduction. */
+
 /**
  * Asset extraction using CDP — Page.getResourceTree approach
  *

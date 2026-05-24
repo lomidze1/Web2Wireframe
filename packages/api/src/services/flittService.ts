@@ -457,7 +457,9 @@ export async function cancelSubscription(
     }
 
     if (i > 0) {
-      console.info(`[Flitt] cancel succeeded on attempt ${i + 1}`);
+      // Recovered-from-retry is operationally significant — surface via
+      // warn so it survives prod console gating.
+      console.warn(`[Flitt] cancel succeeded on attempt ${i + 1}`);
     }
     return { ok: true };
   }

@@ -1,3 +1,6 @@
+/* eslint-disable no-console -- per-request `[W2W]` extraction traces;
+ * silenced in prod by gateConsoleInProduction(). */
+
 /**
  * Website + HTML import routes
  * POST /api/import-url
