@@ -11,9 +11,12 @@
 export function gateConsoleInProduction(): void {
   if (import.meta.env.PROD) {
     const noop = (): void => undefined;
+    /* eslint-disable no-console -- the helper's whole purpose is to
+     * mutate console.{log,debug,info,trace} into no-ops. */
     console.log = noop;
     console.debug = noop;
     console.info = noop;
     console.trace = noop;
+    /* eslint-enable no-console */
   }
 }

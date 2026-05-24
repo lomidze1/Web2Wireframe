@@ -12,7 +12,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { extractPseudoIconContent, findIconClassElements } from "../tree-builder";
 import type { ParsedSnapshotNode } from "../snapshot";
-import type { PlatformFontInfo, CDPClientInterface } from "../types";
+import type { CDPClientInterface } from "../types";
 
 // ============================================================================
 // Helpers

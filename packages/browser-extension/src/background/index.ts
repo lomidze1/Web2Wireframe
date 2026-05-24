@@ -334,7 +334,7 @@ async function cancelInspectMode(): Promise<void> {
 
       // Destroy client
       await inspectModeClient.destroy();
-    } catch (e) {
+    } catch {
       // Ignore cleanup errors
     }
     inspectModeClient = null;
@@ -344,7 +344,7 @@ async function cancelInspectMode(): Promise<void> {
   if (inspectModeTabId) {
     try {
       await chrome.tabs.sendMessage(inspectModeTabId, { type: "HIDE_SELECTION_UI" });
-    } catch (e) {
+    } catch {
       // Content script might not be ready
     }
   }
@@ -359,7 +359,7 @@ async function cancelInspectMode(): Promise<void> {
 async function injectSelectionUI(tabId: number): Promise<void> {
   try {
     await chrome.tabs.sendMessage(tabId, { type: "SHOW_SELECTION_UI" });
-  } catch (e) {
+  } catch {
     // Content script might not be ready, inject it
     await chrome.scripting.executeScript({
       target: { tabId },
@@ -473,7 +473,7 @@ async function autoScrollPage(client: CDPClient): Promise<void> {
       awaitPromise: true,
       timeout: maxScrollTime + 5000,
     });
-  } catch (e) {
+  } catch {
     // Auto-scroll failed, scroll to top
     await client
       .send("Runtime.evaluate", { expression: "window.scrollTo(0, 0)" })
@@ -1407,14 +1407,12 @@ async function handleCapturePageW2W(
         "application/x-font-woff", "application/x-font-ttf",
       ]);
       const fontExtSet = [".woff2", ".woff", ".ttf", ".otf", ".eot"];
-      let removedCount = 0;
       for (const url of Object.keys(assets)) {
         const asset = assets[url];
         const isFontMime = asset.mimeType ? fontMimeSet.has(asset.mimeType) : false;
         const isFontExt = fontExtSet.some((ext) => url.toLowerCase().includes(ext));
         if ((isFontMime || isFontExt) && !fontUrlsToKeep.has(url)) {
           delete assets[url];
-          removedCount++;
         }
       }
 
@@ -1425,7 +1423,6 @@ async function handleCapturePageW2W(
           const isFontExt = fontExtSet.some((ext) => url.toLowerCase().includes(ext));
           if (isFontExt && !fontUrlsToKeep.has(url)) {
             delete assets[url];
-            removedCount++;
           }
         }
       }
