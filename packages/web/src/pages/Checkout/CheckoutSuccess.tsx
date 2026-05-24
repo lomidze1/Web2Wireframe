@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { Link } from "react-router-dom";
 import styles from "./Checkout.module.scss";
 
 const CheckoutSuccess = (): ReactElement => (
@@ -8,17 +9,17 @@ const CheckoutSuccess = (): ReactElement => (
         <div className={styles.icon}>✓</div>
         <h1>Payment successful</h1>
         <p>
-          Welcome to Web2Wireframe Pro. Return to the Figma plugin — your
-          plan should refresh within a few seconds. If it doesn't, reopen
-          the Plan modal in the plugin footer.
+          Thank you for upgrading to Pro! Return to the Figma plugin — your
+          plan refreshes in a few seconds, or just reload it.
         </p>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => window.close()}
-        >
-          Close this tab
-        </button>
+        {/*
+          window.close() is blocked by browsers unless the tab was opened
+          by script — Flitt redirects here, so it never works. A homepage
+          link is a useful fallback that always works.
+        */}
+        <Link to="/" className="btn btn-primary">
+          Return to homepage
+        </Link>
         <p className={styles.subtle}>
           Need help? Email{" "}
           <a href="mailto:billing@web2wireframe.design">

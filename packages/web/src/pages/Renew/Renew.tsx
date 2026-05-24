@@ -3,7 +3,11 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import styles from "./Renew.module.scss";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3002";
+// Relative URL by design — production nginx proxies /api/* to the backend
+// (see packages/web/nginx.conf), and the Vite dev server proxies the same
+// path to http://localhost:3002 (see vite.config.ts). An absolute URL would
+// trip the page's CSP (`connect-src 'self'`) AND lock the build to a
+// hardcoded host.
 
 /**
  * Renewal landing page. Reached from the expiry reminder email
@@ -43,7 +47,7 @@ const Renew = (): ReactElement => {
     setIsLoading(true);
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/checkout/create`, {
+        const res = await fetch(`/api/checkout/create`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ figmaUserId: uid, plan }),
@@ -63,8 +67,9 @@ const Renew = (): ReactElement => {
         if (!cancelled) setCheckoutUrl(data.checkoutUrl);
       } catch (err) {
         if (!cancelled) {
-          // Generic message — see comment above.
-          setError("We couldn't start the checkout. Please try again or email billing@web2wireframe.design.");
+          // Generic message — see comment above. Email + retry CTA live in
+          // the JSX so they can be styled / wired separately from this copy.
+          setError("We couldn't start the checkout. Please try again.");
           // Operator-side trail.
           console.error("[Renew] error:", err);
         }
@@ -80,6 +85,40 @@ const Renew = (): ReactElement => {
   function handleConfirmRenew(): void {
     if (checkoutUrl) {
       window.location.href = checkoutUrl;
+    }
+  }
+
+  /**
+   * Retry the failed checkout creation AND, on success, navigate the user
+   * straight to Flitt instead of returning them to the "Continue to checkout"
+   * button (which would be a second click for the same intent). On failure
+   * the error UI re-renders and they can hit Try again again.
+   */
+  async function handleRetry(): Promise<void> {
+    if (!uid || isLoading) return;
+    // Keep `error` set so the error card stays visible while retrying —
+    // clearing it would bounce the UI back to the (disabled) "Continue to
+    // checkout" screen for a fraction of a second, which reads as a flicker.
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/checkout/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ figmaUserId: uid, plan }),
+      });
+      const data = (await res.json()) as {
+        checkoutUrl?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.checkoutUrl) {
+        console.error("[Renew] retry checkout creation failed:", data.error);
+        throw new Error("");
+      }
+      window.location.href = data.checkoutUrl;
+    } catch (err) {
+      setError("We couldn't start the checkout. Please try again.");
+      console.error("[Renew] retry error:", err);
+      setIsLoading(false);
     }
   }
 
@@ -113,6 +152,21 @@ const Renew = (): ReactElement => {
               <div className={styles.iconError}>!</div>
               <h1>Renewal couldn't start</h1>
               <p>{error}</p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleRetry}
+                disabled={isLoading}
+              >
+                {isLoading ? "Retrying…" : "Try again"}
+              </button>
+              <p className={styles.subtle}>
+                Still stuck? Email{" "}
+                <a href="mailto:billing@web2wireframe.design">
+                  billing@web2wireframe.design
+                </a>
+                .
+              </p>
             </>
           ) : (
             <>
