@@ -8,7 +8,8 @@
     "build": "tsc && vite build && vite build --config vite.config.content.ts",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
-    "type-check:watch": "tsc --noEmit --watch"
+    "type-check:watch": "tsc --noEmit --watch",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",

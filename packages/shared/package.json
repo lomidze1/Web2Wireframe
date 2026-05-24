@@ -29,7 +29,8 @@
     "build": "rm -rf dist && tsup && node ../../scripts/bundle-content-script.mjs",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "test": "vitest run",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
   },
   "engines": {
     "node": ">=18.0.0"
