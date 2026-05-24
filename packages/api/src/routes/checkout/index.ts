@@ -89,6 +89,26 @@ router.post("/create", async (req: Request, res: Response) => {
   }
 });
 
+// ============================================================================
+// ALL /api/checkout/success
+// ----------------------------------------------------------------------------
+// Flitt's `response_url` redirect is sent as a POST when the user completes
+// payment (form auto-submit on their success page). The marketing website's
+// /checkout/success route is a static SPA path served by nginx, which only
+// answers GET — so the first hit returns 405 and the user has to refresh
+// before they see the success card.
+//
+// This bridge accepts POST (and GET, defensively) on the API host and 303-
+// redirects to the website. A 303 forces the browser to follow with GET
+// regardless of the original method, which resolves the 405 cleanly. No
+// signature verification needed — the real activation is the separately
+// signed webhook to /api/webhooks/flitt; this endpoint only steers the
+// user's browser.
+// ============================================================================
+router.all("/success", (_req: Request, res: Response) => {
+  res.redirect(303, `${config.website.baseUrl}/checkout/success`);
+});
+
 export default router;
 
 // ============================================================================

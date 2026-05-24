@@ -206,12 +206,16 @@ export async function createSubscriptionCheckout(params: {
     plan: "pro",
   });
 
+  // Flitt POSTs `response_url`, which collides with the website's static
+  // /checkout/success route (GET-only → 405). Default through an API bridge
+  // that 303-redirects to the website; a custom returnUrl still overrides
+  // for callers that explicitly opt into a non-bridged destination.
+  const apiPublicUrl =
+    process.env.API_PUBLIC_URL ?? "https://api.web2wireframe.design";
   const responseUrl =
     sanitizeReturnUrl(params.returnUrl) ??
-    `${config.website.baseUrl}/checkout/success`;
-  const callbackUrl = `${
-    process.env.API_PUBLIC_URL ?? "https://api.web2wireframe.design"
-  }/api/webhooks/flitt`;
+    `${apiPublicUrl}/api/checkout/success`;
+  const callbackUrl = `${apiPublicUrl}/api/webhooks/flitt`;
 
   const requestParams: Record<string, unknown> = {
     merchant_id: merchantId,
@@ -302,12 +306,16 @@ export async function createOneTimeCheckout(params: {
     duration,
   });
 
+  // Flitt POSTs `response_url`, which collides with the website's static
+  // /checkout/success route (GET-only → 405). Default through an API bridge
+  // that 303-redirects to the website; a custom returnUrl still overrides
+  // for callers that explicitly opt into a non-bridged destination.
+  const apiPublicUrl =
+    process.env.API_PUBLIC_URL ?? "https://api.web2wireframe.design";
   const responseUrl =
     sanitizeReturnUrl(params.returnUrl) ??
-    `${config.website.baseUrl}/checkout/success`;
-  const callbackUrl = `${
-    process.env.API_PUBLIC_URL ?? "https://api.web2wireframe.design"
-  }/api/webhooks/flitt`;
+    `${apiPublicUrl}/api/checkout/success`;
+  const callbackUrl = `${apiPublicUrl}/api/webhooks/flitt`;
 
   const requestParams: Record<string, unknown> = {
     merchant_id: merchantId,

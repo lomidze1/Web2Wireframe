@@ -406,7 +406,12 @@ describe("createOneTimeCheckout", () => {
 // ============================================================================
 
 describe("returnUrl sanitization (open-redirect protection)", () => {
-  const DEFAULT_RETURN = "https://web2wireframe.test/checkout/success";
+  // The default response_url now goes through the API bridge route
+  // (POST→GET 303 redirect) instead of the website's static SPA path —
+  // see the `ALL /api/checkout/success` handler. API_PUBLIC_URL is unset
+  // in this test env, so the service uses its hardcoded prod fallback.
+  const DEFAULT_RETURN =
+    "https://api.web2wireframe.design/api/checkout/success";
 
   const mockOkCheckout = (): ReturnType<typeof vi.spyOn> =>
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
