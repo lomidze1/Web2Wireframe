@@ -118,3 +118,86 @@
     text-underline-offset: 2px;
   }
 }
+
+// Monthly / Yearly toggle inside the Pro card. Full-width tab bar — the
+// container fills the card so it reads as the cardHead's footer control,
+// not a floating chip. `position: relative` anchors the floating savings
+// callout that points down at the Yearly tab.
+.tierToggle {
+  position: relative;
+  display: flex;
+  width: 100%;
+  gap: 0;
+  margin: 0.9rem 0 0.2rem;
+  padding: 4px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.tierBtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  flex: 1; // equal halves so each tab fills exactly 50% of the toggle
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.tierBtn:hover:not(.tierBtnActive) {
+  color: var(--text);
+}
+
+.tierBtnActive {
+  background: var(--accent-strong);
+  color: #fff;
+}
+
+// Floating "Save 25%" callout — sits above the toggle, smaller + shifted
+// toward the right edge of the Yearly tab so it doesn't visually cover
+// the "Yearly" label below. Permanent (not state-gated) because its job
+// is to *invite* the user toward Yearly regardless of which tab is
+// currently active. Anchored from the right side of the toggle so the
+// position stays stable when the toggle width changes responsively.
+.saveFloatingTag {
+  position: absolute;
+  top: -11px;
+  right: 6%;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.32);
+  pointer-events: none; // never blocks clicks on the tab beneath
+}
+
+// Caret pointing down toward the Yearly tab. Anchored to the LEFT of the
+// tag (not centered) so it sits closer to the "Yearly" text instead of
+// pointing at empty space at the very right edge of the toggle.
+.saveFloatingTag::after {
+  content: "";
+  position: absolute;
+  bottom: -3px;
+  left: 18%;
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 3px solid #16a34a;
+}
