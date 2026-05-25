@@ -739,6 +739,12 @@ body {
   color: var(--color-success);
 }
 
+.newsletter-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-error);
+}
+
 /* Plan Modal */
 .modal-plan {
   max-width: 380px;
