@@ -15,9 +15,14 @@ export const API_ENDPOINTS = {
 } as const;
 
 // Storage Keys
+//
+// SESSION is separate from SETTINGS so logout can wipe auth state without
+// touching user prefs (backendUrl, capture toggles, etc.). Owned by
+// shared/session.ts — the only module allowed to read/write this key.
 export const STORAGE_KEYS = {
   SETTINGS: "w2w_extension_settings",
   LAST_CAPTURE: "w2w_last_capture",
+  SESSION: "w2w_extension_session",
 } as const;
 
 // Default Settings

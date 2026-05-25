@@ -23,6 +23,9 @@ vi.mock("../src/state.js", () => ({
   mongoConnected: true,
   setMongoConnected: vi.fn(),
   pendingCDPImports: new Map(),
+  // authenticatePlugin reads this Map; without the mock entry the import
+  // resolves to undefined and every authenticated request 401s.
+  revokedTokens: new Map(),
 }));
 
 const { default: licenseRouter } = await import(

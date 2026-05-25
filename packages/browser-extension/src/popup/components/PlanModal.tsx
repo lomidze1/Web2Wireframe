@@ -7,18 +7,17 @@ interface PlanModalProps {
 
 interface PlanFeature {
   name: string;
-  plus: string | boolean;
+  free: string | boolean;
   pro: string | boolean;
 }
 
 const PLAN_FEATURES: PlanFeature[] = [
-  { name: "Imports per month", plus: "Unlimited", pro: "Unlimited" },
-  { name: "Viewports", plus: "All", pro: "All" },
-  { name: "Full color & fonts", plus: true, pro: true },
-  { name: "Real text content", plus: true, pro: true },
-  { name: "Styles & assets", plus: true, pro: true },
-  { name: "AI generation", plus: false, pro: true },
-  { name: "Priority support", plus: false, pro: true },
+  { name: "Imports per month", free: "10", pro: "Unlimited" },
+  { name: "All viewports", free: true, pro: true },
+  { name: "Full colors & fonts", free: true, pro: true },
+  { name: "Real text content", free: true, pro: true },
+  { name: "Styles & assets", free: true, pro: true },
+  { name: "Priority email support", free: false, pro: true },
 ];
 
 export function PlanModal({ isOpen, onClose }: PlanModalProps) {
@@ -45,25 +44,26 @@ export function PlanModal({ isOpen, onClose }: PlanModalProps) {
         </div>
 
         <div class="modal-content">
-          {/* Current Plan Badge */}
+          {/* Plan identity lives in the Figma plugin (figma.currentUser.id); the
+              extension is anonymous, so we link out instead of asserting a tier. */}
           <div class="current-plan">
-            <span class="plan-badge plan-badge-free">Free Plan</span>
+            <p class="plan-subtitle">Open the Figma plugin to view your current plan.</p>
           </div>
 
           {/* Features Comparison */}
           <div class="plan-features">
             <div class="plan-features-header">
               <span></span>
-              <span class="plan-column plan-column-plus">Plus</span>
-              <span class="plan-column plan-column-pro">Pro</span>
+              <span class="plan-column plan-column-free">Free</span>
+              <span class="plan-column plan-column-pro">Pro · from $16</span>
             </div>
             {PLAN_FEATURES.map((feature) => (
               <div class="plan-feature-row" key={feature.name}>
                 <span class="feature-name">{feature.name}</span>
                 <span class="feature-check">
-                  {typeof feature.plus === "string" ? (
-                    <span class="feature-text">{feature.plus}</span>
-                  ) : feature.plus ? (
+                  {typeof feature.free === "string" ? (
+                    <span class="feature-text">{feature.free}</span>
+                  ) : feature.free ? (
                     <CheckIcon />
                   ) : (
                     <XIcon />

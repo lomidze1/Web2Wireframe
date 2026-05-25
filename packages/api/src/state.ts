@@ -54,3 +54,19 @@ export interface PendingPairingEntry {
 }
 
 export const pendingPairings = new Map<string, PendingPairingEntry>();
+
+// ---------------------------------------------------------------------------
+// Revoked HMAC bearer tokens
+// ---------------------------------------------------------------------------
+// In-memory blacklist of tokens that have been explicitly revoked (via
+// /api/extension-session/revoke today; potentially future plugin logout).
+// Keys are the raw token strings — same string the client sends in the
+// Authorization header — values are the token's original `exp` epoch in ms
+// so we can prune entries opportunistically once they would have expired
+// on their own. authenticatePlugin checks this Map before honoring a token.
+//
+// Cleared on API restart (acceptable: the client cleared its local copy on
+// logout, and the token still expires at its original timestamp regardless).
+// Migrate to MongoDB if launch traffic shows persistent revocation is needed.
+
+export const revokedTokens = new Map<string, number>();

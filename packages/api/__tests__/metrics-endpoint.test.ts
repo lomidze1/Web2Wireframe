@@ -33,6 +33,9 @@ vi.mock("../src/state.js", () => ({
   mongoConnected: false,
   setMongoConnected: vi.fn(),
   pendingCDPImports: new Map(),
+  // authenticatePlugin reads this Map; including it keeps any future test
+  // that hits a guarded route from 401-ing for the wrong reason.
+  revokedTokens: new Map(),
 }));
 
 vi.mock("../src/models/WebhookEvent.js", () => ({

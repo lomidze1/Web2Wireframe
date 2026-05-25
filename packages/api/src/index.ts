@@ -25,6 +25,9 @@ import pluginNewsletterRoutes from "./routes/plugin/newsletter.js";
 // License routes (MongoDB-backed, formerly License_Backend)
 import licenseRoutes from "./routes/license/index.js";
 
+// Browser-extension session routes (pairing-code → bearer token)
+import extensionSessionRoutes from "./routes/extension/session.js";
+
 // Checkout / webhook / cancel routes (Flitt payment integration)
 import checkoutRoutes, {
   webhookRouter,
@@ -215,6 +218,9 @@ pluginRouter.use("/api/auth", authRateLimiter, authTokenRoutes);
 
 // License routes (direct MongoDB — no more proxy)
 pluginRouter.use("/api/license", licenseRoutes);
+
+// Browser-extension session routes (redeem/refresh/revoke)
+pluginRouter.use("/api/extension-session", extensionSessionRoutes);
 
 // Flitt payment routes — unique prefixes, so mount-level rate limiting is safe.
 pluginRouter.use(

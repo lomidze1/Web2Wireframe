@@ -421,7 +421,7 @@ export default function AreaSelection() {
       // Legacy format — use old conversion pipeline
        
       framesData = prepareFramesForRendering(
-        transformedFrames as Parameters<typeof prepareFramesForRendering>[0],
+        transformedFrames as unknown as Parameters<typeof prepareFramesForRendering>[0],
         {
           text: config.pluginColors.text,
           surface: config.pluginColors.surface,

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Request, Response, NextFunction } from "express";
 import "express-session"; // Session type augmentation loaded from config/express-session.d.ts
+import { revokedTokens } from "../state.js";
 
 // Extend Express Request with userId
 declare global {
@@ -25,6 +26,14 @@ const DEFAULT_EXPIRY_SECONDS = 24 * 60 * 60; // 24 hours
  * while still valid. A full expiry simply triggers another OAuth round-trip.
  */
 export const PLUGIN_TOKEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+/**
+ * Expiry for extension session tokens minted by /api/extension-session/redeem.
+ * Same value as PLUGIN_TOKEN_EXPIRY_SECONDS today — kept as a separate symbol
+ * so the two surfaces can diverge later without a refactor (e.g. tighter
+ * window for extension after a security incident).
+ */
+export const EXTENSION_TOKEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 /**
  * Create an HMAC-SHA256 signed token for a Figma user.
@@ -135,6 +144,16 @@ export function authenticatePlugin(
 
   try {
     const payload = verifyToken(token, secret);
+    // Hot-path optimization: skip the Map.has() lookup entirely when no
+    // tokens have been revoked. Keeps the request path zero-cost in the
+    // common case and only pays the check after a logout has happened.
+    if (revokedTokens.size > 0 && revokedTokens.has(token)) {
+      res.status(401).json({
+        success: false,
+        error: "Unauthorized: Session revoked",
+      });
+      return;
+    }
     req.userId = payload.userId;
     next();
   } catch (err) {
@@ -143,6 +162,23 @@ export function authenticatePlugin(
       error: `Unauthorized: ${(err as Error).message}`,
     });
   }
+}
+
+/**
+ * Add a token to the in-memory revocation list. The map is pruned of
+ * expired entries opportunistically — revoke is a rare event compared to
+ * authenticated requests, so paying the O(n) sweep here keeps the request
+ * path fast.
+ *
+ * `originalExpiryEpochMs` should be the token's own `exp * 1000` so we can
+ * drop the entry once it would have expired anyway.
+ */
+export function revokeToken(token: string, originalExpiryEpochMs: number): void {
+  const now = Date.now();
+  for (const [t, expiry] of revokedTokens.entries()) {
+    if (expiry <= now) revokedTokens.delete(t);
+  }
+  revokedTokens.set(token, originalExpiryEpochMs);
 }
 
 /**

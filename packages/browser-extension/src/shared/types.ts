@@ -423,6 +423,79 @@ export interface ExtensionSettings {
   pairingCode: string;
 }
 
+// ============================================================================
+// License + session types
+// ============================================================================
+// Wire shape mirrors `packages/api/src/lib/serializeLicense.ts`. Duplicated
+// rather than imported so the Chrome extension bundle stays independent of
+// the api package's transitive deps (Mongoose, Express, etc.).
+
+export type Plan = "free" | "pro";
+export type Status = "active" | "canceled" | "expired";
+export type CheckoutPlan = "monthly" | "yearly";
+
+export interface LicenseSubscription {
+  flittOrderId: string;
+  activatedAt: string;
+  nextBillingAt: string;
+  canceledAt: string | null;
+  lastFailedAt: string | null;
+  failureCount: number;
+  /** true = recurring; false = one-time purchase. */
+  autoRenew: boolean;
+  lastDuration: "monthly" | "yearly";
+}
+
+export interface License {
+  figmaUserId: string;
+  email: string | null;
+  plan: Plan;
+  status: Status;
+  cycleStartedAt: string;
+  cycleEndsAt: string;
+  usage: {
+    imports: number;
+    periodStartedAt: string;
+  };
+  limits: {
+    /** null = unlimited (Pro plan). */
+    imports: number | null;
+  };
+  subscription: LicenseSubscription | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RedeemResponse {
+  sessionToken: string;
+  /** ISO timestamp; mirror of backend's expiresAt. */
+  expiresAt: string;
+  figmaUserId: string;
+  email: string | null;
+  license: License;
+}
+
+export interface CheckoutResponse {
+  checkoutUrl: string;
+  orderId: string;
+}
+
+/**
+ * Persisted session state. Owned by `shared/session.ts`; everything outside
+ * that module must go through its accessors. Cleared on logout, on a 401
+ * from the API, and on extension uninstall.
+ */
+export interface SessionState {
+  sessionToken: string;
+  /** epoch ms — derived from RedeemResponse.expiresAt at write time. */
+  expiresAt: number;
+  figmaUserId: string;
+  email: string | null;
+  /** Snapshot from the most recent redeem/fetchMyLicense — lets the popup
+   *  paint an immediate UI on open without a network round-trip. */
+  cachedLicense: License | null;
+}
+
 // Message types for extension communication
 export type ExtensionMessage =
   | { type: "CAPTURE_PAGE"; tabId: number; options: CaptureOptions }

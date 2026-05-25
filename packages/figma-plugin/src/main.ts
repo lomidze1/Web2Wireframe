@@ -25,6 +25,7 @@ import type {
   WireframeFrame,
   RenderContext,
   FontMapping,
+  RenderWireframeData,
 } from "./types";
 import {
   normalizeColorForLookup,
@@ -593,7 +594,11 @@ export default function () {
           const frameData = frames[i];
           if (frameData.capturedData?.assets) {
             const assetMap: Record<string, string> = {};
-            for (const [url, entry] of Object.entries(frameData.capturedData.assets)) {
+            const assetsTyped = frameData.capturedData.assets as Record<
+              string,
+              { base64Encoded?: boolean; content?: string; mimeType?: string }
+            >;
+            for (const [url, entry] of Object.entries(assetsTyped)) {
               if (entry.base64Encoded && entry.content) {
                 const mime = entry.mimeType || 'image/png';
                 assetMap[url] = `data:${mime};base64,${entry.content}`;

@@ -1,5 +1,4 @@
 import { Router, type Request, type Response } from "express";
-import { type ILicense, PLAN_LIMITS } from "../../models/License.js";
 import { licenseService } from "../../services/licenseService.js";
 import { authenticatePlugin, verifyToken } from "../../middleware/auth.js";
 import {
@@ -7,6 +6,7 @@ import {
   byTokenUserRateLimiter,
 } from "../../middleware/rateLimit.js";
 import { mongoConnected } from "../../state.js";
+import { serializeLicense } from "../../lib/serializeLicense.js";
 
 const router = Router();
 
@@ -30,79 +30,6 @@ function requireMongo(_req: Request, res: Response): boolean {
 }
 
 // ============================================================================
-// Serialization
-// ============================================================================
-
-interface SerializedLicense {
-  figmaUserId: string;
-  email: string | null;
-  plan: "free" | "pro";
-  status: "active" | "canceled" | "expired";
-  cycleStartedAt: string;
-  cycleEndsAt: string;
-  usage: {
-    imports: number;
-    periodStartedAt: string;
-  };
-  limits: {
-    // null over JSON for "unlimited" — Pro users see no cap.
-    imports: number | null;
-  };
-  subscription: {
-    flittOrderId: string;
-    activatedAt: string;
-    nextBillingAt: string;
-    canceledAt: string | null;
-    lastFailedAt: string | null;
-    failureCount: number;
-    /** true = native Flitt recurring subscription; false = one-time purchase. */
-    autoRenew: boolean;
-    /**
-     * Tier of the most-recent one-time purchase. Lets the plugin decide
-     * whether to surface "Upgrade to Yearly" to a monthly Pro user.
-     */
-    lastDuration: "monthly" | "yearly";
-  } | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-function serialize(license: ILicense): SerializedLicense {
-  const limit = PLAN_LIMITS[license.plan].imports;
-  return {
-    figmaUserId: license.figmaUserId,
-    email: license.email,
-    plan: license.plan,
-    status: license.status,
-    cycleStartedAt: license.cycleStartedAt.toISOString(),
-    cycleEndsAt: license.cycleEndsAt.toISOString(),
-    usage: {
-      imports: license.usage.imports,
-      periodStartedAt: license.usage.periodStartedAt.toISOString(),
-    },
-    limits: {
-      imports: Number.isFinite(limit) ? limit : null,
-    },
-    subscription: license.subscription
-      ? {
-          flittOrderId: license.subscription.flittOrderId,
-          activatedAt: license.subscription.activatedAt.toISOString(),
-          nextBillingAt: license.subscription.nextBillingAt.toISOString(),
-          canceledAt:
-            license.subscription.canceledAt?.toISOString() ?? null,
-          lastFailedAt:
-            license.subscription.lastFailedAt?.toISOString() ?? null,
-          failureCount: license.subscription.failureCount,
-          autoRenew: license.subscription.autoRenew === true,
-          lastDuration: license.subscription.lastDuration ?? "monthly",
-        }
-      : null,
-    createdAt: license.createdAt.toISOString(),
-    updatedAt: license.updatedAt.toISOString(),
-  };
-}
-
-// ============================================================================
 // Routes
 // ============================================================================
 
@@ -120,7 +47,7 @@ router.get("/me", authenticatePlugin, async (req: Request, res: Response) => {
   try {
     const figmaUserId = req.userId!;
     const license = await licenseService.getOrCreate(figmaUserId);
-    res.json(serialize(license));
+    res.json(serializeLicense(license));
   } catch (err) {
     console.error("[License] /me error:", err);
     res.status(500).json({ error: "Server error" });
@@ -215,7 +142,7 @@ router.post(
 
     try {
       const license = await licenseService.getOrCreate(figmaUserId);
-      res.json(serialize(license));
+      res.json(serializeLicense(license));
     } catch (err) {
       console.error("[License] /by-token error:", err);
       res.status(500).json({ error: "Server error" });

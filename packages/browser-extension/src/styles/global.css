@@ -755,6 +755,13 @@ body {
   margin-bottom: 16px;
 }
 
+.plan-subtitle {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
 .plan-badge {
   display: inline-block;
   padding: 6px 16px;
@@ -793,7 +800,7 @@ body {
   text-align: center;
 }
 
-.plan-column-plus {
+.plan-column-free {
   color: #1e293b;
 }
 
