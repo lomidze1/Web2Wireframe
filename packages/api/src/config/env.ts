@@ -42,6 +42,11 @@ const resendApiKey = requireEnv("RESEND_API_KEY");
 const supportToEmail = requireEnv("SUPPORT_TO_EMAIL");
 const noreplyEmail = requireEnv("NOREPLY_EMAIL");
 
+// Resend Audience for newsletter subscriptions (browser extension Help Modal).
+// Optional — when unset, /api/newsletter/subscribe returns 503 so operators
+// know the integration isn't wired up rather than silently dropping signups.
+const resendAudienceId = process.env.RESEND_AUDIENCE_ID ?? "";
+
 const figmaClientId = requireEnv(
   "FIGMA_CLIENT_ID",
   "Figma OAuth routes will be disabled in development."
@@ -89,6 +94,9 @@ export const config = {
     resendApiKey,
     supportToEmail,
     noreplyEmail,
+  },
+  newsletter: {
+    audienceId: resendAudienceId,
   },
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "600000", 10),

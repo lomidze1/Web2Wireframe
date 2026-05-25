@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import { CloseIcon, DocsIcon, ContactIcon, PluginIcon, PricingIcon, MailIcon } from "./Icons";
+import { API_URL, STORAGE_KEYS } from "../../shared/constants";
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -23,12 +24,36 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
     setSubscribeStatus("loading");
 
-    // TODO: Implement actual subscription API call
-    setTimeout(() => {
-      setSubscribeStatus("success");
-      setEmail("");
+    // User may have overridden the backend in Options — honor that, fall
+    // back to the prod default constant if no override is stored.
+    let backendUrl = API_URL;
+    try {
+      const stored = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS);
+      const settings = stored[STORAGE_KEYS.SETTINGS] as { backendUrl?: string } | undefined;
+      if (settings?.backendUrl) backendUrl = settings.backendUrl;
+    } catch {
+      // Use default
+    }
+
+    try {
+      const response = await fetch(`${backendUrl}/api/newsletter/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      if (response.ok) {
+        setSubscribeStatus("success");
+        setEmail("");
+        setTimeout(() => setSubscribeStatus("idle"), 3000);
+      } else {
+        setSubscribeStatus("error");
+        setTimeout(() => setSubscribeStatus("idle"), 3000);
+      }
+    } catch {
+      setSubscribeStatus("error");
       setTimeout(() => setSubscribeStatus("idle"), 3000);
-    }, 1000);
+    }
   };
 
   const handleOverlayClick = (e: Event) => {
@@ -112,6 +137,9 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
             </form>
             {subscribeStatus === "success" && (
               <p class="newsletter-success">Thanks for subscribing!</p>
+            )}
+            {subscribeStatus === "error" && (
+              <p class="newsletter-error">Subscription failed. Please try again.</p>
             )}
           </div>
         </div>
