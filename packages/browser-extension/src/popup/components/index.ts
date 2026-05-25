@@ -6,3 +6,4 @@ export * from "./CaptureButtons";
 export * from "./Footer";
 export * from "./HelpModal";
 export * from "./PlanModal";
+export * from "./CaptureStatsWarning";

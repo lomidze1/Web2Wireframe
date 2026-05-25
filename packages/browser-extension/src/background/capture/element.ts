@@ -24,7 +24,7 @@
 import { CDPClient, createCDPClient } from "../cdp/client";
 import { getDocument } from "../cdp/dom";
 import { extractFonts, collectPlatformFonts } from "../cdp/fonts";
-import { buildResourceMap, extractAssetsForTree } from "../cdp/assets";
+import { buildResourceMap, extractAssetsForTree, mergeAssetStats } from "../cdp/assets";
 
 import {
   captureSnapshot,
@@ -217,13 +217,19 @@ export async function handleCaptureElement(
 
     // Extract real image assets from browser cache
     let frameAssets: Record<string, string> | undefined;
+    let captureStats: CaptureResult["captureStats"];
     if (elSettings.captureAssets) {
       updateProgress(94, "Extracting images from cache...");
       const resourceMap = await buildResourceMap(client);
-      const assetsMap = await extractAssetsForTree(client, tree, resourceMap);
+      const { assets: assetsMap, stats } = await extractAssetsForTree(
+        client,
+        tree,
+        resourceMap,
+      );
       if (Object.keys(assetsMap).length > 0) {
         frameAssets = assetsMap;
       }
+      captureStats = mergeAssetStats([stats]);
     }
 
     updateProgress(97, "Finalizing...");
@@ -247,6 +253,7 @@ export async function handleCaptureElement(
       stylesheets: [],
       cssVariables,
       detectedColors,
+      captureStats,
     };
 
     updateProgress(100, "Complete!");
@@ -411,13 +418,19 @@ export async function handleCaptureElementByBackendId(
 
     // Extract real image assets from browser cache
     let frameAssets2: Record<string, string> | undefined;
+    let captureStats2: CaptureResult["captureStats"];
     if (biSettings.captureAssets) {
       updateProgress(94, "Extracting images from cache...");
       const resourceMap = await buildResourceMap(client);
-      const assetsMap = await extractAssetsForTree(client, tree, resourceMap);
+      const { assets: assetsMap, stats } = await extractAssetsForTree(
+        client,
+        tree,
+        resourceMap,
+      );
       if (Object.keys(assetsMap).length > 0) {
         frameAssets2 = assetsMap;
       }
+      captureStats2 = mergeAssetStats([stats]);
     }
 
     updateProgress(97, "Finalizing...");
@@ -441,6 +454,7 @@ export async function handleCaptureElementByBackendId(
       stylesheets: [],
       cssVariables,
       detectedColors,
+      captureStats: captureStats2,
     };
 
     updateProgress(100, "Complete!");

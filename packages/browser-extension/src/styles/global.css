@@ -500,6 +500,32 @@ body {
   color: var(--color-text-secondary);
 }
 
+.capture-stats-warning {
+  width: 100%;
+  padding: 10px 12px;
+  background: #fffbeb;
+  border: 1px solid rgba(217, 119, 6, 0.2);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--color-warning);
+  text-align: left;
+}
+
+.capture-stats-warning__title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.capture-stats-warning__list {
+  margin: 0;
+  padding-left: 18px;
+  list-style-type: disc;
+}
+
+.capture-stats-warning__list li {
+  margin-top: 2px;
+}
+
 .thanks-message {
   text-align: center;
   font-size: 13px;

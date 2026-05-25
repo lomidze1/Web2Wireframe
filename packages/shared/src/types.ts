@@ -641,6 +641,26 @@ export interface DetectedColors {
   };
 }
 
+/**
+ * Aggregate counters for assets that didn't make it into the capture.
+ * Surfaced to the popup so the user understands a partial capture (e.g.
+ * "2 image/tiff skipped") instead of silently shipping a wireframe with
+ * missing visuals.
+ */
+export interface CaptureStats {
+  /** Total dropped image URLs across all frames. */
+  skippedImageCount: number;
+  /** Per-MIME breakdown of decoder refusals (e.g. {"image/heic": 2}). */
+  unsupportedFormats: Record<string, number>;
+  /** Images dropped because they exceeded the 2MB per-image cap. */
+  oversizedImageCount: number;
+  /** True if the 30MB total payload cap stopped us before the URL list ran out. */
+  payloadTruncated: boolean;
+  /** Source URLs that never appeared in the browser's resource map
+   *  (cache miss — typically the image failed to load on the source page). */
+  resourceMapMisses: number;
+}
+
 export interface CaptureResult {
   url: string;
   title: string;
@@ -651,6 +671,9 @@ export interface CaptureResult {
   stylesheets: ExtractedStylesheet[];
   cssVariables: ExtractedCSSVariable[];
   detectedColors?: DetectedColors;
+  /** Optional — present when asset extraction ran. Drives the popup's
+   *  "partial capture" warning. */
+  captureStats?: CaptureStats;
 }
 
 export interface ExtractedFont {

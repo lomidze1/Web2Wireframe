@@ -226,6 +226,24 @@ export interface DetectedColors {
   };
 }
 
+// Aggregate counters for assets that didn't make it into the capture. Used
+// by the popup to show "X images couldn't be included" instead of silently
+// shipping a partial wireframe.
+export interface CaptureStats {
+  /** Sum of image URLs we couldn't include, across all frames. */
+  skippedImageCount: number;
+  /** Per-MIME breakdown of decoder refusals (e.g. {"image/heic": 2}).
+   *  Useful for "your page uses HEIC, which Figma doesn't support" copy. */
+  unsupportedFormats: Record<string, number>;
+  /** Images dropped because they exceeded the 2MB per-image cap. */
+  oversizedImageCount: number;
+  /** True if the 30MB total payload cap stopped us before the URL list ran out. */
+  payloadTruncated: boolean;
+  /** Images whose source URL never showed up in the browser's resource map
+   *  (cache miss — typically the image failed to load on the source page). */
+  resourceMapMisses: number;
+}
+
 // Full page capture result (multi-viewport support)
 export interface CaptureResult {
   url: string;
@@ -237,6 +255,9 @@ export interface CaptureResult {
   stylesheets: ExtractedStylesheet[];
   cssVariables: ExtractedCSSVariable[];  // All CSS variables from the page
   detectedColors?: DetectedColors;       // Auto-detected color palette from page
+  /** Optional — present when asset extraction ran. Drives the popup's
+   *  "partial capture" warning. */
+  captureStats?: CaptureStats;
 }
 
 // Extracted font info

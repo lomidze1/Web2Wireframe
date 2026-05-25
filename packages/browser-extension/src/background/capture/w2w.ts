@@ -33,6 +33,7 @@ import {
   type W2WDocMeta,
   type W2WAssetEntry,
   type CaptureOptions,
+  type CaptureStats,
   DEFAULT_CAPTURE_OPTIONS,
 } from "@w2w/shared";
 
@@ -384,6 +385,13 @@ export async function handleCapturePageW2W(
     updateProgress(72, "Extracting assets from cache...");
     const assets: Record<string, W2WAssetEntry> = {};
 
+    // captureStats is built up alongside the asset loop so the popup can
+    // tell the user about cache misses / fetch failures. Format-conversion
+    // failures (HEIC/TIFF refused by the figma plugin's Canvas pipeline)
+    // happen post-capture and are NOT counted here — that telemetry would
+    // need a return channel from the plugin we don't have today.
+    let captureStats: CaptureStats | undefined;
+
     const settings = await getSettings();
     if (settings.captureAssets) {
       const resourceMap = await buildResourceMap(client);
@@ -401,24 +409,37 @@ export async function handleCapturePageW2W(
         `[W2W] Extracting ${imageUrls.length} unique assets across ${captures.length} viewport(s)...`,
       );
 
+      let resourceMapMisses = 0;
       for (const url of imageUrls) {
         const resource = resourceMap.get(url);
-        if (resource) {
-          try {
-            const base64 = await getResourceBase64(client, resource.frameId, url);
-            if (base64) {
-              assets[url] = {
-                base64Encoded: true,
-                content: base64,
-                mimeType: resource.mimeType,
-              };
-            }
-          } catch {
-            // Skip failed assets
+        if (!resource) {
+          resourceMapMisses += 1;
+          continue;
+        }
+        try {
+          const base64 = await getResourceBase64(client, resource.frameId, url);
+          if (base64) {
+            assets[url] = {
+              base64Encoded: true,
+              content: base64,
+              mimeType: resource.mimeType,
+            };
+          } else {
+            resourceMapMisses += 1;
           }
+        } catch {
+          resourceMapMisses += 1;
         }
       }
-      console.log(`[W2W] Assets extracted: ${Object.keys(assets).length}`);
+      console.log(`[W2W] Assets extracted: ${Object.keys(assets).length}, missed: ${resourceMapMisses}`);
+
+      captureStats = {
+        skippedImageCount: resourceMapMisses,
+        unsupportedFormats: {},
+        oversizedImageCount: 0,
+        payloadTruncated: false,
+        resourceMapMisses,
+      };
     }
 
     // --- Font Extraction ---
@@ -671,6 +692,7 @@ export async function handleCapturePageW2W(
       assets,
       fonts: w2wFonts,
       cssVariables,
+      captureStats,
     };
 
     updateProgress(100, "Complete!");

@@ -26,6 +26,7 @@ import {
   buildResourceMap,
   extractAssetsForTree,
   getResourceBase64,
+  mergeAssetStats,
 } from "../cdp/assets";
 import {
   captureSnapshot,
@@ -404,17 +405,25 @@ export async function handleCapturePage(
 
     // Extract real image assets from browser cache (per frame)
     // (settings was loaded earlier for the captureFonts gate; reuse it here.)
+    let captureStats: CaptureResult["captureStats"];
     if (settings.captureAssets && frames.length > 0) {
       updateProgress(94, "Extracting images from cache...");
       const resourceMap = await buildResourceMap(client);
 
+      const allStats = [];
       for (const frame of frames) {
-        const assetsMap = await extractAssetsForTree(client, frame.tree, resourceMap);
+        const { assets: assetsMap, stats } = await extractAssetsForTree(
+          client,
+          frame.tree,
+          resourceMap,
+        );
         const assetCount = Object.keys(assetsMap).length;
         if (assetCount > 0) {
           frame.assets = assetsMap;
         }
+        allStats.push(stats);
       }
+      captureStats = mergeAssetStats(allStats);
     }
 
     updateProgress(97, "Finalizing...");
@@ -429,6 +438,7 @@ export async function handleCapturePage(
       stylesheets: [],
       cssVariables,
       detectedColors,
+      captureStats,
     };
 
     updateProgress(100, "Complete!");

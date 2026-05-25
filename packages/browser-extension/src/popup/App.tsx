@@ -1,5 +1,6 @@
 import { useState, useEffect } from "preact/hooks";
 import type { ExtensionMessage, CaptureOptions } from "@/shared/types";
+import type { CaptureStats } from "@w2w/shared";
 import {
   VisualFlow,
   ViewportsSection,
@@ -8,6 +9,7 @@ import {
   Footer,
   HelpModal,
   PlanModal,
+  CaptureStatsWarning,
 } from "./components";
 
 type CaptureStatus = "idle" | "capturing" | "success" | "error";
@@ -17,6 +19,7 @@ interface CaptureState {
   progress: number;
   message: string;
   error?: string;
+  stats?: CaptureStats;
 }
 
 // Default selected viewport (only 1440 selected by default)
@@ -73,10 +76,14 @@ export function App() {
       } as ExtensionMessage);
 
       if (response.success) {
+        // captureStats only present when assets were extracted; absent for
+        // captureAssets=false runs, in which case the warning UI stays hidden.
+        const stats: CaptureStats | undefined = response.data?.captureStats;
         setState({
           status: "success",
           progress: 100,
           message: "Capture complete!",
+          stats,
         });
       } else {
         throw new Error(response.error || "Capture failed");
@@ -178,6 +185,9 @@ export function App() {
         {state.status === "success" && (
           <div class="success-section">
             <div class="success-message">Page captured successfully!</div>
+            {state.stats && state.stats.skippedImageCount > 0 && (
+              <CaptureStatsWarning stats={state.stats} />
+            )}
             <div class="thanks-message">
               Thanks for using Web2Wireframe!
             </div>

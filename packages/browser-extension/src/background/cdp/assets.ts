@@ -18,19 +18,24 @@ import { CDPClient } from "./client";
 const MAX_SINGLE_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB per image (base64)
 const MAX_TOTAL_BYTES = 30 * 1024 * 1024; // 30MB total payload
 
-/** MIME types that figma.createImage() supports natively.
- * NOTE: WebP is NOT supported by figma.createImage() — it throws "Image type is unsupported".
- * TIFF is also unsupported. Both need conversion to PNG via convertToFigmaFormat().
+/** MIME types that figma.createImage() accepts directly — no conversion needed.
+ *
+ * Anything outside this set goes through `convertToFigmaFormat`, which uses
+ * the service worker's `createImageBitmap` + `OffscreenCanvas`. That pipeline
+ * succeeds for WebP and AVIF in modern Chrome (both are natively decodable),
+ * but fails for HEIC and TIFF — Chrome refuses to decode those, so they end
+ * up skipped from the final asset map even though needsFigmaConversion()
+ * returns true for them.
  */
-const FIGMA_SUPPORTED_MIMES = new Set([
+export const FIGMA_NATIVE_SUPPORTED_MIMES = new Set([
   "image/png", "image/jpeg", "image/gif",
 ]);
 
 /** Check if a MIME type needs conversion for Figma compatibility */
-function needsFigmaConversion(mimeType: string): boolean {
+export function needsFigmaConversion(mimeType: string): boolean {
   if (!mimeType.startsWith("image/")) return false;
   if (mimeType === "image/svg+xml") return false; // SVGs handled separately
-  return !FIGMA_SUPPORTED_MIMES.has(mimeType);
+  return !FIGMA_NATIVE_SUPPORTED_MIMES.has(mimeType);
 }
 
 /** Encode Uint8Array to base64 string — works in service worker */
@@ -232,6 +237,85 @@ interface TreeNode {
   children?: TreeNode[];
 }
 
+/** Per-format counters for images we couldn't include — surfaced to the
+ * popup so the user understands a partial capture (e.g. "2 image/tiff
+ * skipped") instead of silently shipping a wireframe with missing visuals. */
+export interface AssetExtractionStats {
+  /** Images dropped due to >2MB per-image size cap. */
+  oversizedCount: number;
+  /** Total payload hit 30MB cap; remaining URLs not fetched. */
+  truncatedByTotalSize: boolean;
+  /** Per-MIME count of images that needed conversion but the converter
+   * refused (HEIC/TIFF in Chrome, malformed buffers, etc.). */
+  unsupportedFormats: Record<string, number>;
+  /** Images whose URL never appeared in the browser's resource map (cache
+   * miss — usually means the image failed to load on the source page). */
+  resourceMapMisses: number;
+}
+
+export interface AssetExtractionResult {
+  assets: Record<string, string>;
+  stats: AssetExtractionStats;
+}
+
+function emptyStats(): AssetExtractionStats {
+  return {
+    oversizedCount: 0,
+    truncatedByTotalSize: false,
+    unsupportedFormats: {},
+    resourceMapMisses: 0,
+  };
+}
+
+/**
+ * Sum per-frame extraction stats into the popup-facing CaptureStats shape.
+ *
+ * Multi-viewport captures call extractAssetsForTree once per frame; each
+ * frame yields its own AssetExtractionStats. The popup wants one number
+ * ("3 images skipped, 2 HEIC + 1 oversized") rather than a per-frame table,
+ * so we collapse here at the orchestrator boundary.
+ *
+ * `skippedImageCount` deliberately sums everything except `payloadTruncated`
+ * (which is a flag, not a count) so the popup's headline number reflects
+ * "how many images did the user lose".
+ */
+export function mergeAssetStats(
+  frameStats: AssetExtractionStats[]
+): {
+  skippedImageCount: number;
+  unsupportedFormats: Record<string, number>;
+  oversizedImageCount: number;
+  payloadTruncated: boolean;
+  resourceMapMisses: number;
+} {
+  const unsupportedFormats: Record<string, number> = {};
+  let oversizedImageCount = 0;
+  let resourceMapMisses = 0;
+  let payloadTruncated = false;
+
+  for (const s of frameStats) {
+    oversizedImageCount += s.oversizedCount;
+    resourceMapMisses += s.resourceMapMisses;
+    if (s.truncatedByTotalSize) payloadTruncated = true;
+    for (const [mime, count] of Object.entries(s.unsupportedFormats)) {
+      unsupportedFormats[mime] = (unsupportedFormats[mime] ?? 0) + count;
+    }
+  }
+
+  const unsupportedTotal = Object.values(unsupportedFormats).reduce(
+    (acc, n) => acc + n,
+    0,
+  );
+
+  return {
+    skippedImageCount: oversizedImageCount + resourceMapMisses + unsupportedTotal,
+    unsupportedFormats,
+    oversizedImageCount,
+    payloadTruncated,
+    resourceMapMisses,
+  };
+}
+
 /**
  * Extract real image assets for a tree of elements.
  *
@@ -243,13 +327,18 @@ interface TreeNode {
  * - Normal URLs — resolved via Page.getResourceContent (browser cache)
  * - Size limits: skip images >2MB, stop collecting at >30MB total
  * - Deduplication: each URL resolved only once
+ *
+ * The `stats` field reports each reason a URL was dropped so callers can
+ * surface a user-visible warning (popup-side) without parsing console
+ * output.
  */
 export async function extractAssetsForTree(
   client: CDPClient,
   tree: TreeNode,
   resourceMap: Map<string, ResourceInfo>
-): Promise<Record<string, string>> {
+): Promise<AssetExtractionResult> {
   const assets: Record<string, string> = {};
+  const stats = emptyStats();
   let totalBytes = 0;
 
   // Collect all unique imageUrls from the tree
@@ -262,14 +351,20 @@ export async function extractAssetsForTree(
   });
 
   if (urls.size === 0) {
-    return assets;
+    return { assets, stats };
   }
 
+  // Bump the per-MIME unsupported counter. Centralized so every skip
+  // reason that boils down to "converter refused" updates the same shape.
+  const bumpUnsupported = (mime: string): void => {
+    stats.unsupportedFormats[mime] = (stats.unsupportedFormats[mime] ?? 0) + 1;
+  };
 
   for (const url of urls) {
     // Stop if total size limit reached
     if (totalBytes >= MAX_TOTAL_BYTES) {
       console.warn(`[W2W] Total asset size limit reached (${Math.round(totalBytes / 1024 / 1024)}MB), skipping remaining images`);
+      stats.truncatedByTotalSize = true;
       break;
     }
 
@@ -284,7 +379,10 @@ export async function extractAssetsForTree(
         // Convert unsupported inline data URIs (e.g., data:image/avif;base64,...)
         if (needsFigmaConversion(effectiveMime)) {
           const converted = await convertToFigmaFormat(base64Data, effectiveMime);
-          if (!converted) continue;
+          if (!converted) {
+            bumpUnsupported(effectiveMime);
+            continue;
+          }
           base64Data = converted.base64;
           effectiveMime = converted.mimeType;
         }
@@ -294,6 +392,7 @@ export async function extractAssetsForTree(
           totalBytes += base64Data.length;
         } else {
           console.warn(`[W2W] Skipping data URI (${Math.round(base64Data.length / 1024)}KB > 2MB limit)`);
+          stats.oversizedCount += 1;
         }
       }
       continue;
@@ -314,18 +413,21 @@ export async function extractAssetsForTree(
         partialMatches: partialMatches.slice(0, 5),
         resourceMapSample: Array.from(resourceMap.keys()).slice(0, 10),
       });
+      stats.resourceMapMisses += 1;
       continue;
     }
 
     // Fetch from browser cache
     const base64 = await getResourceBase64(client, resourceInfo.frameId, url);
     if (!base64) {
+      stats.resourceMapMisses += 1;
       continue;
     }
 
     // Check single image size limit
     if (base64.length > MAX_SINGLE_IMAGE_BYTES) {
       console.warn(`[W2W] Skipping large image (${Math.round(base64.length / 1024)}KB): ${url}`);
+      stats.oversizedCount += 1;
       continue;
     }
 
@@ -335,12 +437,16 @@ export async function extractAssetsForTree(
 
     if (needsFigmaConversion(resourceInfo.mimeType)) {
       const converted = await convertToFigmaFormat(base64, resourceInfo.mimeType);
-      if (!converted) continue;
+      if (!converted) {
+        bumpUnsupported(resourceInfo.mimeType);
+        continue;
+      }
       finalBase64 = converted.base64;
       finalMimeType = converted.mimeType;
       // Re-check size after conversion (PNG can be larger than AVIF)
       if (finalBase64.length > MAX_SINGLE_IMAGE_BYTES) {
         console.warn(`[W2W] Converted image too large (${Math.round(finalBase64.length / 1024)}KB): ${url}`);
+        stats.oversizedCount += 1;
         continue;
       }
     }
@@ -352,7 +458,7 @@ export async function extractAssetsForTree(
   }
 
 
-  return assets;
+  return { assets, stats };
 }
 
 // ============================================================================

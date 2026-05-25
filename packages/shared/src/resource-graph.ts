@@ -271,9 +271,15 @@ export interface ExtractAssetsOptions {
   ) => Promise<{ base64: string; mimeType: string } | null>;
 }
 
-/** MIME types that figma.createImage() supports natively.
- * NOTE: WebP is NOT supported by figma.createImage() — it throws "Image type is unsupported".
- * TIFF is also unsupported. Both need conversion to PNG via convertImage callback.
+/** MIME types that figma.createImage() accepts directly — no conversion needed.
+ *
+ * Anything outside this set goes through the caller's `convertImage`
+ * callback. In the browser extension that callback is OffscreenCanvas-based
+ * and successfully decodes WebP + AVIF (browser-native); HEIC and TIFF are
+ * refused by Chrome's createImageBitmap and end up skipped. The figma plugin
+ * itself runs the same OffscreenCanvas pipeline post-capture via its UI
+ * iframe, so the surface-level user experience for WebP/AVIF is "it works"
+ * end-to-end despite this list excluding them.
  */
 const FIGMA_SUPPORTED_MIMES = new Set([
   "image/png",

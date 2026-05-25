@@ -7,6 +7,8 @@
  * - SVG nodes with full outerHTML markup
  */
 
+import type { CaptureStats } from "./types.js";
+
 // ---------------------------------------------------------------------------
 // Geometry
 // ---------------------------------------------------------------------------
@@ -391,6 +393,11 @@ export interface W2WMultiCaptureResult {
   fonts: W2WFontEntry[];
   /** Extracted CSS variables (shared — extracted once on first viewport) */
   cssVariables?: W2WCSSVariable[];
+  /** Optional asset extraction stats — drives the popup's partial-capture
+   *  warning. Note: format-conversion failures happen later in the figma
+   *  plugin and are NOT reflected here; this field only counts cache-miss
+   *  and fetch-fail reasons known at capture time. */
+  captureStats?: CaptureStats;
 }
 
 // ---------------------------------------------------------------------------

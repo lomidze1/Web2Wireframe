@@ -24,6 +24,7 @@ export type {
   StyledTextSegment,
   CapturedFrame,
   CaptureResult,
+  CaptureStats,
   CaptureOptions,
   DetectedColors,
   ExtractedFont,
