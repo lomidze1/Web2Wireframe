@@ -56,6 +56,9 @@ const PANEL_HTML = `<!DOCTYPE html>
   button.secondary { background: #fff; color: #0c0d12; }
   button.danger { background: #b91c1c; border-color: #b91c1c; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .filter-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pager { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eef0f3; font-size: 0.85rem; color: #5a6072; }
+  .pager .pages { font-variant-numeric: tabular-nums; }
   table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef0f3; }
   th { font-weight: 600; color: #5a6072; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -103,12 +106,22 @@ const PANEL_HTML = `<!DOCTYPE html>
     </div>
     <button id="searchFuidBtn">Search</button>
   </div>
-  <button id="recentBtn" class="secondary">Show recent 20 licenses</button>
+  <div class="filter-row">
+    <button id="recentBtn" class="secondary">Show recent 20 licenses</button>
+    <button id="monthlyBtn" class="secondary">Show monthly licenses</button>
+    <button id="yearlyBtn" class="secondary">Show yearly licenses</button>
+    <button id="cancelledBtn" class="secondary">Last 20 cancelled users</button>
+  </div>
 </div>
 
 <div class="panel" id="resultsPanel" style="display:none">
   <h2>Results</h2>
   <div id="resultsBody"></div>
+  <div id="pager" class="pager" style="display:none">
+    <button id="prevPageBtn" class="secondary">‹ Prev</button>
+    <span class="pages" id="pagerLabel">Page 1</span>
+    <button id="nextPageBtn" class="secondary">Next ›</button>
+  </div>
 </div>
 
 <div class="panel" id="detailPanel" style="display:none">
@@ -300,11 +313,69 @@ document.getElementById("searchFuidBtn").addEventListener("click", async functio
   await loadDetail(fuid);
 });
 
+// Renders the array of license rows into the Results panel. Centralizes
+// the .innerHTML write so every list view (recent, monthly, yearly,
+// cancelled) escapes through the same renderer (renderLicenseRows -> esc).
+function paintResults(licenses) {
+  document.getElementById("resultsPanel").style.display = "block";
+  var body = document.getElementById("resultsBody");
+  body.innerHTML = renderLicenseRows(licenses);
+  attachRowHandlers();
+}
+
 document.getElementById("recentBtn").addEventListener("click", async function () {
   var data = await api("/api/admin/license/recent?limit=20");
-  document.getElementById("resultsPanel").style.display = "block";
-  document.getElementById("resultsBody").innerHTML = renderLicenseRows(data && data.licenses);
-  attachRowHandlers();
+  paintResults(data && data.licenses);
+  document.getElementById("pager").style.display = "none";
+});
+
+// State for the paginated filtered views (monthly / yearly). Held at module
+// scope so the Prev / Next buttons know which filter to re-query.
+var currentFilter = null; // { duration?: "monthly"|"yearly" } or null
+var currentPage = 1;
+var PAGE_SIZE = 20;
+
+async function loadFilteredPage(filter, page) {
+  currentFilter = filter;
+  currentPage = page;
+  var qs = "limit=" + PAGE_SIZE + "&page=" + page;
+  if (filter.duration) qs += "&duration=" + encodeURIComponent(filter.duration);
+  var data = await api("/api/admin/license/recent?" + qs);
+  if (!data) return;
+  paintResults(data.licenses);
+  var total = data.total || 0;
+  var totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  document.getElementById("pager").style.display = "flex";
+  document.getElementById("pagerLabel").textContent =
+    "Page " + page + " of " + totalPages + " (" + total + " total)";
+  document.getElementById("prevPageBtn").disabled = page <= 1;
+  document.getElementById("nextPageBtn").disabled = page >= totalPages;
+}
+
+document.getElementById("monthlyBtn").addEventListener("click", function () {
+  loadFilteredPage({ duration: "monthly" }, 1);
+});
+
+document.getElementById("yearlyBtn").addEventListener("click", function () {
+  loadFilteredPage({ duration: "yearly" }, 1);
+});
+
+document.getElementById("prevPageBtn").addEventListener("click", function () {
+  if (!currentFilter || currentPage <= 1) return;
+  loadFilteredPage(currentFilter, currentPage - 1);
+});
+
+document.getElementById("nextPageBtn").addEventListener("click", function () {
+  if (!currentFilter) return;
+  loadFilteredPage(currentFilter, currentPage + 1);
+});
+
+document.getElementById("cancelledBtn").addEventListener("click", async function () {
+  // One-shot view, no pagination — just the 20 most-recently-canceled rows
+  // (sort=updatedAt desc, catches both Flitt and admin cancels).
+  var data = await api("/api/admin/license/recent?limit=20&status=canceled");
+  paintResults(data && data.licenses);
+  document.getElementById("pager").style.display = "none";
 });
 
 function attachRowHandlers() {

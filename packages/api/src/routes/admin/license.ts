@@ -58,12 +58,22 @@ function serialize(license: ILicense) {
 // ============================================================================
 
 /**
- * GET /api/admin/license/recent?limit=<N>&plan=<free|pro>
+ * GET /api/admin/license/recent?limit=<N>&page=<N>&plan=<free|pro>&duration=<monthly|yearly>&status=<active|canceled|expired>
  *
  * Recent license activity by `updatedAt`. Useful for the support inbox:
  * lets you skim who just upgraded / who has a stuck subscription state
- * without knowing their figmaUserId or email. `limit` caps at 100;
- * `plan` filter is optional.
+ * without knowing their figmaUserId or email. `limit` caps at 100.
+ *
+ * Optional filters:
+ *   - `plan`     : free | pro                    — coarse-grain plan filter
+ *   - `duration` : monthly | yearly              — Pro tier (implies plan=pro)
+ *   - `status`   : active | canceled | expired   — subscription state
+ *
+ * Pagination: `page` (1-indexed) + `limit`. Response always includes
+ * `total` so the admin panel can render "Page N of M". `status=canceled`
+ * sort key is still `updatedAt desc` — this catches BOTH webhook cancels
+ * (which set subscription.canceledAt) AND admin-button cancels (which only
+ * flip status), so the "most recently cancelled" view is complete.
  *
  * NOTE: defined BEFORE /:figmaUserId so Express does not treat
  * "recent" as a figmaUserId param.
@@ -77,8 +87,12 @@ router.get(
       const limit = Number.isFinite(rawLimit)
         ? Math.min(Math.max(rawLimit, 1), 100)
         : 20;
-      const planFilter = req.query.plan;
+      const rawPage = Number.parseInt(String(req.query.page ?? "1"), 10);
+      const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
+
       const filter: Record<string, unknown> = {};
+
+      const planFilter = req.query.plan;
       if (typeof planFilter === "string") {
         if (!["free", "pro"].includes(planFilter)) {
           res.status(400).json({ error: "Invalid plan filter" });
@@ -86,11 +100,41 @@ router.get(
         }
         filter.plan = planFilter;
       }
-      const licenses = await License.find(filter)
-        .sort({ updatedAt: -1 })
-        .limit(limit);
+
+      const duration = req.query.duration;
+      if (typeof duration === "string") {
+        if (!["monthly", "yearly"].includes(duration)) {
+          res.status(400).json({ error: "Invalid duration filter" });
+          return;
+        }
+        // Duration only exists on a subscription, and only Pro users have
+        // subscriptions — pin plan=pro so we never return free rows.
+        filter.plan = "pro";
+        filter["subscription.lastDuration"] = duration;
+      }
+
+      const statusFilter = req.query.status;
+      if (typeof statusFilter === "string") {
+        if (!["active", "canceled", "expired"].includes(statusFilter)) {
+          res.status(400).json({ error: "Invalid status filter" });
+          return;
+        }
+        filter.status = statusFilter;
+      }
+
+      const skip = (page - 1) * limit;
+      const [licenses, total] = await Promise.all([
+        License.find(filter)
+          .sort({ updatedAt: -1 })
+          .skip(skip)
+          .limit(limit),
+        License.countDocuments(filter),
+      ]);
       res.json({
         count: licenses.length,
+        total,
+        page,
+        limit,
         licenses: licenses.map(serialize),
       });
     } catch (err) {

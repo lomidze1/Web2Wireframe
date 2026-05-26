@@ -10,6 +10,16 @@ const mockFindOne = vi.fn();
 const mockFindOneAndUpdate = vi.fn();
 const mockFind = vi.fn();
 const mockRecentFind = vi.fn();
+const mockCountDocuments = vi.fn();
+
+// Captures the last call chain into /recent so tests can assert on the
+// exact sort / skip / limit values the route forwarded to mongo.
+let lastRecentCall: {
+  filter?: unknown;
+  sort?: unknown;
+  skip?: number;
+  limit?: number;
+} = {};
 
 vi.mock("../src/models/License.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/models/License.js")>();
@@ -18,13 +28,28 @@ vi.mock("../src/models/License.js", async (importOriginal) => {
     License: {
       findOne: (...args: unknown[]) => mockFindOne(...args),
       findOneAndUpdate: (...args: unknown[]) => mockFindOneAndUpdate(...args),
-      // Dual-shape: lookup-by-email uses .limit(n); /recent uses
-      // .sort(...).limit(n). The mock returns a fluent chain that resolves
-      // to whichever mock was primed.
-      find: (...args: unknown[]) => ({
-        limit: (_n: number) => mockFind(...args),
-        sort: (_sort: unknown) => ({
-          limit: (_n: number) => mockRecentFind(...args),
+      countDocuments: (...args: unknown[]) => mockCountDocuments(...args),
+      // Tri-shape:
+      //   lookup-by-email   .find(f).limit(n)
+      //   /recent (old)     .find(f).sort(s).limit(n)
+      //   /recent (paged)   .find(f).sort(s).skip(n).limit(n)
+      // All three terminate in either mockFind or mockRecentFind.
+      find: (filter: unknown) => ({
+        limit: (n: number) => {
+          lastRecentCall = { filter, limit: n };
+          return mockFind(filter);
+        },
+        sort: (sort: unknown) => ({
+          limit: (n: number) => {
+            lastRecentCall = { filter, sort, limit: n };
+            return mockRecentFind(filter);
+          },
+          skip: (skip: number) => ({
+            limit: (n: number) => {
+              lastRecentCall = { filter, sort, skip, limit: n };
+              return mockRecentFind(filter);
+            },
+          }),
         }),
       }),
     },
@@ -60,6 +85,10 @@ const ADMIN_TOKEN = "test-admin-token-32-bytes-or-more";
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.ADMIN_TOKEN = ADMIN_TOKEN;
+  // Safe default so /recent tests that don't care about pagination total
+  // don't have to prime countDocuments explicitly.
+  mockCountDocuments.mockResolvedValue(0);
+  lastRecentCall = {};
 });
 
 function fakeLicense(figmaUserId = "u-1", overrides: Record<string, unknown> = {}) {
@@ -197,6 +226,89 @@ describe("GET /api/admin/license/recent", () => {
       .get("/api/admin/license/recent?plan=enterprise")
       .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
     expect(res.status).toBe(400);
+  });
+
+  // --- New: per-tier filtering (Monthly / Yearly admin panel buttons) ---
+
+  it("duration=monthly filters by plan=pro + subscription.lastDuration=monthly", async () => {
+    mockRecentFind.mockResolvedValue([]);
+    await request(makeApp())
+      .get("/api/admin/license/recent?duration=monthly")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(lastRecentCall.filter).toEqual({
+      plan: "pro",
+      "subscription.lastDuration": "monthly",
+    });
+    expect(lastRecentCall.sort).toEqual({ updatedAt: -1 });
+  });
+
+  it("duration=yearly filters by plan=pro + subscription.lastDuration=yearly", async () => {
+    mockRecentFind.mockResolvedValue([]);
+    await request(makeApp())
+      .get("/api/admin/license/recent?duration=yearly")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(lastRecentCall.filter).toEqual({
+      plan: "pro",
+      "subscription.lastDuration": "yearly",
+    });
+  });
+
+  it("rejects invalid duration filter", async () => {
+    const res = await request(makeApp())
+      .get("/api/admin/license/recent?duration=quarterly")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(400);
+  });
+
+  // --- New: cancelled-users view (admin panel "Last 20 cancelled users") ---
+
+  it("status=canceled filters by status only, sorted by updatedAt desc", async () => {
+    mockRecentFind.mockResolvedValue([]);
+    await request(makeApp())
+      .get("/api/admin/license/recent?status=canceled")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(lastRecentCall.filter).toEqual({ status: "canceled" });
+    expect(lastRecentCall.sort).toEqual({ updatedAt: -1 });
+  });
+
+  it("rejects invalid status filter", async () => {
+    const res = await request(makeApp())
+      .get("/api/admin/license/recent?status=trial")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(400);
+  });
+
+  // --- New: pagination ---
+
+  it("page=2&limit=20 calls .skip(20).limit(20)", async () => {
+    mockRecentFind.mockResolvedValue([]);
+    await request(makeApp())
+      .get("/api/admin/license/recent?duration=monthly&page=2&limit=20")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(lastRecentCall.skip).toBe(20);
+    expect(lastRecentCall.limit).toBe(20);
+  });
+
+  it("response includes total/page/limit alongside count/licenses", async () => {
+    mockRecentFind.mockResolvedValue([fakeLicense("u-1")]);
+    mockCountDocuments.mockResolvedValue(57);
+    const res = await request(makeApp())
+      .get("/api/admin/license/recent?duration=monthly&page=2&limit=20")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      count: 1,
+      total: 57,
+      page: 2,
+      limit: 20,
+    });
+    expect(res.body.licenses).toHaveLength(1);
+    // countDocuments must use the same filter as find — otherwise pagination
+    // shows the wrong "Page N of M" total.
+    expect(mockCountDocuments).toHaveBeenCalledWith({
+      plan: "pro",
+      "subscription.lastDuration": "monthly",
+    });
   });
 });
 
