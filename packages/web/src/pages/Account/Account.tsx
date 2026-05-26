@@ -56,9 +56,6 @@ const Account = (): ReactElement => {
   const [license, setLicense] = useState<AccountLicense | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [cancelStatus, setCancelStatus] = useState<
-    "idle" | "confirming" | "submitting" | "success"
-  >("idle");
 
   useEffect(() => {
     if (!figmaUserId || !token) {
@@ -83,42 +80,6 @@ const Account = (): ReactElement => {
       .finally(() => setIsLoading(false));
   }, [figmaUserId, token]);
 
-  async function handleCancel(): Promise<void> {
-    if (!figmaUserId || !token) return;
-    setCancelStatus("submitting");
-    setError(null);
-    try {
-      const res = await fetch(`/api/subscription/cancel`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ figmaUserId, token }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        throw new Error(body.error || `Cancel failed (${res.status})`);
-      }
-      const body = (await res.json()) as { ok: boolean; accessUntil: string };
-      setCancelStatus("success");
-      setLicense((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: "canceled",
-              cycleEndsAt: body.accessUntil,
-              subscription: prev.subscription
-                ? { ...prev.subscription, canceledAt: new Date().toISOString() }
-                : null,
-            }
-          : prev,
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Cancel failed");
-      setCancelStatus("idle");
-    }
-  }
-
   const failureCount = license?.subscription?.failureCount ?? 0;
   const failureSeverity = getFailureSeverity(failureCount);
   const failureSeverityClass = {
@@ -136,10 +97,9 @@ const Account = (): ReactElement => {
           <div className={styles.card}>
             <h1>Open from the Figma plugin</h1>
             <p>
-              This page manages your Pro subscription, but it needs a
-              verified link from the Web2Wireframe plugin to show your
-              account. Open the plugin in Figma, then click{" "}
-              <strong>Manage Subscription</strong> in the Plan modal.
+              This page shows your Pro plan details, but it needs a verified
+              link from the Web2Wireframe plugin to load your account. Open
+              the plugin in Figma — your plan info lives in the Plan modal.
             </p>
             <p>
               Just looking for pricing? Visit{" "}
@@ -178,7 +138,7 @@ const Account = (): ReactElement => {
             </div>
           )}
 
-          <h1>Manage subscription</h1>
+          <h1>Your Pro plan</h1>
 
           {isLoading && <p>Loading…</p>}
           {error && <p className={styles.error}>{error}</p>}
@@ -205,13 +165,7 @@ const Account = (): ReactElement => {
               )}
               {license.subscription && (
                 <div className={styles.row}>
-                  <span>
-                    {license.status === "canceled"
-                      ? "Access until"
-                      : license.subscription.autoRenew
-                        ? "Next billing"
-                        : "Pro expires"}
-                  </span>
+                  <span>Pro expires</span>
                   <span className={styles.value}>
                     {formatDate(license.subscription.nextBillingAt)}
                   </span>
@@ -220,64 +174,11 @@ const Account = (): ReactElement => {
             </div>
           )}
 
-          {license?.plan === "pro" &&
-            license.status === "active" &&
-            license.subscription?.autoRenew === true &&
-            cancelStatus === "idle" && (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setCancelStatus("confirming")}
-              >
-                Cancel subscription
-              </button>
-            )}
-
-          {license?.plan === "pro" &&
-            license.status === "active" &&
-            license.subscription?.autoRenew === false && (
-              <p className={styles.subtle}>
-                You purchased Pro as a one-time payment — no auto-renewal,
-                nothing to cancel. Your Pro access ends on{" "}
-                {license.subscription
-                  ? formatDate(license.subscription.nextBillingAt)
-                  : "the date above"}
-                . Buy another 30 days anytime from the plugin.
-              </p>
-            )}
-
-          {cancelStatus === "confirming" && (
-            <div className={styles.confirm}>
-              <p>
-                Cancellation takes effect at the end of your current billing
-                cycle. You'll keep Pro access until then. No refunds — you
-                can re-subscribe anytime.
-              </p>
-              <div className={styles.actions}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setCancelStatus("idle")}
-                >
-                  Keep my subscription
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleCancel}
-                >
-                  Cancel anyway
-                </button>
-              </div>
-            </div>
-          )}
-
-          {cancelStatus === "submitting" && <p>Canceling…</p>}
-
-          {cancelStatus === "success" && (
-            <p className={styles.success}>
-              Subscription canceled. You'll retain Pro access until your cycle
-              ends.
+          {license?.plan === "pro" && license.status === "active" && (
+            <p className={styles.subtle}>
+              Pro is a one-time purchase — there's no auto-renewal and
+              nothing to cancel. Your Pro access ends on the date above.
+              Buy another 30 days anytime from the plugin.
             </p>
           )}
 

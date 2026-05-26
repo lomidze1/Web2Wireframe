@@ -110,7 +110,7 @@ const PANEL_HTML = `<!DOCTYPE html>
     <button id="recentBtn" class="secondary">Show recent 20 licenses</button>
     <button id="monthlyBtn" class="secondary">Show monthly licenses</button>
     <button id="yearlyBtn" class="secondary">Show yearly licenses</button>
-    <button id="cancelledBtn" class="secondary">Last 20 cancelled users</button>
+    <button id="failedBtn" class="secondary">Last 20 failed purchases</button>
   </div>
 </div>
 
@@ -370,13 +370,66 @@ document.getElementById("nextPageBtn").addEventListener("click", function () {
   loadFilteredPage(currentFilter, currentPage + 1);
 });
 
-document.getElementById("cancelledBtn").addEventListener("click", async function () {
-  // One-shot view, no pagination — just the 20 most-recently-canceled rows
-  // (sort=updatedAt desc, catches both Flitt and admin cancels).
-  var data = await api("/api/admin/license/recent?limit=20&status=canceled");
-  paintResults(data && data.licenses);
+document.getElementById("failedBtn").addEventListener("click", async function () {
+  // One-shot view, no pagination — just the 20 most-recently-failed
+  // checkouts from the CancellationEvent collection. "Failed" = user
+  // opened Flitt but did not complete payment (declined card, expired
+  // order, user clicked Cancel). Distinct from License.status=canceled
+  // (subscription-mode artifact that's empty in our one-time launch).
+  var data = await api("/api/admin/cancellations/recent?limit=20");
+  paintCancellationResults(data && data.events);
   document.getElementById("pager").style.display = "none";
 });
+
+// Renders failed-purchase rows using DOM API (no innerHTML — content is
+// escaped server-side but we build cells with createElement + textContent
+// for defense-in-depth XSS safety, since users never click these rows.
+function paintCancellationResults(events) {
+  document.getElementById("resultsPanel").style.display = "block";
+  var body = document.getElementById("resultsBody");
+  while (body.firstChild) body.removeChild(body.firstChild);
+
+  if (!events || events.length === 0) {
+    var empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No failed purchases yet.";
+    body.appendChild(empty);
+    return;
+  }
+
+  var table = document.createElement("table");
+  var thead = document.createElement("thead");
+  var headRow = document.createElement("tr");
+  ["When", "Figma User ID", "Email", "Status", "Amount", "Sig"].forEach(function (h) {
+    var th = document.createElement("th");
+    th.textContent = h;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement("tbody");
+  events.forEach(function (e) {
+    var amountLabel = e.amount && e.currency ? (e.amount / 100) + " " + e.currency : "—";
+    var tr = document.createElement("tr");
+    var cells = [
+      fmtDate(e.createdAt),
+      e.figmaUserId || "—",
+      e.email || "—",
+      e.orderStatus || "—",
+      amountLabel,
+      e.signatureValid ? "✓" : "✗",
+    ];
+    cells.forEach(function (val) {
+      var td = document.createElement("td");
+      td.textContent = String(val);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  body.appendChild(table);
+}
 
 function attachRowHandlers() {
   var rows = document.querySelectorAll("#resultsBody tr.selectable");
