@@ -18,6 +18,7 @@ import { metrics } from "../../services/metrics.js";
 import { verifyToken } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
+import { CancellationEvent } from "../../models/CancellationEvent.js";
 import { PLAN_PRICES, getProPriceCents, type ProDuration } from "../../models/License.js";
 
 const router = Router();
@@ -107,6 +108,106 @@ router.post("/create", async (req: Request, res: Response) => {
 // ============================================================================
 router.all("/success", (_req: Request, res: Response) => {
   res.redirect(303, `${config.website.baseUrl}/checkout/success`);
+});
+
+// ============================================================================
+// ALL /api/checkout/cancel
+// ----------------------------------------------------------------------------
+// Flitt redirects here when the payment was DECLINED / EXPIRED or the user
+// clicked Cancel on the hosted checkout. Mirror of `/success` bridge.
+//
+// In addition to the 303 → website redirect, we log a CancellationEvent row
+// for retention analytics (Phase 1) so we can later drive a comeback-offer
+// flow (Phase 2). Logging is best-effort:
+//   - Signature is verified using the same SHA1 algorithm as the webhook
+//     handler. A failed verify means we still redirect (UX must work for
+//     anyone who lands on this URL), but we mark `signatureValid: false` on
+//     the row so analytics can filter out spoofed/test traffic.
+//   - merchant_data is parsed for figmaUserId, which is the join key for
+//     Phase 2 email follow-ups.
+//   - sender_email is captured opportunistically — Flitt provides it for
+//     guest checkouts where the customer entered their email.
+//
+// Distinct from `WebhookEvent`: that table guards idempotency on the
+// state-mutating webhook path; this one is informational only.
+// ============================================================================
+router.all("/cancel", async (req: Request, res: Response) => {
+  const log = createLogger("checkout-cancel-bridge");
+  try {
+    const payload = req.body as Record<string, unknown> | undefined;
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      const orderId =
+        typeof payload.order_id === "string" ? payload.order_id : "unknown";
+      const orderStatus =
+        typeof payload.order_status === "string"
+          ? payload.order_status
+          : "unknown";
+      const paymentId =
+        typeof payload.payment_id === "string" ? payload.payment_id : null;
+      const senderEmail =
+        typeof payload.sender_email === "string" ? payload.sender_email : null;
+      const amountRaw = payload.amount;
+      const amount =
+        typeof amountRaw === "number"
+          ? amountRaw
+          : typeof amountRaw === "string"
+            ? Number(amountRaw)
+            : null;
+      const currency =
+        typeof payload.currency === "string" ? payload.currency : null;
+
+      // Parse figmaUserId out of merchant_data (same shape as webhook handler).
+      let figmaUserId: string | null = null;
+      if (typeof payload.merchant_data === "string") {
+        try {
+          const parsed: unknown = JSON.parse(payload.merchant_data);
+          if (
+            parsed !== null &&
+            typeof parsed === "object" &&
+            !Array.isArray(parsed) &&
+            typeof (parsed as { figmaUserId?: unknown }).figmaUserId ===
+              "string"
+          ) {
+            figmaUserId = (parsed as { figmaUserId: string }).figmaUserId;
+          }
+        } catch {
+          // best-effort
+        }
+      }
+
+      const signatureValid = verifyCallback(payload, config.flitt.secretKey);
+
+      try {
+        await CancellationEvent.create({
+          transactionId: paymentId ?? orderId,
+          orderId,
+          orderStatus,
+          figmaUserId,
+          email: senderEmail,
+          amount: Number.isFinite(amount as number) ? (amount as number) : null,
+          currency,
+          signatureValid,
+        });
+        log.info("cancellation event logged", {
+          order_id: orderId,
+          order_status: orderStatus,
+          figmaUserId,
+          signatureValid,
+        });
+      } catch (err) {
+        log.warn("failed to log cancellation event (non-fatal)", {
+          order_id: orderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } catch (err) {
+    log.error("cancel bridge handler error (non-fatal)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  // Always redirect — UX must work regardless of logging outcome.
+  res.redirect(303, `${config.website.baseUrl}/checkout/cancel`);
 });
 
 export default router;

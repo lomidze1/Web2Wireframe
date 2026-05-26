@@ -196,7 +196,15 @@ const Renew = (): ReactElement => {
                 Not your account ID?{" "}
                 <strong>Don't continue.</strong> This link may have been sent
                 to the wrong person. Open the plugin in Figma and renew from
-                there instead.
+                there instead —{" "}
+                <a
+                  href="https://www.figma.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open Figma
+                </a>
+                .
               </p>
             </>
           )}
