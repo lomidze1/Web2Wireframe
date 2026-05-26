@@ -2,5 +2,10 @@
   "installCommand": "cd ../.. && pnpm install",
   "buildCommand": "cd ../.. && pnpm build --filter @w2w/web",
   "outputDirectory": "dist/client",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://api.web2wireframe.design/api/$1" },
+    { "source": "/web/(.*)", "destination": "https://api.web2wireframe.design/web/$1" },
+    { "source": "/auth/(.*)", "destination": "https://api.web2wireframe.design/auth/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
