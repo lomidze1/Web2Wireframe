@@ -11,13 +11,20 @@ const CheckoutCancel = (): ReactElement => (
           No charge was made. You can return to the Figma plugin and try
           again whenever you're ready.
         </p>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={() => window.close()}
+        {/*
+          window.close() is blocked by browsers unless the tab was opened
+          by script — Flitt redirects here, so it never works (same issue
+          as CheckoutSuccess). A direct link to figma.com works in every
+          context: the real flow (Flitt-redirected tab) AND manual visits.
+        */}
+        <a
+          href="https://www.figma.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn btn-primary"
         >
-          Close this tab
-        </button>
+          Open Figma
+        </a>
       </div>
     </div>
   </div>
