@@ -1,21 +1,63 @@
-import { CrownIcon, HelpIcon } from "./Icons";
+import { HelpIcon, LogoutIcon, SignInIcon } from "./Icons";
+import { usagePillText } from "./planHelpers";
+import type { License, SessionState } from "../../shared/types";
 
 interface FooterProps {
   onPlanClick: () => void;
   onHelpClick: () => void;
+  /** Drives the middle usage pill: "0/10" / "N/10" / "Pro". */
+  license: License | null;
+  /** Drives the leftmost identity icon: SignInIcon when null, LogoutIcon
+   *  when present. Also feeds the title tooltip's "Sign out (email)". */
+  session: SessionState | null;
+  /** Click handler for the identity icon — App.tsx decides whether to
+   *  start the OAuth flow or to confirm-then-logout. */
+  onIdentityClick: () => void;
 }
 
-export function Footer({ onPlanClick, onHelpClick }: FooterProps) {
+/**
+ * Three-slot popup footer (Phase 5.1):
+ *
+ *   ┌──────┬─────────┬──────┐
+ *   │ ⇨/⇦ │  0/10   │  ?   │
+ *   └──────┴─────────┴──────┘
+ *
+ * Left = identity action (Sign in with Figma OR Sign out).
+ * Middle = usage pill, opens Plan modal.
+ * Right = help, opens Help modal (Contact us lives inside Help).
+ */
+export function Footer({
+  onPlanClick,
+  onHelpClick,
+  license,
+  session,
+  onIdentityClick,
+}: FooterProps) {
+  const isPro = license?.plan === "pro";
+  const isSignedIn = session !== null;
+  const identityTitle = isSignedIn
+    ? `Sign out${session?.email ? ` (${session.email})` : ""}`
+    : "Sign in with Figma";
+
   return (
     <footer class="popup-footer">
       <button
         class="footer-btn"
+        onClick={onIdentityClick}
+        type="button"
+        aria-label={isSignedIn ? "Sign out" : "Sign in with Figma"}
+        title={identityTitle}
+      >
+        {isSignedIn ? <LogoutIcon /> : <SignInIcon />}
+      </button>
+      <button
+        class={`usage-pill ${isPro ? "usage-pill-pro" : ""}`}
         onClick={onPlanClick}
         type="button"
-        aria-label="View Plan"
-        title="View Plan"
+        aria-label={isPro ? "Pro plan — open Your Plan" : "Imports used — open Your Plan"}
+        title={isPro ? "Pro plan" : "Imports used this month"}
       >
-        <CrownIcon />
+        {usagePillText(license)}
       </button>
       <button
         class="footer-btn"

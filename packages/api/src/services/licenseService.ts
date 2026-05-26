@@ -127,6 +127,39 @@ export const licenseService = {
    * cycle reset on every call so callers see a current view without needing
    * a cron job.
    */
+  /**
+   * Persist the Figma-provided email on the License doc if (and only if)
+   * we don't already have one stored. Called from the Figma OAuth
+   * callback so a free user's identity email lands the moment they
+   * connect — paid users keep their Flitt-billing email because that
+   * one is written unconditionally on activate/upgrade.
+   *
+   * Idempotent: filter requires `email` to be null/missing, so repeated
+   * logins with the same Figma email are no-ops.
+   */
+  async setEmailIfMissing(
+    figmaUserId: string,
+    email: string,
+  ): Promise<{ matched: number; modified: number }> {
+    if (!email) return { matched: 0, modified: 0 };
+    const result = await License.updateOne(
+      {
+        figmaUserId,
+        $or: [{ email: null }, { email: { $exists: false } }],
+      },
+      { $set: { email } },
+      // Don't upsert here — getOrCreate is the only path that creates
+      // licenses. We just patch an existing-or-not row.
+      { upsert: false },
+    );
+    // Return the result so the OAuth callback can log it for diagnostics.
+    // `matched` = how many docs the filter found, `modified` = how many
+    // changed. A doc with the SAME email already set will match 0 (filter
+    // requires null/missing); a doc with null email will match 1 and
+    // modify 1.
+    return { matched: result.matchedCount, modified: result.modifiedCount };
+  },
+
   async getOrCreate(figmaUserId: string): Promise<ILicense> {
     let license = await License.findOne({ figmaUserId });
     if (!license) {

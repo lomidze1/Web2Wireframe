@@ -517,6 +517,10 @@ export type ExtensionMessage =
   | { type: "EXTRACT_DOM" }
   // W2W content script page capture (content script + CDP fonts/assets)
   | { type: "CAPTURE_PAGE_W2W"; tabId: number; options: CaptureOptions }
+  // Figma OAuth — popup kicks it off, background does the 3-min poll.
+  // Without this hop the popup closes when the OAuth tab takes focus
+  // and the polling promise dies, leaving the parked token unconsumed.
+  | { type: "START_FIGMA_OAUTH" }
   // Legacy (kept for compatibility)
   | { type: "ELEMENT_PICKED"; selector: string; bounds: SelectionBounds; tabId: number; options: CaptureOptions };
 

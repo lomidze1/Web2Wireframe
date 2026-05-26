@@ -12,6 +12,7 @@ import {
 const mockFindOne = vi.fn();
 const mockFindOneAndUpdate = vi.fn();
 const mockCreate = vi.fn();
+const mockUpdateOne = vi.fn();
 
 vi.mock("../src/models/License.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/models/License.js")>();
@@ -21,6 +22,7 @@ vi.mock("../src/models/License.js", async (importOriginal) => {
       findOne: (...args: unknown[]) => mockFindOne(...args),
       findOneAndUpdate: (...args: unknown[]) => mockFindOneAndUpdate(...args),
       create: (...args: unknown[]) => mockCreate(...args),
+      updateOne: (...args: unknown[]) => mockUpdateOne(...args),
     },
   };
 });
@@ -684,5 +686,49 @@ describe("licenseService.applyRefund", () => {
 
     expect(result.revoked).toBe(false);
     expect(result.license).toBe(null);
+  });
+});
+
+// ============================================================================
+// licenseService.setEmailIfMissing — fires from the Figma OAuth callback
+// ============================================================================
+
+describe("licenseService.setEmailIfMissing", () => {
+  it("returns zero counts and skips DB call when email is empty", async () => {
+    const result = await licenseService.setEmailIfMissing("u-1", "");
+    expect(result).toEqual({ matched: 0, modified: 0 });
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it("calls License.updateOne with the null-or-missing email filter", async () => {
+    mockUpdateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+
+    const result = await licenseService.setEmailIfMissing(
+      "u-42",
+      "owner@example.com",
+    );
+
+    expect(mockUpdateOne).toHaveBeenCalledTimes(1);
+    const [filter, update, options] = mockUpdateOne.mock.calls[0];
+    expect(filter).toEqual({
+      figmaUserId: "u-42",
+      $or: [{ email: null }, { email: { $exists: false } }],
+    });
+    expect(update).toEqual({ $set: { email: "owner@example.com" } });
+    expect(options).toEqual({ upsert: false });
+    expect(result).toEqual({ matched: 1, modified: 1 });
+  });
+
+  it("returns matched=1 modified=0 when the doc already has the same email", async () => {
+    // Real Mongo behavior: filter requires email null/missing — if the doc
+    // already has the email set (or any other email), matchedCount is 0.
+    mockUpdateOne.mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
+
+    const result = await licenseService.setEmailIfMissing(
+      "u-42",
+      "owner@example.com",
+    );
+
+    expect(result).toEqual({ matched: 0, modified: 0 });
   });
 });

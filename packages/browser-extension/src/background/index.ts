@@ -28,6 +28,16 @@ import type { ExtensionMessage, CaptureOptions } from "@/shared/types";
 import { state } from "./state";
 import { getSettings, updateSettings } from "./utils/settings";
 import { autoDownloadResult, getDomainFromUrl, sendToBackend } from "./utils/download";
+import { connectFigma } from "../shared/licenseClient";
+
+/**
+ * One OAuth flow at a time. The popup closes the moment the OAuth tab
+ * takes focus, so a second click can't deliver the message until the
+ * popup is reopened — but a fresh service-worker invocation (cold start
+ * after an idle period) would otherwise be able to fire a second tab in
+ * parallel. Guard with this module-level flag.
+ */
+let oauthInFlight = false;
 import {
   startInspectMode,
   cancelInspectMode,
@@ -142,6 +152,34 @@ chrome.runtime.onMessage.addListener(
 
     if (message.type === "GET_CAPTURE_STATUS") {
       sendResponse({ isCapturing: state.isCapturing, progress: state.captureProgress });
+      return false;
+    }
+
+    // === Figma OAuth (background-owned polling) ===
+    //
+    // The popup closes when the OAuth tab takes focus, so we run the
+    // 3-minute poll loop in the service worker instead. Active fetches
+    // keep the worker alive; once the backend parks the token,
+    // connectFigma persists the session to chrome.storage.local and the
+    // popup's onStorageChange listener flips the UI on next open.
+    if (message.type === "START_FIGMA_OAUTH") {
+      // Visible in `chrome://extensions → Inspect views: service worker`
+      // even in production builds (consoleGating only silences `log/debug/
+      // info/trace`). Lets us confirm the popup message actually arrived
+      // at the service worker.
+      console.warn("[Background] START_FIGMA_OAUTH received");
+      if (oauthInFlight) {
+        sendResponse({ success: false, reason: "in_flight" });
+        return false;
+      }
+      oauthInFlight = true;
+      connectFigma()
+        .then(() => console.warn("[Background] OAuth succeeded — session persisted"))
+        .catch((err) => console.warn("[Background] OAuth failed:", err))
+        .finally(() => {
+          oauthInFlight = false;
+        });
+      sendResponse({ success: true });
       return false;
     }
 

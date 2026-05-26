@@ -4,6 +4,7 @@ import { config } from "../../config/env.js";
 import { signToken, PLUGIN_TOKEN_EXPIRY_SECONDS } from "../../middleware/auth.js";
 import { pendingPluginAuth, PLUGIN_AUTH_NONCE_TTL_MS } from "../../state.js";
 import { authRateLimiter } from "../../middleware/rateLimit.js";
+import { licenseService } from "../../services/licenseService.js";
 
 const router = express.Router();
 
@@ -168,6 +169,14 @@ router.get(
         handle?: string;
       };
 
+      // PII-redacted diagnostic: lets us confirm Figma is returning an
+      // email for this account without writing the address itself to ops
+      // logs. Survives the production gateConsole because it's
+      // `console.warn`.
+      console.warn(
+        `[Figma OAuth] /v1/me: id=${meData.id} email=${meData.email ? "<set>" : "<MISSING>"} handle=${meData.handle ? "<set>" : "<missing>"}`,
+      );
+
       // Plugin OAuth bridge: mint an HMAC plugin token bound to the *verified*
       // Figma user id and park it for the plugin to collect via the nonce.
       if (pluginNonce) {
@@ -190,6 +199,38 @@ router.get(
           tokenExpiresAt: Date.now() + PLUGIN_TOKEN_EXPIRY_SECONDS * 1000,
           expires: Date.now() + PLUGIN_AUTH_NONCE_TTL_MS,
         });
+
+        // Persist the Figma-provided email so it shows up in /api/license/me
+        // (and therefore in the extension's IdentityModal / Plan modal /
+        // backend admin panel). Done AFTER the token is parked so a Mongo
+        // hiccup can't block the user from completing sign-in — the email
+        // can always be backfilled on a later login. Free users get their
+        // Figma email; paid users keep the Flitt billing email since
+        // `setEmailIfMissing` won't overwrite a non-null value.
+        if (meData.email) {
+          try {
+            await licenseService.getOrCreate(meData.id);
+            const result = await licenseService.setEmailIfMissing(
+              meData.id,
+              meData.email,
+            );
+            // PII-redacted: matched/modified counts diagnose whether the
+            // doc was patched without leaking the email itself.
+            console.warn(
+              `[Figma OAuth] setEmailIfMissing(${meData.id}) → matched=${result.matched} modified=${result.modified}`,
+            );
+          } catch (err) {
+            console.warn(
+              "[Figma OAuth] Could not persist email on license doc:",
+              err,
+            );
+          }
+        } else {
+          console.warn(
+            `[Figma OAuth] meData.email missing for id=${meData.id} — Figma did not return email. Check the Figma account's verified email.`,
+          );
+        }
+
         res.status(200).send(
           renderResultPage(
             "Connected to Figma",

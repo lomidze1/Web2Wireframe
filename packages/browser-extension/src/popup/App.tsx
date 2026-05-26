@@ -1,13 +1,16 @@
 import { useState, useEffect } from "preact/hooks";
 import type { ExtensionMessage, CaptureOptions } from "@/shared/types";
 import type { CaptureStats } from "@w2w/shared";
+import type { SessionState } from "@/shared/types";
+import { STORAGE_KEYS } from "@/shared/constants";
+import { getSession } from "@/shared/session";
 import {
   VisualFlow,
   ViewportsSection,
-  SaveOptions,
   CaptureButtons,
   Footer,
   HelpModal,
+  IdentityModal,
   PlanModal,
   CaptureStatsWarning,
 } from "./components";
@@ -22,7 +25,11 @@ interface CaptureState {
   stats?: CaptureStats;
 }
 
-// Default selected viewport (only 1440 selected by default)
+/**
+ * Default viewport set on first open. The user can toggle other viewports
+ * via the ViewportsSection above the Capture button; SaveOptions is no
+ * longer surfaced — captures always produce a local .w2w file.
+ */
 const DEFAULT_VIEWPORTS = [1440];
 
 export function App() {
@@ -33,9 +40,13 @@ export function App() {
   });
   const [currentTab, setCurrentTab] = useState<chrome.tabs.Tab | null>(null);
   const [viewports, setViewports] = useState<number[]>(DEFAULT_VIEWPORTS);
-  const [saveOption, setSaveOption] = useState<"local" | "figma">("local");
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showIdentityModal, setShowIdentityModal] = useState(false);
+  // Full session — drives the footer pill (via cachedLicense) AND the
+  // leftmost identity icon (sign-in vs sign-out).
+  const [session, setSession] = useState<SessionState | null>(null);
+  const license = session?.cachedLicense ?? null;
 
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -43,6 +54,25 @@ export function App() {
         setCurrentTab(tabs[0]);
       }
     });
+
+    // Initial session read.
+    void getSession().then(setSession);
+
+    // Refresh whenever shared/session.ts writes a new SessionState
+    // (redeem, refresh, fetchMyLicense, revoke, etc.). Keeps the footer
+    // pill + identity icon live without an explicit refresh tick.
+    const onStorageChange = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: chrome.storage.AreaName,
+    ) => {
+      if (area !== "local") return;
+      if (!Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.SESSION)) return;
+      const next = changes[STORAGE_KEYS.SESSION].newValue as
+        | SessionState
+        | undefined;
+      setSession(next ?? null);
+    };
+    chrome.storage.onChanged.addListener(onStorageChange);
 
     const handleMessage = (message: ExtensionMessage) => {
       if (message.type === "CAPTURE_PROGRESS") {
@@ -55,7 +85,10 @@ export function App() {
     };
 
     chrome.runtime.onMessage.addListener(handleMessage);
-    return () => chrome.runtime.onMessage.removeListener(handleMessage);
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleMessage);
+      chrome.storage.onChanged.removeListener(onStorageChange);
+    };
   }, []);
 
   const handleCapture = async () => {
@@ -102,8 +135,11 @@ export function App() {
     if (!currentTab?.id) return;
 
     try {
+      // The popup no longer exposes a save-target toggle; capture always
+      // writes a local .w2w file. Background script reads this key and
+      // skips the upload pipeline.
       await chrome.storage.session.set({
-        pendingSaveOption: saveOption,
+        pendingSaveOption: "local",
       });
 
       const response = await chrome.runtime.sendMessage({
@@ -127,6 +163,13 @@ export function App() {
     }
   };
 
+  // Identity icon now opens the IdentityModal instead of running OAuth
+  // inline. Inline OAuth was killed by Chrome closing the popup the
+  // moment the OAuth tab took focus; IdentityModal dispatches a message
+  // to the background service worker, which runs the 3-min poll on its
+  // own and persists the session via chrome.storage.local.
+  const handleIdentityClick = () => setShowIdentityModal(true);
+
   const canCapture =
     currentTab?.url &&
     !currentTab.url.startsWith("chrome://") &&
@@ -149,12 +192,6 @@ export function App() {
             <ViewportsSection
               viewports={viewports}
               onChange={setViewports}
-              disabled={isCapturing}
-            />
-
-            <SaveOptions
-              saveOption={saveOption}
-              onChange={setSaveOption}
               disabled={isCapturing}
             />
 
@@ -210,10 +247,18 @@ export function App() {
       <Footer
         onPlanClick={() => setShowPlanModal(true)}
         onHelpClick={() => setShowHelpModal(true)}
+        license={license}
+        session={session}
+        onIdentityClick={handleIdentityClick}
       />
 
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
       <PlanModal isOpen={showPlanModal} onClose={() => setShowPlanModal(false)} />
+      <IdentityModal
+        isOpen={showIdentityModal}
+        onClose={() => setShowIdentityModal(false)}
+        session={session}
+      />
     </div>
   );
 }

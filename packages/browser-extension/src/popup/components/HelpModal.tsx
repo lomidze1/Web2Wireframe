@@ -1,59 +1,23 @@
-import { useState } from "preact/hooks";
-import { CloseIcon, DocsIcon, ContactIcon, PluginIcon, PricingIcon, MailIcon } from "./Icons";
-import { API_URL, STORAGE_KEYS } from "../../shared/constants";
+import { CloseIcon, ContactIcon, DocsIcon, PluginIcon, PricingIcon } from "./Icons";
 
 interface HelpModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+/**
+ * Help & Resources modal — pure links list after Phase 5.2.
+ *
+ * The "Subscribe to news" section that used to live here moved to
+ * IdentityModal (which is the natural home for account-adjacent forms).
+ * HelpModal is now state-less and async-free.
+ */
 export function HelpModal({ isOpen, onClose }: HelpModalProps) {
-  const [email, setEmail] = useState("");
-  const [subscribeStatus, setSubscribeStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  if (!isOpen) return null;
 
   const openLink = (url: string) => (e: Event) => {
     e.preventDefault();
     chrome.tabs.create({ url, active: false });
-  };
-
-  if (!isOpen) return null;
-
-  const handleSubscribe = async (e: Event) => {
-    e.preventDefault();
-    if (!email || !email.includes("@")) return;
-
-    setSubscribeStatus("loading");
-
-    // User may have overridden the backend in Options — honor that, fall
-    // back to the prod default constant if no override is stored.
-    let backendUrl = API_URL;
-    try {
-      const stored = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS);
-      const settings = stored[STORAGE_KEYS.SETTINGS] as { backendUrl?: string } | undefined;
-      if (settings?.backendUrl) backendUrl = settings.backendUrl;
-    } catch {
-      // Use default
-    }
-
-    try {
-      const response = await fetch(`${backendUrl}/api/newsletter/subscribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-
-      if (response.ok) {
-        setSubscribeStatus("success");
-        setEmail("");
-        setTimeout(() => setSubscribeStatus("idle"), 3000);
-      } else {
-        setSubscribeStatus("error");
-        setTimeout(() => setSubscribeStatus("idle"), 3000);
-      }
-    } catch {
-      setSubscribeStatus("error");
-      setTimeout(() => setSubscribeStatus("idle"), 3000);
-    }
   };
 
   const handleOverlayClick = (e: Event) => {
@@ -73,7 +37,6 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
         </div>
 
         <div class="modal-content">
-          {/* Links */}
           <div class="help-links">
             <a
               href="https://web2wireframe.design/docs"
@@ -110,37 +73,6 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
               <span class="help-link-icon"><PricingIcon /></span>
               <span>Pricing</span>
             </a>
-          </div>
-
-          {/* Newsletter */}
-          <div class="newsletter-section">
-            <h3>Subscribe to news</h3>
-            <form class="newsletter-form" onSubmit={handleSubscribe}>
-              <div class="newsletter-input-wrapper">
-                <span class="newsletter-icon"><MailIcon /></span>
-                <input
-                  type="email"
-                  class="newsletter-input"
-                  placeholder="Enter your email"
-                  value={email}
-                  onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
-                  disabled={subscribeStatus === "loading"}
-                />
-              </div>
-              <button
-                type="submit"
-                class="btn btn-primary newsletter-btn"
-                disabled={subscribeStatus === "loading" || !email}
-              >
-                {subscribeStatus === "loading" ? "..." : "Subscribe"}
-              </button>
-            </form>
-            {subscribeStatus === "success" && (
-              <p class="newsletter-success">Thanks for subscribing!</p>
-            )}
-            {subscribeStatus === "error" && (
-              <p class="newsletter-error">Subscription failed. Please try again.</p>
-            )}
           </div>
         </div>
       </div>

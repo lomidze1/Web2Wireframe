@@ -840,6 +840,422 @@ body {
 }
 
 /* ============================================
+   Plan Modal — live data (Phase 3)
+   ============================================ */
+/* Ported from packages/figma-plugin/src/ui/components/modalPopup/Modal.css
+   (camelCase → kebab-case; light theme only — no dark mode variants). */
+
+.plan-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-tertiary);
+}
+
+.plan-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.plan-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.plan-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  gap: 12px;
+}
+
+.plan-meta-value {
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: right;
+  word-break: break-all;
+}
+
+.plan-notice {
+  /* Phase 4: was `display: flex` — that made <strong>/<span> children
+     break inline text flow into separate flex items. Plain block lets
+     normal inline wrapping happen. */
+  display: block;
+  padding: 12px 14px;
+  margin: 12px 0;
+  border-radius: 8px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.plan-notice .spinner {
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.plan-error {
+  padding: 12px 14px;
+  margin: 12px 0;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--color-error);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  font-size: 13px;
+}
+
+.plan-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--color-text-secondary);
+}
+
+.plan-section-line {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.plan-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.plan-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: white;
+}
+
+.plan-card-pro {
+  border-color: var(--color-primary);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.04), rgba(139, 92, 246, 0.04));
+}
+
+.plan-card-header {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 2px;
+}
+
+.plan-card-subhead {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  margin: 0 0 10px;
+}
+
+.plan-savings-badge {
+  position: absolute;
+  top: -8px;
+  right: 10px;
+  background: #10b981;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+}
+
+.plan-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plan-list-item {
+  position: relative;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--color-text);
+  line-height: 1.35;
+}
+
+.plan-list-item::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  color: #10b981;
+  font-weight: 700;
+}
+
+.plan-card-btn {
+  margin-top: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-primary);
+  background: white;
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.plan-card-btn:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: white;
+}
+
+.plan-card-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.plan-card-btn-pro {
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  border-color: transparent;
+}
+
+.plan-card-btn-pro:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.plan-cta-link {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  text-align: center;
+  border-radius: 8px;
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  background: white;
+  cursor: pointer;
+}
+
+.plan-cta-link:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: white;
+}
+
+.plan-cta-link:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Spinner — used in loading + checkout-pending states. */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: w2w-spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes w2w-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Footer usage pill (Phase 4) — mirrors plugin's .planPill from
+   packages/figma-plugin/src/ui/components/footer/Footer.css */
+.usage-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: white;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.usage-pill:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.usage-pill-pro {
+  border-color: #10b981;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.usage-pill-pro::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+/* Footer is a 4-column flex layout after Phase 5 (crown · pill · ⋮ · help). */
+.popup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ============================================
+   Identity modal — Phase 5.2
+   ============================================ */
+
+.identity-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 8px 0 4px;
+}
+
+.identity-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.identity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-tertiary);
+}
+
+.identity-value {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: var(--color-text);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.copy-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.copy-btn.copied {
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.btn-block {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+}
+
+/* Horizontal divider — shared between IdentityModal (separates login/
+   account block from newsletter form) and any future modal that needs
+   the same break. */
+.divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 16px 0;
+}
+
+/* Options page paired-state card (Phase 3). */
+.paired-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #10b981;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.06);
+  margin-bottom: 12px;
+}
+
+.paired-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.paired-card-info strong {
+  color: var(--color-text);
+}
+
+.paired-card-meta {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.redeem-status {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.redeem-status.success {
+  color: #10b981;
+}
+
+.redeem-status.error {
+  color: var(--color-error);
+}
+
+/* ============================================
    OPTIONS PAGE (Separate)
    ============================================ */
 .options-page {

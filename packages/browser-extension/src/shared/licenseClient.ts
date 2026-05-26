@@ -34,6 +34,10 @@ import {
   updateCachedLicense,
 } from "./session";
 
+/** OAuth polling cadence — mirrors plugin licenseClient.ts:125-128. */
+const OAUTH_POLL_INTERVAL_MS = 2_000;
+const OAUTH_TIMEOUT_MS = 3 * 60 * 1000;
+
 /**
  * Thrown when an authenticated request comes back 401. Callers should catch
  * this and drop straight into logout / unpaired UI — the plugin emits a
@@ -230,6 +234,136 @@ export async function fetchMyLicense(signal?: AbortSignal): Promise<License> {
   const license = (await response.json()) as License;
   await updateCachedLicense(license);
   return license;
+}
+
+// ============================================================================
+// Figma OAuth (extension-side) — port of plugin's connectFigma
+// ============================================================================
+
+/**
+ * Decode the HMAC token's payload (`base64url(payload).signature`) and
+ * return the `userId` field. Pure parsing — does NOT verify the signature
+ * (verification is the backend's responsibility on every request); we just
+ * need the userId to seed the session record before the first /license/me
+ * fetch returns.
+ */
+export function decodeTokenUserId(token: string): string {
+  if (typeof token !== "string" || !token.includes(".")) {
+    throw new Error("decodeTokenUserId: malformed token");
+  }
+  const [payloadB64] = token.split(".");
+  let decoded: unknown;
+  try {
+    // atob in browsers can't handle base64url's "-"/"_" alphabet directly,
+    // so swap back to standard base64 before decoding. Padding (`=`) is
+    // optional in atob but tolerated.
+    const std = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
+    decoded = JSON.parse(atob(std));
+  } catch {
+    throw new Error("decodeTokenUserId: payload is not valid base64-JSON");
+  }
+  if (
+    !decoded ||
+    typeof decoded !== "object" ||
+    typeof (decoded as { userId?: unknown }).userId !== "string"
+  ) {
+    throw new Error("decodeTokenUserId: payload missing userId");
+  }
+  return (decoded as { userId: string }).userId;
+}
+
+/** Cryptographically random hex nonce — same format as the plugin's
+ *  `generateNonce()` (figma-plugin/src/ui/shared/licenseClient.ts:103-111). */
+function generateNonce(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let hex = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    hex += bytes[i].toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+const delay = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(t);
+      reject(new Error("Aborted"));
+    });
+  });
+
+/**
+ * Open a Figma OAuth tab and poll the backend until the freshly minted
+ * HMAC token is parked. On success: persist the session (decoded
+ * figmaUserId, no email yet) and immediately fetchMyLicense to fill in
+ * the email + cachedLicense.
+ *
+ * Verbatim port of the plugin's `connectFigma`
+ * (packages/figma-plugin/src/ui/shared/licenseClient.ts:118-152) with two
+ * differences:
+ *   - window.open → chrome.tabs.create (popup-blocker exempt).
+ *   - figmaUserId decoded from the token (plugin gets it from
+ *     ConfigContext; the extension has no such bridge).
+ */
+export async function connectFigma(signal?: AbortSignal): Promise<License> {
+  const nonce = generateNonce();
+  const baseUrl = await getBaseUrl();
+  chrome.tabs.create({
+    url: `${baseUrl}/auth/figma/login?plugin_nonce=${encodeURIComponent(nonce)}`,
+    active: true,
+  });
+
+  const deadline = Date.now() + OAUTH_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error("Figma connection cancelled");
+    await delay(OAUTH_POLL_INTERVAL_MS, signal);
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `${baseUrl}/api/auth/figma-exchange?nonce=${encodeURIComponent(nonce)}`,
+        { signal },
+      );
+    } catch {
+      // Transient network error — keep polling until the deadline.
+      continue;
+    }
+    if (!response.ok) continue;
+
+    const data = (await response.json().catch(() => null)) as {
+      pending?: boolean;
+      token?: string;
+      expiresAt?: string;
+    } | null;
+    if (!data || data.pending !== false || !data.token || !data.expiresAt) {
+      // Token not parked yet — keep waiting.
+      continue;
+    }
+
+    // Got a token. Decode it to learn the figmaUserId, seed the session,
+    // then fetchMyLicense to fill in email + cachedLicense.
+    const figmaUserId = decodeTokenUserId(data.token);
+    await setSession({
+      sessionToken: data.token,
+      expiresAt: new Date(data.expiresAt).getTime(),
+      figmaUserId,
+      email: null,
+      cachedLicense: null,
+    });
+    // fetchMyLicense updates the cachedLicense field in storage and returns
+    // the license doc — its email becomes the session's email implicitly
+    // (next read picks up the cachedLicense.email).
+    const license = await fetchMyLicense(signal);
+    // Patch the session's top-level email to match the license's, since
+    // the email line in the Options-page paired card reads from session.
+    const session = await getSession();
+    if (session && license.email !== session.email) {
+      await setSession({ ...session, email: license.email });
+    }
+    return license;
+  }
+  throw new Error("Figma connection timed out — please try again");
 }
 
 // ============================================================================

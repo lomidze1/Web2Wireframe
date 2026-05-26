@@ -250,3 +250,111 @@ describe("authHeader", () => {
     await expect(lc.authHeader()).rejects.toBeInstanceOf(lc.AuthExpiredError);
   });
 });
+
+// ---------------------------------------------------------------------------
+// decodeTokenUserId — pure base64url JSON parse
+// ---------------------------------------------------------------------------
+
+/** Build a base64url-encoded payload for a token. The signature half is
+ *  bogus — decode never verifies it. */
+function makeToken(payload: object): string {
+  // toBase64Url: handle the "+" "/" "=" → "-" "_" "" swap manually.
+  const std = btoa(JSON.stringify(payload));
+  const b64url = std.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `${b64url}.fake-signature`;
+}
+
+describe("decodeTokenUserId", () => {
+  it("returns the userId field from a valid base64url payload", () => {
+    const token = makeToken({ userId: "u-42", iat: 1, exp: 2 });
+    expect(lc.decodeTokenUserId(token)).toBe("u-42");
+  });
+
+  it("throws when the token has no dot separator", () => {
+    expect(() => lc.decodeTokenUserId("not-a-token")).toThrow(
+      /malformed token/i,
+    );
+  });
+
+  it("throws when the payload is not valid base64-JSON", () => {
+    expect(() => lc.decodeTokenUserId("###.sig")).toThrow(
+      /base64-JSON/i,
+    );
+  });
+
+  it("throws when the payload has no userId field", () => {
+    const token = makeToken({ iat: 1, exp: 2 });
+    expect(() => lc.decodeTokenUserId(token)).toThrow(/missing userId/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// connectFigma — OAuth tab + poll the exchange endpoint
+// ---------------------------------------------------------------------------
+
+describe("connectFigma", () => {
+  beforeEach(() => {
+    // Stub chrome.tabs.create so the test doesn't try to open a real tab.
+    vi.stubGlobal("chrome", {
+      ...((globalThis as { chrome?: unknown }).chrome as object | undefined),
+      storage: { local: storage },
+      tabs: { create: vi.fn() },
+    });
+  });
+
+  it("persists the session after the exchange returns a token", async () => {
+    const token = makeToken({ userId: "u-7", iat: 1, exp: 9999999999 });
+    const license = fakeLicense({ figmaUserId: "u-7", email: "u7@example.com" });
+
+    // First poll → pending; second poll → token parked.
+    vi.spyOn(globalThis, "fetch")
+      // delay(2000) is awaited before the first fetch; fake timers handle that.
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ pending: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            pending: false,
+            token,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          }),
+          { status: 200 },
+        ),
+      )
+      // fetchMyLicense() inside connectFigma — third fetch.
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(license), { status: 200 }),
+      );
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const result = await lc.connectFigma();
+      expect(result.figmaUserId).toBe("u-7");
+      const persisted = await session.getSession();
+      expect(persisted?.sessionToken).toBe(token);
+      expect(persisted?.figmaUserId).toBe("u-7");
+      expect(persisted?.email).toBe("u7@example.com");
+      expect(persisted?.cachedLicense?.figmaUserId).toBe("u-7");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throws and persists no session when cancelled via AbortSignal", async () => {
+    // Backend stays "pending" indefinitely; the AbortController short-
+    // circuits the poll loop so the test doesn't wait the full 3-minute
+    // timeout. Same code path: connectFigma never reaches the setSession
+    // call, so storage stays empty.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ pending: true }), { status: 200 }),
+    );
+
+    const controller = new AbortController();
+    const promise = lc.connectFigma(controller.signal);
+    // Abort after the first poll interval has had a chance to fire.
+    setTimeout(() => controller.abort(), 50);
+    await expect(promise).rejects.toThrow();
+    expect(await session.getSession()).toBeNull();
+  });
+});
