@@ -17,7 +17,6 @@ const mockSendRefundEmail = vi.fn();
 
 vi.mock("../src/services/flittService.js", () => ({
   createOneTimeCheckout: vi.fn(),
-  cancelSubscription: vi.fn(),
   verifyCallback: (...args: unknown[]) => mockVerifyCallback(...args),
 }));
 
@@ -33,7 +32,6 @@ vi.mock("../src/services/licenseService.js", () => ({
     applyOneTimePurchase: (...args: unknown[]) =>
       mockApplyOneTime(...args),
     applyRefund: (...args: unknown[]) => mockApplyRefund(...args),
-    applySubscriptionCancel: vi.fn(),
   },
 }));
 
@@ -594,9 +592,14 @@ describe("POST /api/webhooks/flitt — dedup lease release on mutation failure",
     expect(mockWebhookEventDelete).not.toHaveBeenCalled();
   });
 
-  it("releases the lease when figmaUserId is missing in merchant_data", async () => {
-    // No figmaUserId → cannot apply state. Allow retry in case operator
-    // resends with a corrected payload.
+  it("M-4: never acquires lease when figmaUserId is missing in merchant_data", async () => {
+    // Post-M-4: validation runs BEFORE lease acquisition. A payload that
+    // fails the figmaUserId check never creates a WebhookEvent row at all,
+    // so there is nothing to release. (Previously the lease was acquired
+    // eagerly and then released here — but Flitt may have already moved on,
+    // and a corrected operator payload would arrive with a NEW payment_id
+    // anyway, so the old early-acquire pattern just wasted dedup capacity
+    // on invalid traffic.)
     await request(makeApp())
       .post("/api/webhooks/flitt")
       .send(
@@ -605,9 +608,60 @@ describe("POST /api/webhooks/flitt — dedup lease release on mutation failure",
           payment_id: "pay_no_uid",
         }),
       );
-    expect(mockWebhookEventDelete).toHaveBeenCalledWith({
-      transactionId: "pay_no_uid",
-    });
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockWebhookEventDelete).not.toHaveBeenCalled();
+  });
+
+  it("M-4: never acquires lease when order_id does not match figmaUserId", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          order_id: "w2w_pro_attacker_999",
+          merchant_data: JSON.stringify({ figmaUserId: "victim", plan: "pro" }),
+          payment_id: "pay_tampered",
+        }),
+      );
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+  });
+
+  it("M-4: never acquires lease when amount does not match expected", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ amount: 1, payment_id: "pay_wrong_amount" }));
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+  });
+
+  it("M-9: rejects non-USD currency and never acquires lease", async () => {
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          currency: "EUR",
+          payment_id: "pay_wrong_currency",
+        }),
+      );
+    expect(res.status).toBe(200);
+    expect(res.body.rejected).toBe("currency");
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+  });
+
+  it("P2-#3: rejects webhook with figmaUserId longer than 64 chars (no lease, no mutation)", async () => {
+    const huge = "a".repeat(65);
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          order_id: `w2w_pro_${huge}_999`,
+          merchant_data: JSON.stringify({ figmaUserId: huge, plan: "pro" }),
+          payment_id: "pay_huge_uid",
+        }),
+      );
+    expect(res.status).toBe(200);
+    expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    expect(mockApplyActivation).not.toHaveBeenCalled();
+    expect(mockApplyOneTime).not.toHaveBeenCalled();
   });
 
   it("returns 200 even if lease deletion itself fails (graceful degradation)", async () => {
@@ -617,6 +671,31 @@ describe("POST /api/webhooks/flitt — dedup lease release on mutation failure",
       .post("/api/webhooks/flitt")
       .send(oneTimeApproved({ payment_id: "pay_double_fail" }));
     expect(res.status).toBe(200);
+  });
+
+  it("P2-#2: email failure after successful Pro grant does NOT release the lease", async () => {
+    // The state mutation succeeds → Pro is granted to the user. If we then
+    // released the lease because `sendReceiptEmail` threw, Flitt would
+    // retry and the user would receive a SECOND 30-day grant for a single
+    // $16 payment. The fix isolates email failures.
+    mockApplyOneTime.mockResolvedValue({
+      figmaUserId: "u-1",
+      cycleEndsAt: new Date("2026-06-04T10:00:00Z"),
+    });
+    mockSendReceipt.mockRejectedValue(new Error("RESEND_API_KEY invalid"));
+
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimeApproved({ payment_id: "pay_email_fail" }));
+
+    expect(res.status).toBe(200);
+    // CRITICAL: the lease MUST stay in place. Without this, Flitt's retry
+    // would land a second `applyOneTimePurchase` for the same payment_id.
+    expect(mockWebhookEventDelete).not.toHaveBeenCalled();
+    // Pro was granted exactly once.
+    expect(mockApplyOneTime).toHaveBeenCalledTimes(1);
+    // The email call was attempted (and silently failed).
+    expect(mockSendReceipt).toHaveBeenCalledTimes(1);
   });
 });
 

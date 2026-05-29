@@ -126,7 +126,10 @@ describe("GET /api/license/me", () => {
     expect(res.status).toBe(200);
     expect(res.body.plan).toBe("pro");
     expect(res.body.limits.imports).toBe(null);
-    expect(res.body.subscription.flittOrderId).toBe("w2w_pro_u_1");
+    // M-3: flittOrderId is redacted from non-admin license views.
+    expect(res.body.subscription).not.toHaveProperty("flittOrderId");
+    // Other subscription fields are preserved (smoke-check one).
+    expect(res.body.subscription.canceledAt).toBeNull();
   });
 
   it("exposes failureCount and lastFailedAt on subscription", async () => {
@@ -332,5 +335,24 @@ describe("POST /api/license/by-token", () => {
       .send({ figmaUserId: "u-2", token: signToken("u-1", AUTH_SECRET) });
     expect(res.status).toBe(401);
     expect(mockGetOrCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects figmaUserId longer than 64 chars (P2-#3)", async () => {
+    const big = "a".repeat(65);
+    const res = await request(makeApp())
+      .post("/api/license/by-token")
+      .send({ figmaUserId: big, token: signToken(big, AUTH_SECRET) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/max 64 chars/);
+    expect(mockGetOrCreate).not.toHaveBeenCalled();
+  });
+
+  it("accepts a 64-char figmaUserId (boundary, P2-#3)", async () => {
+    const max = "a".repeat(64);
+    mockGetOrCreate.mockResolvedValue(fakeLicense({ figmaUserId: max }));
+    const res = await request(makeApp())
+      .post("/api/license/by-token")
+      .send({ figmaUserId: max, token: signToken(max, AUTH_SECRET) });
+    expect(res.status).toBe(200);
   });
 });

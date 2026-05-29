@@ -156,6 +156,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const email = req.query.email;
+      // SECURITY (H-3): explicit type guard prevents NoSQL operator injection
+      // via repeated query params (`?email=foo&email=bar` → array) or bracket
+      // syntax (`?email[$ne]=null` → object). Do NOT remove without replacing.
+      // The `email` value lands directly in a Mongoose `find({email})` filter
+      // below; an operator value here grants the caller arbitrary-row read.
       if (typeof email !== "string" || !email) {
         res.status(400).json({ error: "email query parameter is required" });
         return;

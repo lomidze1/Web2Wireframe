@@ -31,6 +31,27 @@
 - Resend: დომენი `web2wireframe.design` verified (Glinc account, us-east-1); test email გაიგზავნა 2026-05-18.
 - შენიშვნა: "Credit private key" checkout-ს **არ სჭირდება** (payout-only) — არსად ჩასვა.
 
+### 1.1 Website session hardening (Round-2, 2026-05-28)
+
+- [x] **`connect-mongo`** დამატებულია (`packages/api/package.json`) — express-session
+      `MongoStore`-ით (TTL 24h, autoRemove native, touchAfter 5min). გადაჭრის
+      MemoryStore-ის CRITICAL-ს — deploy-ის შემდეგ logged-in user-ები აღარ იკარგებიან.
+- [x] **Session cookie ახლა session-only** (`packages/api/src/index.ts` —
+      `cookie.maxAge` წაშლილია). Browser close = logout.
+- [x] **Logout endpoint Origin check** (`figmaAuth.ts` — `isAllowedOrigin`).
+      `WEBSITE_ALLOWED_ORIGINS` env var კონფიგ-სცენარისთვის.
+- [x] **`isValidReturnTo` backslash reject** — `/\evil.com` open-redirect bypass
+      დაგვერდი.
+- [ ] **Deploy-ის შემდეგ შემოწმე Mongo-ში `sessions` collection** ჩაიწერა (TTL
+      index ავტომატურად შემოდის):
+      ```
+      docker compose exec mongo mongosh web2wireframe --eval 'db.sessions.getIndexes()'
+      ```
+      უნდა ჩანდეს `expires_1` TTL index `expireAfterSeconds: 0`-ით.
+- [ ] **Prod-ში deploy-ის შემდეგ logged-in user-ები ხელახლა შესვლას მოითხოვენ**
+      (ერთჯერადი ცვლილება, MemoryStore → MongoStore გადასვლა). 1-2 ცნობილი user
+      მხოლოდ — acceptable.
+
 ## 2. Plugin API URL (`packages/figma-plugin`)
 
 - [ ] `src/ui/shared/apiConfig.ts` → `USE_PRODUCTION` toggle `false` → `true`
@@ -44,6 +65,16 @@
 
 - [ ] production deploy-ზე `VITE_API_URL=https://api.web2wireframe.design`
       (`.env.local` dev-ისთვისაა; production build-ი deploy-ის env-ს იყენებს)
+- [ ] **Plugin Community URL განახლება** Figma Community-ში plugin-ის
+      გამოქვეყნების შემდეგ:
+      `packages/web/src/data/links.ts` — `installLinks.figmaCommunity`,
+      `checkoutLinks.free`, `checkoutLinks.pro` (ამჟამად ყველა placeholder
+      `https://www.figma.com/community/plugin/web2wireframe`-ზე იყურება).
+      ეს URL-ი გამოიყენება:
+      - Hero "Use directly in Figma" ღილაკი (Home page)
+      - Footer "Start Free" ღილაკი
+      - Home page bottom CTA "Start Free"
+      - Pricing page "Install Plugin — Start Free"
 
 ## 4. Flitt Merchant Portal (user action)
 

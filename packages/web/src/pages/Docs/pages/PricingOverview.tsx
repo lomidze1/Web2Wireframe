@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const PricingOverview = (): ReactElement => (
   <DocsLayout>
-    <h2>Pricing Overview</h2>
+    <h1>Pricing Overview</h1>
 
-    <h3>What is included in Web2Wireframe's paid features</h3>
+    <h2>What is included in Web2Wireframe's paid features</h2>
     <p>
       Web2Wireframe offers both free and paid functionality. Paid features are
       designed for users who rely on the product regularly and need more
@@ -32,7 +32,7 @@ const PricingOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Available plan types</h3>
+    <h2>Available plan types</h2>
     <p>
       Web2Wireframe ships with a simple, two-tier plan structure.
     </p>
@@ -59,7 +59,7 @@ const PricingOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Why the paid plan exists</h3>
+    <h2>Why the paid plan exists</h2>
     <p>
       The Pro plan supports the ongoing development and maintenance of
       Web2Wireframe. Advanced features such as multi-viewport capture, hover
@@ -74,7 +74,7 @@ const PricingOverview = (): ReactElement => (
     </ul>
     <p>Pro keeps the product sustainable while leaving core features accessible on Free.</p>
 
-    <h3>Comparison between free and paid plans</h3>
+    <h2>Comparison between free and paid plans</h2>
     <p>
       The free plan allows you to understand how Web2Wireframe works and try
       its core workflows. Paid plans extend these capabilities for users who
@@ -99,7 +99,7 @@ const PricingOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Which plan fits different needs</h3>
+    <h2>Which plan fits different needs</h2>
     <p>
       Choosing the right plan depends on how often and how deeply you use
       Web2Wireframe.
@@ -123,7 +123,7 @@ const PricingOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Next step</h3>
+    <h2>Next step</h2>
     <p>
       Continue to <a href="/docs/pricing/purchase">Purchase & Access</a> to
       learn how buying and renewing Pro access works.

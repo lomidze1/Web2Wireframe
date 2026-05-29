@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const BrowserExtensionOverview = (): ReactElement => (
   <DocsLayout>
-    <h2>Extension Overview</h2>
+    <h1>Extension Overview</h1>
 
-    <h3>What the extension does</h3>
+    <h2>What the extension does</h2>
     <p>
       The Browser Extension allows you to capture website content directly from
       your browser and send it to Web2Wireframe in Figma. Instead of copying
@@ -33,7 +33,7 @@ const BrowserExtensionOverview = (): ReactElement => (
       <a href="/docs/start/fast-first-import">Fast First Import</a>
     </p>
 
-    <h3>When to use the extension</h3>
+    <h2>When to use the extension</h2>
     <p>
       The extension is most useful when you want to work quickly while browsing
       live websites. It removes friction between discovering content and
@@ -63,7 +63,7 @@ const BrowserExtensionOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>How it works with Web2Wireframe</h3>
+    <h2>How it works with Web2Wireframe</h2>
     <p>
       The Browser Extension acts as a bridge between the web and Figma. Once
       activated, it captures selected content and sends it to Web2Wireframe,
@@ -91,7 +91,7 @@ const BrowserExtensionOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Notes and recommendations</h3>
+    <h2>Notes and recommendations</h2>
     <p>
       The extension works best on pages with clear structure and visible layout
       boundaries. Highly dynamic pages or heavy animations may require
@@ -114,7 +114,7 @@ const BrowserExtensionOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Video overview</h3>
+    <h2>Video overview</h2>
     <p>
       A short overview video can help users understand the value of the
       extension quickly.
@@ -130,7 +130,7 @@ const BrowserExtensionOverview = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Next step</h3>
+    <h2>Next step</h2>
     <p>
       Continue to{" "}
       <a href="/docs/browser-extension/import-with-extension">

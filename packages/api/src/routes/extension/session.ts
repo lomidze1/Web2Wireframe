@@ -32,8 +32,14 @@ import {
   byTokenUserRateLimiter,
 } from "../../middleware/rateLimit.js";
 import { licenseService } from "../../services/licenseService.js";
-import { serializeLicense } from "../../lib/serializeLicense.js";
-import { mongoConnected, pendingPairings } from "../../state.js";
+import { serializeLicenseForPlugin } from "../../lib/serializeLicense.js";
+import {
+  mongoConnected,
+  pendingPairings,
+  isPairingCodeLocked,
+  recordPairingFailure,
+  clearPairingFailures,
+} from "../../state.js";
 
 const router = Router();
 
@@ -78,20 +84,34 @@ router.post(
     }
     const code = raw.trim().toUpperCase();
 
+    // M-2: refuse to look up the entry if this code has hit the failure
+    // threshold. Done BEFORE the Map lookup so an attacker who finally
+    // lands a correct guess after N misses still gets a 429.
+    if (isPairingCodeLocked(code)) {
+      res.status(429).json({
+        error: "Too many failed attempts. Request a new pairing code.",
+      });
+      return;
+    }
+
     const entry = pendingPairings.get(code);
     if (!entry) {
+      recordPairingFailure(code);
       res.status(401).json({ error: "Invalid or expired pairing code" });
       return;
     }
     if (entry.expires <= Date.now()) {
       pendingPairings.delete(code);
+      recordPairingFailure(code);
       res.status(401).json({ error: "Invalid or expired pairing code" });
       return;
     }
 
     // One-time use: delete BEFORE any failure path that follows, so a partial
-    // failure can't leak a still-valid code on a subsequent retry.
+    // failure can't leak a still-valid code on a subsequent retry. Also clear
+    // the (now-irrelevant) failure counter for this code.
     pendingPairings.delete(code);
+    clearPairingFailures(code);
 
     const secret = process.env.AUTH_SECRET;
     if (!secret) {
@@ -116,7 +136,7 @@ router.post(
         expiresAt,
         figmaUserId: entry.figmaUserId,
         email: license.email,
-        license: serializeLicense(license),
+        license: serializeLicenseForPlugin(license),
       });
     } catch (err) {
       console.error("[ExtensionSession] /redeem error:", err);

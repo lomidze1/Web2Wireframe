@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const ImportScreenshot = (): ReactElement => (
   <DocsLayout>
-    <h2>Screenshot Import</h2>
+    <h1>Screenshot Import</h1>
 
-    <h3>What is Screenshot import</h3>
+    <h2>What is Screenshot import</h2>
     <p>
       Screenshot Import allows you to generate a wireframe from a static image
       of a website or interface. Instead of using a live URL, Web2Wireframe
@@ -34,7 +34,7 @@ const ImportScreenshot = (): ReactElement => (
       <a href="/docs/start/fast-first-import">Fast First Import</a>
     </p>
 
-    <h3>Supported screenshots</h3>
+    <h2>Supported screenshots</h2>
     <p>
       Web2Wireframe supports most common screenshot formats and sources. You
       can import screenshots taken from different devices and environments, as
@@ -63,7 +63,7 @@ const ImportScreenshot = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Best practices</h3>
+    <h2>Best practices</h2>
     <p>To get the most accurate wireframes from Screenshot Import:</p>
     <ul>
       <li>Use high-resolution screenshots whenever possible</li>
@@ -92,7 +92,7 @@ const ImportScreenshot = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Typical scenarios</h3>
+    <h2>Typical scenarios</h2>
     <p>
       Screenshot Import is especially useful in situations where live web
       access is not available or practical.
@@ -117,7 +117,7 @@ const ImportScreenshot = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Notes and limitations</h3>
+    <h2>Notes and limitations</h2>
     <p>
       Because Screenshot Import works from a static image, it relies entirely
       on visual cues. Some limitations may occur when:
@@ -150,7 +150,7 @@ const ImportScreenshot = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Video walkthrough</h3>
+    <h2>Video walkthrough</h2>
     <p>A short video can help users understand the flow quickly.</p>
     <figure className={styles.imageBlock}>
       <div
@@ -163,7 +163,7 @@ const ImportScreenshot = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Next step</h3>
+    <h2>Next step</h2>
     <p>
       Continue to{" "}
       <a href="/docs/import-methods/html-import">HTML Import</a> to learn how to

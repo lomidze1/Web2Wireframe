@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { useState } from "react";
 import { checkoutLinks } from "../../data/links";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   formatUsdCents,
   formatUsdCentsShort,
@@ -71,6 +72,7 @@ const Pricing = (): ReactElement => {
   // Default to Yearly so first-time visitors land on the better deal —
   // mirrors the plugin's Plan modal which highlights the Yearly card.
   const [tier, setTier] = useState<ProTier>("yearly");
+  const { openPricing } = useAuth();
   const proCopy = PRO_TIER_COPY[tier];
   const proFeatures = [...PRO_BASE_FEATURES, ...proCopy.extraFeatures];
   // Render once on first paint — `isLikelyEuVisitor()` is cheap and
@@ -177,14 +179,13 @@ const Pricing = (): ReactElement => {
                   <li key={feature}>{feature}</li>
                 ))}
               </ul>
-              <a
+              <button
+                type="button"
                 className="btn btn-primary"
-                href={checkoutLinks.pro}
-                target="_blank"
-                rel="noreferrer"
+                onClick={() => openPricing(tier)}
               >
-                Get Pro from Plugin
-              </a>
+                Get Pro
+              </button>
               <p className={styles.trustNote}>
                 Secure checkout by Flitt (PCI-DSS Level 1) · Apple Pay, Google
                 Pay & all major cards · See <a href="/terms">Terms</a> for

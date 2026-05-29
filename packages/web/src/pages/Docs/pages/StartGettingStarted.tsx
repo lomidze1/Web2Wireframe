@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const StartGettingStarted = (): ReactElement => (
   <DocsLayout>
-    <h2>Getting Started</h2>
+    <h1>Getting Started</h1>
 
-    <h3>What happens when you open the plugin</h3>
+    <h2>What happens when you open the plugin</h2>
     <p>
       When you open Web2Wireframe for the first time, the plugin launches into
       its main workspace inside Figma. This is the central area where all
@@ -32,7 +32,7 @@ const StartGettingStarted = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Main interface overview</h3>
+    <h2>Main interface overview</h2>
     <p>
       The main interface is designed to be simple, focused, and task-oriented.
       It highlights the most important actions without overwhelming you with
@@ -63,7 +63,7 @@ const StartGettingStarted = (): ReactElement => (
       <a href="/docs/start/fast-first-import">Fast First Import</a>
     </p>
 
-    <h3>Basic workflow</h3>
+    <h2>Basic workflow</h2>
     <p>
       The basic workflow in Web2Wireframe follows a clear and repeatable
       pattern:

@@ -12,7 +12,6 @@ vi.mock("../src/services/licenseService.js", () => ({
     applySubscriptionActivation: vi.fn(),
     applyRecurringCharge: vi.fn(),
     applyFailedCharge: vi.fn(),
-    applySubscriptionCancel: vi.fn(),
   },
 }));
 
@@ -47,13 +46,13 @@ describe("POST /api/extension-pair", () => {
     expect(res.status).toBe(401);
   });
 
-  it("issues an 8-char code bound to the authenticated user", async () => {
+  it("issues a 10-char code bound to the authenticated user (M-2: was 8)", async () => {
     const res = await request(app)
       .post("/api/extension-pair")
       .set("Authorization", tokenA);
     expect(res.status).toBe(200);
     expect(typeof res.body.code).toBe("string");
-    expect(res.body.code).toHaveLength(8);
+    expect(res.body.code).toHaveLength(10);
     expect(pendingPairings.get(res.body.code)?.figmaUserId).toBe("userA");
   });
 

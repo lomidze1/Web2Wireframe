@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const StartFastFirstImport = (): ReactElement => (
   <DocsLayout>
-    <h2>Fast First Import</h2>
+    <h1>Fast First Import</h1>
 
-    <h3>Quick start overview</h3>
+    <h2>Quick start overview</h2>
     <p>
       Fast First Import is the quickest way to generate your first wireframe.
       It is designed for users who want to see results immediately without
@@ -27,7 +27,7 @@ const StartFastFirstImport = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Choosing an import method</h3>
+    <h2>Choosing an import method</h2>
     <p>
       To start your first import, choose one of the available import methods.
       Each method is designed for a different type of source:
@@ -56,7 +56,7 @@ const StartFastFirstImport = (): ReactElement => (
       Related: <a href="/docs/import-methods/web-import">Web Import</a>
     </p>
 
-    <h3>Generating your first wireframe</h3>
+    <h2>Generating your first wireframe</h2>
     <p>
       After selecting an import method, start the generation process.
       Web2Wireframe analyzes the structure of the source and creates a
@@ -82,7 +82,7 @@ const StartFastFirstImport = (): ReactElement => (
       <a href="/docs/import-methods/web-import">Web Import</a>
     </p>
 
-    <h3>Next steps after import</h3>
+    <h2>Next steps after import</h2>
     <p>Once your first wireframe is generated, you can:</p>
     <ul>
       <li>Edit and refine the structure</li>

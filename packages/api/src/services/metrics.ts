@@ -104,7 +104,17 @@ export function renderMetrics(): string {
 
 /** Convenience wrappers — strongly typed call sites > stringly typed sprinkled metrics calls. */
 export const metrics = {
-  webhook(orderStatus: string, result: "processed" | "deduped"): void {
+  webhook(
+    orderStatus: string,
+    result: "processed" | "deduped" | "crashed" | "rejected",
+  ): void {
+    // M-4: `crashed` and `rejected` track the failure modes that previously
+    // only showed up as silent 200 responses. Alert on rate-of-change of
+    // these labels — a sustained `crashed` rate means paying users are
+    // losing Pro (handler threw post-validation and the lease was released
+    // for Flitt to retry); a sustained `rejected` rate means tampered
+    // payloads are hitting the endpoint (signature passed but currency or
+    // amount validation failed).
     incrementCounter(
       "flitt_webhook_total",
       "Flitt webhook deliveries received and dispatched.",
@@ -139,12 +149,16 @@ export const metrics = {
       | "failed_charge"
       | "subscription_cancel"
       | "refund",
-    result: "applied" | "no_op",
+    result: "applied" | "no_op" | "stack_capped",
   ): void {
     // Tracks the outcome of every webhook-driven license mutation.
     // `no_op` captures refund-for-stale-order and cancel-when-already-Free
     // — both meaningful for support diagnostics (chargeback patterns,
     // double-cancel attempts).
+    //
+    // P3-#2: `stack_capped` (paired with `one_time_purchase`) fires when
+    // the defensive stacking ceiling engaged — page-able signal for fraud
+    // detection (a real attack will burn many of these in a tight burst).
     incrementCounter(
       "license_events_total",
       "License state mutations by action and outcome.",

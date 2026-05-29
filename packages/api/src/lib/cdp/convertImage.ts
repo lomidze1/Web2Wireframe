@@ -18,15 +18,36 @@ export function needsFigmaConversion(mimeType: string): boolean {
 /**
  * Node.js image converter for Figma-unsupported formats (WebP, AVIF, TIFF, HEIC).
  * Uses `sharp` — converts to JPEG for photos (smaller) or PNG for transparency.
+ *
+ * M-6: defense against decompression-bomb assets coming from the browser
+ * extension's untrusted page context. A 50 KB WebP can legally decode to a
+ * 50,000 × 50,000 RGBA raster (~10 GB) — without a pixel cap, one crafted
+ * asset can OOM the API process. Cap both the COMPRESSED input (5 MB hard
+ * limit, well above typical hero images) AND the DECODED pixel count
+ * (50 million pixels, ~7000 × 7000 — generous for full-page background
+ * images, hostile for bombs).
  */
+const MAX_ASSET_BYTES = 5 * 1024 * 1024;
+const MAX_DECODED_PIXELS = 50_000_000;
+
 export async function convertToFigmaFormat(
   base64: string,
   mimeType: string
 ): Promise<{ base64: string; mimeType: string } | null> {
   try {
     const buffer = Buffer.from(base64, "base64");
+    if (buffer.length > MAX_ASSET_BYTES) {
+      console.warn(
+        `[API] asset exceeds ${MAX_ASSET_BYTES} byte cap (${buffer.length}) — skipping ${mimeType}`,
+      );
+      return null;
+    }
     // Use JPEG for photos (much smaller than PNG), quality 85%
-    const jpegBuffer = await sharp(buffer).jpeg({ quality: 85 }).toBuffer();
+    const jpegBuffer = await sharp(buffer, {
+      limitInputPixels: MAX_DECODED_PIXELS,
+    })
+      .jpeg({ quality: 85 })
+      .toBuffer();
     return { base64: jpegBuffer.toString("base64"), mimeType: "image/jpeg" };
   } catch (error) {
     console.warn(`[API] Failed to convert ${mimeType} to JPEG:`, error);

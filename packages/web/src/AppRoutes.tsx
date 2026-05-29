@@ -11,10 +11,24 @@ import CheckoutSuccess from "./pages/Checkout/CheckoutSuccess";
 import CheckoutCancel from "./pages/Checkout/CheckoutCancel";
 import Account from "./pages/Account/Account";
 import Renew from "./pages/Renew/Renew";
+import { docsNavigation } from "./pages/Docs/data/docsStructure";
 
-/** All routes for SSG prerendering. Checkout/Account/Renew are dynamic and
- * intentionally excluded — they're query-param-driven and require
- * runtime state, so prerendering provides no benefit. */
+/**
+ * All routes for SSG prerendering. Checkout/Account/Renew are dynamic and
+ * intentionally excluded — they're query-param-driven and require runtime
+ * state, so prerendering provides no benefit.
+ *
+ * S-C3: docs sub-routes were previously listed in sitemap.xml but NOT
+ * prerendered, so Googlebot saw an empty SPA shell with the home page's
+ * title on every one of them (Critical SEO issue). We now flatten
+ * `docsNavigation` from the docs structure module so the sitemap + the
+ * prerender list always agree, and adding a new docs page only requires
+ * editing the docs structure file.
+ */
+const docsStaticRoutes = docsNavigation.flatMap((topic) =>
+  topic.pages.map((page) => `/docs/${topic.id}/${page.path}`),
+);
+
 export const staticRoutes = [
   "/",
   "/how-it-works",
@@ -23,6 +37,7 @@ export const staticRoutes = [
   "/support",
   "/terms",
   "/privacy",
+  ...docsStaticRoutes,
 ];
 
 export default function AppRoutes(): ReactElement {

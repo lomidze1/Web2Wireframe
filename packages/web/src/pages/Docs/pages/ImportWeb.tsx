@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const ImportWeb = (): ReactElement => (
   <DocsLayout>
-    <h2>Web Import</h2>
+    <h1>Web Import</h1>
 
-    <h3>What is Web import</h3>
+    <h2>What is Web import</h2>
     <p>
       Web Import lets you generate a wireframe from a live website by providing
       its URL. Web2Wireframe analyzes the page structure and hierarchy, then
@@ -33,7 +33,7 @@ const ImportWeb = (): ReactElement => (
       <a href="/docs/start/fast-first-import">Fast First Import</a>
     </p>
 
-    <h3>When to use it</h3>
+    <h2>When to use it</h2>
     <p>
       Use Web Import when your source is a real website that you can access via
       a URL and you want a fast structural starting point.
@@ -61,7 +61,7 @@ const ImportWeb = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>What gets imported</h3>
+    <h2>What gets imported</h2>
     <p>
       Web Import generates a wireframe representation of the page layout and
       content blocks. The output is designed to be structured and editable
@@ -95,7 +95,7 @@ const ImportWeb = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Common use cases</h3>
+    <h2>Common use cases</h2>
     <p>
       Redesign planning: Generate a structural wireframe to quickly understand
       what exists today, then iterate into a new layout.
@@ -123,7 +123,7 @@ const ImportWeb = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Best practices</h3>
+    <h2>Best practices</h2>
     <p>To get cleaner results from Web Import:</p>
     <ul>
       <li>Start with a page that is publicly accessible (no login required)</li>
@@ -151,7 +151,7 @@ const ImportWeb = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Notes and limitations</h3>
+    <h2>Notes and limitations</h2>
     <p>
       Web Import depends on the structure that can be read from the website.
       Some pages may generate less clean results when:
@@ -184,7 +184,7 @@ const ImportWeb = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Next step</h3>
+    <h2>Next step</h2>
     <p>
       Continue to{" "}
       <a href="/docs/import-methods/screenshot-import">Screenshot Import</a> to

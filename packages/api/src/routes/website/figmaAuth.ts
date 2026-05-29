@@ -5,6 +5,8 @@ import { signToken, PLUGIN_TOKEN_EXPIRY_SECONDS } from "../../middleware/auth.js
 import { pendingPluginAuth, PLUGIN_AUTH_NONCE_TTL_MS } from "../../state.js";
 import { authRateLimiter } from "../../middleware/rateLimit.js";
 import { licenseService } from "../../services/licenseService.js";
+import { isAllowedOrigin } from "../../config/origins.js";
+import { incrementCounter } from "../../services/metrics.js";
 
 const router = express.Router();
 
@@ -23,9 +25,45 @@ const getRedirectUri = (): string => {
 
 const generateState = (): string => randomBytes(16).toString("hex");
 
-/** A plugin-supplied nonce is a high-entropy token; reject anything else. */
-const isValidPluginNonce = (value: unknown): value is string =>
-  typeof value === "string" && /^[A-Za-z0-9_-]{16,128}$/.test(value);
+/**
+ * A plugin-supplied nonce is a high-entropy token; reject anything else.
+ *
+ * M-1: minimum length is 32 characters. Plugin and Browser Extension both
+ * generate 64-char hex nonces from `crypto.getRandomValues(32 bytes)`
+ * (see licenseClient.ts in each package), so this floor is safe and
+ * forces future clients to maintain similar entropy. The audit flagged
+ * the previous 16-char floor as allowing Math.random()-quality nonces
+ * that a botnet could brute-force inside the 5-minute TTL.
+ */
+export const isValidPluginNonce = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9_-]{32,128}$/.test(value);
+
+/**
+ * Validate the `return_to` query parameter for the website OAuth flow.
+ *
+ * Open-redirect guard: the OAuth callback 302-redirects the browser to this
+ * value at the end of the flow. An attacker who controls the value can land
+ * the victim on `evil.com/login` immediately after a verified Figma login,
+ * harvesting credentials with the trust of a fresh-auth handoff.
+ *
+ * Rules:
+ *   - Only same-origin relative paths starting with a single `/`.
+ *   - Reject protocol-relative URLs (`//evil.com`) and anything with `:`
+ *     (catches `javascript:`, `data:`, `https://`).
+ *   - Reject backslashes — Chrome/Safari normalise `\` to `/` after the
+ *     redirect, so `/\evil.com` ≈ `//evil.com` post-normalisation and
+ *     would route the user off-site if we allowed it.
+ *   - Length-capped to bound query handling.
+ */
+const isValidReturnTo = (value: unknown): value is string => {
+  if (typeof value !== "string") return false;
+  if (value.length === 0 || value.length > 256) return false;
+  if (!value.startsWith("/")) return false;
+  if (value.startsWith("//")) return false;
+  if (value.includes("\\")) return false;
+  if (value.includes(":")) return false;
+  return true;
+};
 
 /** Minimal HTML shown in the OAuth browser tab once the plugin flow finishes. */
 const renderResultPage = (heading: string, body: string): string => `<!DOCTYPE html>
@@ -57,6 +95,13 @@ router.get("/auth/figma/login", authRateLimiter, (req: Request, res: Response) =
   req.session.pluginNonce = isValidPluginNonce(pluginNonce)
     ? pluginNonce
     : undefined;
+
+  // Website flow: capture the page the user came from so the callback can
+  // 302-redirect back to it (instead of leaving the user on a JSON blob).
+  // Only same-origin paths pass isValidReturnTo — anything else falls back
+  // to the homepage on the callback side.
+  const returnTo = req.query.return_to;
+  req.session.returnTo = isValidReturnTo(returnTo) ? returnTo : undefined;
 
   const redirectUri = getRedirectUri();
   const authorizeUrl = new URL("https://www.figma.com/oauth");
@@ -100,6 +145,8 @@ router.get(
     req.session.oauthState = undefined;
     const pluginNonce = req.session.pluginNonce;
     req.session.pluginNonce = undefined;
+    const returnTo = req.session.returnTo;
+    req.session.returnTo = undefined;
 
     const clientId = config.figma.clientId;
     const clientSecret = config.figma.clientSecret;
@@ -240,20 +287,127 @@ router.get(
         return;
       }
 
-      req.session.figmaUserId = meData.id;
-      req.session.figmaEmail = meData.email;
-      req.session.createdAt = new Date().toISOString();
+      // M-7: regenerate the session id before persisting the verified Figma
+      // identity. Without this, an attacker who pre-seeds the victim's
+      // browser with a known session cookie (via XSS on a sibling subdomain
+      // or a misconfigured proxy) can hijack the post-OAuth session — the
+      // attacker's cookie now points to a session bound to the victim's
+      // Figma id. regenerate() rotates the cookie value so the attacker's
+      // pre-seeded id is no longer associated with the authenticated user.
+      //
+      // P2-#6: wrap regenerate/save in their own try/catch. At this point
+      // the OAuth code has been CONSUMED by Figma — the user cannot retry
+      // without restarting the whole login flow. A generic outer 500 leaves
+      // them stuck with no actionable error. Instead, render an HTML page
+      // with a "Sign in again" link.
+      try {
+        await new Promise<void>((resolve, reject) => {
+          req.session.regenerate((err) =>
+            err ? reject(err) : resolve(),
+          );
+        });
+        req.session.figmaUserId = meData.id;
+        req.session.figmaEmail = meData.email;
+        req.session.createdAt = new Date().toISOString();
+        // Persist the new session immediately so the redirect below doesn't
+        // race the session-store write. Without explicit save, express-session
+        // writes are asynchronous and the client may load /web/me before the
+        // store sees the new id (especially on slower MongoStore backends).
+        await new Promise<void>((resolve, reject) => {
+          req.session.save((err) => (err ? reject(err) : resolve()));
+        });
+      } catch (sessionErr) {
+        console.error(
+          "[Figma OAuth/website] session store write failed:",
+          sessionErr instanceof Error ? sessionErr.message : sessionErr,
+        );
+        // P3-#4: static import at the top of this file. The previous dynamic
+        // `await import(...)` could itself throw on rare Node loader hiccups,
+        // which would defeat the P2-#6 error page (the throw would bubble
+        // into the outer catch and surface as generic 500 JSON).
+        incrementCounter(
+          "session_store_failures_total",
+          "express-session store write failures (regenerate or save).",
+        );
+        res.status(500).send(
+          renderResultPage(
+            "Sign-in interrupted",
+            "We could not start your session. " +
+              '<a href="/auth/figma/login">Please sign in again.</a>',
+          ),
+        );
+        return;
+      }
 
-      res.json({
-        figmaUserId: meData.id,
-        email: meData.email ?? null,
-        name: meData.handle ?? null,
-      });
+      // Persist the email on the user's License doc — same as the plugin
+      // branch above — so /web/me can surface it in the "My User" modal even
+      // before the first Pro purchase.
+      if (meData.email) {
+        try {
+          await licenseService.getOrCreate(meData.id);
+          await licenseService.setEmailIfMissing(meData.id, meData.email);
+        } catch (err) {
+          console.warn(
+            "[Figma OAuth/website] setEmailIfMissing failed (non-fatal):",
+            err,
+          );
+        }
+      }
+
+      // Website flow: 302 back to the page the user came from (validated
+      // same-origin path; falls back to `/` when missing/invalid). The
+      // browser will hit the website on its own origin and the React app
+      // will re-read /web/me to render the logged-in UI.
+      const baseUrl = config.website.baseUrl;
+      const target = returnTo ?? "/";
+      res.redirect(`${baseUrl}${target}`);
     } catch (error) {
       console.error("Figma OAuth error:", error);
       res.status(500).json({ error: "Figma OAuth request failed" });
     }
   },
 );
+
+/**
+ * Website logout — clears the session cookie.
+ *
+ * Defense-in-depth against CSRF logout:
+ *   - POST-only so a CSRF-style GET (link, image, iframe) can't sign a
+ *     user out by accident.
+ *   - Origin header check against `websiteAllowedOrigins` — SameSite=Lax
+ *     cookies are still sent on top-level form POSTs from another origin
+ *     under some browser configurations (and a `text/plain` fetch from
+ *     evil.com skips CORS preflight). The CORS middleware already rejects
+ *     unknown origins, but checking here explicitly makes the protection
+ *     obvious at the route level and survives any future CORS reshuffle.
+ *
+ * Idempotent: returns 200 even when there was no session to destroy. The
+ * frontend just optimistically clears its in-memory auth state.
+ */
+router.post("/auth/figma/logout", (req: Request, res: Response) => {
+  if (!isAllowedOrigin(req.headers.origin)) {
+    // 403 (not 400) — the request is well-formed, we're refusing to
+    // honour it. Mention "origin" so a legitimate caller debugging a CORS
+    // misconfig sees the cause without leaking the allowlist contents.
+    res.status(403).json({ ok: false, error: "Origin not allowed" });
+    return;
+  }
+  if (!req.session) {
+    res.json({ ok: true });
+    return;
+  }
+  req.session.destroy((err) => {
+    if (err) {
+      console.warn("[Figma OAuth] session.destroy failed:", err);
+      res.status(500).json({ ok: false, error: "Logout failed" });
+      return;
+    }
+    // express-session keeps the cookie alive even after destroy unless we
+    // explicitly clear it — the cookie name must match the one we set in
+    // index.ts (`w2w_session`).
+    res.clearCookie("w2w_session");
+    res.json({ ok: true });
+  });
+});
 
 export default router;

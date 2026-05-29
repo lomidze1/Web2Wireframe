@@ -22,7 +22,6 @@ vi.mock("../src/services/licenseService.js", () => ({
     applySubscriptionActivation: vi.fn(),
     applyRecurringCharge: vi.fn(),
     applyFailedCharge: vi.fn(),
-    applySubscriptionCancel: vi.fn(),
   },
 }));
 

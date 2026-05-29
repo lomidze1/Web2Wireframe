@@ -24,6 +24,13 @@ export async function runExpiryReminders(): Promise<{
   failed: number;
 }> {
   const cutoff = new Date(Date.now() + REMINDER_WINDOW_MS);
+  // SECURITY (M-5): operator-typed filter (`$ne`, `$lt`) — safe ONLY because
+  // every key + value below is a code-controlled literal. Never copy this
+  // pattern into a request-handler context where keys or values flow from
+  // user input — operator-typed fields lifted from req.query/req.body land
+  // directly in the filter and become a NoSQL operator-injection attack.
+  // Use the type guards in `lib/validators.ts` (assertString / assertStringMax)
+  // for any field that originates outside this file.
   const candidates = await License.find({
     plan: "pro",
     "subscription.autoRenew": { $ne: true },

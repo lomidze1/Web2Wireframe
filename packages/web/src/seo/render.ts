@@ -26,6 +26,12 @@ export function renderHead(config: SeoConfig): string {
     `<meta property="og:type" content="${escapeAttribute(ogType)}" />`,
     `<meta property="og:url" content="${escapeAttribute(config.canonical)}" />`,
     `<meta property="og:image" content="${escapeAttribute(ogImage)}" />`,
+    // S-H4: explicit dimensions + alt let Facebook/LinkedIn skip the
+    // re-download + crop step (faster previews) and provide screen-reader
+    // text for accessibility. Width/height match the 1200×630 source asset.
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
+    `<meta property="og:image:alt" content="${escapeAttribute(ogTitle)}" />`,
     `<meta name="twitter:card" content="${escapeAttribute(twitterCard)}" />`,
     `<meta name="twitter:title" content="${escapeAttribute(ogTitle)}" />`,
     `<meta name="twitter:description" content="${escapeAttribute(ogDescription)}" />`,

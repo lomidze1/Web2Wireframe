@@ -440,12 +440,21 @@ export async function analyzeScreenshot({ imageBase64, imageWidth, imageHeight, 
     ],
   });
 
-  const u = response.usage;
   // AI cost telemetry — must survive prod console gating (cost tracking).
+  // Defensive: the Anthropic SDK currently always returns `usage`, but mock
+  // SDK clients in tests (and any future SDK version that returns a partial
+  // shape) shouldn't crash a successful response. Fall back to "?" so the
+  // log line is still emitted; missing cost data is a recoverable signal.
+  const u = response.usage ?? {
+    input_tokens: undefined,
+    output_tokens: undefined,
+    cache_read_input_tokens: undefined,
+    cache_creation_input_tokens: undefined,
+  };
   console.warn(
     `[AI] fn=analyzeScreenshot model=${model} ` +
-      `input=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} ` +
-      `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens}`
+      `input=${u.input_tokens ?? "?"} cache_read=${u.cache_read_input_tokens ?? 0} ` +
+      `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens ?? "?"}`
   );
 
   const firstBlock = response.content[0];
@@ -824,12 +833,19 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
     ],
   });
 
-  const u = response.usage;
   // AI cost telemetry — must survive prod console gating (cost tracking).
+  // Defensive `?? "?"`: matches analyzeScreenshot's fallback so partial-shape
+  // SDK responses (and mock clients in tests) don't crash a successful path.
+  const u = response.usage ?? {
+    input_tokens: undefined,
+    output_tokens: undefined,
+    cache_read_input_tokens: undefined,
+    cache_creation_input_tokens: undefined,
+  };
   console.warn(
     `[AI] fn=analyzeScreenshotAbsolute model=${model} ` +
-      `input=${u.input_tokens} cache_read=${u.cache_read_input_tokens ?? 0} ` +
-      `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens}`
+      `input=${u.input_tokens ?? "?"} cache_read=${u.cache_read_input_tokens ?? 0} ` +
+      `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens ?? "?"}`
   );
 
   const firstBlock = response.content[0];

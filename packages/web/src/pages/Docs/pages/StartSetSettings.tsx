@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const StartSetSettings = (): ReactElement => (
   <DocsLayout>
-    <h2>Set Settings</h2>
+    <h1>Set Settings</h1>
 
-    <h3>Settings overview</h3>
+    <h2>Settings overview</h2>
     <p>
       Settings in Web2Wireframe allow you to control how wireframes are
       generated. They influence layout behavior, structure, and level of
@@ -32,7 +32,7 @@ const StartSetSettings = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Core layout settings</h3>
+    <h2>Core layout settings</h2>
     <p>
       Core layout settings define how wireframes are visually structured on the
       canvas. These settings affect spacing, grouping, and overall layout
@@ -59,7 +59,7 @@ const StartSetSettings = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Content structure options</h3>
+    <h2>Content structure options</h2>
     <p>
       Content structure options control how Web2Wireframe groups and organizes
       elements. They determine how sections, blocks, and components are
@@ -89,7 +89,7 @@ const StartSetSettings = (): ReactElement => (
       Related: <a href="/docs/library/overview">Library Overview</a>
     </p>
 
-    <h3>When to change settings</h3>
+    <h2>When to change settings</h2>
     <p>
       In many cases, you can rely on default settings. You should consider
       changing settings when:

@@ -30,9 +30,18 @@ vi.mock("../src/services/licenseService.js", () => ({
 // declarations and throws ReferenceError. vi.hoisted() is the supported
 // escape hatch for that. The route + middleware both import from state.js,
 // so they end up reading the SAME Map instances we manipulate from tests.
-const { pendingPairingsMap, revokedTokensMap } = vi.hoisted(() => ({
+const {
+  pendingPairingsMap,
+  revokedTokensMap,
+  pairingFailuresMap,
+  PAIRING_MAX_FAILURES,
+  PAIRING_LOCKOUT_TTL_MS,
+} = vi.hoisted(() => ({
   pendingPairingsMap: new Map<string, { figmaUserId: string; expires: number }>(),
   revokedTokensMap: new Map<string, number>(),
+  pairingFailuresMap: new Map<string, { count: number; expires: number }>(),
+  PAIRING_MAX_FAILURES: 3,
+  PAIRING_LOCKOUT_TTL_MS: 10 * 60 * 1000,
 }));
 
 vi.mock("../src/state.js", () => ({
@@ -44,6 +53,32 @@ vi.mock("../src/state.js", () => ({
   PAIRING_CODE_TTL_MS: 10 * 60 * 1000,
   PLUGIN_AUTH_NONCE_TTL_MS: 5 * 60 * 1000,
   revokedTokens: revokedTokensMap,
+  pairingCodeFailures: pairingFailuresMap,
+  PAIRING_MAX_FAILURES,
+  PAIRING_LOCKOUT_TTL_MS,
+  isPairingCodeLocked(code: string) {
+    const entry = pairingFailuresMap.get(code);
+    if (!entry) return false;
+    if (entry.expires <= Date.now()) {
+      pairingFailuresMap.delete(code);
+      return false;
+    }
+    return entry.count >= PAIRING_MAX_FAILURES;
+  },
+  recordPairingFailure(code: string) {
+    const now = Date.now();
+    const existing = pairingFailuresMap.get(code);
+    const count =
+      existing && existing.expires > now ? existing.count + 1 : 1;
+    pairingFailuresMap.set(code, {
+      count,
+      expires: now + PAIRING_LOCKOUT_TTL_MS,
+    });
+    return count >= PAIRING_MAX_FAILURES;
+  },
+  clearPairingFailures(code: string) {
+    pairingFailuresMap.delete(code);
+  },
 }));
 
 const { default: extensionSessionRouter } = await import(
@@ -97,6 +132,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   pendingPairingsMap.clear();
   revokedTokensMap.clear();
+  pairingFailuresMap.clear();
   process.env.AUTH_SECRET = AUTH_SECRET;
 });
 
@@ -201,6 +237,70 @@ describe("POST /api/extension-session/redeem", () => {
       .post("/api/extension-session/redeem")
       .send({ pairingCode: { $ne: null } });
     expect(res.status).toBe(400);
+  });
+
+  // ==========================================================================
+  // M-2 — per-code brute-force lockout
+  // ==========================================================================
+
+  it("returns 429 after 3 failed redeem attempts on the same wrong code", async () => {
+    const app = makeApp();
+    // 3 failures of a code that doesn't exist in the Map.
+    for (let i = 0; i < 3; i += 1) {
+      const r = await request(app)
+        .post("/api/extension-session/redeem")
+        .send({ pairingCode: "FAKECODE99" });
+      expect(r.status).toBe(401);
+    }
+    // 4th attempt — even with the SAME code — should be locked out.
+    const locked = await request(app)
+      .post("/api/extension-session/redeem")
+      .send({ pairingCode: "FAKECODE99" });
+    expect(locked.status).toBe(429);
+    expect(locked.body.error).toMatch(/too many failed attempts/i);
+  });
+
+  it("locks the code out even if a correct code somehow appears after N misses", async () => {
+    const app = makeApp();
+    // Trigger lockout via 3 wrong guesses.
+    for (let i = 0; i < 3; i += 1) {
+      await request(app)
+        .post("/api/extension-session/redeem")
+        .send({ pairingCode: "ABCDE12345" });
+    }
+    // Now the legitimate plugin issues this very code (collision is
+    // astronomically unlikely, but the protection must not depend on luck).
+    pendingPairingsMap.set("ABCDE12345", {
+      figmaUserId: "u-1",
+      expires: Date.now() + 60_000,
+    });
+    mockGetOrCreate.mockResolvedValue(fakeLicense());
+
+    const res = await request(app)
+      .post("/api/extension-session/redeem")
+      .send({ pairingCode: "ABCDE12345" });
+    expect(res.status).toBe(429);
+    // The code in the Map must NOT be redeemed/deleted by a locked-out request.
+    expect(pendingPairingsMap.has("ABCDE12345")).toBe(true);
+  });
+
+  it("successful redeem clears the failure counter for the issued code", async () => {
+    const app = makeApp();
+    // Issue + redeem a legitimate code with no prior failures.
+    pendingPairingsMap.set("CLEAR12345", {
+      figmaUserId: "u-1",
+      expires: Date.now() + 60_000,
+    });
+    mockGetOrCreate.mockResolvedValue(fakeLicense());
+
+    const ok = await request(app)
+      .post("/api/extension-session/redeem")
+      .send({ pairingCode: "CLEAR12345" });
+    expect(ok.status).toBe(200);
+
+    // The failures Map for this code should be empty (this is the contract
+    // — re-using the same string later in the test run must not be blocked).
+    expect(pairingFailuresMap.has("CLEAR12345")).toBe(false);
   });
 });
 

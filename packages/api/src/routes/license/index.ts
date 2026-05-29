@@ -6,7 +6,14 @@ import {
   byTokenUserRateLimiter,
 } from "../../middleware/rateLimit.js";
 import { mongoConnected } from "../../state.js";
-import { serializeLicense } from "../../lib/serializeLicense.js";
+import { serializeLicenseForPlugin } from "../../lib/serializeLicense.js";
+import { assertStringMax } from "../../lib/validators.js";
+
+// Mirror of FIGMA_USER_ID_MAX in routes/checkout/index.ts (P2-#3). Kept as a
+// local constant rather than imported because the two routes live in
+// different modules and we'd rather have a duplicated literal than a
+// cross-module dependency on a single security constant.
+const FIGMA_USER_ID_MAX = 64;
 
 const router = Router();
 
@@ -47,7 +54,7 @@ router.get("/me", authenticatePlugin, async (req: Request, res: Response) => {
   try {
     const figmaUserId = req.userId!;
     const license = await licenseService.getOrCreate(figmaUserId);
-    res.json(serializeLicense(license));
+    res.json(serializeLicenseForPlugin(license));
   } catch (err) {
     console.error("[License] /me error:", err);
     res.status(500).json({ error: "Server error" });
@@ -113,8 +120,18 @@ router.post(
       figmaUserId?: unknown;
       token?: unknown;
     };
-    if (typeof figmaUserId !== "string" || typeof token !== "string") {
+    if (typeof token !== "string" || token.length === 0) {
       res.status(400).json({ error: "figmaUserId and token are required" });
+      return;
+    }
+    // P2-#3: bound figmaUserId length defensively (rate-limiter keys + Mongo
+    // filter both eat it). Same 64-char cap as /api/checkout/create.
+    try {
+      assertStringMax(figmaUserId, "figmaUserId", FIGMA_USER_ID_MAX);
+    } catch {
+      res.status(400).json({
+        error: `figmaUserId is required (max ${FIGMA_USER_ID_MAX} chars)`,
+      });
       return;
     }
 
@@ -142,7 +159,7 @@ router.post(
 
     try {
       const license = await licenseService.getOrCreate(figmaUserId);
-      res.json(serializeLicense(license));
+      res.json(serializeLicenseForPlugin(license));
     } catch (err) {
       console.error("[License] /by-token error:", err);
       res.status(500).json({ error: "Server error" });
