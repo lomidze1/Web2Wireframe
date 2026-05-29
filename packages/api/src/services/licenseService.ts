@@ -3,6 +3,7 @@ import {
   PLAN_LIMITS,
   CYCLE_DURATION_MS,
   getProDurationMs,
+  getRenewalWindowMs,
   type ILicense,
   type ProDuration,
 } from "../models/License.js";
@@ -10,6 +11,7 @@ import {
   LicenseAudit,
   type LicenseAuditAction,
 } from "../models/LicenseAudit.js";
+import { assertString } from "../lib/validators.js";
 import { metrics } from "./metrics.js";
 
 /**
@@ -141,7 +143,9 @@ export const licenseService = {
     figmaUserId: string,
     email: string,
   ): Promise<{ matched: number; modified: number }> {
+    assertString(figmaUserId, "figmaUserId");
     if (!email) return { matched: 0, modified: 0 };
+    assertString(email, "email");
     const result = await License.updateOne(
       {
         figmaUserId,
@@ -161,6 +165,7 @@ export const licenseService = {
   },
 
   async getOrCreate(figmaUserId: string): Promise<ILicense> {
+    assertString(figmaUserId, "figmaUserId");
     let license = await License.findOne({ figmaUserId });
     if (!license) {
       license = await License.create({ figmaUserId });
@@ -187,6 +192,7 @@ export const licenseService = {
    * { error: "limit_exceeded" } when the Free quota is full.
    */
   async useImport(figmaUserId: string): Promise<UseImportResult> {
+    assertString(figmaUserId, "figmaUserId");
     // Ensure license exists and is fresh (handles new users + cycle reset).
     const license = await this.getOrCreate(figmaUserId);
 
@@ -221,6 +227,8 @@ export const licenseService = {
     email: string | null;
     flittOrderId: string;
   }): Promise<ILicense> {
+    assertString(params.figmaUserId, "figmaUserId");
+    assertString(params.flittOrderId, "flittOrderId");
     const now = new Date();
     const cycleEnd = new Date(now.getTime() + CYCLE_DURATION_MS);
     const updated = await License.findOneAndUpdate(
@@ -281,6 +289,8 @@ export const licenseService = {
      */
     duration?: ProDuration;
   }): Promise<ILicense> {
+    assertString(params.figmaUserId, "figmaUserId");
+    assertString(params.flittOrderId, "flittOrderId");
     const duration: ProDuration = params.duration ?? "monthly";
     const durationMs = getProDurationMs(duration);
     const now = new Date();
@@ -289,10 +299,50 @@ export const licenseService = {
       existing != null &&
       existing.plan === "pro" &&
       existing.cycleEndsAt.getTime() > now.getTime();
-    const base = stillActivePro
+
+    // P2-#1 + P3-#1: defensive stacking cap, floor-protected.
+    //
+    // Purpose: /api/checkout/create rejects new purchases outside the
+    // renewal window, but a webhook could still land (rare race, or a
+    // legitimate user who already paid and we receive the approval after
+    // their cycle clock advanced). Cap the stacked time at
+    // `renewalWindowMs + durationMs` from `now` — upper bound 37 days
+    // monthly / 375 days yearly. This converts the worst-case financial
+    // loss attack (8+ years for $16) into a bounded 7-day grace.
+    //
+    // P3-#1 floor: a code-review caught that `Math.min(naive, cap)` alone
+    // could SHRINK a legitimate user's existing time. Concrete scenario:
+    // user has cycleEndsAt = now + 100d (e.g. from a yearly purchase before
+    // P2-#1 caps shipped). /create fail-open lets a $16 purchase through.
+    // Naive cap would clamp them down to 37d — they paid $16 and LOST 63
+    // days. Fix: floor at `existing.cycleEndsAt` so the cap is a CEILING
+    // on new additions, not a reset. Stacked-but-capped is still flagged
+    // for ops via the metric below.
+    const renewalWindowMs = getRenewalWindowMs(duration);
+    const maxCycleEndMs = now.getTime() + renewalWindowMs + durationMs;
+    const naiveBase = stillActivePro
       ? existing.cycleEndsAt.getTime()
       : now.getTime();
-    const cycleEnd = new Date(base + durationMs);
+    const naiveCycleEnd = naiveBase + durationMs;
+    const existingEndMs = stillActivePro ? existing.cycleEndsAt.getTime() : 0;
+    // The cap can be RAISED to existing time (so we never shrink) but not
+    // BEYOND the naive stack (so an honest non-stacking renewal isn't
+    // accidentally extended).
+    const effectiveCapMs = Math.max(maxCycleEndMs, existingEndMs);
+    const cycleEndMs = Math.min(naiveCycleEnd, effectiveCapMs);
+    const cycleEnd = new Date(cycleEndMs);
+    const stackCapped = naiveCycleEnd > cycleEndMs;
+    if (stackCapped) {
+      console.warn(
+        `[License] one-time purchase stack-capped: user=${params.figmaUserId} ` +
+          `naive_end=${new Date(naiveCycleEnd).toISOString()} ` +
+          `capped_end=${cycleEnd.toISOString()} ` +
+          `duration=${duration}`,
+      );
+      // P3-#2: page-able metric so ops see the cap engaging in real time
+      // (audit-row inspection is too slow for fraud detection).
+      metrics.licenseEvent("one_time_purchase", "stack_capped");
+    }
 
     const updated = await License.findOneAndUpdate(
       { figmaUserId: params.figmaUserId },
@@ -326,6 +376,7 @@ export const licenseService = {
       email: params.email,
       cycleEndsAt: cycleEnd.toISOString(),
       stacked: stillActivePro,
+      stackCapped, // P2-#1: flagged when defensive cap engaged
     });
     metrics.licenseEvent("one_time_purchase", "applied");
     // upsert:true with new:true guarantees a non-null result.
@@ -339,6 +390,7 @@ export const licenseService = {
   async applyRecurringCharge(params: {
     figmaUserId: string;
   }): Promise<ILicense | null> {
+    assertString(params.figmaUserId, "figmaUserId");
     const now = new Date();
     const cycleEnd = new Date(now.getTime() + CYCLE_DURATION_MS);
     const updated = await License.findOneAndUpdate(
@@ -377,6 +429,7 @@ export const licenseService = {
   async applyFailedCharge(params: {
     figmaUserId: string;
   }): Promise<ILicense | null> {
+    assertString(params.figmaUserId, "figmaUserId");
     const updated = await License.findOneAndUpdate(
       { figmaUserId: params.figmaUserId },
       {
@@ -415,6 +468,8 @@ export const licenseService = {
     figmaUserId: string;
     flittOrderId: string;
   }): Promise<{ revoked: boolean; license: ILicense | null }> {
+    assertString(params.figmaUserId, "figmaUserId");
+    assertString(params.flittOrderId, "flittOrderId");
     const now = new Date();
     const cycleEnd = new Date(now.getTime() + CYCLE_DURATION_MS);
     const updated = await License.findOneAndUpdate(
@@ -459,38 +514,9 @@ export const licenseService = {
     return { revoked: false, license: current };
   },
 
-  /**
-   * Cancel-from-plugin: status → canceled, plan stays "pro" until
-   * cycleEndsAt. The lazy `cleanupExpiredCancellation` in `getOrCreate`
-   * downgrades to Free after the period ends.
-   */
-  async applySubscriptionCancel(params: {
-    figmaUserId: string;
-  }): Promise<ILicense | null> {
-    const now = new Date();
-    const updated = await License.findOneAndUpdate(
-      { figmaUserId: params.figmaUserId, plan: "pro" },
-      {
-        $set: {
-          status: "canceled",
-          "subscription.canceledAt": now,
-        },
-      },
-      { new: true },
-    );
-    if (updated) {
-      audit(
-        params.figmaUserId,
-        "subscription_cancel",
-        { canceledAt: now.toISOString() },
-        { status: ["active", "canceled"] },
-      );
-      metrics.licenseEvent("subscription_cancel", "applied");
-    } else {
-      // Not Pro — caller already gated this in the route, but double-cancel
-      // attempts (user clicks cancel twice) land here. Track them.
-      metrics.licenseEvent("subscription_cancel", "no_op");
-    }
-    return updated;
-  },
+  // P2-#11: `applySubscriptionCancel` removed alongside the cancel route.
+  // One-time payments need no cancel handler — the cycle simply expires.
+  // `cleanupExpiredCancellation` in getOrCreate is retained for legacy
+  // documents that still carry `subscription.canceledAt` from older
+  // installations; once Atlas data is migrated, it can be retired too.
 };

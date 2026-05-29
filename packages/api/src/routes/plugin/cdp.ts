@@ -18,8 +18,12 @@ import {
 import { validateUrl } from "../../utils/urlValidation.js";
 import {
   pendingCDPImports,
+  setPendingImport,
   pendingPairings,
   PAIRING_CODE_TTL_MS,
+  isPairingCodeLocked,
+  recordPairingFailure,
+  clearPairingFailures,
 } from "../../state.js";
 import { convertAssetsForFigma } from "../../lib/cdp/convertImage.js";
 import { authenticatePlugin } from "../../middleware/auth.js";
@@ -32,12 +36,14 @@ const router = Router();
 
 // Unambiguous charset — no 0/O, 1/I/L — for human-typed pairing codes.
 const PAIRING_CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const PAIRING_CODE_LENGTH = 8;
+const PAIRING_CODE_LENGTH = 10;
 
 function generatePairingCode(): string {
-  // 8 chars × 31-char alphabet ≈ 39 bits of entropy. With a 10-min TTL this
-  // makes online brute-force against live codes infeasible for any
-  // realistic concurrent-user count.
+  // 10 chars × 31-char alphabet ≈ 49 bits of entropy (M-2: raised from 8
+  // chars / 39 bits to widen the safety margin against brute-force as
+  // concurrent-code count grows post-launch). Combined with per-code
+  // failure lockout (state.ts) the practical attack surface is now both
+  // entropy-bounded AND probe-budget bounded.
   const bytes = randomBytes(PAIRING_CODE_LENGTH);
   let code = "";
   for (let i = 0; i < PAIRING_CODE_LENGTH; i += 1) {
@@ -62,18 +68,31 @@ function invalidatePriorCodesForUser(figmaUserId: string): void {
 
 /**
  * Resolve the pairing code on an extension capture request to the figmaUserId
- * that issued it. Returns null when the code is missing, unknown, or expired.
+ * that issued it. Returns null when the code is missing, unknown, expired,
+ * or locked out (too many failed attempts — see M-2).
  */
 function resolvePairing(req: Request): string | null {
   const raw = (req.body as { pairingCode?: unknown } | undefined)?.pairingCode;
   if (typeof raw !== "string" || raw.length === 0) return null;
   const code = raw.trim().toUpperCase();
+  // M-2: short-circuit if this code has been brute-forced past the threshold.
+  // Doing this BEFORE the lookup is critical — otherwise an attacker who
+  // finally lands a correct guess after N failures still wins.
+  if (isPairingCodeLocked(code)) return null;
   const entry = pendingPairings.get(code);
-  if (!entry) return null;
-  if (entry.expires <= Date.now()) {
-    pendingPairings.delete(code);
+  if (!entry) {
+    recordPairingFailure(code);
     return null;
   }
+  if (entry.expires <= Date.now()) {
+    pendingPairings.delete(code);
+    recordPairingFailure(code);
+    return null;
+  }
+  // Successful resolve — capture endpoints reuse the same code multiple
+  // times within the TTL, so clear the failure counter so legitimate users
+  // are never accidentally locked out by stale counter entries.
+  clearPairingFailures(code);
   return entry.figmaUserId;
 }
 
@@ -182,7 +201,7 @@ router.post("/import-cdp", importRateLimiter, async (req: Request, res: Response
       },
     };
 
-    pendingCDPImports.set(importId, {
+    setPendingImport(importId, {
       data: importData,
       timestamp: Date.now(),
       expires: Date.now() + 10 * 60 * 1000, // 10 minutes
@@ -299,7 +318,7 @@ router.post("/import-w2w", importRateLimiter, async (req: Request, res: Response
       },
     };
 
-    pendingCDPImports.set(importId, {
+    setPendingImport(importId, {
       data: importData,
       timestamp: Date.now(),
       expires: Date.now() + 10 * 60 * 1000,
@@ -382,7 +401,7 @@ router.post("/capture-with-auth", importRateLimiter, async (req: Request, res: R
       },
     };
 
-    pendingCDPImports.set(importId, {
+    setPendingImport(importId, {
       data: importData,
       timestamp: Date.now(),
       expires: Date.now() + 10 * 60 * 1000,

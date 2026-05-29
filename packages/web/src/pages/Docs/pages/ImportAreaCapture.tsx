@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const ImportAreaCapture = (): ReactElement => (
   <DocsLayout>
-    <h2>Area Capture</h2>
+    <h1>Area Capture</h1>
 
-    <h3>What is Area Capture</h3>
+    <h2>What is Area Capture</h2>
     <p>
       Area Capture allows you to generate a wireframe from a specific part of a
       webpage, rather than importing the entire page. This method is designed
@@ -33,7 +33,7 @@ const ImportAreaCapture = (): ReactElement => (
       <a href="/docs/start/fast-first-import">Fast First Import</a>
     </p>
 
-    <h3>Selecting an area</h3>
+    <h2>Selecting an area</h2>
     <p>
       To use Area Capture, you first define the part of the page you want to
       convert. This can be done visually by selecting or marking the desired
@@ -60,7 +60,7 @@ const ImportAreaCapture = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>What gets generated</h3>
+    <h2>What gets generated</h2>
     <p>
       After generation, Web2Wireframe creates a wireframe that represents only
       the selected area. The output is structured and fully editable, just like
@@ -87,7 +87,7 @@ const ImportAreaCapture = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>When Area Capture works best</h3>
+    <h2>When Area Capture works best</h2>
     <p>
       Area Capture is most effective when you want to focus on specific parts
       of a page rather than the full layout.
@@ -110,7 +110,7 @@ const ImportAreaCapture = (): ReactElement => (
       </li>
     </ul>
 
-    <h3>Best practices</h3>
+    <h2>Best practices</h2>
     <p>To get the best results with Area Capture:</p>
     <ul>
       <li>Select one section at a time</li>
@@ -130,7 +130,7 @@ const ImportAreaCapture = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Video walkthrough</h3>
+    <h2>Video walkthrough</h2>
     <p>A short video can clearly demonstrate how Area Capture works.</p>
     <figure className={styles.imageBlock}>
       <div
@@ -143,7 +143,7 @@ const ImportAreaCapture = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Next step</h3>
+    <h2>Next step</h2>
     <p>
       You've now explored all available import methods. Continue to{" "}
       <a href="/docs/browser-extension/extension-overview">Browser Extension</a>{" "}

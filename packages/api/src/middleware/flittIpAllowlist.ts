@@ -9,10 +9,14 @@ import { createWebhookLogger } from "../services/webhookLogger.js";
  * endpoint from any IP looking for collisions.
  *
  * Behavior:
- *   - When `FLITT_IP_ALLOWLIST_ENABLED` is set to "true", the middleware
- *     rejects requests whose source IP isn't in the list. The default is
- *     OFF so Flitt-side IP rotations don't silently break webhook delivery
- *     before we can update the list.
+ *   - In production (`NODE_ENV=production`) the allowlist is ENABLED by
+ *     default — signature verification is hardened, but the audit (M-8)
+ *     flagged the lone-defense risk if a future signing bug ships.
+ *     Operators can explicitly opt out with `FLITT_IP_ALLOWLIST_ENABLED=false`
+ *     during emergency Flitt IP rotations.
+ *   - Outside production the allowlist is DISABLED by default so local
+ *     dev / test environments don't need to whitelist 127.0.0.1.
+ *   - `FLITT_IP_ALLOWLIST_ENABLED=true` forces on regardless of NODE_ENV.
  *   - Reject = log warn + HTTP 200 + `{received: true}` (NOT 403). A 4xx
  *     would trigger Flitt's retry storm, masking the real problem in
  *     traffic spikes. With 200, real Flitt deliveries see no behavior
@@ -42,12 +46,25 @@ function parseAllowlist(): Set<string> {
   return new Set(ips.length > 0 ? ips : FLITT_DEFAULT_IPS);
 }
 
+/**
+ * M-8: production-default ON. Explicit `"true"` always enables; explicit
+ * `"false"` always disables; otherwise the value of NODE_ENV decides. This
+ * makes the safe behavior the default in production without removing the
+ * operator's emergency-disable escape hatch.
+ */
+function isAllowlistEnabled(): boolean {
+  const flag = process.env.FLITT_IP_ALLOWLIST_ENABLED;
+  if (flag === "true") return true;
+  if (flag === "false") return false;
+  return process.env.NODE_ENV === "production";
+}
+
 export function flittIpAllowlist(
   req: Request,
   res: Response,
   next: NextFunction,
 ): void {
-  if (process.env.FLITT_IP_ALLOWLIST_ENABLED !== "true") {
+  if (!isAllowlistEnabled()) {
     next();
     return;
   }

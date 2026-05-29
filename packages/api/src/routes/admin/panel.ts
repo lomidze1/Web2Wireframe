@@ -26,6 +26,26 @@ const router = Router();
  *   https://api.web2wireframe.design/api/admin/panel/.html#token=<ADMIN_TOKEN>
  */
 router.get("/.html", (_req: Request, res: Response) => {
+  // L-8: defense-in-depth headers. The admin token lives in the URL
+  // fragment (#token=...) so it never reaches the server, but any
+  // injected/proxied third-party script can read `location.hash`. A
+  // strict CSP keeps the page sealed against unknown origins. inline-style
+  // is allowed because the panel embeds a <style> block; 'unsafe-inline'
+  // for script is allowed for the same reason (no inline event handlers
+  // exist — only the embedded <script> block). connect-src 'self' so
+  // fetch() can hit /api/admin/* but nowhere else.
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline'; " +
+      "style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data:; " +
+      "connect-src 'self'; " +
+      "frame-ancestors 'none'",
+  );
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.type("html").send(PANEL_HTML);
 });
 

@@ -1,29 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
-import { CYCLE_DURATION_MS } from "../src/models/License.js";
 
 // ============================================================================
 // Mocks BEFORE importing the route module
 // ============================================================================
 
 const mockCreateOneTimeCheckout = vi.fn();
-const mockCancelSubscription = vi.fn();
 const mockVerifyCallback = vi.fn();
 const mockGetOrCreate = vi.fn();
-const mockApplyCancel = vi.fn();
 
 vi.mock("../src/services/flittService.js", () => ({
   createOneTimeCheckout: (...args: unknown[]) =>
     mockCreateOneTimeCheckout(...args),
-  cancelSubscription: (...args: unknown[]) => mockCancelSubscription(...args),
   verifyCallback: (...args: unknown[]) => mockVerifyCallback(...args),
 }));
 
 vi.mock("../src/services/licenseService.js", () => ({
   licenseService: {
     getOrCreate: (...args: unknown[]) => mockGetOrCreate(...args),
-    applySubscriptionCancel: (...args: unknown[]) => mockApplyCancel(...args),
   },
 }));
 
@@ -42,10 +37,6 @@ vi.mock("../src/config/env.js", () => ({
 
 const checkoutModule = await import("../src/routes/checkout/index.js");
 const checkoutRoutes = checkoutModule.default;
-const cancelRouter = checkoutModule.cancelRouter;
-
-// We need the real signToken to verify the cancel flow auth.
-const { signToken } = await import("../src/middleware/auth.js");
 
 // ============================================================================
 // Test app
@@ -54,8 +45,11 @@ const { signToken } = await import("../src/middleware/auth.js");
 function makeApp() {
   const app = express();
   app.use(express.json());
+  // Match production middleware chain — Flitt's response_url POSTs as
+  // application/x-www-form-urlencoded, so the bridge route needs this
+  // parser to read order_id / order_status off the body for logging.
+  app.use(express.urlencoded({ extended: true }));
   app.use("/api/checkout", checkoutRoutes);
-  app.use("/api/subscription", cancelRouter);
   return app;
 }
 
@@ -139,195 +133,187 @@ describe("POST /api/checkout/create", () => {
     expect(res.status).toBe(400);
     expect(mockCreateOneTimeCheckout).not.toHaveBeenCalled();
   });
+
+  it("rejects figmaUserId longer than 64 chars (H-4 storage amplification)", async () => {
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "a".repeat(65) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/max 64 chars/);
+    expect(mockCreateOneTimeCheckout).not.toHaveBeenCalled();
+  });
+
+  it("rejects empty-string figmaUserId (H-4)", async () => {
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "" });
+    expect(res.status).toBe(400);
+    expect(mockCreateOneTimeCheckout).not.toHaveBeenCalled();
+  });
+
+  it("rejects object figmaUserId — NoSQL injection vector (H-4)", async () => {
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: { $ne: null } });
+    expect(res.status).toBe(400);
+    expect(mockCreateOneTimeCheckout).not.toHaveBeenCalled();
+  });
+
+  it("accepts a 64-char figmaUserId (boundary)", async () => {
+    mockCreateOneTimeCheckout.mockResolvedValue({
+      ok: true,
+      checkoutUrl: "https://pay.flitt.test/x",
+      orderId: "w2w_pro_x",
+    });
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "a".repeat(64) });
+    expect(res.status).toBe(200);
+  });
+
+  // --------------------------------------------------------------------------
+  // sender_email forwarding — License.email round-trips to Flitt so the
+  // portal's "Customer email" column populates and Flitt's own receipt email
+  // fires. License lookup is already happening for the active-Pro pre-block;
+  // we just read one more field off the same document.
+  // --------------------------------------------------------------------------
+
+  it("forwards license.email as senderEmail to createOneTimeCheckout", async () => {
+    mockGetOrCreate.mockResolvedValue({
+      figmaUserId: "u-1",
+      email: "buyer@example.com",
+      plan: "free",
+      cycleEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+    mockCreateOneTimeCheckout.mockResolvedValue({
+      ok: true,
+      checkoutUrl: "https://pay.flitt.test/e",
+      orderId: "w2w_pro_e",
+    });
+    await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "u-1" });
+    expect(mockCreateOneTimeCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        figmaUserId: "u-1",
+        senderEmail: "buyer@example.com",
+      }),
+    );
+  });
+
+  it("calls createOneTimeCheckout without senderEmail when license.email is null", async () => {
+    mockGetOrCreate.mockResolvedValue({
+      figmaUserId: "u-1",
+      email: null,
+      plan: "free",
+      cycleEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+    mockCreateOneTimeCheckout.mockResolvedValue({
+      ok: true,
+      checkoutUrl: "https://pay.flitt.test/n",
+      orderId: "w2w_pro_n",
+    });
+    await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "u-1" });
+    // senderEmail must not be present in the call object so flittService
+    // sees it as undefined and skips the field in the signed request.
+    const callArg = mockCreateOneTimeCheckout.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(callArg.senderEmail).toBeUndefined();
+  });
+
+  it("still creates checkout when license read fails (graceful no-email path)", async () => {
+    // Mongo blip mid-checkout: existing behavior already swallows the error
+    // and falls through. The new email-forwarding code must not regress
+    // that — confirm createOneTimeCheckout is still called, just without
+    // senderEmail.
+    mockGetOrCreate.mockRejectedValue(new Error("mongo down"));
+    mockCreateOneTimeCheckout.mockResolvedValue({
+      ok: true,
+      checkoutUrl: "https://pay.flitt.test/g",
+      orderId: "w2w_pro_g",
+    });
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "u-1" });
+    expect(res.status).toBe(200);
+    const callArg = mockCreateOneTimeCheckout.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(callArg.senderEmail).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// /api/checkout/success — Flitt response_url bridge (POST/GET → 303 to website)
+// ----------------------------------------------------------------------------
+// User reports intermittent "Internal server error" landing after a real
+// Flitt payment. curl reproduces 303 every time, so the bug is browser- or
+// payload-specific. We instrument with structured logging so the next failure
+// is diagnosable from Render logs; the redirect contract itself stays
+// identical (same 303 status, same Location header).
+// ============================================================================
+
+describe("ALL /api/checkout/success — bridge", () => {
+  it("returns 303 with Location pointing at the website success page (GET)", async () => {
+    const res = await request(makeApp())
+      .get("/api/checkout/success");
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe(
+      "https://web2wireframe.test/checkout/success",
+    );
+  });
+
+  it("returns 303 with Location header on POST form body (Flitt's real path)", async () => {
+    const res = await request(makeApp())
+      .post("/api/checkout/success")
+      .type("form")
+      .send(
+        "order_id=w2w_pro_test_1&order_status=approved&amount=14400&currency=USD&signature=deadbeef",
+      );
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe(
+      "https://web2wireframe.test/checkout/success",
+    );
+  });
+
+  it("logs request metadata (method, content-type, body keys) on POST", async () => {
+    // Spy stdout for the structured NDJSON line. The handler emits
+    // one info-level log per request via createLogger("checkout-success-bridge").
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await request(makeApp())
+      .post("/api/checkout/success")
+      .type("form")
+      .send("order_id=w2w_pro_log_1&order_status=approved&signature=abc");
+    // At least one stdout line for our component
+    const matched = logSpy.mock.calls
+      .map((c) => String(c[0] ?? ""))
+      .filter((s) => s.includes('"component":"checkout-success-bridge"'));
+    expect(matched.length).toBeGreaterThanOrEqual(1);
+    const parsed = JSON.parse(matched[0]);
+    expect(parsed.method).toBe("POST");
+    expect(parsed.contentType).toMatch(/x-www-form-urlencoded/);
+    // Body field KEYS are safe to log; values may contain signature/PAN-ish data
+    expect(parsed.bodyKeys).toEqual(
+      expect.arrayContaining(["order_id", "order_status", "signature"]),
+    );
+    // order_id + order_status are safe to log as-is (no PII / no signature)
+    expect(parsed.orderId).toBe("w2w_pro_log_1");
+    expect(parsed.orderStatus).toBe("approved");
+    // Signature must never be in the log line — sanitizer drops it
+    expect(JSON.stringify(parsed)).not.toContain("abc");
+    logSpy.mockRestore();
+  });
 });
 
 // ============================================================================
 // POST /api/subscription/cancel
 // ============================================================================
 
-describe("POST /api/subscription/cancel", () => {
-  function fakeProLicense(figmaUserId = "u-1") {
-    const now = new Date("2026-05-04T10:00:00Z");
-    return {
-      figmaUserId,
-      plan: "pro",
-      status: "active",
-      cycleEndsAt: new Date(now.getTime() + CYCLE_DURATION_MS),
-      subscription: {
-        flittOrderId: "w2w_pro_u_1",
-        canceledAt: null,
-      },
-    };
-  }
-
-  it("returns 400 when fields are missing", async () => {
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1" });
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 401 when token is invalid", async () => {
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token: "bad.token" });
-    expect(res.status).toBe(401);
-  });
-
-  it("does NOT leak which auth check failed (signature vs expiry)", async () => {
-    // Both 'Invalid signature' and 'Token expired' must surface as the same
-    // generic message — distinguishing them lets an attacker confirm a
-    // correct secret by replaying expired tokens.
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token: "bad.token" });
-    // The message must not name the specific failure mode (signature vs.
-    // payload vs. format). "Invalid or expired token" is fine — both
-    // possibilities listed, neither confirmed.
-    expect(res.body.error).not.toMatch(/signature/i);
-    expect(res.body.error).not.toMatch(/payload/i);
-    expect(res.body.error).not.toMatch(/format/i);
-    // Should match either "invalid" or "expired" — generic enough.
-    expect(res.body.error).toMatch(/invalid|expired/i);
-  });
-
-  it("returns 401 when token is signed for a different user", async () => {
-    const token = signToken("other-user", process.env.AUTH_SECRET!, 300);
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token });
-    expect(res.status).toBe(401);
-  });
-
-  it("returns 404 when user has no Pro subscription", async () => {
-    mockGetOrCreate.mockResolvedValue({
-      figmaUserId: "u-1",
-      plan: "free",
-      subscription: null,
-    });
-    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token });
-    expect(res.status).toBe(404);
-  });
-
-  it("returns 502 when Flitt rejects the cancel", async () => {
-    mockGetOrCreate.mockResolvedValue(fakeProLicense());
-    mockCancelSubscription.mockResolvedValue({
-      ok: false,
-      error: "no such order",
-    });
-    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token });
-    expect(res.status).toBe(502);
-  });
-
-  it("succeeds: calls Flitt + applies cancel + returns accessUntil", async () => {
-    const license = fakeProLicense();
-    mockGetOrCreate.mockResolvedValue(license);
-    mockCancelSubscription.mockResolvedValue({ ok: true });
-    mockApplyCancel.mockResolvedValue({
-      ...license,
-      cycleEndsAt: license.cycleEndsAt,
-    });
-    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
-
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token });
-
-    expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(true);
-    expect(res.body.accessUntil).toBe(license.cycleEndsAt.toISOString());
-    expect(mockCancelSubscription).toHaveBeenCalledWith("w2w_pro_u_1");
-    expect(mockApplyCancel).toHaveBeenCalledWith({ figmaUserId: "u-1" });
-  });
-
-  it("rejects an expired token without calling Flitt", async () => {
-    // Sign a token with a negative TTL — verifyToken should reject it as
-    // expired and the cancel must short-circuit before reaching Flitt.
-    const expiredToken = signToken("u-1", process.env.AUTH_SECRET!, -10);
-
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token: expiredToken });
-
-    expect(res.status).toBe(401);
-    expect(res.body.error).toBe("Invalid or expired token");
-    expect(mockCancelSubscription).not.toHaveBeenCalled();
-    expect(mockApplyCancel).not.toHaveBeenCalled();
-  });
-
-  it("returns 500 when AUTH_SECRET env is unset", async () => {
-    const savedSecret = process.env.AUTH_SECRET;
-    delete process.env.AUTH_SECRET;
-    try {
-      const res = await request(makeApp())
-        .post("/api/subscription/cancel")
-        .send({ figmaUserId: "u-1", token: "some.token" });
-      expect(res.status).toBe(500);
-      expect(mockCancelSubscription).not.toHaveBeenCalled();
-    } finally {
-      process.env.AUTH_SECRET = savedSecret;
-    }
-  });
-
-  it("does not call applySubscriptionCancel when Flitt cancel fails (atomic)", async () => {
-    const license = fakeProLicense();
-    mockGetOrCreate.mockResolvedValue(license);
-    mockCancelSubscription.mockResolvedValue({
-      ok: false,
-      error: "Flitt 502",
-    });
-    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
-
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token });
-
-    expect(res.status).toBe(502);
-    // The local license must NOT flip to canceled if Flitt itself didn't
-    // honor the stop — otherwise we'd have a user who shows "canceled"
-    // locally but Flitt still charges them next cycle.
-    expect(mockApplyCancel).not.toHaveBeenCalled();
-  });
-
-  it("propagates a Flitt 'no such order' error message to the client", async () => {
-    const license = fakeProLicense();
-    mockGetOrCreate.mockResolvedValue(license);
-    mockCancelSubscription.mockResolvedValue({
-      ok: false,
-      error: "no such order",
-    });
-    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
-
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token });
-
-    expect(res.status).toBe(502);
-    expect(res.body.error).toBe("no such order");
-  });
-
-  it("returns 200 + null accessUntil when applySubscriptionCancel returns null", async () => {
-    // Edge: Flitt accepted the cancel but our license row vanished (rare
-    // race with a webhook downgrade). Don't error — the client just sees
-    // accessUntil=null and the next /api/license/me will report Free.
-    const license = fakeProLicense();
-    mockGetOrCreate.mockResolvedValue(license);
-    mockCancelSubscription.mockResolvedValue({ ok: true });
-    mockApplyCancel.mockResolvedValue(null);
-    const token = signToken("u-1", process.env.AUTH_SECRET!, 300);
-
-    const res = await request(makeApp())
-      .post("/api/subscription/cancel")
-      .send({ figmaUserId: "u-1", token });
-
-    expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(true);
-    expect(res.body.accessUntil).toBe(null);
-  });
-});
+// P2-#11: `describe("POST /api/subscription/cancel", ...)` removed alongside
+// the route. One-time payment model has no subscription to cancel; the
+// website Cancel UI was already dropped in commit 11ff22f.

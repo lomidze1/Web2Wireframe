@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const InstallHowTo = (): ReactElement => (
   <DocsLayout>
-    <h2>How to Install</h2>
+    <h1>How to Install</h1>
 
-    <h3>Installation overview</h3>
+    <h2>Installation overview</h2>
     <p>
       Installing Web2Wireframe is a quick and straightforward process. The
       plugin is distributed through the Figma Community and can be added to
@@ -23,7 +23,7 @@ const InstallHowTo = (): ReactElement => (
       through each step in more detail below.
     </p>
 
-    <h3>Install from Figma Community</h3>
+    <h2>Install from Figma Community</h2>
     <p>
       Web2Wireframe is installed directly from the Figma Community, making the
       process simple and reliable. Installing from the Community ensures that
@@ -51,7 +51,7 @@ const InstallHowTo = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Where to find the plugin</h3>
+    <h2>Where to find the plugin</h2>
     <p>
       After installing Web2Wireframe, the plugin becomes available directly
       inside Figma. You can access it from any Figma file, whether you are
@@ -77,7 +77,7 @@ const InstallHowTo = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Running Web2Wireframe</h3>
+    <h2>Running Web2Wireframe</h2>
     <p>
       Once you've located the plugin in Figma, launching Web2Wireframe is
       simple. From the Plugins list, click Run to open the plugin interface.

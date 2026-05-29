@@ -79,6 +79,26 @@
   color: white;
 }
 
+// Style a <button> inside the columns grid identically to <a> links so the
+// "Get Pro" trigger blends in. Underline on hover for affordance.
+.linkButton {
+  display: block;
+  color: rgba(242, 244, 248, 0.9);
+  margin: 0.35rem 0;
+  width: fit-content;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.linkButton:hover {
+  color: white;
+  text-decoration: underline;
+}
+
 .ctaBlock {
   background: linear-gradient(
     135deg,

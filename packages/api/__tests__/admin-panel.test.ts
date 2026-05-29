@@ -72,4 +72,29 @@ describe("GET /api/admin/panel/.html — management UI", () => {
     expect(res.text).toContain("/api/admin/license/recent");
     expect(res.text).toContain("/api/admin/license/lookup-by-email");
   });
+
+  // L-8: defense-in-depth security headers on the admin panel response.
+  it("sets a restrictive Content-Security-Policy", async () => {
+    const res = await request(makeApp()).get("/api/admin/panel/.html");
+    expect(res.headers["content-security-policy"]).toBeDefined();
+    const csp = res.headers["content-security-policy"];
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("connect-src 'self'");
+  });
+
+  it("sets X-Frame-Options: DENY", async () => {
+    const res = await request(makeApp()).get("/api/admin/panel/.html");
+    expect(res.headers["x-frame-options"]).toBe("DENY");
+  });
+
+  it("sets Referrer-Policy: no-referrer (prevents token leak in Referer header)", async () => {
+    const res = await request(makeApp()).get("/api/admin/panel/.html");
+    expect(res.headers["referrer-policy"]).toBe("no-referrer");
+  });
+
+  it("sets X-Content-Type-Options: nosniff", async () => {
+    const res = await request(makeApp()).get("/api/admin/panel/.html");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
 });

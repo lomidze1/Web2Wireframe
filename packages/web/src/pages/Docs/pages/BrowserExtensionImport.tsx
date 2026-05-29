@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const BrowserExtensionImport = (): ReactElement => (
   <DocsLayout>
-    <h2>Import with Extension</h2>
+    <h1>Import with Extension</h1>
 
-    <h3>Starting an import from the extension</h3>
+    <h2>Starting an import from the extension</h2>
     <p>
       To start an import using the Browser Extension, open any website in your
       browser and activate the Web2Wireframe extension. Once opened, the
@@ -34,7 +34,7 @@ const BrowserExtensionImport = (): ReactElement => (
       <a href="/docs/browser-extension/extension-overview">Extension Overview</a>
     </p>
 
-    <h3>Capturing content</h3>
+    <h2>Capturing content</h2>
     <p>
       After starting the import, select the content you want to capture. The
       extension highlights selectable areas on the page, helping you focus on
@@ -61,7 +61,7 @@ const BrowserExtensionImport = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Sending data to Figma</h3>
+    <h2>Sending data to Figma</h2>
     <p>
       Once the content is selected, send it directly to Web2Wireframe in Figma.
       The extension transfers the captured data and triggers the wireframe
@@ -84,7 +84,7 @@ const BrowserExtensionImport = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Result in Figma</h3>
+    <h2>Result in Figma</h2>
     <p>
       After the data is received, Web2Wireframe generates a wireframe directly
       on your Figma canvas. The result is a structured, editable layout
@@ -113,7 +113,7 @@ const BrowserExtensionImport = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Video walkthrough</h3>
+    <h2>Video walkthrough</h2>
     <p>A short walkthrough video can clearly demonstrate the full flow.</p>
     <figure className={styles.imageBlock}>
       <div
@@ -126,7 +126,7 @@ const BrowserExtensionImport = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Next step</h3>
+    <h2>Next step</h2>
     <p>
       You've now completed the full import workflow using the Browser
       Extension. Return to{" "}

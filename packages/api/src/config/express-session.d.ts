@@ -8,5 +8,7 @@ declare module "express-session" {
     oauthState?: string;
     /** Plugin OAuth bridge — nonce the plugin polls /api/auth/figma-exchange with. */
     pluginNonce?: string;
+    /** Website OAuth return path — validated same-origin path captured at login. */
+    returnTo?: string;
   }
 }

@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import {
   createOneTimeCheckout,
-  cancelSubscription,
   verifyCallback,
 } from "../../services/flittService.js";
 import { licenseService } from "../../services/licenseService.js";
@@ -15,11 +14,21 @@ import {
   createWebhookLogger,
 } from "../../services/webhookLogger.js";
 import { metrics } from "../../services/metrics.js";
-import { verifyToken } from "../../middleware/auth.js";
 import { config } from "../../config/env.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
 import { CancellationEvent } from "../../models/CancellationEvent.js";
-import { PLAN_PRICES, getProPriceCents, type ProDuration } from "../../models/License.js";
+import {
+  PLAN_PRICES,
+  getProPriceCents,
+  getRenewalWindowMs,
+  type ProDuration,
+} from "../../models/License.js";
+import { assertStringMax } from "../../lib/validators.js";
+
+// Figma user ids are short (~12 chars in practice). 64 is ample headroom for
+// any future Figma id format while bounding storage amplification in
+// WebhookEvent.orderId, audit logs, and CancellationEvent rows (H-4).
+const FIGMA_USER_ID_MAX = 64;
 
 const router = Router();
 
@@ -41,9 +50,17 @@ router.post("/create", async (req: Request, res: Response) => {
       returnUrl?: string;
       plan?: string;
     };
-    if (!figmaUserId || typeof figmaUserId !== "string") {
-      log.warn("missing figmaUserId");
-      res.status(400).json({ error: "figmaUserId is required" });
+    try {
+      assertStringMax(figmaUserId, "figmaUserId", FIGMA_USER_ID_MAX);
+    } catch {
+      log.warn("invalid figmaUserId", {
+        type: typeof figmaUserId,
+        length:
+          typeof figmaUserId === "string" ? figmaUserId.length : undefined,
+      });
+      res.status(400).json({
+        error: `figmaUserId is required (max ${FIGMA_USER_ID_MAX} chars)`,
+      });
       return;
     }
 
@@ -60,10 +77,83 @@ router.post("/create", async (req: Request, res: Response) => {
       duration = plan;
     }
 
+    // P2-#1: refuse to open Flitt checkout for an active Pro user with more
+    // than `renewalWindow` time remaining. Without this, a fraudster can
+    // pay $16 × N to accumulate N × 30 days of Pro, then chargeback all
+    // but the most-recent — `applyRefund` only revokes when flittOrderId
+    // matches the current subscription, so older refunds become no-ops
+    // and the user keeps the stacked time.
+    //
+    // Honest user UX: at 30-day cap, renewal opens with 7 days left
+    // (≤ 7 days remaining) → user buys → gets 37 days total. Outside that
+    // window, the plugin/web should show "you already have Pro".
+    //
+    // licenseService.getOrCreate handles cycle reset + downgrade-on-read,
+    // so the read here always reflects the current effective state.
+    //
+    // We also opportunistically pull license.email here so the downstream
+    // Flitt request can include `sender_email` — populates the portal's
+    // "Customer email" column and triggers Flitt's own receipt mail. The
+    // field is null until the user completes Figma OAuth on the website,
+    // so anonymous plugin checkouts simply skip it.
+    let senderEmail: string | undefined;
+    try {
+      const license = await licenseService.getOrCreate(figmaUserId);
+      if (license.email) {
+        senderEmail = license.email;
+      }
+      if (license.plan === "pro") {
+        const now = Date.now();
+        const remainingMs = license.cycleEndsAt.getTime() - now;
+        const renewalWindowMs = getRenewalWindowMs(duration);
+        if (remainingMs > renewalWindowMs) {
+          const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+          const renewalOpensInDays = Math.max(
+            0,
+            Math.ceil((remainingMs - renewalWindowMs) / (24 * 60 * 60 * 1000)),
+          );
+          log.info("checkout blocked — active Pro outside renewal window", {
+            figmaUserId,
+            plan: duration,
+            remainingDays,
+            renewalOpensInDays,
+          });
+          metrics.checkoutCreate("fail");
+          res.status(400).json({
+            error: "already_pro",
+            remainingDays,
+            renewalOpensInDays,
+            renewalWindowDays:
+              duration === "yearly" ? 10 : 7,
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      // License read failed (Mongo blip). Don't block checkout — fall through
+      // and let the user buy. The webhook handler's defensive cap below
+      // still prevents unbounded stacking even if this read misses.
+      // senderEmail stays undefined → flittService omits the field; same
+      // behavior as pre-email release on this code path.
+      //
+      // We surface BOTH the lost active-Pro guard AND the omitted
+      // sender_email in the same warn so a support engineer reading logs
+      // can immediately diagnose a "blank Customer email column" report
+      // against a Mongo outage without correlating two facts manually.
+      log.warn(
+        "checkout pre-block license read failed (non-fatal) — sender_email omitted",
+        {
+          figmaUserId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+    }
+
     const result = await createOneTimeCheckout({
       figmaUserId,
       returnUrl,
       duration,
+      senderEmail,
     });
     if (!result.ok) {
       log.warn("Flitt rejected checkout creation", {
@@ -105,8 +195,57 @@ router.post("/create", async (req: Request, res: Response) => {
 // signature verification needed — the real activation is the separately
 // signed webhook to /api/webhooks/flitt; this endpoint only steers the
 // user's browser.
+//
+// Logging: users have reported an intermittent "Internal server error"
+// landing after a real Flitt payment, which curl can't reproduce. We emit
+// one structured log line per hit (method, content-type, body field KEYS,
+// safe order metadata, referer, user-agent) so the next failure is
+// diagnosable from Render logs without a separate repro session. The
+// createLogger sanitizer drops `signature` / `sender_email` / `payment_id`
+// before serialization — those never reach stdout.
 // ============================================================================
-router.all("/success", (_req: Request, res: Response) => {
+// Cap on logged body-key count. Flitt's real payload is ~15 fields; anything
+// past this is either a future Flitt schema extension we don't recognize, or
+// an attacker spamming the endpoint with thousands of synthetic keys to bloat
+// Render's NDJSON stream. 32 leaves comfortable headroom over the real
+// payload while bounding any single log line below ~1KB worth of key names.
+const SUCCESS_BRIDGE_LOG_KEY_CAP = 32;
+
+router.all("/success", (req: Request, res: Response) => {
+  const log = createLogger("checkout-success-bridge");
+  const body =
+    req.body && typeof req.body === "object"
+      ? (req.body as Record<string, unknown>)
+      : {};
+  const allKeys = Object.keys(body);
+  log.info("flitt response_url bridge hit", {
+    method: req.method,
+    contentType: req.headers["content-type"] ?? null,
+    // Truncate to a fixed cap so a hostile or misconfigured client posting
+    // thousands of synthetic keys can't bloat log volume. Real Flitt
+    // payloads sit far under the cap; emitting `bodyKeysTotal` separately
+    // makes truncation observable.
+    bodyKeys: allKeys.slice(0, SUCCESS_BRIDGE_LOG_KEY_CAP),
+    bodyKeysTotal: allKeys.length,
+    // order_id + order_status are safe to log as-is (no PII, no signature).
+    // They're also the join key on the Flitt portal so they're the most
+    // useful breadcrumb when reconciling a failure with a specific charge.
+    orderId: typeof body.order_id === "string" ? body.order_id : null,
+    orderStatus:
+      typeof body.order_status === "string" ? body.order_status : null,
+    referer: req.get("referer") ?? null,
+    userAgent: req.get("user-agent") ?? null,
+  });
+
+  // `res.redirect` is synchronous in Express 4 and does not throw on any
+  // documented path — the only failure mode is "headers already sent",
+  // which Express silently no-ops rather than raising. Guard explicitly so
+  // an upstream middleware that ended the response can't trigger Express's
+  // global error handler ("Internal server error") here.
+  if (res.headersSent) {
+    log.error("response already sent before bridge — cannot redirect", {});
+    return;
+  }
   res.redirect(303, `${config.website.baseUrl}/checkout/success`);
 });
 
@@ -219,10 +358,50 @@ export default router;
 
 export const webhookRouter = Router();
 
+/**
+ * P2-#2: best-effort email helper used inside the webhook mutation block.
+ *
+ * Before this helper existed, a thrown error from `sendReceiptEmail` (e.g.
+ * `RESEND_API_KEY` missing in container) bubbled into the mutation try/catch
+ * and triggered `releaseLease()` — so the user's Pro was granted, the lease
+ * was released, Flitt retried, and the user got 60 days for $16. The
+ * helper isolates transport failures so the mutation catch only fires on
+ * REAL state-mutation errors.
+ *
+ * Failures emit `metrics.email(template, "fail")` so operators can alert
+ * on email outages.
+ */
+type EmailLogger = Pick<ReturnType<typeof createWebhookLogger>, "warn">;
+async function bestEffortEmail(
+  send: () => Promise<unknown>,
+  template: string,
+  log: EmailLogger,
+): Promise<void> {
+  try {
+    await send();
+  } catch (err) {
+    log.warn(`email[${template}] send failed (non-fatal)`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    metrics.email(template, "fail");
+  }
+}
+
 webhookRouter.post("/flitt", async (req: Request, res: Response) => {
   // ALWAYS return 200 (or short-circuit early) — anything else triggers
   // Flitt's retry storm. Log internally; don't surface details.
+  //
+  // M-4 ordering invariant: validation runs BEFORE we acquire the
+  // idempotency lease. A hostile or tampered payload must not consume a
+  // dedup key (it would block legitimate retries with the same payment_id
+  // if Flitt were to deliver a corrected version). State mutation runs
+  // AFTER the lease — so a mid-mutation crash still has the inner catch
+  // to release the lease, and a *pre-mutation* crash has the outer catch
+  // to release it (if `transactionId` was set). This is the bug M-4
+  // protects against: previously a JSON.parse OOM mid-validation would
+  // silently swallow a paid event.
   const log = createWebhookLogger();
+  let transactionId: string | undefined;
   try {
     const payload = req.body as Record<string, unknown>;
     if (!payload || typeof payload !== "object") {
@@ -254,69 +433,38 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       return;
     }
 
-    // Idempotency dedup. Prefer transaction_id; fall back to order_id +
-    // order_status (covers approved retries vs. declined retries
-    // separately, which is what we want).
-    const transactionId =
-      typeof payload.payment_id === "string"
-        ? payload.payment_id
-        : `${payload.order_id ?? "unknown"}_${payload.order_status ?? "unknown"}`;
-    const orderId = String(payload.order_id ?? "unknown");
-    const orderStatus = String(payload.order_status ?? "unknown");
-
-    // Acquire the idempotency lease BEFORE doing work so a concurrent
-    // Flitt retry can't double-apply. If state mutation later throws, the
-    // inner try/catch below deletes this row so the next retry can succeed.
-    try {
-      await WebhookEvent.create({
-        transactionId,
-        orderId,
-        orderStatus,
-      });
-    } catch (err) {
-      // Duplicate key means we already processed this event — return 200.
-      const code = (err as { code?: number }).code;
-      if (code === 11000) {
-        metrics.webhook(orderStatus, "deduped");
-        res.status(200).json({ received: true, deduped: true });
-        return;
-      }
-      throw err;
-    }
-    metrics.webhook(orderStatus, "processed");
+    const orderId = String(payload.order_id);
+    const orderStatus = String(payload.order_status);
 
     // Parse merchant_data → figmaUserId + plan + recurring flag.
     // The signature is verified at this point, but defense-in-depth: a
     // future bug elsewhere shouldn't let a non-object payload crash the
-    // handler (which the outer catch would 200 — silently losing the
-    // already-deduped event).
+    // handler (which the outer catch would 200).
     let merchantData: {
       figmaUserId?: string;
       plan?: string;
       recurring?: boolean;
       duration?: string;
     } = {};
-    if (typeof payload.merchant_data === "string") {
-      try {
-        const parsed: unknown = JSON.parse(payload.merchant_data);
-        if (
-          parsed !== null &&
-          typeof parsed === "object" &&
-          !Array.isArray(parsed)
-        ) {
-          merchantData = parsed as typeof merchantData;
-        } else {
-          log.warn("merchant_data parsed to non-object — treating as empty", {
-            order_id: orderId,
-            parsedType: Array.isArray(parsed) ? "array" : typeof parsed,
-          });
-        }
-      } catch (err) {
-        log.warn("merchant_data parse failed", {
+    try {
+      const parsed: unknown = JSON.parse(payload.merchant_data);
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      ) {
+        merchantData = parsed as typeof merchantData;
+      } else {
+        log.warn("merchant_data parsed to non-object — treating as empty", {
           order_id: orderId,
-          error: err instanceof Error ? err.message : String(err),
+          parsedType: Array.isArray(parsed) ? "array" : typeof parsed,
         });
       }
+    } catch (err) {
+      log.warn("merchant_data parse failed", {
+        order_id: orderId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
     const figmaUserId =
       typeof merchantData.figmaUserId === "string"
@@ -325,10 +473,22 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
 
     if (!figmaUserId) {
       log.warn("missing figmaUserId in merchant_data", { order_id: orderId });
-      // No state change attempted, but the dedup lease above would still
-      // block a retry from re-attempting. Release it so Flitt's retry has
-      // a chance to land a corrected payload (e.g. operator-side fix).
-      await releaseLease(transactionId, log);
+      metrics.webhook(orderStatus, "rejected");
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    // P2-#3: cap figmaUserId length here too. /api/checkout/create rejects
+    // oversized values at issue time, but a tampered merchant_data field
+    // delivered via a future Flitt API-version quirk could still smuggle a
+    // huge id into the webhook path. Plain length check (not assertStringMax)
+    // because the webhook must NEVER 4xx — Flitt would retry-storm.
+    if (figmaUserId.length > FIGMA_USER_ID_MAX) {
+      log.warn("figmaUserId exceeds length cap", {
+        order_id: orderId,
+        length: figmaUserId.length,
+      });
+      metrics.webhook(orderStatus, "rejected");
       res.status(200).json({ received: true });
       return;
     }
@@ -342,9 +502,28 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
         order_id: orderId,
         figmaUserId,
       });
-      // Tampered/forged mapping — payload is hostile. Keep the dedup row
-      // (drops any subsequent retry of the same hostile payload).
+      metrics.webhook(orderStatus, "rejected");
       res.status(200).json({ received: true });
+      return;
+    }
+
+    // M-9: currency must be USD. We bill exclusively in USD; any other
+    // currency means either a misconfigured Flitt merchant account
+    // (operator-side bug) or a tampered payload that slipped through
+    // because the field isn't part of the signature canonicalization for
+    // certain Flitt API versions. Reject either way before granting Pro.
+    const currency =
+      typeof payload.currency === "string"
+        ? payload.currency.toUpperCase()
+        : "";
+    if (currency !== "USD") {
+      log.warn("non-USD currency — rejecting payload", {
+        order_id: orderId,
+        figmaUserId,
+        currency: payload.currency,
+      });
+      metrics.webhook(orderStatus, "rejected");
+      res.status(200).json({ received: true, rejected: "currency" });
       return;
     }
 
@@ -368,10 +547,39 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
         expectedAmount,
         duration: durationField,
       });
-      // Same as above — hostile or misconfigured payload. Lease retained.
+      metrics.webhook(orderStatus, "rejected");
       res.status(200).json({ received: true });
       return;
     }
+
+    // ALL validation has passed. NOW acquire the idempotency lease — only
+    // a payload we'd legitimately act on gets to consume a dedup key.
+    // Concurrent Flitt retries land here and dedup correctly because the
+    // unique index on `transactionId` rejects the second insert.
+    transactionId =
+      typeof payload.payment_id === "string"
+        ? payload.payment_id
+        : `${orderId}_${orderStatus}`;
+    try {
+      await WebhookEvent.create({
+        transactionId,
+        orderId,
+        orderStatus,
+      });
+    } catch (err) {
+      const code = (err as { code?: number }).code;
+      if (code === 11000) {
+        metrics.webhook(orderStatus, "deduped");
+        res.status(200).json({ received: true, deduped: true });
+        // Concurrent delivery already won the lease — they own the
+        // mutation, not us. Wipe transactionId so the outer catch
+        // doesn't release THEIR lease if we somehow throw below.
+        transactionId = undefined;
+        return;
+      }
+      throw err;
+    }
+    metrics.webhook(orderStatus, "processed");
 
     // merchant_data.recurring === false marks a one-time purchase. The
     // subscription branch is parked — re-enabled when Flitt grants
@@ -403,18 +611,23 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           duration: durationField,
         });
         if (email) {
-          await sendReceiptEmail({
-            email,
-            amountCents: Number(payload.amount),
-            currency: String(payload.currency ?? PLAN_PRICES.pro.currency),
-            orderId,
-            paymentId:
-              typeof payload.payment_id === "string"
-                ? payload.payment_id
-                : null,
-            purchasedAt: new Date(),
-            proExpiresAt: updated.cycleEndsAt,
-          });
+          await bestEffortEmail(
+            () =>
+              sendReceiptEmail({
+                email,
+                amountCents: Number(payload.amount),
+                currency: String(payload.currency ?? PLAN_PRICES.pro.currency),
+                orderId,
+                paymentId:
+                  typeof payload.payment_id === "string"
+                    ? payload.payment_id
+                    : null,
+                purchasedAt: new Date(),
+                proExpiresAt: updated.cycleEndsAt,
+              }),
+            "receipt",
+            log,
+          );
         }
       } else if (orderStatus === "declined" || orderStatus === "expired") {
         log.info("one-time order non-approved — logged only", {
@@ -423,10 +636,15 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           order_status: orderStatus,
         });
         if (typeof payload.sender_email === "string" && payload.sender_email) {
-          await sendPaymentFailedNotification({
-            email: payload.sender_email,
-            figmaUserId,
-          });
+          await bestEffortEmail(
+            () =>
+              sendPaymentFailedNotification({
+                email: payload.sender_email as string,
+                figmaUserId,
+              }),
+            "payment-failed",
+            log,
+          );
         }
       } else if (orderStatus === "reversed") {
         // Refund / chargeback for a one-time purchase. Same revocation rule as
@@ -443,7 +661,14 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
             figmaUserId,
           });
           if (result.license?.email) {
-            await sendRefundNotification({ email: result.license.email });
+            await bestEffortEmail(
+              () =>
+                sendRefundNotification({
+                  email: result.license!.email as string,
+                }),
+              "refund",
+              log,
+            );
           }
         } else {
           log.info("reversed for stale/missing one-time order — no action", {
@@ -485,18 +710,23 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
             figmaUserId,
           });
           if (email) {
-            await sendReceiptEmail({
-              email,
-              amountCents: Number(payload.amount),
-              currency: String(payload.currency ?? PLAN_PRICES.pro.currency),
-              orderId,
-              paymentId:
-                typeof payload.payment_id === "string"
-                  ? payload.payment_id
-                  : null,
-              purchasedAt: new Date(),
-              proExpiresAt: updated.cycleEndsAt,
-            });
+            await bestEffortEmail(
+              () =>
+                sendReceiptEmail({
+                  email,
+                  amountCents: Number(payload.amount),
+                  currency: String(payload.currency ?? PLAN_PRICES.pro.currency),
+                  orderId,
+                  paymentId:
+                    typeof payload.payment_id === "string"
+                      ? payload.payment_id
+                      : null,
+                  purchasedAt: new Date(),
+                  proExpiresAt: updated.cycleEndsAt,
+                }),
+              "receipt",
+              log,
+            );
           }
         }
       } else if (orderStatus === "declined" || orderStatus === "expired") {
@@ -511,10 +741,15 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
         // recurring charges (no checkout form), sender_email is typically
         // absent; that user is already getting a separate expiry reminder.
         if (typeof payload.sender_email === "string" && payload.sender_email) {
-          await sendPaymentFailedNotification({
-            email: payload.sender_email,
-            figmaUserId,
-          });
+          await bestEffortEmail(
+            () =>
+              sendPaymentFailedNotification({
+                email: payload.sender_email as string,
+                figmaUserId,
+              }),
+            "payment-failed",
+            log,
+          );
         }
       } else if (orderStatus === "reversed") {
         // Refund / chargeback. applyRefund only revokes if THIS order_id is
@@ -530,7 +765,14 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
             figmaUserId,
           });
           if (result.license?.email) {
-            await sendRefundNotification({ email: result.license.email });
+            await bestEffortEmail(
+              () =>
+                sendRefundNotification({
+                  email: result.license!.email as string,
+                }),
+              "refund",
+              log,
+            );
           }
         } else {
           log.info("reversed for stale/missing order — no action", {
@@ -567,11 +809,23 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
 
     res.status(200).json({ received: true });
   } catch (err) {
-    log.error("handler error", {
+    log.error("handler crashed", {
+      transactionId,
       error: err instanceof Error ? err.message : String(err),
     });
+    // M-4: release the lease if we acquired one. Without this, a Mongo
+    // blip mid-mutation (or any unexpected throw after the lease) would
+    // leave the dedup row in place forever — Flitt's retry would dedup
+    // and the user would pay but never receive Pro. `releaseLease` is a
+    // no-op when transactionId is undefined or unknown, so this is safe
+    // both pre- and post-lease.
+    if (transactionId) {
+      await releaseLease(transactionId, log);
+      metrics.webhook("unknown", "crashed");
+    }
     // Still return 200 — internal failures shouldn't trigger Flitt retries
-    // (they'd just fail the same way). Operator should monitor logs.
+    // immediately; Flitt's own backoff cadence will redeliver, and the
+    // released lease lets that delivery succeed.
     res.status(200).json({ received: true });
   }
 });
@@ -597,93 +851,15 @@ async function releaseLease(
   }
 }
 
-// ============================================================================
-// POST /api/subscription/cancel
-// ----------------------------------------------------------------------------
-// Website → backend. Body: { figmaUserId, token }.
-// `token` is HMAC-signed by /api/auth/issue-cancel-token (5-min TTL),
-// proving the cancel request originated from the plugin.
-// ============================================================================
-
-export const cancelRouter = Router();
-
-cancelRouter.post("/cancel", async (req: Request, res: Response) => {
-  const log = createLogger("subscription-cancel");
-  try {
-    const { figmaUserId, token } = req.body as {
-      figmaUserId?: string;
-      token?: string;
-    };
-    if (!figmaUserId || !token) {
-      log.warn("missing figmaUserId or token");
-      res.status(400).json({ error: "figmaUserId and token are required" });
-      return;
-    }
-    const secret = process.env.AUTH_SECRET;
-    if (!secret) {
-      log.error("AUTH_SECRET env var is not set");
-      res.status(500).json({ error: "Server auth not configured" });
-      return;
-    }
-
-    let payload;
-    try {
-      payload = verifyToken(token, secret);
-    } catch {
-      // Generic message: distinguishing 'Invalid signature' from 'Token
-      // expired' lets an attacker probe whether their guessed AUTH_SECRET is
-      // correct by replaying expired tokens.
-      log.warn("token verification failed", { figmaUserId });
-      res.status(401).json({ error: "Invalid or expired token" });
-      return;
-    }
-    if (payload.userId !== figmaUserId) {
-      log.warn("token userId mismatch", {
-        figmaUserId,
-        token_userId: payload.userId,
-      });
-      res.status(401).json({ error: "Token does not match figmaUserId" });
-      return;
-    }
-
-    const license = await licenseService.getOrCreate(figmaUserId);
-    if (license.plan !== "pro" || !license.subscription) {
-      log.info("no active Pro to cancel", {
-        figmaUserId,
-        plan: license.plan,
-      });
-      res.status(404).json({ error: "No active Pro subscription" });
-      return;
-    }
-
-    const flittResult = await cancelSubscription(
-      license.subscription.flittOrderId,
-    );
-    if (!flittResult.ok) {
-      log.warn("Flitt rejected cancel", {
-        figmaUserId,
-        error: flittResult.error,
-      });
-      res.status(502).json({ error: flittResult.error });
-      return;
-    }
-
-    const updated = await licenseService.applySubscriptionCancel({
-      figmaUserId,
-    });
-    log.info("subscription canceled", {
-      figmaUserId,
-      accessUntil: updated?.cycleEndsAt.toISOString() ?? null,
-    });
-
-    res.json({
-      ok: true,
-      accessUntil: updated?.cycleEndsAt.toISOString() ?? null,
-    });
-  } catch (err) {
-    log.error("handler error", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    res.status(500).json({ error: "Server error" });
-  }
-});
+// P2-#11: `cancelRouter` (POST /api/subscription/cancel) was removed.
+// Web2Wireframe ships a one-time-payment model — there is no recurring
+// subscription to cancel. The website "Cancel" UI was already dropped in
+// commit 11ff22f. The unrelated `/api/checkout/cancel` bridge above is the
+// one Flitt redirects users to on declined/expired payments or when they
+// click "Cancel" on the hosted checkout — that flow remains live.
+//
+// `/api/auth/issue-cancel-token` (routes/plugin/auth-token.ts) is kept
+// because its only remaining consumer is `/api/license/by-token`, which
+// the website Account page uses to read license details. The "cancel"
+// in the endpoint name is legacy — the token's actual purpose is
+// "license read".

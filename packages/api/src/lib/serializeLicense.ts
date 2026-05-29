@@ -73,3 +73,33 @@ export function serializeLicense(license: ILicense): SerializedLicense {
     updatedAt: license.updatedAt.toISOString(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Public (non-admin) shape — M-3
+// ---------------------------------------------------------------------------
+// The plugin/extension never need `flittOrderId`. The webhook handler is the
+// only path that issues cancel actions tied to that id, and the admin panel
+// uses its own server-side `serialize()` (admin/license.ts) which keeps the
+// field. Stripping it from public responses removes one piece of
+// payment-system metadata from the attack surface — a leaked plugin token
+// no longer exposes the user's Flitt order id to an attacker who could try
+// to use it as a correlation key against future webhooks.
+
+export type PublicSerializedLicense = Omit<SerializedLicense, "subscription"> & {
+  subscription: Omit<
+    NonNullable<SerializedLicense["subscription"]>,
+    "flittOrderId"
+  > | null;
+};
+
+export function serializeLicenseForPlugin(
+  license: ILicense,
+): PublicSerializedLicense {
+  const full = serializeLicense(license);
+  if (full.subscription == null) {
+    return { ...full, subscription: null };
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { flittOrderId: _omit, ...rest } = full.subscription;
+  return { ...full, subscription: rest };
+}

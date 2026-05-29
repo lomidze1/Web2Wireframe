@@ -3,9 +3,9 @@ import DocsLayout from "../DocsLayout";
 
 const IntroductionWhatIs = (): ReactElement => (
   <DocsLayout>
-    <h2>What is Web2Wireframe?</h2>
+    <h1>What is Web2Wireframe?</h1>
 
-    <h3>Overview</h3>
+    <h2>Overview</h2>
     <p>
       <strong>Web2Wireframe - Website to Wireframe in Figma</strong>
     </p>
@@ -17,7 +17,7 @@ const IntroductionWhatIs = (): ReactElement => (
       websites to editable Figma layouts faster and more consistently.
     </p>
 
-    <h3>What problem it solves</h3>
+    <h2>What problem it solves</h2>
     <p>
       Creating wireframes from existing websites is often slow and repetitive.
       Designers and product teams usually spend hours manually rebuilding
@@ -39,7 +39,7 @@ const IntroductionWhatIs = (): ReactElement => (
       decision-making, UX, and design quality instead of manual reconstruction.
     </p>
 
-    <h3>How Web2Wireframe works</h3>
+    <h2>How Web2Wireframe works</h2>
     <p>
       Web2Wireframe works by analyzing the structure of a website rather than
       its visual design. It detects layout, hierarchy, and content blocks, then
@@ -57,7 +57,7 @@ const IntroductionWhatIs = (): ReactElement => (
       scratch.
     </p>
 
-    <h3>What you get in Figma</h3>
+    <h2>What you get in Figma</h2>
     <p>
       After the generation is complete, Web2Wireframe creates a structured
       wireframe directly on your Figma canvas. All elements are organized into

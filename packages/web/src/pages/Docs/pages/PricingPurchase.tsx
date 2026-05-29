@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const PricingPurchase = (): ReactElement => (
   <DocsLayout>
-    <h2>Purchase & Access</h2>
+    <h1>Purchase & Access</h1>
 
-    <h3>How the one-time purchase model works</h3>
+    <h2>How the one-time purchase model works</h2>
     <p>
       Web2Wireframe Pro is a one-time purchase. A single $16 payment unlocks 30
       days of Pro access — there is no recurring subscription and you are never
@@ -33,7 +33,7 @@ const PricingPurchase = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Step-by-step purchase process</h3>
+    <h2>Step-by-step purchase process</h2>
     <p>
       Buying Pro is a straightforward process designed to minimize friction.
     </p>
@@ -73,7 +73,7 @@ const PricingPurchase = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Renewing your access</h3>
+    <h2>Renewing your access</h2>
     <p>
       Because Pro does not auto-renew, there is nothing to cancel — access
       simply ends when the 30 days are up. To keep Pro, you make another
@@ -107,7 +107,7 @@ const PricingPurchase = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Next step</h3>
+    <h2>Next step</h2>
     <p>
       Continue to{" "}
       <a href="/docs/pricing/additional">Additional Information</a> for general

@@ -59,15 +59,6 @@ export interface CheckoutError {
   error: string;
 }
 
-export interface CancelResult {
-  ok: true;
-}
-
-export interface CancelError {
-  ok: false;
-  error: string;
-}
-
 interface FlittCheckoutResponse {
   response?: {
     response_status?: string;
@@ -75,13 +66,6 @@ interface FlittCheckoutResponse {
     order_id?: string;
     error_message?: string;
     error_code?: string | number;
-  };
-}
-
-interface FlittRecurringResponse {
-  response?: {
-    response_status?: string;
-    error_message?: string;
   };
 }
 
@@ -138,9 +122,20 @@ export function verifyCallback(
   // never contain `|`, so any value that does is a tampering attempt.
   // (`response_signature_string` is Flitt's debug echo of the concat string
   // itself and is excluded from signing — skip it.)
+  //
+  // C-1: also reject object- and array-typed values. flittSign() coerces
+  // every value via `String(v)`, so any object stringifies to
+  // `"[object Object]"` and any array joins with commas — both let
+  // structurally distinct payloads collide on the signing string. No
+  // legitimate Flitt field arrives as a raw object (nested payloads like
+  // `recurring_data` are JSON.stringified by the sender). Apply the `|`
+  // check to the stringified form of remaining primitives as defense in
+  // depth against future schema additions.
   for (const [key, value] of Object.entries(payload)) {
     if (key === "signature" || key === "response_signature_string") continue;
-    if (typeof value === "string" && value.includes("|")) return false;
+    if (value === null || value === undefined) continue;
+    if (typeof value === "object") return false;
+    if (String(value).includes("|")) return false;
   }
 
   const expected = flittSign(payload, secretKey);
@@ -180,6 +175,13 @@ export function buildSubscriptionOrderId(figmaUserId: string): string {
  */
 export async function createSubscriptionCheckout(params: {
   figmaUserId: string;
+  /**
+   * Pro tier duration — required. Embedded in `merchant_data` so the webhook
+   * handler can validate `amount` against the correct cycle price. Omitting
+   * it lets a tampered webhook silently slip a yearly payment through with a
+   * monthly amount check (or vice versa).
+   */
+  duration: ProDuration;
   returnUrl?: string;
 }): Promise<CheckoutResult | CheckoutError> {
   const { merchantId, secretKey, baseUrl } = config.flitt;
@@ -188,22 +190,25 @@ export async function createSubscriptionCheckout(params: {
   }
 
   const orderId = buildSubscriptionOrderId(params.figmaUserId);
-  const amount = PLAN_PRICES.pro.priceCents;
+  const amount = getProPriceCents(params.duration);
   const currency = PLAN_PRICES.pro.currency;
+  const period = params.duration === "yearly" ? "year" : "month";
 
   const recurringData = {
     amount,
-    period: "month",
+    period,
     every: 1,
     quantity: 999, // "forever" — user cancels via SubscriptionActions
     state: "shown_readonly",
   };
 
   // merchant_data round-trips back to us in the webhook so we can map the
-  // payment to the correct figmaUserId without state on our side.
+  // payment to the correct figmaUserId and validate the amount matches the
+  // signed duration. `duration` MUST be included — see H-1 in audit.
   const merchantData = JSON.stringify({
     figmaUserId: params.figmaUserId,
     plan: "pro",
+    duration: params.duration,
   });
 
   // Flitt POSTs `response_url`, which collides with the website's static
@@ -285,6 +290,15 @@ export async function createOneTimeCheckout(params: {
    * 30-day / $16 checkout they used to get.
    */
   duration?: ProDuration;
+  /**
+   * Customer email to prefill on Flitt's checkout and to populate the
+   * portal's "Customer email" column. When provided, Flitt also fires
+   * its own receipt email. Optional — when missing (anonymous plugin
+   * checkout before website OAuth), the field is omitted and the request
+   * behaves identically to the pre-email release. Empty string is treated
+   * as absent to defend against accidental "" passthrough from upstream.
+   */
+  senderEmail?: string;
 }): Promise<CheckoutResult | CheckoutError> {
   const { merchantId, secretKey, baseUrl } = config.flitt;
   if (!merchantId || !secretKey) {
@@ -328,6 +342,13 @@ export async function createOneTimeCheckout(params: {
     merchant_data: merchantData,
   };
 
+  // sender_email — only include when truthy. flittSign() already drops
+  // empty/null values, but being explicit here keeps the signed payload
+  // shape obvious to anyone reading the request body in network logs.
+  if (params.senderEmail) {
+    requestParams.sender_email = params.senderEmail;
+  }
+
   const signature = flittSign(requestParams, secretKey);
   const body = { request: { ...requestParams, signature } };
 
@@ -364,105 +385,12 @@ export async function createOneTimeCheckout(params: {
   return { ok: true, checkoutUrl: r.checkout_url, orderId };
 }
 
-// ============================================================================
-// Cancel subscription
-// ============================================================================
-
-/**
- * Stop the recurring charge schedule for a subscription. The user retains
- * Pro access until the current cycle ends (lazy downgrade in licenseService).
- *
- * Retry policy: Flitt sometimes returns 5xx during regional incidents; a
- * single transient blip should not surface as a 502 to a user clicking
- * "Cancel". We retry server-error (5xx) and network failures with bounded
- * backoff (~200ms + 800ms ≈ 1s total worst case — well under the cancel
- * endpoint's overall budget).
- *
- * 4xx responses are NOT retried — they're decisive (no such order, wrong
- * merchant, etc.) and retrying just delays the user's error message.
- */
-const CANCEL_RETRY_DELAYS_MS = [200, 800];
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-export async function cancelSubscription(
-  orderId: string,
-): Promise<CancelResult | CancelError> {
-  const { merchantId, secretKey, baseUrl } = config.flitt;
-  if (!merchantId || !secretKey) {
-    return { ok: false, error: "Flitt is not configured" };
-  }
-
-  const requestParams: Record<string, unknown> = {
-    merchant_id: merchantId,
-    order_id: orderId,
-    action: "stop",
-  };
-  const signature = flittSign(requestParams, secretKey);
-  const body = { request: { ...requestParams, signature } };
-
-  const attempts = CANCEL_RETRY_DELAYS_MS.length + 1;
-  let lastError: CancelError = { ok: false, error: "Flitt unreachable" };
-
-  for (let i = 0; i < attempts; i += 1) {
-    let resp: Response;
-    try {
-      resp = await fetch(`${baseUrl}/api/subscription`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    } catch (err) {
-      console.error(`[Flitt] cancel fetch failed (attempt ${i + 1}):`, err);
-      lastError = { ok: false, error: "Flitt unreachable" };
-      if (i < CANCEL_RETRY_DELAYS_MS.length) {
-        await sleep(CANCEL_RETRY_DELAYS_MS[i]);
-        continue;
-      }
-      return lastError;
-    }
-
-    // 5xx — transient Flitt-side issue, retry. 4xx — terminal (don't retry).
-    if (resp.status >= 500) {
-      console.error(
-        `[Flitt] cancel HTTP ${resp.status} on attempt ${i + 1}:`,
-        await resp.text().catch(() => "<no body>"),
-      );
-      lastError = { ok: false, error: `Flitt HTTP ${resp.status}` };
-      if (i < CANCEL_RETRY_DELAYS_MS.length) {
-        await sleep(CANCEL_RETRY_DELAYS_MS[i]);
-        continue;
-      }
-      return lastError;
-    }
-
-    if (!resp.ok) {
-      console.error(
-        `[Flitt] cancel HTTP ${resp.status}:`,
-        await resp.text().catch(() => "<no body>"),
-      );
-      // Terminal — surface to the caller; user-visible error like "no
-      // such order" is more actionable than a retry storm.
-      return { ok: false, error: `Flitt HTTP ${resp.status}` };
-    }
-
-    const data = (await resp.json()) as FlittRecurringResponse;
-    if (data.response?.response_status !== "success") {
-      console.error("[Flitt] cancel response error:", data.response);
-      return {
-        ok: false,
-        error: data.response?.error_message ?? "Flitt cancel failed",
-      };
-    }
-
-    if (i > 0) {
-      // Recovered-from-retry is operationally significant — surface via
-      // warn so it survives prod console gating.
-      console.warn(`[Flitt] cancel succeeded on attempt ${i + 1}`);
-    }
-    return { ok: true };
-  }
-
-  return lastError;
-}
+// `cancelSubscription` (Flitt SubscriptionActions stop) and `CancelResult` /
+// `CancelError` types were removed (P2-#11). Web2Wireframe ships one-time
+// payments only — no recurring subscriptions to stop. The
+// `/api/subscription/cancel` route that consumed this helper was deleted in
+// the same change; the website "Cancel" UI was already dropped in commit
+// 11ff22f. If subscriptions are reintroduced later, restore from git
+// history rather than re-deriving — Flitt's signing canonicalization is
+// subtle enough that a fresh implementation would risk reintroducing the
+// C-1 class of bug.

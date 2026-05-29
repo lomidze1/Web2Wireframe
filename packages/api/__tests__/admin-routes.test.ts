@@ -180,6 +180,22 @@ describe("GET /api/admin/license/lookup-by-email", () => {
     expect(res.body.count).toBe(1);
     expect(res.body.licenses[0].figmaUserId).toBe("u-1");
   });
+
+  it("rejects repeated query param (?email=a&email=b) — NoSQL injection (H-3)", async () => {
+    const res = await request(makeApp())
+      .get("/api/admin/license/lookup-by-email?email=a&email=b")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(mockFind).not.toHaveBeenCalled();
+  });
+
+  it("rejects bracket-syntax operator (?email[$ne]=null) — NoSQL injection (H-3)", async () => {
+    const res = await request(makeApp())
+      .get("/api/admin/license/lookup-by-email?email[$ne]=null")
+      .set("Authorization", `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(mockFind).not.toHaveBeenCalled();
+  });
 });
 
 // ============================================================================

@@ -4,9 +4,9 @@ import styles from "../Docs.module.scss";
 
 const ImportHTML = (): ReactElement => (
   <DocsLayout>
-    <h2>HTML Import</h2>
+    <h1>HTML Import</h1>
 
-    <h3>What is HTML import</h3>
+    <h2>What is HTML import</h2>
     <p>
       HTML Import allows you to generate wireframes directly from raw HTML
       content instead of a live website or screenshot. This method is designed
@@ -34,7 +34,7 @@ const ImportHTML = (): ReactElement => (
       <a href="/docs/start/fast-first-import">Fast First Import</a>
     </p>
 
-    <h3>Supported HTML content</h3>
+    <h2>Supported HTML content</h2>
     <p>
       Web2Wireframe supports a wide range of HTML content as long as the
       structure is clear and well-formed.
@@ -62,7 +62,7 @@ const ImportHTML = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>How structure is detected</h3>
+    <h2>How structure is detected</h2>
     <p>
       When using HTML Import, Web2Wireframe analyzes the document structure
       instead of rendered visuals. It looks for semantic elements, container
@@ -90,7 +90,7 @@ const ImportHTML = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Limitations</h3>
+    <h2>Limitations</h2>
     <p>
       HTML Import works best with clean and predictable markup. Certain
       limitations may appear when the structure is highly complex or depends
@@ -119,7 +119,7 @@ const ImportHTML = (): ReactElement => (
       </li>
     </ul>
 
-    <h3>Best practices</h3>
+    <h2>Best practices</h2>
     <p>To get the best results from HTML Import:</p>
     <ul>
       <li>Use semantic tags where possible (header, section, article, footer)</li>
@@ -139,7 +139,7 @@ const ImportHTML = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Video walkthrough</h3>
+    <h2>Video walkthrough</h2>
     <p>A short walkthrough can help users understand when and how to use HTML Import.</p>
     <figure className={styles.imageBlock}>
       <div
@@ -152,7 +152,7 @@ const ImportHTML = (): ReactElement => (
       </figcaption>
     </figure>
 
-    <h3>Next step</h3>
+    <h2>Next step</h2>
     <p>
       Continue to{" "}
       <a href="/docs/import-methods/area-capture">Area Capture</a> to learn how

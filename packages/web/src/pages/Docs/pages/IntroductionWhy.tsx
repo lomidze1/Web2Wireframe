@@ -3,9 +3,9 @@ import DocsLayout from "../DocsLayout";
 
 const IntroductionWhy = (): ReactElement => (
   <DocsLayout>
-    <h2>Why Web2Wireframe?</h2>
+    <h1>Why Web2Wireframe?</h1>
 
-    <h3>Why use Web2Wireframe</h3>
+    <h2>Why use Web2Wireframe</h2>
     <p>
       Web2Wireframe is built to remove friction from the early stages of design
       and product work. Instead of rebuilding layouts from scratch, it gives
@@ -16,7 +16,7 @@ const IntroductionWhy = (): ReactElement => (
       repetitive setup work.
     </p>
 
-    <h3>Key benefits</h3>
+    <h2>Key benefits</h2>
     <p>
       Web2Wireframe is designed to significantly reduce the time and effort
       required at the start of a design or product workflow. Instead of
@@ -43,7 +43,7 @@ const IntroductionWhy = (): ReactElement => (
       supports your workflow - it does not lock you into fixed results.
     </p>
 
-    <h3>When it's the right tool</h3>
+    <h2>When it's the right tool</h2>
     <p>
       Web2Wireframe is most useful when you need to understand or reuse the
       structure of an existing website quickly. It works especially well in the
@@ -69,7 +69,7 @@ const IntroductionWhy = (): ReactElement => (
       repetitive groundwork.
     </p>
 
-    <h3>Who it's built for</h3>
+    <h2>Who it's built for</h2>
     <p>
       Web2Wireframe is built for people and teams who work with structure,
       layout, and user experience. It supports different workflows and adapts

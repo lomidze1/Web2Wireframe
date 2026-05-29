@@ -54,6 +54,32 @@ const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 export const CYCLE_DURATION_MS = 30 * MILLISECONDS_PER_DAY;
 export const CYCLE_DURATION_YEARLY_MS = 365 * MILLISECONDS_PER_DAY;
 
+/**
+ * Pro stacking renewal window (P2-#1).
+ *
+ * A user with active Pro can only purchase a renewal when their remaining
+ * time has dropped to this window. Outside the window, `/api/checkout/create`
+ * returns 400 with `{error: "already_pro", renewalOpensInDays: N}` so the
+ * client can show "you already have Pro" rather than letting the user
+ * stack arbitrary cycles.
+ *
+ * Defends against chargeback-stacking abuse where an attacker buys N cycles
+ * for $16 each, then chargebacks N-1 of them — keeping all the stacked
+ * Pro time minus the cost of the most-recent unrevoked order.
+ */
+export const RENEWAL_WINDOW_DAYS_MONTHLY = 7;
+export const RENEWAL_WINDOW_DAYS_YEARLY = 10;
+export const RENEWAL_WINDOW_MS_MONTHLY =
+  RENEWAL_WINDOW_DAYS_MONTHLY * MILLISECONDS_PER_DAY;
+export const RENEWAL_WINDOW_MS_YEARLY =
+  RENEWAL_WINDOW_DAYS_YEARLY * MILLISECONDS_PER_DAY;
+
+export function getRenewalWindowMs(duration: ProDuration): number {
+  return duration === "yearly"
+    ? RENEWAL_WINDOW_MS_YEARLY
+    : RENEWAL_WINDOW_MS_MONTHLY;
+}
+
 /** Per-plan import limits. Pro is unlimited. */
 export const PLAN_LIMITS = {
   free: { imports: 10 },

@@ -72,8 +72,21 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
     // Merge plugin colors with defaults
     const finalPluginColors = { ...DEFAULT_PLUGIN_COLORS, ...pluginColors };
 
-    // Coerce viewports to numbers (frontend may send string[])
-    const numericViewports = (viewports as (string | number)[]).map((v) => Number(v) || 1440);
+    // L-2: clamp every user-supplied dimension to a sane range BEFORE it
+    // hits the AI prompt. The prompt interpolates these values, so without
+    // clamping a hostile `imageWidth: 1e308` interpolates as
+    // "1e+308" — pollutes the prompt and could confuse the model. Range
+    // chosen to cover realistic viewports (mobile 320px → 4k 4000px) and
+    // tall screenshots (200px → 4000px imageHeight).
+    const clampDim = (v: unknown, fallback: number, min: number, max: number) =>
+      Math.min(Math.max(Number(v) || fallback, min), max);
+
+    // Coerce viewports to numbers (frontend may send string[]) + clamp.
+    const numericViewports = (viewports as (string | number)[]).map((v) =>
+      clampDim(v, 1440, 320, 4000),
+    );
+    const clampedImageWidth = clampDim(imageWidth, 1440, 320, 4000);
+    const clampedImageHeight = clampDim(imageHeight, 900, 200, 4000);
 
     // Analyze and generate for each viewport (absolute positioning mode)
     const frames = [];
@@ -81,8 +94,8 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
     for (const vp of numericViewports) {
       const absoluteResult = await analyzeScreenshotAbsoluteWithRetry({
         imageBase64,
-        imageWidth: Number(imageWidth) || 1440,
-        imageHeight: Number(imageHeight) || 900,
+        imageWidth: clampedImageWidth,
+        imageHeight: clampedImageHeight,
         viewportWidth: vp,
         textMode,
       });

@@ -44,10 +44,36 @@ export const softwareApplicationSchema: JsonLd = {
     },
   ],
   url: SITE_URL,
-  aggregateRating: {
-    "@type": "AggregateRating",
-    ratingValue: "5",
-    reviewCount: "1",
+  // S-C1: `aggregateRating` removed — Google guidelines forbid self-authored /
+  // single-review ratings (manual penalty risk; rich results would be dropped
+  // sitewide). Restore ONLY with real, verifiable Figma Community reviews and
+  // matching `Review` items, not a bare aggregate.
+};
+
+/**
+ * S-H5: `WebSite` schema with `potentialAction: SearchAction` declares the
+ * sitelinks search box to Google. On branded queries (e.g. "Web2Wireframe"),
+ * Google may render the site result with an inline search input that
+ * deep-links back into `/docs?q={user input}`. The DoksSidebar already has
+ * a client-side search (see `DoksSidebar.tsx`); seeding it from `?q=` is a
+ * follow-up — the schema declaration is sufficient for Google to surface
+ * the feature.
+ *
+ * Wire this into the Home page's `seoConfig` (not every page) — Google
+ * expects the WebSite schema on a single canonical document per site.
+ */
+export const websiteSchema: JsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: SITE_NAME,
+  url: SITE_URL,
+  potentialAction: {
+    "@type": "SearchAction",
+    target: {
+      "@type": "EntryPoint",
+      urlTemplate: `${SITE_URL}/docs?q={search_term_string}`,
+    },
+    "query-input": "required name=search_term_string",
   },
 };
 

@@ -71,12 +71,89 @@
   gap: 0.65rem;
 }
 
+// Avatar trigger for logged-in users. Compact circle with initials so the
+// header height stays stable regardless of email length; full email is one
+// click away inside the modal.
+.avatarButton {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.avatarButton:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.28);
+}
+
+/* S-H6: hamburger button — hidden on desktop, shown on narrow viewports.
+   Plain unicode glyph (☰ / ✕) avoids an SVG dependency and matches the
+   site's typographic style. */
+.hamburger {
+  display: none;
+  background: transparent;
+  border: 1px solid rgba(12, 13, 18, 0.16);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #0c0d12;
+}
+
+.hamburger:hover {
+  background: rgba(12, 13, 18, 0.04);
+}
+
 @media (max-width: 900px) {
   .nav {
+    /* Off-canvas vertical panel anchored under the header. Toggled open
+       by `.navOpen` (state-driven from Header.tsx). */
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.5rem 1rem 1rem;
+    background: #ffffff;
+    border-top: 1px solid rgba(12, 13, 18, 0.08);
+    box-shadow: 0 12px 24px rgba(12, 13, 18, 0.08);
     display: none;
+  }
+
+  .navOpen {
+    display: flex;
+  }
+
+  .nav .link {
+    padding: 0.85rem 0.5rem;
+    border-bottom: 1px solid rgba(12, 13, 18, 0.06);
+  }
+
+  .nav .link:last-child {
+    border-bottom: 0;
+  }
+
+  .hamburger {
+    display: inline-flex;
   }
 
   .inner {
     padding: 1rem 0;
+    position: relative;
   }
 }

@@ -104,4 +104,58 @@ describe("flittIpAllowlist middleware", () => {
       .send({});
     expect(res.body.reached).toBe(true);
   });
+
+  // ==========================================================================
+  // M-8 — production-default ON
+  // ==========================================================================
+
+  describe("M-8 production default", () => {
+    const origNodeEnv = process.env.NODE_ENV;
+    afterEach(() => {
+      process.env.NODE_ENV = origNodeEnv;
+    });
+
+    it("enforces the allowlist in production when env flag unset", async () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.FLITT_IP_ALLOWLIST_ENABLED;
+      const res = await request(makeApp())
+        .post("/api/webhooks/flitt")
+        .set("X-Forwarded-For", "1.2.3.4")
+        .send({});
+      expect(res.status).toBe(200);
+      expect(res.body.reached).toBeUndefined();
+      expect(res.body.received).toBe(true);
+    });
+
+    it("still skips the allowlist outside production when env flag unset", async () => {
+      process.env.NODE_ENV = "development";
+      delete process.env.FLITT_IP_ALLOWLIST_ENABLED;
+      const res = await request(makeApp())
+        .post("/api/webhooks/flitt")
+        .set("X-Forwarded-For", "1.2.3.4")
+        .send({});
+      expect(res.status).toBe(200);
+      expect(res.body.reached).toBe(true);
+    });
+
+    it("allows production operators to opt OUT via explicit 'false'", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.FLITT_IP_ALLOWLIST_ENABLED = "false";
+      const res = await request(makeApp())
+        .post("/api/webhooks/flitt")
+        .set("X-Forwarded-For", "1.2.3.4")
+        .send({});
+      expect(res.body.reached).toBe(true);
+    });
+
+    it("default Flitt IPs still pass through in production", async () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.FLITT_IP_ALLOWLIST_ENABLED;
+      const res = await request(makeApp())
+        .post("/api/webhooks/flitt")
+        .set("X-Forwarded-For", "54.154.216.60")
+        .send({});
+      expect(res.body.reached).toBe(true);
+    });
+  });
 });

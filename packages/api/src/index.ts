@@ -1,5 +1,16 @@
 import "dotenv/config";
+import { webcrypto } from "node:crypto";
 import { gateConsoleInProduction } from "./utils/consoleGating.js";
+
+// Node 18 ships webcrypto under `node:crypto` but doesn't expose it on
+// `globalThis.crypto` by default (that's a Node 19+ default). The mongodb
+// driver (transitive dep of connect-mongo) calls `crypto.getRandomValues`
+// on TTL-index creation in newer versions and crashes the process on
+// boot if it isn't there. One-liner polyfill is safer than upgrading the
+// Docker base image right before launch.
+if (!(globalThis as { crypto?: unknown }).crypto) {
+  (globalThis as { crypto: typeof webcrypto }).crypto = webcrypto;
+}
 
 // Run BEFORE any other imports execute logging code. Once Node has resolved
 // the rest of the module graph, debug `console.log` calls from libraries
@@ -9,8 +20,14 @@ gateConsoleInProduction();
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import session from "express-session";
+import MongoStore from "connect-mongo";
 import mongoose from "mongoose";
-import { pendingCDPImports, setMongoConnected } from "./state.js";
+import {
+  pendingCDPImports,
+  pruneExpiredPairingFailures,
+  setMongoConnected,
+} from "./state.js";
+import { websiteAllowedOrigins } from "./config/origins.js";
 
 // Plugin route modules
 import pluginAuthRoutes from "./routes/plugin/auth.js";
@@ -28,10 +45,11 @@ import licenseRoutes from "./routes/license/index.js";
 // Browser-extension session routes (pairing-code → bearer token)
 import extensionSessionRoutes from "./routes/extension/session.js";
 
-// Checkout / webhook / cancel routes (Flitt payment integration)
+// Checkout / webhook routes (Flitt payment integration). The historical
+// `cancelRouter` (POST /api/subscription/cancel) was removed in P2-#11 —
+// one-time payments have nothing to cancel.
 import checkoutRoutes, {
   webhookRouter,
-  cancelRouter,
 } from "./routes/checkout/index.js";
 import authTokenRoutes from "./routes/plugin/auth-token.js";
 import adminLicenseRoutes from "./routes/admin/license.js";
@@ -46,6 +64,7 @@ import {
 } from "./middleware/rateLimit.js";
 import { flittIpAllowlist } from "./middleware/flittIpAllowlist.js";
 import { runExpiryReminders } from "./services/reminderService.js";
+import { incrementCounter } from "./services/metrics.js";
 import { config } from "./config/env.js";
 
 // Website route modules (formerly Website_Backend)
@@ -75,7 +94,27 @@ assertProductionUrls(process.env);
 app.use("/api/webhooks", express.json({ limit: "16kb" }));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "1mb", extended: true }));
-app.set("trust proxy", 1);
+
+// `trust proxy` controls how many `X-Forwarded-For` hops Express trusts when
+// computing `req.ip`. Wrong values break the Flitt IP allowlist (real client
+// IP is masked by the last trusted proxy) AND rate-limiter keying (every
+// request looks like it came from the same proxy IP). Default 1 covers a
+// single nginx / Vercel-style hop; Cloudflare → Render is TWO. (H-5)
+//
+// Set `TRUST_PROXY_HOPS=N` in env to match actual reverse-proxy hop count.
+// See `docs/runbooks/deployment-security.md` for per-deploy guidance.
+const trustProxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? "1", 10);
+if (
+  !Number.isFinite(trustProxyHops) ||
+  trustProxyHops < 0 ||
+  trustProxyHops > 5
+) {
+  throw new Error(
+    `TRUST_PROXY_HOPS invalid: ${process.env.TRUST_PROXY_HOPS} (expected integer 0-5)`,
+  );
+}
+app.set("trust proxy", trustProxyHops);
+console.log(`[boot] trust proxy hops: ${trustProxyHops}`);
 
 // ============================================================================
 // MongoDB Connection (optional — wireframe generation works without it)
@@ -107,6 +146,38 @@ mongoose
     setMongoConnected(false);
   });
 
+// H-6: keep `mongoConnected` honest across the lifetime of the process.
+// The initial connect promise flips the flag once; without these listeners
+// a runtime disconnect (network blip, Atlas failover) leaves the flag
+// stuck at `true`, so `requireMongo()` passes while subsequent reads time
+// out inside Mongoose's buffer and surface as opaque 5xx.
+mongoose.connection.on("disconnected", () => {
+  console.warn("[mongo] disconnected");
+  setMongoConnected(false);
+});
+mongoose.connection.on("reconnected", () => {
+  console.log("[mongo] reconnected");
+  setMongoConnected(true);
+});
+mongoose.connection.on("error", (err: Error) => {
+  console.error("[mongo] connection error:", err.message);
+  // P2-#7: emit the metric on EVERY error event for alerting on rate spikes.
+  incrementCounter(
+    "mongo_connection_errors_total",
+    "Mongoose connection error events (any severity).",
+  );
+  // Flip the flag when the topology is no longer connected. `error` can
+  // fire for transient driver issues (Atlas IAM/cert rotation, command
+  // timeouts) without an accompanying `disconnected` — leaving the flag
+  // stuck at `true` would let `requireMongo()` pass while subsequent reads
+  // hang inside Mongoose's buffer.
+  //
+  // readyState values: 0=disconnected, 1=connected, 2=connecting, 3=disconnecting.
+  if (mongoose.connection.readyState !== 1) {
+    setMongoConnected(false);
+  }
+});
+
 // Cleanup expired imports every 5 minutes
 setInterval(() => {
   const now = Date.now();
@@ -115,6 +186,9 @@ setInterval(() => {
       pendingCDPImports.delete(id);
     }
   }
+  // P2-#8: also prune expired pairing-failure entries so bot-redeem traffic
+  // can't grow the Map unbounded between hits to `isPairingCodeLocked`.
+  pruneExpiredPairingFailures(now);
 }, 5 * 60 * 1000);
 
 // Expiry reminders every 6 hours. The `reminderSentAt` claim dedupes, so an
@@ -236,7 +310,8 @@ pluginRouter.use(
   flittIpAllowlist,
   webhookRouter,
 );
-pluginRouter.use("/api/subscription", checkoutRateLimiter, cancelRouter);
+// P2-#11: `pluginRouter.use("/api/subscription", ..., cancelRouter)` removed —
+// the cancel router was dead code under our one-time payment model.
 
 // Admin endpoints (curl-driven, ADMIN_TOKEN-protected)
 pluginRouter.use("/api/admin/license", adminLicenseRoutes);
@@ -267,13 +342,6 @@ app.use(pluginRouter);
 
 const websiteRouter = express.Router();
 
-const websiteAllowedOrigins = (
-  process.env.WEBSITE_ALLOWED_ORIGINS ||
-  "http://localhost:5173,https://www.web2wireframe.design"
-)
-  .split(",")
-  .map((o) => o.trim());
-
 websiteRouter.use(
   cors({
     origin: (origin, callback) => {
@@ -296,17 +364,48 @@ if (isProduction && !process.env.SESSION_SECRET) {
 }
 const sessionSecret = process.env.SESSION_SECRET || "dev-session-secret";
 
+// MongoStore for express-session — replaces the in-memory MemoryStore
+// default. Why this matters:
+//   - MemoryStore loses every session on container restart (every deploy =
+//     mass logout of paying users + lost OAuth `state` values mid-flow).
+//   - MemoryStore never evicts entries → memory grows unbounded.
+//   - MemoryStore can't shard across multiple API instances.
+// We give the store a 24-hour TTL (`autoRemove: "native"` uses Mongo's
+// built-in TTL index, no polling interval needed). Combined with the
+// session-only cookie below, the effective session lifetime is:
+//   - Browser close OR 24h server-side, whichever comes first.
+// `touchAfter: 5 * 60` batches session.save() calls — without it every
+// /web/me poll would write to Mongo, which is wasteful for an unchanging
+// session payload.
+//
+// Falls back to MemoryStore in test/CI where MONGODB_URI is absent — keeps
+// existing test infrastructure working without spinning up Mongo.
+const websiteSessionStore = process.env.MONGODB_URI
+  ? MongoStore.create({
+      mongoUrl: process.env.MONGODB_URI,
+      ttl: 24 * 60 * 60,
+      autoRemove: "native",
+      touchAfter: 5 * 60,
+    })
+  : undefined;
+
 websiteRouter.use(
   session({
     name: "w2w_session",
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
+    store: websiteSessionStore,
     cookie: {
       httpOnly: true,
       sameSite: "lax",
       secure: isProduction,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      // No `maxAge` → session cookie. Browser deletes when the user closes
+      // the browser (Firefox/Safari respect this immediately; Chrome's
+      // "continue where you left off" preserves session cookies, but the
+      // 24-hour server-side TTL above catches those eventually). This
+      // matches the marketing site's mental model: "I logged in once to
+      // buy Pro, I don't need to stay logged in."
     },
   })
 );

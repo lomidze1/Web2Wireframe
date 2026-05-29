@@ -474,10 +474,12 @@ describe("licenseService.applyOneTimePurchase", () => {
     expect(sub.lastDuration).toBe("yearly");
   });
 
-  it("stacks +30 days onto cycleEndsAt for an already-active Pro (early renewal)", async () => {
+  it("stacks +30 days onto cycleEndsAt for an already-active Pro within renewal window (5d remaining)", async () => {
     const fakeNow = new Date("2026-05-10T10:00:00Z");
     vi.setSystemTime(fakeNow);
-    const existingEnd = new Date(fakeNow.getTime() + 10 * 24 * 60 * 60 * 1000);
+    // 5 days remaining — INSIDE the 7-day monthly renewal window, so the
+    // webhook can legitimately land and stack onto the existing cycle.
+    const existingEnd = new Date(fakeNow.getTime() + 5 * 24 * 60 * 60 * 1000);
     mockFindOne.mockResolvedValue(
       makeLicense({ plan: "pro", cycleEndsAt: existingEnd }),
     );
@@ -494,7 +496,80 @@ describe("licenseService.applyOneTimePurchase", () => {
       { $set: Record<string, unknown> },
     ];
     const cycleEnd = update.$set.cycleEndsAt as Date;
+    // Within window → full stack honored: existing 5 days + 30 days = 35 days
     expect(cycleEnd.getTime()).toBe(existingEnd.getTime() + CYCLE_DURATION_MS);
+  });
+
+  it("P2-#1: caps stack at renewal window + duration when webhook lands outside window", async () => {
+    // This shouldn't normally happen (/api/checkout/create blocks it), but a
+    // race condition (license read failed in /create → fallthrough to Flitt
+    // → webhook arrives) could let one through. Defensive cap engages here.
+    const fakeNow = new Date("2026-05-10T10:00:00Z");
+    vi.setSystemTime(fakeNow);
+    // 20 days remaining — OUTSIDE the 7-day monthly renewal window, but
+    // STILL below the 37-day cap, so the floor (existing=20d) doesn't kick in.
+    const existingEnd = new Date(fakeNow.getTime() + 20 * 24 * 60 * 60 * 1000);
+    mockFindOne.mockResolvedValue(
+      makeLicense({ plan: "pro", cycleEndsAt: existingEnd }),
+    );
+    mockFindOneAndUpdate.mockResolvedValue(makeLicense({ plan: "pro" }));
+
+    await licenseService.applyOneTimePurchase({
+      figmaUserId: "u-1",
+      email: null,
+      flittOrderId: "w2w_pro_u_1_renew",
+    });
+
+    const [, update] = mockFindOneAndUpdate.mock.calls[0] as [
+      unknown,
+      { $set: Record<string, unknown> },
+    ];
+    const cycleEnd = update.$set.cycleEndsAt as Date;
+    // Capped: now + (7 days renewal window + 30 days duration) = 37 days
+    const expectedMaxMs = fakeNow.getTime() + (7 + 30) * 24 * 60 * 60 * 1000;
+    expect(cycleEnd.getTime()).toBe(expectedMaxMs);
+    // NOT the naive 50-day stack (20 + 30).
+    expect(cycleEnd.getTime()).toBeLessThan(
+      existingEnd.getTime() + CYCLE_DURATION_MS,
+    );
+  });
+
+  it("P3-#1: cap NEVER shrinks existing access (floor at existing time)", async () => {
+    // Scenario from the post-Phase-2 audit: user has 100 days remaining
+    // (e.g. yearly purchase from before the cap shipped). /create fail-open
+    // lets a $16 purchase through. Webhook lands.
+    //
+    // BEFORE the floor: min(naive 130d, cap 37d) = 37d → user LOST 63 days
+    // AFTER the floor:  min(130d, max(37d, 100d)) = 100d → existing kept
+    //
+    // The user still paid $16 and gained 0 new days (they shouldn't have
+    // been able to buy in the first place — operator should refund), but
+    // they did NOT lose their pre-existing access.
+    const fakeNow = new Date("2026-05-10T10:00:00Z");
+    vi.setSystemTime(fakeNow);
+    const existingEnd = new Date(fakeNow.getTime() + 100 * 24 * 60 * 60 * 1000);
+    mockFindOne.mockResolvedValue(
+      makeLicense({ plan: "pro", cycleEndsAt: existingEnd }),
+    );
+    mockFindOneAndUpdate.mockResolvedValue(makeLicense({ plan: "pro" }));
+
+    await licenseService.applyOneTimePurchase({
+      figmaUserId: "u-1",
+      email: null,
+      flittOrderId: "w2w_pro_u_1_unfortunate",
+    });
+
+    const [, update] = mockFindOneAndUpdate.mock.calls[0] as [
+      unknown,
+      { $set: Record<string, unknown> },
+    ];
+    const cycleEnd = update.$set.cycleEndsAt as Date;
+    // Floor preserves existing 100 days — does NOT clamp to 37d.
+    expect(cycleEnd.getTime()).toBe(existingEnd.getTime());
+    // And does NOT stack to naive 130 days (cap still prevents abuse).
+    expect(cycleEnd.getTime()).toBeLessThan(
+      existingEnd.getTime() + CYCLE_DURATION_MS,
+    );
   });
 
   it("does NOT stack onto a stale past cycleEndsAt (expired Pro renews fresh)", async () => {
@@ -591,36 +666,8 @@ describe("licenseService.applyFailedCharge", () => {
   });
 });
 
-// ============================================================================
-// licenseService.applySubscriptionCancel
-// ============================================================================
-
-describe("licenseService.applySubscriptionCancel", () => {
-  it("sets status=canceled and subscription.canceledAt; plan stays pro", async () => {
-    mockFindOneAndUpdate.mockResolvedValue(
-      makeLicense({ plan: "pro", status: "canceled" }),
-    );
-
-    await licenseService.applySubscriptionCancel({ figmaUserId: "u-1" });
-
-    const [filter, update] = mockFindOneAndUpdate.mock.calls[0] as [
-      Record<string, unknown>,
-      { $set: Record<string, unknown> },
-    ];
-    expect(filter).toEqual({ figmaUserId: "u-1", plan: "pro" });
-    expect(update.$set.status).toBe("canceled");
-    expect(update.$set["subscription.canceledAt"]).toBeInstanceOf(Date);
-    // plan and expiresAt are NOT touched — lazy downgrade in getOrCreate
-    // handles the eventual transition to Free
-    expect(update.$set.plan).toBeUndefined();
-  });
-
-  it("returns null when user is not Pro (idempotent guard)", async () => {
-    mockFindOneAndUpdate.mockResolvedValue(null);
-    const result = await licenseService.applySubscriptionCancel({ figmaUserId: "free-user" });
-    expect(result).toBe(null);
-  });
-});
+// P2-#11: `describe("licenseService.applySubscriptionCancel", ...)` removed
+// with the method it covered. One-time payment model has no cancel path.
 
 // ============================================================================
 // licenseService.applyRefund (chargeback / reversal)

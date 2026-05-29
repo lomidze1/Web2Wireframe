@@ -16,7 +16,6 @@ import { randomBytes } from "node:crypto";
  * Component names:
  *   - "flitt-webhook"          — webhook handler
  *   - "checkout-create"        — POST /api/checkout/create
- *   - "subscription-cancel"    — POST /api/subscription/cancel
  *   - "license"                — /api/license/* routes
  */
 

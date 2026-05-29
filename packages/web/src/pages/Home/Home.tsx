@@ -1,5 +1,7 @@
 import type { ReactElement } from "react";
-import { checkoutLinks, installLinks } from "../../data/links";
+import { Link } from "react-router-dom";
+import { installLinks } from "../../data/links";
+import { useAuth } from "../../contexts/AuthContext";
 import styles from "./Home.module.scss";
 
 type ComparisonRow = {
@@ -88,13 +90,19 @@ const lovePoints: string[] = [
   "Great for audits, redesigns, component mining, and inspiration capture.",
 ];
 
-const Home = (): ReactElement => (
-  <div className={styles.home}>
+const Home = (): ReactElement => {
+  const { openPricing } = useAuth();
+  return (
+    <div className={styles.home}>
     <section className={styles.hero}>
       <div className="container">
         <div className={styles.heroHead}>
+          {/* S-H2: H1 now includes "Figma plugin" — the primary search query.
+              Previously H1 ranked well for "convert website to Figma wireframes"
+              but missed the higher-volume "Figma plugin" query. */}
           <h1 className={styles.heroTitle}>
-            Convert Any Website Into Editable Figma Wireframes — Instantly.
+            The Figma Plugin That Converts Any Website Into Editable Wireframes
+            — Instantly.
           </h1>
           <p>Stop rebuilding layouts from scratch.</p>
         </div>
@@ -192,14 +200,20 @@ const Home = (): ReactElement => (
                 </div>
               </li>
             </ul>
-            <a
+            {/* S-H2: until the Figma Community plugin URL exists, the
+                primary CTA is a disabled "Available soon" placeholder.
+                Using a button (not anchor) so `aria-disabled` + cursor
+                styling work without an `href`. Once the plugin ships,
+                restore the anchor pointing to the real community URL. */}
+            <button
+              type="button"
               className="btn btn-primary"
-              href={installLinks.figmaCommunity}
-              target="_blank"
-              rel="noreferrer"
+              aria-disabled="true"
+              disabled
+              title="Plugin launches soon"
             >
-              Use directly in Figma • No credit card required
-            </a>
+              Available soon • Figma Community
+            </button>
           </div>
         </div>
       </div>
@@ -321,30 +335,33 @@ const Home = (): ReactElement => (
             <div className={styles.actionsSecondary}>
               <a
                 className="btn btn-secondary"
-                href="https://www.figma.com/community"
+                href={installLinks.figmaCommunity}
                 target="_blank"
                 rel="noreferrer"
               >
                 Start Free
               </a>
 
-              <a className="btn btn-secondary" href="#">
+              <Link
+                className="btn btn-secondary"
+                to="/docs/browser-extension/extension-overview"
+              >
                 Browser Extension
-              </a>
+              </Link>
             </div>
-            <a
+            <button
+              type="button"
               className="btn btn-primary"
-              href={checkoutLinks.pro}
-              target="_blank"
-              rel="noreferrer"
+              onClick={() => openPricing()}
             >
               Upgrade to Pro
-            </a>
+            </button>
           </div>
         </div>
       </div>
     </section>
-  </div>
-);
+    </div>
+  );
+};
 
 export default Home;

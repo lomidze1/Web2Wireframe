@@ -25,14 +25,17 @@ const DocsHub = (): ReactElement => {
 
   return (
     <DocsLayout>
-      <h2>Documentation Hub</h2>
+      {/* S-H1: hub now opens with <h1> (was <h2>) so search engines treat
+          /docs as a proper top-level document. Topic card titles shift to
+          <h2> to keep the heading hierarchy single-rooted. */}
+      <h1>Documentation Hub</h1>
       <p>Everything you need to get W2W running smoothly.</p>
 
       <div className={styles.docsGrid}>
         {topics.map((topic) => (
           <Link key={topic.id} to={topic.path} className={styles.docsCard}>
             <div className={styles.cardIcon}>{topic.icon}</div>
-            <h3>{topic.title}</h3>
+            <h2>{topic.title}</h2>
             <span className={styles.cardArrow}>→</span>
           </Link>
         ))}
