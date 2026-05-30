@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import EmailLink from "../../components/EmailLink";
 import styles from "./Terms.module.scss";
 
 type TermsSection = {
@@ -32,11 +33,9 @@ const Terms = (): ReactElement => {
           <>
             <p>
               The Service is operated by Glinc ("Glinc", "we", "us", "our"), a
-              company based in Georgia. You can contact us at{" "}
-              <a href="mailto:hey@web2wireframe.design">
-                hey@web2wireframe.design
-              </a>
-              .
+              project of Giorgi Lomidze, a registered Individual Entrepreneur in
+              Georgia. You can contact us at{" "}
+              <EmailLink email="hey@web2wireframe.design" />
             </p>
           </>
         ),
@@ -65,7 +64,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "eligibility-accounts",
-        title: "4. Eligibility & Accounts",
+        title: "4. Eligibility & Figma Identity",
         content: (
           <>
             <p>
@@ -75,8 +74,12 @@ const Terms = (): ReactElement => {
               these Terms on its behalf.
             </p>
             <p>
-              You are responsible for your account activity and for keeping your
-              credentials secure.
+              W2W does not have its own registration, usernames, or passwords.
+              Your identity is established through Figma sign-in (Figma OAuth,
+              scope <code>current_user:read</code>), and your plan and import
+              usage are tied to your Figma user ID. You are responsible for
+              activity that occurs through your Figma sign-in and for keeping
+              your Figma account secure.
             </p>
           </>
         ),
@@ -135,11 +138,12 @@ const Terms = (): ReactElement => {
         content: (
           <>
             <p>
-              The Free plan is limited as follows: Colors and Fonts are
-              plugin-only; Viewports are limited to 1920 and 1440; Text Content
-              uses placeholders only; Styles & Assets are not included; AI
-              Generation is not available; and
-              Support is provided through community channels.
+              The Free plan includes 10 imports per month with full access to
+              all import features. Once you reach 10 imports in a monthly cycle,
+              further imports are blocked until your counter resets at the start
+              of the next cycle, or until you upgrade to Pro (which includes
+              unlimited imports). Support on the Free plan is provided through
+              community channels.
             </p>
             <p>
               Free limits and features may change over time. For the current
@@ -154,10 +158,12 @@ const Terms = (): ReactElement => {
         content: (
           <>
             <p>
-              The paid plan is Pro. Pro is a one-time purchase: $16 grants 30
-              days of Pro access. Access does not auto-renew and you are not
-              charged automatically — to extend Pro you make another one-time
-              purchase. When the 30 days end without a new purchase, the
+              The paid plan is Pro, sold as a one-time purchase in two options:
+              $16 grants 30 days of Pro access, or $144 grants 365 days. Access
+              does not auto-renew and you are not charged automatically — to
+              extend Pro you make another one-time purchase. A new purchase made
+              while Pro is still active adds its days on top of the time
+              remaining. When your Pro period ends without a new purchase, the
               account reverts to the Free tier.
             </p>
             <p>
@@ -177,18 +183,15 @@ const Terms = (): ReactElement => {
           <>
             <p>
               Because Pro is a one-time purchase with no auto-renewal, there is
-              nothing to cancel — access simply ends when the 30 days are up
+              nothing to cancel — access simply ends when your Pro period is up
               unless you choose to buy again.
             </p>
             <p>
               <strong>All fees are non-refundable.</strong> We do not offer
-              prorated refunds for unused time, partial periods, or unused
-              imports. If you believe a charge was made in error or you have a
-              billing dispute, contact{" "}
-              <a href="mailto:billing@web2wireframe.design">
-                billing@web2wireframe.design
-              </a>{" "}
-              and we'll investigate. Statutory refund rights under your local
+              prorated refunds for unused time or partial periods. If you
+              believe a charge was made in error or you have a billing dispute,
+              contact <EmailLink email="billing@web2wireframe.design" /> and we'll
+              investigate. Statutory refund rights under your local
               law (where applicable) are not affected by this policy.
             </p>
           </>
@@ -241,9 +244,11 @@ const Terms = (): ReactElement => {
         content: (
           <>
             <p>
-              AI-based features (available in Pro) can produce incomplete or
-              incorrect results. You are responsible for reviewing, validating,
-              and editing Outputs before use.
+              The Screenshot import feature uses a third-party AI service to
+              interpret the layout of an uploaded image. AI interpretation can
+              produce incomplete or incorrect results, and
+              all Outputs may contain inaccuracies. You are responsible for
+              reviewing, validating, and editing Outputs before use.
             </p>
           </>
         ),
@@ -299,6 +304,12 @@ const Terms = (): ReactElement => {
               damages, or for loss of profits, data, or goodwill, arising from
               or related to the Service.
             </p>
+            <p>
+              In any case, Glinc's total aggregate liability for all claims
+              arising from or related to the Service will not exceed the amount
+              you paid us for the Service in the twelve (12) months immediately
+              before the event giving rise to the claim.
+            </p>
           </>
         ),
       },
@@ -348,9 +359,9 @@ const Terms = (): ReactElement => {
         content: (
           <>
             <p>
-              These Terms are governed by the laws of Georgia. Any disputes will
-              be resolved in the courts of Georgia, unless otherwise required by
-              applicable law.
+              These Terms are governed by the laws of Georgia (the country, not
+              the U.S. state). Any disputes will be resolved in the courts of
+              Georgia, unless otherwise required by applicable law.
             </p>
           </>
         ),
@@ -362,10 +373,8 @@ const Terms = (): ReactElement => {
           <>
             <p>
               Questions about these Terms? Contact{" "}
-              <a href="mailto:hey@web2wireframe.design">
-                hey@web2wireframe.design
-              </a>{" "}
-              or visit <a href="/support">/support</a>.
+              <EmailLink email="hey@web2wireframe.design" /> or visit{" "}
+              <a href="/support">/support</a>.
             </p>
           </>
         ),
@@ -421,7 +430,7 @@ const Terms = (): ReactElement => {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <h2>Terms & Conditions</h2>
-            <span>Effective date: 2026-05-16</span>
+            <span>Effective date: 2026-06-16</span>
           </div>
           <nav>
             <ul className={styles.sidebarList}>
