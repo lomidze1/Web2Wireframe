@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import EmailLink from "../../components/EmailLink";
 import styles from "./Privacy.module.scss";
 
 type PrivacySection = {
@@ -26,12 +27,11 @@ const Privacy = (): ReactElement => {
         title: "Who We Are",
         content: (
           <p>
-            W2W is operated by Glinc, a company based in Georgia. If you have
-            questions, contact us at{" "}
-            <a href="mailto:hey@web2wireframe.design">
-              hey@web2wireframe.design
-            </a>
-            .
+            W2W is operated by Glinc, a project of Giorgi Lomidze, a registered
+            Individual Entrepreneur in Georgia (the country, not the U.S. state).
+            Glinc is the data controller for personal data processed through the
+            Service. If you have questions, contact us at{" "}
+            <EmailLink email="hey@web2wireframe.design" />
           </p>
         ),
       },
@@ -46,12 +46,27 @@ const Privacy = (): ReactElement => {
             </p>
             <ul>
               <li>
-                Information you provide, such as your email address and the
-                content of support messages submitted through{" "}
-                <a href="/support">/support</a>.
+                <strong>Figma user ID.</strong> When you connect Figma, we
+                receive your Figma user ID via Figma OAuth (scope:{" "}
+                <code>current_user:read</code>). This ID is the key we use to
+                store your plan and import usage. We do not receive your Figma
+                files or designs.
               </li>
               <li>
-                Technical data, such as IP address, browser and device
+                <strong>Imported content.</strong> The URLs, HTML, screenshots,
+                or files you submit for conversion into wireframes.
+              </li>
+              <li>
+                <strong>Email address.</strong> Provided when you contact{" "}
+                <a href="/support">/support</a>, complete a purchase (via Flitt),
+                or subscribe to our newsletter.
+              </li>
+              <li>
+                <strong>Support messages.</strong> The content of messages you
+                submit through <a href="/support">/support</a>.
+              </li>
+              <li>
+                <strong>Technical data.</strong> IP address, browser and device
                 information, timestamps, and error logs.
               </li>
             </ul>
@@ -73,24 +88,44 @@ const Privacy = (): ReactElement => {
         ),
       },
       {
+        id: "imported-content-processing",
+        title: "How Imported Content Is Processed",
+        content: (
+          <>
+            <p>
+              When you import a website, its content is processed to generate
+              your wireframe. For the Screenshot import feature, the image you
+              upload is sent to an AI service that interprets its layout.
+            </p>
+            <p>
+              We do not use your imported content or Outputs to train AI models.
+              Imported content is processed only to produce your result.
+            </p>
+          </>
+        ),
+      },
+      {
         id: "cookies-local-storage",
         title: "Cookies & Local Storage",
         content: (
           <p>
-            W2W may use functional cookies or localStorage to remember
-            preferences (for example, UI settings). We do not use these for
-            aggressive tracking.
+            W2W may use functional localStorage to remember preferences (for
+            example, UI settings). We do not use analytics, advertising, or
+            tracking cookies.
           </p>
         ),
       },
       {
-        id: "third-party",
-        title: "Third-Party Services",
+        id: "subprocessors",
+        title: "Third-Party Providers",
         content: (
           <p>
-            We may use service providers to host the Service and deliver email
-            support. These providers only receive data necessary to perform
-            their services. We do not sell your personal data.
+            We rely on a small number of trusted third-party providers to
+            operate the Service — for example, to process payments, send email,
+            host the Service, and power AI features. They act as our processors,
+            receive only the data needed to do their job, and are not permitted
+            to use it for their own purposes.{" "}
+            <strong>We do not sell your personal data.</strong>
           </p>
         ),
       },
@@ -135,15 +170,50 @@ const Privacy = (): ReactElement => {
         ),
       },
       {
+        id: "marketing-newsletter",
+        title: "Marketing & Newsletter",
+        content: (
+          <p>
+            We only send marketing or newsletter emails if you explicitly opt in.
+            You can unsubscribe at any time using the link in any such email.
+            Opting out of marketing does not stop essential transactional emails
+            (for example, payment receipts or support replies).
+          </p>
+        ),
+      },
+      {
         id: "retention",
         title: "Data Retention",
         content: (
-          <p>
-            We keep data only as long as needed for the purposes described in
-            this Policy or as required by law. Support records may be retained
-            to help resolve ongoing issues. Payment metadata is retained for
-            the period required by accounting law (see Payment Data above).
-          </p>
+          <>
+            <p>
+              We keep data only as long as needed for the purposes described in
+              this Policy or as required by law:
+            </p>
+            <ul>
+              <li>
+                <strong>Plan &amp; usage</strong> (tied to your Figma user ID) —
+                kept while your account is active.
+              </li>
+              <li>
+                <strong>Payment metadata</strong> — retained for the period
+                required by Georgian accounting law (typically 7 years; see
+                Payment Data above).
+              </li>
+              <li>
+                <strong>Support records</strong> — retained as needed to resolve
+                ongoing issues.
+              </li>
+              <li>
+                <strong>Technical &amp; error logs</strong> — retained for a
+                short period for security and diagnostics.
+              </li>
+              <li>
+                <strong>Imported content</strong> — processed transiently and not
+                retained beyond delivering your result.
+              </li>
+            </ul>
+          </>
         ),
       },
       {
@@ -162,8 +232,9 @@ const Privacy = (): ReactElement => {
         content: (
           <p>
             If you access W2W from outside Georgia, your data may be processed
-            in other locations where our service providers operate. We take
-            reasonable steps to protect it.
+            in other locations where our sub-processors operate, including the
+            European Union and the United States. We take reasonable steps to
+            protect it and rely on our providers' safeguards for such transfers.
           </p>
         ),
       },
@@ -171,10 +242,26 @@ const Privacy = (): ReactElement => {
         id: "rights",
         title: "Your Rights",
         content: (
-          <p>
-            You can request access to, correction of, or deletion of your
-            personal data by contacting us. We may need to verify your request.
-          </p>
+          <>
+            <p>
+              Depending on your location (including under the EU/UK GDPR), you
+              may have the right to:
+            </p>
+            <ul>
+              <li>Access the personal data we hold about you.</li>
+              <li>Request correction of inaccurate data.</li>
+              <li>Request deletion of your data ("right to be forgotten").</li>
+              <li>Receive your data in a portable format.</li>
+              <li>Object to or restrict certain processing.</li>
+              <li>Withdraw consent at any time, where processing is based on consent.</li>
+              <li>Lodge a complaint with your local data protection authority.</li>
+            </ul>
+            <p>
+              To exercise any of these rights, contact us at{" "}
+              <EmailLink email="hey@web2wireframe.design" /> — we may need to
+              verify your identity before acting on a request.
+            </p>
+          </>
         ),
       },
       {
@@ -193,7 +280,7 @@ const Privacy = (): ReactElement => {
         title: "Children’s Privacy",
         content: (
           <p>
-            W2W is not intended for children under 13, and we do not knowingly
+            W2W is not intended for children under 16, and we do not knowingly
             collect personal data from them.
           </p>
         ),
@@ -215,10 +302,8 @@ const Privacy = (): ReactElement => {
         content: (
           <p>
             For privacy questions or requests, contact{" "}
-            <a href="mailto:hey@web2wireframe.design">
-              hey@web2wireframe.design
-            </a>{" "}
-            or visit <a href="/support">/support</a>.
+            <EmailLink email="hey@web2wireframe.design" /> or visit{" "}
+            <a href="/support">/support</a>.
           </p>
         ),
       },
@@ -273,7 +358,7 @@ const Privacy = (): ReactElement => {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <h2>Privacy Policy</h2>
-            <span>Effective date: 2026-01-17</span>
+            <span>Effective date: 2026-06-16</span>
           </div>
           <nav>
             <ul className={styles.sidebarList}>
