@@ -35,16 +35,19 @@ body {
   line-height: 1.5;
   color: var(--color-text);
   background: var(--color-bg);
+  overflow-x: hidden;
 }
 
 /* ============================================
    POPUP CONTAINER
    ============================================ */
 .popup {
-  width: 390px;
+  width: 380px;
   min-height: 535px;
   display: flex;
   flex-direction: column;
+  /* Never show a horizontal scrollbar in the popup. */
+  overflow-x: hidden;
 }
 
 .popup-header {
@@ -89,7 +92,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 8px;
+  padding: 18px 8px;
   background: var(--color-bg-secondary);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border-light);
@@ -112,8 +115,8 @@ body {
 }
 
 .logo-image {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
 }
 
@@ -154,79 +157,113 @@ body {
   flex-direction: column;
 }
 
-.viewport-chips {
-  display: flex;
-  flex-wrap: wrap;
+/* Two chips per row: [✓] [device] [1440] px [✎]. Browser spans full width. */
+.viewport-rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
-.viewport-chip {
+.viewport-row {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 8px 12px;
-  min-width: 85px;
+  gap: 7px;
+  width: 100%;
+  padding: 10px;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   cursor: pointer;
   transition: all 0.15s ease;
-  position: relative;
+  white-space: nowrap;
 }
 
-.viewport-chip:hover {
+.viewport-row:hover {
   border-color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.04);
 }
 
-.viewport-chip-selected {
+.viewport-row-selected {
   background: rgba(59, 130, 246, 0.1);
   border-color: var(--color-primary);
 }
 
-.viewport-chip-selected .viewport-value {
-  color: var(--color-primary);
-  font-weight: 600;
-}
-
-.viewport-chip-editing {
+.viewport-row-editing {
   cursor: default;
 }
 
+/* Checkbox — fills blue with a white tick when selected. */
+.viewport-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-bg);
+  color: #fff;
+  transition: all 0.15s ease;
+}
+
+.viewport-row-selected .viewport-check {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* Device icon (monitor / tablet / mobile). */
+.viewport-device {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.viewport-row-selected .viewport-device {
+  color: var(--color-primary);
+}
+
 .viewport-value {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--color-text);
 }
 
-.viewport-chip .viewport-unit {
+.viewport-row-selected .viewport-value {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.viewport-unit {
   font-size: 11px;
   color: var(--color-text-muted);
   margin-left: 2px;
-  margin-right: 4px;
 }
 
-.viewport-chip-selected .viewport-unit {
+.viewport-row-selected .viewport-unit {
   color: var(--color-primary);
   opacity: 0.7;
+}
+
+.viewport-row-spacer {
+  flex: 1;
 }
 
 .viewport-edit-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   background: transparent;
   border: none;
   border-radius: 4px;
   color: var(--color-text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
-  margin-left: auto;
-  opacity: 0;
-}
-
-.viewport-chip:hover .viewport-edit-btn {
+  flex-shrink: 0;
   opacity: 1;
 }
 
@@ -329,8 +366,8 @@ body {
 }
 
 .btn-capture {
-  padding: 12px 16px;
-  font-size: 15px;
+  padding: 15px 16px;
+  font-size: 16px;
 }
 
 .btn-icon {
@@ -403,14 +440,16 @@ body {
 }
 
 .btn-secondary {
-  background: var(--color-bg);
+  background: var(--color-bg-tertiary);
   color: var(--color-text);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-text-muted);
+  font-weight: 600;
 }
 
 .btn-secondary:hover:not(:disabled) {
   border-color: var(--color-primary);
-  background: rgba(59, 130, 246, 0.05);
+  color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.06);
 }
 
 .btn-text {
@@ -511,9 +550,33 @@ body {
   text-align: left;
 }
 
+.capture-stats-warning__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
 .capture-stats-warning__title {
   font-weight: 600;
-  margin-bottom: 6px;
+}
+
+.capture-stats-warning__copy {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid rgba(217, 119, 6, 0.4);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-warning);
+  cursor: pointer;
+}
+
+.capture-stats-warning__copy:hover {
+  background: rgba(217, 119, 6, 0.1);
 }
 
 .capture-stats-warning__list {
@@ -524,6 +587,90 @@ body {
 
 .capture-stats-warning__list li {
   margin-top: 2px;
+}
+
+/* ---- Report a problem ---- */
+.report-issue__toggle {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.report-issue__toggle:hover {
+  opacity: 0.8;
+}
+
+.report-issue {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+}
+
+.report-issue__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.report-issue__url {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.report-issue__textarea,
+.report-issue__email {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.report-issue__textarea:focus,
+.report-issue__email:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.report-issue__error {
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.report-issue__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.report-issue--thanks {
+  width: 100%;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #16a34a;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-lg);
+  padding: 12px;
 }
 
 .thanks-message {
@@ -666,6 +813,8 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--color-text-secondary);
+  font-size: 16px;
+  line-height: 1;
 }
 
 .help-link-icon svg {
@@ -675,6 +824,67 @@ body {
 
 .help-link:hover .help-link-icon {
   color: var(--color-primary);
+}
+
+/* Branding block — mirrors the Figma plugin's Help modal footer. */
+.help-branding {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 16px;
+  margin-top: 4px;
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.help-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.help-logo-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.help-tagline {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.help-other-products {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.help-other-products:hover {
+  border-color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.help-made-by {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.help-made-by a {
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: none;
 }
 
 /* Newsletter Section */
@@ -954,7 +1164,11 @@ body {
 
 .plan-card-pro {
   border-color: var(--color-primary);
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.04), rgba(139, 92, 246, 0.04));
+  background: linear-gradient(
+    180deg,
+    rgba(59, 130, 246, 0.04),
+    rgba(139, 92, 246, 0.04)
+  );
 }
 
 .plan-card-header {
@@ -1185,7 +1399,9 @@ body {
   cursor: pointer;
   color: var(--color-text-secondary);
   flex-shrink: 0;
-  transition: border-color 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
 }
 
 .copy-btn:hover {

@@ -93,16 +93,27 @@ vi.mock("../ui/shared/absoluteModeRenderer", () => ({
   prepareFramesForRendering: vi.fn(() => []),
 }));
 
+// Decode the uploaded `.w2w` deterministically — this test covers font prop
+// wiring AFTER decode, not the codec itself (the codec has its own round-trip
+// tests in @w2w/shared). detectFormat → "w2w" and decodeW2W → the payload that
+// buildCaptureFile last stashed.
+let lastPayload: unknown = null;
+vi.mock("@w2w/shared/w2w-codec", () => ({
+  detectFormat: () => "w2w" as const,
+  decodeW2W: async () => lastPayload,
+}));
+
 // ============================================================================
 // Helpers
 // ============================================================================
 
 /**
- * Build a minimal MultiFrameCaptureResult JSON file (the format `toUnifiedFormat`
- * recognizes). Includes fonts so we can assert they're surfaced.
+ * Build a minimal `.w2w` capture file. The bytes are inert (decoding is mocked
+ * above); we stash the intended payload so the mocked `decodeW2W` returns it.
+ * Includes fonts so we can assert they're surfaced.
  */
-function buildJsonFile(fonts: unknown[]): File {
-  const payload = {
+function buildCaptureFile(fonts: unknown[]): File {
+  lastPayload = {
     url: "https://example.com",
     title: "example",
     timestamp: Date.now(),
@@ -116,8 +127,9 @@ function buildJsonFile(fonts: unknown[]): File {
     assets: [],
     stylesheets: [],
   };
-  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
-  return new File([blob], "capture.json", { type: "application/json" });
+  // Valid W2W2 magic so the (real) length checks in upload handling pass.
+  const bytes = new Uint8Array([0x57, 0x32, 0x57, 0x32, 0x02, 0x00]);
+  return new File([bytes], "capture.w2w", { type: "application/octet-stream" });
 }
 
 /** Open the font fallback modal by dispatching a `fonts-not-available` message */
@@ -169,7 +181,7 @@ describe("AreaSelection — Font download prop wiring (P0 #1)", () => {
     vi.clearAllMocks();
   });
 
-  it("forwards extractedFonts to FontFallbackModal after a JSON capture is processed", async () => {
+  it("forwards extractedFonts to FontFallbackModal after a .w2w capture is processed", async () => {
     const fonts = [
       {
         family: "CustomFont",
@@ -185,7 +197,7 @@ describe("AreaSelection — Font download prop wiring (P0 #1)", () => {
     // Simulate file selection
     const input = findFileInput(container);
     Object.defineProperty(input, "files", {
-      value: [buildJsonFile(fonts)],
+      value: [buildCaptureFile(fonts)],
       configurable: true,
     });
     fireEvent.change(input);
@@ -230,7 +242,7 @@ describe("AreaSelection — Font download prop wiring (P0 #1)", () => {
 
     const input = findFileInput(container);
     Object.defineProperty(input, "files", {
-      value: [buildJsonFile([])],
+      value: [buildCaptureFile([])],
       configurable: true,
     });
     fireEvent.change(input);

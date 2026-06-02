@@ -1,16 +1,46 @@
 import { useState, useRef, useEffect } from "preact/hooks";
-import { PencilIcon } from "./Icons";
+import {
+  PencilIcon,
+  CheckmarkIcon,
+  MonitorIcon,
+  LaptopIcon,
+  TabletIcon,
+  MobileIcon,
+} from "./Icons";
+
+/** Pick a device icon for a viewport width: monitor / laptop / tablet / mobile. */
+function deviceIcon(width: number) {
+  if (width >= 1536) return <MonitorIcon />; // large desktop (e.g. 1920)
+  if (width >= 1024) return <LaptopIcon />;  // laptop (e.g. 1440, 1024)
+  if (width >= 640) return <TabletIcon />;   // tablet (e.g. 768)
+  return <MobileIcon />;                       // mobile (e.g. 375)
+}
 
 interface ViewportsSectionProps {
   viewports: number[];
   onChange: (viewports: number[]) => void;
   disabled?: boolean;
+  /** Active tab's live viewport width; null hides the "Browser" row. */
+  browserWidth: number | null;
+  /** Whether the "Browser (Npx)" row is checked. */
+  browserSelected: boolean;
+  /** Toggle the "Browser" row (mutual dedup handled by the parent). */
+  onBrowserToggle: () => void;
 }
 
 // All available viewports - always visible
 const ALL_VIEWPORTS = [1920, 1440, 1024, 768, 375];
 
-export function ViewportsSection({ viewports, onChange, disabled }: ViewportsSectionProps) {
+export function ViewportsSection({
+  viewports,
+  onChange,
+  disabled,
+  browserWidth,
+  browserSelected,
+  onBrowserToggle,
+}: ViewportsSectionProps) {
+  // Browser counts toward the "keep at least one selected" rule.
+  const extraSelected = browserSelected ? 1 : 0;
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<number[]>([...ALL_VIEWPORTS]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,8 +59,8 @@ export function ViewportsSection({ viewports, onChange, disabled }: ViewportsSec
     if (disabled || editingIndex !== null) return;
 
     if (isSelected(value)) {
-      // Don't allow deselecting if it's the last one
-      if (viewports.length > 1) {
+      // Don't allow deselecting the last selection (browser row counts too)
+      if (viewports.length + extraSelected > 1) {
         onChange(viewports.filter((v) => v !== value));
       }
     } else {
@@ -104,7 +134,7 @@ export function ViewportsSection({ viewports, onChange, disabled }: ViewportsSec
       <div class="section-header">
         <span class="section-title">Viewports</span>
       </div>
-      <div class="viewport-chips">
+      <div class="viewport-rows">
         {editValues.map((value, index) => {
           const selected = isSelected(value);
           const editing = editingIndex === index;
@@ -112,9 +142,17 @@ export function ViewportsSection({ viewports, onChange, disabled }: ViewportsSec
           return (
             <div
               key={index}
-              class={`viewport-chip ${selected ? "viewport-chip-selected" : ""} ${editing ? "viewport-chip-editing" : ""}`}
+              class={`viewport-row ${selected ? "viewport-row-selected" : ""} ${editing ? "viewport-row-editing" : ""}`}
+              role="checkbox"
+              aria-checked={selected}
               onClick={() => !editing && handleToggle(value)}
             >
+              <span class="viewport-check" aria-hidden="true">
+                {selected && <CheckmarkIcon />}
+              </span>
+              <span class="viewport-device" aria-hidden="true">
+                {deviceIcon(value)}
+              </span>
               {editing ? (
                 <input
                   ref={inputRef}
@@ -129,6 +167,7 @@ export function ViewportsSection({ viewports, onChange, disabled }: ViewportsSec
                 <span class="viewport-value">{value}</span>
               )}
               <span class="viewport-unit">px</span>
+              <span class="viewport-row-spacer" />
               {!editing && !disabled && (
                 <button
                   class="viewport-edit-btn"
@@ -142,6 +181,23 @@ export function ViewportsSection({ viewports, onChange, disabled }: ViewportsSec
             </div>
           );
         })}
+
+        {/* Browser — captures at the active tab's live viewport width.
+            Not editable (dynamic value); de-dup handled by the parent. */}
+        {browserWidth != null && (
+          <div
+            class={`viewport-row viewport-row-browser ${browserSelected ? "viewport-row-selected" : ""}`}
+            role="checkbox"
+            aria-checked={browserSelected}
+            onClick={() => !disabled && onBrowserToggle()}
+          >
+            <span class="viewport-check" aria-hidden="true">
+              {browserSelected && <CheckmarkIcon />}
+            </span>
+            <span class="viewport-value">Browser</span>
+            <span class="viewport-unit">({browserWidth}px)</span>
+          </div>
+        )}
       </div>
     </div>
   );

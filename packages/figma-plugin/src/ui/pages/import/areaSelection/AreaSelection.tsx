@@ -2,6 +2,7 @@
 import { h } from "preact";
 import { useState, useRef, useEffect } from "preact/hooks";
 import { decode } from "@msgpack/msgpack";
+import { decodeW2W, detectFormat } from "@w2w/shared/w2w-codec";
 import styles from "./AreaSelection.css";
 import importStyles from "../Import.css";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -212,8 +213,14 @@ interface ImportState {
   message: string;
 }
 
+/** Max raw upload size. A real capture is a few MB; this caps the JSON path. */
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
+/** Decompressed-size ceiling for the legacy gzip path — guards against gzip bombs. */
+const MAX_DECOMPRESSED_BYTES = 300 * 1024 * 1024; // 300 MB
+
 /**
- * Decompress gzip data using DecompressionStream
+ * Decompress gzip data, aborting if the output exceeds {@link MAX_DECOMPRESSED_BYTES}
+ * so a crafted "bomb" file can't exhaust memory.
  */
 async function decompressGzip(compressedData: ArrayBuffer): Promise<Uint8Array> {
   const stream = new ReadableStream({
@@ -223,12 +230,28 @@ async function decompressGzip(compressedData: ArrayBuffer): Promise<Uint8Array> 
     },
   });
 
-  const decompressedStream = stream.pipeThrough(
-    new DecompressionStream("gzip")
-  );
-  const response = new Response(decompressedStream);
-  const arrayBuffer = await response.arrayBuffer();
-  return new Uint8Array(arrayBuffer);
+  const reader = stream
+    .pipeThrough(new DecompressionStream("gzip"))
+    .getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_DECOMPRESSED_BYTES) {
+      await reader.cancel();
+      throw new Error("Decompressed payload exceeds the size limit.");
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
 }
 
 const TAB_ID = "areaSelection";
@@ -340,6 +363,18 @@ export default function AreaSelection() {
     const target = e.target as HTMLInputElement;
     const file = target.files?.[0];
     if (file) {
+      // Reject implausibly large uploads up front. A legit capture is a few MB;
+      // this caps the plain-JSON parse path and is a first guard before any
+      // decompression (see also the decompressed-size ceiling in the codec).
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setFileName(file.name);
+        fileDataRef.current = null;
+        setImportState({
+          status: "error",
+          message: "File is too large to import (over 100 MB).",
+        });
+        return;
+      }
       setFileName(file.name);
       fileDataRef.current = file;
       setImportState({ status: "idle", message: "" });
@@ -411,7 +446,7 @@ export default function AreaSelection() {
           // `null` matches Web.tsx convention — main.ts's FIX A guard treats
           // any falsy tree as "needs conversion from capturedData". Using an
           // empty object `{}` here was truthy and silently bypassed FIX A,
-          // leaving the rendered frame empty for .w2w/.json imports.
+          // leaving the rendered frame empty for .w2w imports.
           tree: null as unknown,
           assets: frame.assets || {},
           capturedData: frame.capturedData,
@@ -503,31 +538,41 @@ export default function AreaSelection() {
     try {
       // 1. Read file as ArrayBuffer
       const arrayBuffer = await fileDataRef.current.arrayBuffer();
+      const fileBytes = new Uint8Array(arrayBuffer);
 
-      // Check file extension
-      const fileName = fileDataRef.current.name.toLowerCase();
+      // Detect format by magic bytes (robust to file extension): the hardened
+      // Only `.w2w` capture files are accepted — the hardened container or a
+      // legacy gzip+msgpack `.w2w`. Plain JSON (and anything else, even if
+      // dragged in or renamed) is rejected via magic-byte detection.
+      const format = detectFormat(fileBytes);
 
       let rawData: MultiFrameCaptureResult | SingleViewportCaptureResult;
 
-      if (fileName.endsWith(".json")) {
-        // JSON file - parse directly
-        setImportState({ status: "loading", message: "Parsing JSON…" });
-        const text = new TextDecoder().decode(arrayBuffer);
-        rawData = JSON.parse(text);
-      } else {
-        // .w2w file - decompress and decode MessagePack
+      if (format === "w2w" || format === "w2w-v2") {
+        // Hardened .w2w container (current keyed-tag or legacy "W2W2") —
+        // unscramble + decrypt + gunzip + msgpack.
+        setImportState({ status: "loading", message: "Decoding data…" });
+        rawData = (await decodeW2W(fileBytes)) as
+          | MultiFrameCaptureResult
+          | SingleViewportCaptureResult;
+      } else if (format === "gzip-legacy") {
+        // Legacy .w2w — gzip + msgpack (pre-hardening exports).
         setImportState({ status: "loading", message: "Decompressing…" });
         const decompressedData = await decompressGzip(arrayBuffer);
 
         setImportState({ status: "loading", message: "Decoding data…" });
         rawData = decode(decompressedData) as MultiFrameCaptureResult | SingleViewportCaptureResult;
+      } else {
+        throw new Error(
+          "Only .w2w files exported from the Web2Wireframe extension can be imported here.",
+        );
       }
 
       // Convert to unified multi-frame format (handles both old single-viewport and new multi-frame format)
       const unifiedResult = toUnifiedFormat(rawData);
       if (!unifiedResult) {
         throw new Error(
-          "This file isn't a valid Web2Wireframe capture. Please upload a .w2w or .json file exported from the extension.",
+          "This file isn't a valid Web2Wireframe capture. Please upload a .w2w file exported from the extension.",
         );
       }
 
@@ -577,14 +622,14 @@ export default function AreaSelection() {
         <div class={styles.uploadIcon}>⬚</div>
         <div class={styles.uploadCopy}>
           <div class={styles.uploadText}>
-            {fileName ? fileName : "Drag-and-drop your .w2w or .json file"}
+            {fileName ? fileName : "Drag-and-drop your .w2w file"}
           </div>
           <div class={styles.uploadSubtext}>or select from your computer</div>
           <div class={styles.uploadActions}>
             <input
               type="file"
               ref={fileInputRef}
-              accept=".w2w,.json"
+              accept=".w2w"
               style={{ display: "none" }}
               onChange={handleFileUpload}
             />

@@ -100,7 +100,7 @@ export async function startInspectMode(
           client,
         );
         console.log("[W2W] Element capture complete, downloading...");
-        await autoDownloadResult(result, tabId, "element");
+        await autoDownloadResult(result, tabId);
       } catch (err) {
         console.error("[W2W] Element capture/download failed:", err);
       } finally {

@@ -28,6 +28,7 @@ import {
   setMongoConnected,
 } from "./state.js";
 import { websiteAllowedOrigins } from "./config/origins.js";
+import { isAllowedExtensionOrigin } from "./config/extensionOrigin.js";
 
 // Plugin route modules
 import pluginAuthRoutes from "./routes/plugin/auth.js";
@@ -211,6 +212,9 @@ if (remindersActive) {
 const pluginRouter = express.Router();
 const isProduction = process.env.NODE_ENV === "production";
 const corsOrigin = process.env.CORS_ORIGIN;
+// Our own browser extension's id (chrome-extension://<id>). Optional — when
+// unset, no extension origin is allowed (current behaviour preserved).
+const allowedExtensionId = (process.env.EXTENSION_ID ?? "").trim();
 
 // Production safety: refuse to boot with wildcard/credentialed CORS.
 // Browsers reject `Access-Control-Allow-Origin: *` + `credentials: true`,
@@ -253,6 +257,21 @@ pluginRouter.use(
       }
       if (allowAllOrigins) {
         callback(null, true);
+        return;
+      }
+      // Browser-extension popup/options pages send Origin: chrome-extension://<id>.
+      // (Background service-worker requests send no Origin → handled above.)
+      if (origin.startsWith("chrome-extension://")) {
+        if (isAllowedExtensionOrigin(origin, allowedExtensionId)) {
+          callback(null, true);
+        } else {
+          // Not our published id: emit no CORS headers, but don't 500 the
+          // request (that surfaces to the extension as "Internal server
+          // error"). Our extension reads the response via host_permissions —
+          // Chrome bypasses CORS — while a 3rd-party extension without those
+          // permissions still can't read a credentialed response.
+          callback(null, false);
+        }
         return;
       }
       let hostname: string;
@@ -347,6 +366,11 @@ websiteRouter.use(
     origin: (origin, callback) => {
       if (!origin || websiteAllowedOrigins.includes(origin)) {
         callback(null, true);
+      } else if (origin.startsWith("chrome-extension://")) {
+        // Browser-extension callers (e.g. the support-report POST to
+        // /web/support). Emit no CORS headers, but don't 500 — the extension
+        // reads the response via host_permissions (Chrome bypasses CORS).
+        callback(null, false);
       } else {
         callback(new Error("Not allowed by CORS"));
       }

@@ -6,3 +6,6 @@ dist
 build
 .turbo
 *.timestamp-*
+
+# Third-party research material (not our code; reference only)
+docs/research/

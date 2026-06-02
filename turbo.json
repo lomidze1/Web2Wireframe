@@ -7,7 +7,7 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "build/**"],
-      "inputs": ["src/**", "api/**", "lib/**", "models/**", "utils/**", "tsconfig.json", "package.json"]
+      "inputs": ["src/**", "api/**", "lib/**", "models/**", "utils/**", "public/**", "manifest.json", "*.config.ts", "*.config.mjs", "*.config.js", "tsconfig.json", "package.json"]
     },
     "dev": {
       "dependsOn": ["^build"],

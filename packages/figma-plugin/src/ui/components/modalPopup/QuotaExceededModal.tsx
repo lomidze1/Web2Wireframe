@@ -56,8 +56,8 @@ export default function QuotaExceededModal({
           <div class={styles.planCards}>
             <div class={`${styles.planCard} ${styles.planCardPro}`}>
               <ul class={styles.planList}>
-                <li class={styles.planListItem}>Unlimited imports</li>
-                <li class={styles.planListItem}>All viewports & full styles</li>
+                <li class={styles.planListItem}>Unlimited imports — no monthly cap</li>
+                <li class={styles.planListItem}>Keep every feature you already use, with no limit</li>
                 <li class={styles.planListItem}>Priority email support</li>
                 <li class={styles.planListItem}>
                   One-time payment — you're charged once, no auto-renewal

@@ -291,6 +291,15 @@ export {
 } from "./svg-masquerade";
 
 // ============================================================================
+// W2W FILE CODEC - Hardened .w2w container (encode/decode/format detection)
+// ----------------------------------------------------------------------------
+// NOT re-exported from the barrel: the codec pulls in @msgpack/msgpack, which
+// runs `new TextEncoder()` at module top-level and crashes the Figma plugin
+// sandbox (main.ts imports this barrel). Import it from the dedicated subpath
+// instead:  import { decodeW2W } from "@w2w/shared/w2w-codec"
+// ============================================================================
+
+// ============================================================================
 // W2W HOVER CAPTURE - Shared interactive node detection
 // ============================================================================
 

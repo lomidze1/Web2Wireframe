@@ -14,6 +14,8 @@
 import type { CDPClient } from "./cdp/client";
 import type { CaptureOptions } from "@w2w/shared";
 import { DEFAULT_CAPTURE_OPTIONS } from "@w2w/shared";
+import type { PersistedCaptureState } from "@/shared/types";
+import { STORAGE_KEYS } from "@/shared/constants";
 
 interface BackgroundState {
   isCapturing: boolean;
@@ -34,12 +36,27 @@ export const state: BackgroundState = {
 };
 
 /**
+ * Persist the capture lifecycle to chrome.storage.session (or clear it with
+ * null). Chrome closes the action popup mid-capture, so this is the durable
+ * source the popup restores from when reopened. Fire-and-forget — a failed
+ * write just means the popup falls back to idle.
+ */
+export function setCaptureState(s: PersistedCaptureState | null): void {
+  const op = s
+    ? chrome.storage.session.set({ [STORAGE_KEYS.LAST_CAPTURE]: s })
+    : chrome.storage.session.remove(STORAGE_KEYS.LAST_CAPTURE);
+  void op.catch(() => undefined);
+}
+
+/**
  * Push a progress update to the popup. Failures are swallowed because
  * the popup may have closed mid-capture, and a missing receiver is the
- * expected steady state once the user navigates away.
+ * expected steady state once the user navigates away. Also mirrored to
+ * session storage so a reopened popup picks up live progress.
  */
 export function updateProgress(progress: number, status: string): void {
   state.captureProgress = progress;
+  setCaptureState({ status: "capturing", progress, message: status });
   chrome.runtime
     .sendMessage({
       type: "CAPTURE_PROGRESS",
