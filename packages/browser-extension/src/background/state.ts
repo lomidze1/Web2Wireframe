@@ -38,14 +38,16 @@ export const state: BackgroundState = {
 /**
  * Persist the capture lifecycle to chrome.storage.session (or clear it with
  * null). Chrome closes the action popup mid-capture, so this is the durable
- * source the popup restores from when reopened. Fire-and-forget — a failed
- * write just means the popup falls back to idle.
+ * source the popup restores from when reopened. A failed write just means the
+ * popup falls back to idle. Returns the write promise (already error-swallowed)
+ * so callers that reopen the popup can await the persisted state first,
+ * avoiding a race where the popup reads stale storage on open.
  */
-export function setCaptureState(s: PersistedCaptureState | null): void {
+export function setCaptureState(s: PersistedCaptureState | null): Promise<void> {
   const op = s
     ? chrome.storage.session.set({ [STORAGE_KEYS.LAST_CAPTURE]: s })
     : chrome.storage.session.remove(STORAGE_KEYS.LAST_CAPTURE);
-  void op.catch(() => undefined);
+  return op.catch(() => undefined);
 }
 
 /**

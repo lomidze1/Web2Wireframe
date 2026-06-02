@@ -22,7 +22,7 @@ export default function Help({ isOpen, onClose }: HelpProps) {
   const helpLinks: HelpLink[] = [
     {
       icon: "🛒",
-      label: "Upgrade to Pro",
+      label: "Compare plans",
       url: "https://web2wireframe.design/pricing",
     },
     {
@@ -38,17 +38,12 @@ export default function Help({ isOpen, onClose }: HelpProps) {
     {
       icon: "📧",
       label: "Contact us",
-      url: "mailto:support@web2wireframe.design",
+      url: "https://mail.google.com/mail/?view=cm&fs=1&to=hey@web2wireframe.design",
     },
     {
       icon: "✈️",
       label: "Telegram",
       url: "https://t.me/web2wireframe",
-    },
-    {
-      icon: "𝕏",
-      label: "X (Twitter)",
-      url: "https://twitter.com/web2wireframe",
     },
     {
       icon: "🧩",
