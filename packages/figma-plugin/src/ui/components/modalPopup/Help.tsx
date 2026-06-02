@@ -26,9 +26,9 @@ export default function Help({ isOpen, onClose }: HelpProps) {
       url: "https://web2wireframe.design/pricing",
     },
     {
-      icon: "❓",
-      label: "Frequently Asked Questions",
-      url: "https://web2wireframe.design/faq",
+      icon: "📄",
+      label: "See our Docs",
+      url: "https://web2wireframe.design/docs",
     },
     {
       icon: "💬",
@@ -37,7 +37,7 @@ export default function Help({ isOpen, onClose }: HelpProps) {
     },
     {
       icon: "📧",
-      label: "Email us",
+      label: "Contact us",
       url: "mailto:support@web2wireframe.design",
     },
     {
@@ -49,6 +49,12 @@ export default function Help({ isOpen, onClose }: HelpProps) {
       icon: "𝕏",
       label: "X (Twitter)",
       url: "https://twitter.com/web2wireframe",
+    },
+    {
+      icon: "🧩",
+      label: "Get Browser Extension",
+      // TODO: replace with the real Chrome Web Store listing URL once published.
+      url: "https://chromewebstore.google.com/detail/web2wireframe",
     },
   ];
 

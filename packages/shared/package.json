@@ -23,6 +23,16 @@
         "types": "./dist/content-script-bundle.d.ts",
         "default": "./dist/content-script-bundle.js"
       }
+    },
+    "./w2w-codec": {
+      "import": {
+        "types": "./dist/w2w-codec.d.ts",
+        "default": "./dist/w2w-codec.js"
+      },
+      "require": {
+        "types": "./dist/w2w-codec.d.cts",
+        "default": "./dist/w2w-codec.cjs"
+      }
     }
   },
   "scripts": {
@@ -34,6 +44,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.3"
   },
   "devDependencies": {
     "tsup": "^8.5.1",

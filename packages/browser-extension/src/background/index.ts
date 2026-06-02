@@ -25,10 +25,11 @@ gateConsoleInProduction();
 
 import type { ExtensionMessage, CaptureOptions } from "@/shared/types";
 
-import { state } from "./state";
+import { state, setCaptureState } from "./state";
 import { getSettings, updateSettings } from "./utils/settings";
-import { autoDownloadResult, getDomainFromUrl, sendToBackend } from "./utils/download";
+import { autoDownloadResult, exportCapture, getDomainFromUrl, sendToBackend } from "./utils/download";
 import { connectFigma } from "../shared/licenseClient";
+import { submitIssueReport } from "./utils/report";
 
 /**
  * One OAuth flow at a time. The popup closes the moment the OAuth tab
@@ -77,7 +78,7 @@ chrome.runtime.onMessage.addListener(
           console.log("[W2W] Capture complete, frames:", result.frames.length);
           // Always auto-download from background as fallback
           // (popup may have closed during the lengthy capture)
-          await autoDownloadResult(result, message.tabId, "page").catch((e) =>
+          await autoDownloadResult(result, message.tabId).catch((e) =>
             console.error("[W2W] Auto-download fallback failed:", e),
           );
           sendResponse({ success: true, data: result });
@@ -92,6 +93,9 @@ chrome.runtime.onMessage.addListener(
     // W2W content script capture
     if (message.type === "CAPTURE_PAGE_W2W") {
       console.log("[W2W] CAPTURE_PAGE_W2W received, tabId:", message.tabId);
+      // Persist lifecycle so a reopened popup restores it — Chrome closes the
+      // action popup once the debugger infobar takes focus.
+      setCaptureState({ status: "capturing", progress: 0, message: "Starting capture..." });
       handleCapturePageW2W(message.tabId, message.options)
         .then(async (result) => {
           const totalNodes = result.frames.reduce(
@@ -101,29 +105,26 @@ chrome.runtime.onMessage.addListener(
           console.log(
             `[W2W] W2W capture complete: ${result.frames.length} viewport(s), ${totalNodes} total nodes`,
           );
-          // Auto-download combined JSON — one file with all viewports
+          setCaptureState({
+            status: "success",
+            progress: 100,
+            message: "Capture complete!",
+            stats: result.captureStats,
+          });
+          // Auto-export combined capture — one hardened .w2w file with all
+          // viewports. (Read it back as JSON via scripts/w2w-decode.mjs.)
           try {
-            const jsonString = JSON.stringify(result, null, 2);
             const domain = getDomainFromUrl(result.url || "");
             const widthLabel = result.frames.map((f) => f.width).join("_");
-            const filename = `${domain}_${widthLabel}_w2w.json`;
-            console.log(`[W2W] JSON size: ${(jsonString.length / 1024 / 1024).toFixed(1)} MB`);
-
-            const jsonBlob = new Blob([jsonString], { type: "application/json" });
-            const jsonReader = new FileReader();
-            const jsonDataUrl = await new Promise<string>((resolve, reject) => {
-              jsonReader.onload = () => resolve(jsonReader.result as string);
-              jsonReader.onerror = reject;
-              jsonReader.readAsDataURL(jsonBlob);
-            });
-            await chrome.downloads.download({ url: jsonDataUrl, filename, saveAs: false });
+            await exportCapture(result, message.tabId, `${domain}_${widthLabel}_wireframe`);
           } catch (e) {
-            console.error("[W2W] Auto-download failed:", e);
+            console.error("[W2W] Auto-export failed:", e);
           }
           sendResponse({ success: true, data: result });
         })
         .catch((error) => {
           console.error("[W2W] Capture failed:", error);
+          setCaptureState({ status: "error", progress: 0, message: "", error: error.message });
           sendResponse({ success: false, error: error.message });
         });
       return true;
@@ -210,12 +211,21 @@ chrome.runtime.onMessage.addListener(
       )
         .then(async (result) => {
           // Auto-download since popup is closed
-          await autoDownloadResult(result, message.tabId, "element");
+          await autoDownloadResult(result, message.tabId);
           sendResponse({ success: true, data: result });
         })
         .catch((error) => {
           sendResponse({ success: false, error: error.message });
         });
+      return true;
+    }
+
+    if (message.type === "REPORT_ISSUE") {
+      submitIssueReport(message.payload)
+        .then(() => sendResponse({ success: true }))
+        .catch((error) =>
+          sendResponse({ success: false, error: error.message }),
+        );
       return true;
     }
 

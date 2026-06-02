@@ -1,21 +1,38 @@
-import { CloseIcon, ContactIcon, DocsIcon, PluginIcon, PricingIcon } from "./Icons";
+import { CloseIcon } from "./Icons";
 
 interface HelpModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+interface HelpLink {
+  icon: string;
+  label: string;
+  url: string;
+}
+
 /**
- * Help & Resources modal — pure links list after Phase 5.2.
- *
- * The "Subscribe to news" section that used to live here moved to
- * IdentityModal (which is the natural home for account-adjacent forms).
- * HelpModal is now state-less and async-free.
+ * Help & Resources modal. Kept identical (items, order, copy, branding) to the
+ * Figma plugin's "Need help?" modal — the only difference is the cross-link
+ * (#7): the extension links to the Figma plugin, the plugin links here.
  */
+const HELP_LINKS: HelpLink[] = [
+  { icon: "🛒", label: "Upgrade to Pro", url: "https://web2wireframe.design/pricing" },
+  { icon: "📄", label: "See our Docs", url: "https://web2wireframe.design/docs" },
+  { icon: "💬", label: "Help center", url: "https://web2wireframe.design/support" },
+  { icon: "📧", label: "Contact us", url: "mailto:support@web2wireframe.design" },
+  { icon: "✈️", label: "Telegram", url: "https://t.me/web2wireframe" },
+  { icon: "𝕏", label: "X (Twitter)", url: "https://twitter.com/web2wireframe" },
+  { icon: "🎨", label: "Open Figma Plugin", url: "https://www.figma.com/community/plugin/web2wireframe" },
+];
+
 export function HelpModal({ isOpen, onClose }: HelpModalProps) {
   if (!isOpen) return null;
 
-  const openLink = (url: string) => (e: Event) => {
+  // mailto: let the native <a> open the mail client; everything else opens in
+  // a background tab via chrome.tabs.create.
+  const handleClick = (url: string) => (e: Event) => {
+    if (url.startsWith("mailto:")) return;
     e.preventDefault();
     chrome.tabs.create({ url, active: false });
   };
@@ -30,7 +47,7 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
     <div class="modal-overlay" onClick={handleOverlayClick}>
       <div class="modal">
         <div class="modal-header">
-          <h2>Help & Resources</h2>
+          <h2>Help &amp; Resources</h2>
           <button class="modal-close" onClick={onClose} type="button" aria-label="Close">
             <CloseIcon />
           </button>
@@ -38,41 +55,41 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
         <div class="modal-content">
           <div class="help-links">
-            <a
-              href="https://web2wireframe.design/docs"
-              onClick={openLink("https://web2wireframe.design/docs")}
-              class="help-link"
-            >
-              <span class="help-link-icon"><DocsIcon /></span>
-              <span>See our Docs</span>
-            </a>
+            {HELP_LINKS.map((link) => (
+              <a
+                key={link.label}
+                href={link.url}
+                onClick={handleClick(link.url)}
+                class="help-link"
+              >
+                <span class="help-link-icon" aria-hidden="true">{link.icon}</span>
+                <span>{link.label}</span>
+              </a>
+            ))}
+          </div>
 
+          {/* Branding — kept in sync with the plugin's Help modal. */}
+          <div class="help-branding">
+            <div class="help-logo">
+              <img src="/icons/W2W-Logo.svg" alt="Web2Wireframe" class="help-logo-icon" />
+              <span>Web2Wireframe</span>
+            </div>
+            <div class="help-tagline">
+              Transform any website into editable Figma wireframes
+            </div>
             <a
-              href="https://www.web2wireframe.design/support"
-              onClick={openLink("https://www.web2wireframe.design/support")}
-              class="help-link"
+              href="https://glinc.io/products"
+              onClick={handleClick("https://glinc.io/products")}
+              class="help-other-products"
             >
-              <span class="help-link-icon"><ContactIcon /></span>
-              <span>Contact us</span>
+              🚀 Explore our other products
             </a>
-
-            <a
-              href="https://www.figma.com/community/plugin/web2wireframe"
-              onClick={openLink("https://www.figma.com/community/plugin/web2wireframe")}
-              class="help-link"
-            >
-              <span class="help-link-icon"><PluginIcon /></span>
-              <span>Open Figma Plugin</span>
-            </a>
-
-            <a
-              href="https://web2wireframe.design/pricing"
-              onClick={openLink("https://web2wireframe.design/pricing")}
-              class="help-link"
-            >
-              <span class="help-link-icon"><PricingIcon /></span>
-              <span>Pricing</span>
-            </a>
+            <div class="help-made-by">
+              Made with ❤️ by{" "}
+              <a href="https://glinc.io" onClick={handleClick("https://glinc.io")}>
+                Glinc
+              </a>
+            </div>
           </div>
         </div>
       </div>

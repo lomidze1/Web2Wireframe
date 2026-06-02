@@ -60,12 +60,12 @@ const PRO_BASE_FEATURES = [
 
 const FREE_FEATURES = [
   "10 imports per month",
-  "Colors: plugin only",
-  "Fonts: plugin only",
-  "Viewports: 1920, 1440 only",
-  "Text content: placeholders only",
-  "Styles & assets: not included",
-  "Support: Community",
+  "Full features — same fidelity as Pro",
+  "All colors, fonts & viewports",
+  "Real text content, styles & assets",
+  "Hover state capture & font downloads",
+  "Counter resets every 30 days",
+  "Community support",
 ];
 
 const Pricing = (): ReactElement => {
@@ -107,7 +107,10 @@ const Pricing = (): ReactElement => {
                 <h2>
                   {formatUsdCentsShort(0)} <span>/forever</span>
                 </h2>
-                <p>Best for quick exploration and basic wireframe imports.</p>
+                <p>
+                  Full-featured — try everything, capped at 10 imports per
+                  month.
+                </p>
               </div>
               <ul className={styles.list}>
                 {FREE_FEATURES.map((feature) => (
@@ -186,6 +189,10 @@ const Pricing = (): ReactElement => {
               >
                 Get Pro
               </button>
+              <p className={styles.trustNote}>
+                By purchasing, you agree to our <a href="/terms">Terms</a> and{" "}
+                <a href="/privacy">Privacy Policy</a>.
+              </p>
               <p className={styles.trustNote}>
                 Secure checkout by Flitt (PCI-DSS Level 1) · Apple Pay, Google
                 Pay & all major cards · See <a href="/terms">Terms</a> for

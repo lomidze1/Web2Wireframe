@@ -6,7 +6,7 @@
  *
  * Flow:
  *  1. Viewport setup (Emulation.setDeviceMetricsOverride + scrollbar
- *     compensation + Page.reload, per viewport)
+ *     compensation, per viewport — no Page.reload, so the popup stays open)
  *  2. Content script extracts the live DOM → W2WFrameNode tree
  *  3. CDP: platform fonts (CSS.getPlatformFontsForNode) — gets the
  *     ACTUAL rendered font after fallback, not the CSS request
@@ -133,9 +133,10 @@ export async function handleCapturePageW2W(
 
       __verifyCDPCalls.setViewport++;
 
-      await client.send("Page.reload", { ignoreCache: false });
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      __verifyCDPCalls.pageReload++;
+      // No Page.reload — Emulation reflows the page live at the new width
+      // (h2d's approach). Reloading the active tab closes the action popup, so
+      // we skip it; give layout a moment to settle, then trigger lazy content.
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Auto-scroll for lazy content
       await autoScrollPage(client);
@@ -164,13 +165,16 @@ export async function handleCapturePageW2W(
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
-      // CSS scrollbar hide — re-injected after each reload
+      // CSS scrollbar hide — injected once; persists across viewports since we
+      // no longer reload. Guard against duplicate <style> on later viewports.
       await client.send("Runtime.evaluate", {
         expression: `
-          const style = document.createElement('style');
-          style.id = '__w2w_hide_scrollbar';
-          style.textContent = 'html { scrollbar-width: none !important; } html::-webkit-scrollbar { display: none !important; }';
-          document.head.appendChild(style);
+          if (!document.getElementById('__w2w_hide_scrollbar')) {
+            const style = document.createElement('style');
+            style.id = '__w2w_hide_scrollbar';
+            style.textContent = 'html { scrollbar-width: none !important; } html::-webkit-scrollbar { display: none !important; }';
+            document.head.appendChild(style);
+          }
         `,
         awaitPromise: false,
       });

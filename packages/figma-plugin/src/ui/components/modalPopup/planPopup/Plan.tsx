@@ -404,6 +404,25 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                 Secure checkout by Flitt · Apple Pay, Google Pay &amp; all
                 major cards
               </p>
+              <p class={styles.planTrustNote}>
+                By purchasing, you agree to our{" "}
+                <a
+                  href="https://web2wireframe.design/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Terms
+                </a>{" "}
+                and{" "}
+                <a
+                  href="https://web2wireframe.design/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Privacy Policy
+                </a>
+                .
+              </p>
             </>
           )}
 

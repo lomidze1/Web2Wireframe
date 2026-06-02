@@ -244,6 +244,20 @@ export interface CaptureStats {
   resourceMapMisses: number;
 }
 
+/**
+ * Capture lifecycle snapshot persisted to chrome.storage.session so the popup
+ * can restore it after Chrome closes the action popup mid-capture (the
+ * debugger infobar steals focus — unavoidable platform behavior). Written by
+ * the background, read by the popup on open. Mirrors the popup's CaptureState.
+ */
+export interface PersistedCaptureState {
+  status: "capturing" | "success" | "error";
+  progress: number;
+  message: string;
+  error?: string;
+  stats?: CaptureStats;
+}
+
 // Full page capture result (multi-viewport support)
 export interface CaptureResult {
   url: string;
@@ -521,6 +535,17 @@ export type ExtensionMessage =
   // Without this hop the popup closes when the OAuth tab takes focus
   // and the polling promise dies, leaving the parked token unconsumed.
   | { type: "START_FIGMA_OAUTH" }
+  // Problem report (popup → background → /web/support)
+  | {
+      type: "REPORT_ISSUE";
+      payload: {
+        url: string;
+        email: string;
+        description: string;
+        figmaUserId?: string;
+        statsSummary?: string;
+      };
+    }
   // Legacy (kept for compatibility)
   | { type: "ELEMENT_PICKED"; selector: string; bounds: SelectionBounds; tabId: number; options: CaptureOptions };
 

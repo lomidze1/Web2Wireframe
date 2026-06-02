@@ -1,4 +1,4 @@
-import { DocumentIcon, SelectionIcon } from "./Icons";
+import { CameraIcon, SelectionIcon } from "./Icons";
 
 interface CaptureButtonsProps {
   isCapturing: boolean;
@@ -23,7 +23,7 @@ export function CaptureButtons({
         type="button"
       >
         <span class="btn-icon">
-          <DocumentIcon />
+          <CameraIcon />
         </span>
         <span>{isCapturing ? "Capturing..." : "Capture"}</span>
       </button>

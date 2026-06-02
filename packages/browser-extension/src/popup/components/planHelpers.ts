@@ -56,9 +56,10 @@ export function limitText(license: License): string {
  *   - "0/10" placeholder when unpaired (no license loaded yet)
  */
 export function usagePillText(license: License | null): string {
-  if (!license) return "0/10";
+  if (!license) return "0/10 imports per month";
   if (license.plan === "pro") return "Pro";
   const limit = license.limits.imports ?? 10;
-  return `${license.usage.imports}/${limit}`;
+  return `${license.usage.imports}/${limit} imports per month`;
 }
+
 

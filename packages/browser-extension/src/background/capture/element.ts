@@ -65,6 +65,7 @@ import { analyzeColorsFromTree } from "@/shared/utils";
 import { state, updateProgress } from "../state";
 import { getSettings } from "../utils/settings";
 import { createEmptyElement, categorizeCSSVariable } from "../utils/misc";
+import { autoScrollPage } from "./legacy";
 
 
 
@@ -307,6 +308,14 @@ export async function handleCaptureElementByBackendId(
     // Use first viewport or default
     const targetViewport =
       options.viewports.length > 0 ? options.viewports[0] : 1440;
+
+    // Scroll down→up to materialize lazy content before snapshot (h2d-style).
+    // backendNodeId stays valid across scroll, so the picked element is safe.
+    // Mirrors the full-page capture flow (w2w.ts), which the Select Area path
+    // previously skipped — causing lazy images/sections in the selection to
+    // capture blank.
+    updateProgress(15, "Loading lazy content...");
+    await autoScrollPage(client);
 
     updateProgress(20, "Capturing snapshot...");
     const snapshot = await captureSnapshot(client);

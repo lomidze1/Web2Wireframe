@@ -14,7 +14,7 @@ const Privacy = (): ReactElement => {
     () => [
       {
         id: "purpose",
-        title: "Purpose of this Privacy Policy",
+        title: "1. Purpose of this Privacy Policy",
         content: (
           <p>
             This Privacy Policy explains how Glinc collects, uses, and protects
@@ -24,7 +24,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "who-we-are",
-        title: "Who We Are",
+        title: "2. Who We Are",
         content: (
           <p>
             W2W is operated by Glinc, a project of Giorgi Lomidze, a registered
@@ -37,7 +37,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "what-we-collect",
-        title: "Information We Collect",
+        title: "3. Information We Collect",
         content: (
           <>
             <p>
@@ -75,21 +75,42 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "how-we-use",
-        title: "How We Use Information",
+        title: "4. How We Use Information & Legal Basis",
         content: (
           <>
-            <p>We use information to:</p>
+            <p>
+              We use your information for the purposes below. Where the EU/UK
+              GDPR applies, the legal basis for each is noted:
+            </p>
             <ul>
-              <li>Respond to support requests and communicate with you.</li>
-              <li>Operate, secure, and improve the Service.</li>
-              <li>Diagnose errors and prevent abuse.</li>
+              <li>
+                Provide the Service and manage your plan and license —{" "}
+                <strong>performance of a contract</strong>.
+              </li>
+              <li>
+                Process payments and keep tax and accounting records —{" "}
+                <strong>legal obligation</strong>.
+              </li>
+              <li>
+                Respond to support requests and communicate with you —{" "}
+                <strong>legitimate interest</strong> (and, where relevant,
+                performance of a contract).
+              </li>
+              <li>
+                Secure the Service, diagnose errors, prevent abuse, and improve
+                W2W — <strong>legitimate interest</strong>.
+              </li>
+              <li>
+                Send marketing or newsletter emails — <strong>consent</strong>,
+                which you can withdraw at any time.
+              </li>
             </ul>
           </>
         ),
       },
       {
         id: "imported-content-processing",
-        title: "How Imported Content Is Processed",
+        title: "5. How Imported Content Is Processed",
         content: (
           <>
             <p>
@@ -106,7 +127,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "cookies-local-storage",
-        title: "Cookies & Local Storage",
+        title: "6. Cookies & Local Storage",
         content: (
           <p>
             W2W may use functional localStorage to remember preferences (for
@@ -117,7 +138,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "subprocessors",
-        title: "Third-Party Providers",
+        title: "7. Third-Party Providers",
         content: (
           <p>
             We rely on a small number of trusted third-party providers to
@@ -131,7 +152,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "payment-data",
-        title: "Payment Data",
+        title: "8. Payment Data",
         content: (
           <>
             <p>
@@ -159,7 +180,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "tax-notice",
-        title: "Tax Notice",
+        title: "9. Tax Notice",
         content: (
           <p>
             Web2Wireframe is operated from outside the European Union.
@@ -171,7 +192,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "marketing-newsletter",
-        title: "Marketing & Newsletter",
+        title: "10. Marketing & Newsletter",
         content: (
           <p>
             We only send marketing or newsletter emails if you explicitly opt in.
@@ -183,7 +204,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "retention",
-        title: "Data Retention",
+        title: "11. Data Retention",
         content: (
           <>
             <p>
@@ -193,7 +214,7 @@ const Privacy = (): ReactElement => {
             <ul>
               <li>
                 <strong>Plan &amp; usage</strong> (tied to your Figma user ID) —
-                kept while your account is active.
+                kept for as long as you use the Service.
               </li>
               <li>
                 <strong>Payment metadata</strong> — retained for the period
@@ -218,17 +239,34 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "sharing",
-        title: "Data Sharing",
+        title: "12. Data Sharing",
         content: (
-          <p>
-            We do not sell personal data. We may share data only with trusted
-            service providers or where required by law.
-          </p>
+          <>
+            <p>
+              <strong>We do not sell your personal data.</strong> We share data
+              only in these limited cases:
+            </p>
+            <ul>
+              <li>
+                With the third-party providers that operate the Service (see
+                Third-Party Providers above), acting as our processors.
+              </li>
+              <li>
+                Where required by law — for example, to comply with a legal
+                obligation, court order, or a lawful request from authorities.
+              </li>
+              <li>
+                In connection with a business transfer (such as a merger,
+                acquisition, or sale of assets), in which case this Policy
+                continues to apply to your data.
+              </li>
+            </ul>
+          </>
         ),
       },
       {
         id: "international-transfers",
-        title: "International Data Transfers",
+        title: "13. International Data Transfers",
         content: (
           <p>
             If you access W2W from outside Georgia, your data may be processed
@@ -239,8 +277,18 @@ const Privacy = (): ReactElement => {
         ),
       },
       {
+        id: "automated-decisions",
+        title: "14. Automated Decision-Making",
+        content: (
+          <p>
+            We do not use your personal data for automated decision-making or
+            profiling that produces legal or similarly significant effects.
+          </p>
+        ),
+      },
+      {
         id: "rights",
-        title: "Your Rights",
+        title: "15. Your Rights",
         content: (
           <>
             <p>
@@ -254,7 +302,10 @@ const Privacy = (): ReactElement => {
               <li>Receive your data in a portable format.</li>
               <li>Object to or restrict certain processing.</li>
               <li>Withdraw consent at any time, where processing is based on consent.</li>
-              <li>Lodge a complaint with your local data protection authority.</li>
+              <li>
+                Lodge a complaint with your local data protection authority (in
+                Georgia, the Personal Data Protection Service).
+              </li>
             </ul>
             <p>
               To exercise any of these rights, contact us at{" "}
@@ -266,18 +317,20 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "security",
-        title: "Security",
+        title: "16. Security",
         content: (
           <p>
             We use reasonable technical and organizational measures to protect
-            data. No system is perfectly secure, and we cannot guarantee
-            absolute security.
+            data: traffic is encrypted in transit (HTTPS), card data is never
+            stored on our servers (it is handled by Flitt), and access to data
+            is limited to what is needed to run the Service. No system is
+            perfectly secure, and we cannot guarantee absolute security.
           </p>
         ),
       },
       {
         id: "children",
-        title: "Children’s Privacy",
+        title: "17. Children’s Privacy",
         content: (
           <p>
             W2W is not intended for children under 16, and we do not knowingly
@@ -287,7 +340,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "changes",
-        title: "Changes to This Policy",
+        title: "18. Changes to This Policy",
         content: (
           <p>
             We may update this Policy from time to time. If changes are
@@ -298,7 +351,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "contact",
-        title: "Contact",
+        title: "19. Contact",
         content: (
           <p>
             For privacy questions or requests, contact{" "}

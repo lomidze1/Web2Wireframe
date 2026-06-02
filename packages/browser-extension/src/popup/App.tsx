@@ -1,5 +1,5 @@
 import { useState, useEffect } from "preact/hooks";
-import type { ExtensionMessage, CaptureOptions } from "@/shared/types";
+import type { ExtensionMessage, CaptureOptions, PersistedCaptureState } from "@/shared/types";
 import type { CaptureStats } from "@w2w/shared";
 import type { SessionState } from "@/shared/types";
 import { STORAGE_KEYS } from "@/shared/constants";
@@ -13,7 +13,9 @@ import {
   IdentityModal,
   PlanModal,
   CaptureStatsWarning,
+  ReportIssue,
 } from "./components";
+import { buildCaptureWarningText } from "./components/CaptureStatsWarning";
 
 type CaptureStatus = "idle" | "capturing" | "success" | "error";
 
@@ -32,6 +34,33 @@ interface CaptureState {
  */
 const DEFAULT_VIEWPORTS = [1440];
 
+/**
+ * One-line summary of skipped-image stats, attached to a problem report so we
+ * can see what the capture dropped without the full payload.
+ */
+function summarizeStats(stats: CaptureStats): string | undefined {
+  if (stats.skippedImageCount <= 0) return undefined;
+  return `${stats.skippedImageCount} image(s) skipped`;
+}
+
+/**
+ * Read the active tab's live viewport width for the "Browser (Npx)" row.
+ * `window.innerWidth` in the side panel is the panel's width, so we run it in
+ * the tab via scripting. Returns null on restricted pages (chrome://, store).
+ */
+async function fetchBrowserWidth(tabId: number): Promise<number | null> {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.innerWidth,
+    });
+    const w = results[0]?.result;
+    return typeof w === "number" && w > 0 ? Math.round(w) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function App() {
   const [state, setState] = useState<CaptureState>({
     status: "idle",
@@ -40,6 +69,10 @@ export function App() {
   });
   const [currentTab, setCurrentTab] = useState<chrome.tabs.Tab | null>(null);
   const [viewports, setViewports] = useState<number[]>(DEFAULT_VIEWPORTS);
+  // "Browser (Npx)" row — the active tab's live viewport width. null hides the
+  // row (restricted page); browserSelected is off by default like the others.
+  const [browserWidth, setBrowserWidth] = useState<number | null>(null);
+  const [browserSelected, setBrowserSelected] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [showIdentityModal, setShowIdentityModal] = useState(false);
@@ -49,28 +82,66 @@ export function App() {
   const license = session?.cachedLicense ?? null;
 
   useEffect(() => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        setCurrentTab(tabs[0]);
-      }
-    });
+    // Active tab + its viewport width; refreshed on tab switch so "Browser"
+    // and the capture target always reflect the tab the user is looking at.
+    const loadActiveTab = () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs[0];
+        if (!tab) return;
+        setCurrentTab(tab);
+        if (tab.id != null) {
+          void fetchBrowserWidth(tab.id).then(setBrowserWidth);
+        } else {
+          setBrowserWidth(null);
+        }
+      });
+    };
+    loadActiveTab();
+    chrome.tabs.onActivated.addListener(loadActiveTab);
+    // Live-update the "Browser" width when the user resizes the window.
+    chrome.windows.onBoundsChanged.addListener(loadActiveTab);
 
     // Initial session read.
     void getSession().then(setSession);
 
+    // Restore the capture lifecycle: Chrome closes the action popup once the
+    // debugger infobar takes focus, so on reopen we paint the persisted
+    // progress/success/error instead of resetting to idle.
+    void chrome.storage.session
+      .get(STORAGE_KEYS.LAST_CAPTURE)
+      .then((res) => {
+        const persisted = res[STORAGE_KEYS.LAST_CAPTURE] as
+          | PersistedCaptureState
+          | undefined;
+        if (persisted) setState(persisted);
+      });
+
     // Refresh whenever shared/session.ts writes a new SessionState
-    // (redeem, refresh, fetchMyLicense, revoke, etc.). Keeps the footer
-    // pill + identity icon live without an explicit refresh tick.
+    // (redeem, refresh, fetchMyLicense, revoke, etc.) in local storage, and
+    // mirror the background-owned capture lifecycle from session storage so a
+    // reopened popup goes live (progress → success) on its own.
     const onStorageChange = (
       changes: Record<string, chrome.storage.StorageChange>,
       area: chrome.storage.AreaName,
     ) => {
-      if (area !== "local") return;
-      if (!Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.SESSION)) return;
-      const next = changes[STORAGE_KEYS.SESSION].newValue as
-        | SessionState
-        | undefined;
-      setSession(next ?? null);
+      if (
+        area === "local" &&
+        Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.SESSION)
+      ) {
+        const next = changes[STORAGE_KEYS.SESSION].newValue as
+          | SessionState
+          | undefined;
+        setSession(next ?? null);
+      }
+      if (
+        area === "session" &&
+        Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.LAST_CAPTURE)
+      ) {
+        const next = changes[STORAGE_KEYS.LAST_CAPTURE].newValue as
+          | PersistedCaptureState
+          | undefined;
+        setState(next ?? { status: "idle", progress: 0, message: "" });
+      }
     };
     chrome.storage.onChanged.addListener(onStorageChange);
 
@@ -88,8 +159,42 @@ export function App() {
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
       chrome.storage.onChanged.removeListener(onStorageChange);
+      chrome.tabs.onActivated.removeListener(loadActiveTab);
+      chrome.windows.onBoundsChanged.removeListener(loadActiveTab);
     };
   }, []);
+
+  // Final widths sent to capture: selected presets + the browser width (when
+  // its row is on), de-duplicated so a width is never captured twice.
+  const captureViewports = Array.from(
+    new Set([
+      ...viewports,
+      ...(browserSelected && browserWidth != null ? [browserWidth] : []),
+    ]),
+  ).sort((a, b) => b - a);
+
+  // Selecting a preset that equals the browser width drops the browser row
+  // (mutual exclusivity — one row per width).
+  const handleViewportsChange = (next: number[]) => {
+    setViewports(next);
+    if (browserSelected && browserWidth != null && next.includes(browserWidth)) {
+      setBrowserSelected(false);
+    }
+  };
+
+  // Toggle the browser row; selecting it drops a preset of the same width.
+  const handleBrowserToggle = () => {
+    if (browserWidth == null) return;
+    if (browserSelected) {
+      if (viewports.length === 0) return; // keep at least one selected
+      setBrowserSelected(false);
+    } else {
+      setBrowserSelected(true);
+      if (viewports.includes(browserWidth)) {
+        setViewports(viewports.filter((v) => v !== browserWidth));
+      }
+    }
+  };
 
   const handleCapture = async () => {
     if (!currentTab?.id) return;
@@ -101,7 +206,7 @@ export function App() {
     });
 
     try {
-      const options: CaptureOptions = { viewports };
+      const options: CaptureOptions = { viewports: captureViewports };
       const response = await chrome.runtime.sendMessage({
         type: "CAPTURE_PAGE_W2W",
         tabId: currentTab.id,
@@ -145,13 +250,15 @@ export function App() {
       const response = await chrome.runtime.sendMessage({
         type: "START_SELECTION",
         tabId: currentTab.id,
-        options: { viewports },
+        options: { viewports: captureViewports },
       });
 
       if (!response?.success) {
         throw new Error(response?.error || "Failed to start selection");
       }
 
+      // Close the popup so the user can interact with the page's inspect-mode
+      // overlay (the popup would lose focus and close anyway).
       window.close();
     } catch (error) {
       setState({
@@ -191,8 +298,11 @@ export function App() {
           <>
             <ViewportsSection
               viewports={viewports}
-              onChange={setViewports}
+              onChange={handleViewportsChange}
               disabled={isCapturing}
+              browserWidth={browserWidth}
+              browserSelected={browserSelected}
+              onBrowserToggle={handleBrowserToggle}
             />
 
             <CaptureButtons
@@ -225,12 +335,26 @@ export function App() {
             {state.stats && state.stats.skippedImageCount > 0 && (
               <CaptureStatsWarning stats={state.stats} />
             )}
+            <ReportIssue
+              url={currentTab?.url ?? ""}
+              email={session?.email ?? null}
+              figmaUserId={session?.figmaUserId}
+              statsSummary={state.stats ? summarizeStats(state.stats) : undefined}
+              prefill={
+                state.stats && state.stats.skippedImageCount > 0
+                  ? buildCaptureWarningText(state.stats)
+                  : undefined
+              }
+            />
             <div class="thanks-message">
               Thanks for using Web2Wireframe!
             </div>
             <button
               class="btn btn-secondary"
-              onClick={() => setState({ status: "idle", progress: 0, message: "" })}
+              onClick={() => {
+                setState({ status: "idle", progress: 0, message: "" });
+                void chrome.storage.session.remove(STORAGE_KEYS.LAST_CAPTURE);
+              }}
             >
               Back to Main
             </button>
