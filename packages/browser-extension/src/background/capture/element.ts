@@ -65,8 +65,70 @@ import { analyzeColorsFromTree } from "@/shared/utils";
 import { state, updateProgress } from "../state";
 import { getSettings } from "../utils/settings";
 import { createEmptyElement, categorizeCSSVariable } from "../utils/misc";
-import { autoScrollPage } from "./legacy";
 
+
+
+/**
+ * Scroll only the picked element through the viewport to materialize its
+ * lazy-loaded content (loading="lazy" / IntersectionObserver) before the
+ * snapshot — without scrolling the whole page.
+ *
+ * The full-page autoScrollPage used previously scrolled the entire site even
+ * when the user picked a small, already-visible element (e.g. a header), which
+ * looked like a bug. For an element already fully in view this is a no-op; for
+ * a tall or below-fold element it steps from the element's top to its bottom,
+ * then settles it back into view. Snapshot bounds are absolute, so the final
+ * scroll position doesn't affect geometry.
+ */
+async function scrollElementForLazy(
+  client: CDPClient,
+  backendNodeId: number,
+): Promise<void> {
+  try {
+    const resolved = await client.send<{ object: { objectId?: string } }>(
+      "DOM.resolveNode",
+      { backendNodeId },
+    );
+    const objectId = resolved.object?.objectId;
+    if (!objectId) return;
+
+    await client.send("Runtime.callFunctionOn", {
+      objectId,
+      awaitPromise: true,
+      functionDeclaration: `
+        async function () {
+          const el = this;
+          if (!(el instanceof Element)) return;
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const absTop = () => el.getBoundingClientRect().top + window.scrollY;
+
+          // Bring the element's top to the viewport top (no-op if already there).
+          window.scrollTo(0, absTop());
+          await sleep(100);
+
+          // Step down through the element's height so lazy content within it
+          // enters the viewport and loads. Guarded so an element that keeps
+          // growing (images expanding it) can't loop forever.
+          const step = Math.max(window.innerHeight * 0.8, 400);
+          let guard = 0;
+          while (guard++ < 60) {
+            const rect = el.getBoundingClientRect();
+            if (rect.bottom <= window.innerHeight) break; // fully visible
+            window.scrollBy(0, step);
+            await sleep(100);
+          }
+
+          // Settle the element back into view for a consistent snapshot.
+          window.scrollTo(0, absTop());
+          await sleep(200);
+        }
+      `,
+    });
+  } catch {
+    // Resolution/scroll failed — proceed without lazy materialization rather
+    // than falling back to a jarring full-page scroll.
+  }
+}
 
 
 /**
@@ -309,13 +371,12 @@ export async function handleCaptureElementByBackendId(
     const targetViewport =
       options.viewports.length > 0 ? options.viewports[0] : 1440;
 
-    // Scroll down→up to materialize lazy content before snapshot (h2d-style).
-    // backendNodeId stays valid across scroll, so the picked element is safe.
-    // Mirrors the full-page capture flow (w2w.ts), which the Select Area path
-    // previously skipped — causing lazy images/sections in the selection to
-    // capture blank.
+    // Materialize lazy content within the picked element before the snapshot.
+    // Scoped to the element (not the whole page) so picking a small, already-
+    // visible element doesn't scroll the entire site. backendNodeId stays valid
+    // across scroll, so the picked element is safe.
     updateProgress(15, "Loading lazy content...");
-    await autoScrollPage(client);
+    await scrollElementForLazy(client, backendNodeId);
 
     updateProgress(20, "Capturing snapshot...");
     const snapshot = await captureSnapshot(client);

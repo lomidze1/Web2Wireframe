@@ -16,8 +16,9 @@ import {
   DEFAULT_CAPTURE_OPTIONS,
   type CaptureResult,
 } from "@w2w/shared";
-import { state } from "../state";
+import { state, setCaptureState } from "../state";
 import { autoDownloadResult } from "../utils/download";
+import { openPopupSoon } from "../reopenPopup";
 
 /**
  * Callback that turns a CDP-resolved backendNodeId into a CaptureResult.
@@ -85,7 +86,10 @@ export async function startInspectMode(
         highlightConfig: {},
       });
 
-      // Capture the selected element
+      // Capture the selected element. Persist a terminal lifecycle state so the
+      // reopened popup leaves the "capturing" screen — without this the last
+      // updateProgress(100, "Complete!") leaves LAST_CAPTURE stuck on
+      // status:"capturing" and the popup freezes on reopen.
       try {
         console.log("[W2W] Element selected, backendNodeId:", backendNodeId);
         if (!captureByBackendId) {
@@ -101,11 +105,28 @@ export async function startInspectMode(
         );
         console.log("[W2W] Element capture complete, downloading...");
         await autoDownloadResult(result, tabId);
+        await setCaptureState({
+          status: "success",
+          progress: 100,
+          message: "Capture complete!",
+          stats: result.captureStats,
+        });
       } catch (err) {
         console.error("[W2W] Element capture/download failed:", err);
+        await setCaptureState({
+          status: "error",
+          progress: 0,
+          message: "",
+          error: err instanceof Error ? err.message : "Element capture failed",
+        });
       } finally {
-        // Cleanup inspect mode
+        // Cleanup inspect mode (detaches the debugger / removes the infobar).
         await cancelInspectMode();
+        // Chrome closed the popup when the debugger infobar took focus; poll it
+        // back open so the user sees the result without reopening by hand. The
+        // terminal state is already persisted, so a failed reopen degrades
+        // gracefully to "shown on next manual open".
+        openPopupSoon({ timeoutMs: 10_000 });
       }
     });
 
@@ -148,14 +169,25 @@ export async function cancelInspectMode(): Promise<void> {
     state.inspectModeClient = null;
   }
 
-  // Remove UI from page
+  // Remove UI from page. The "Click an element to capture" overlay may have
+  // been injected directly via chrome.scripting when the content script wasn't
+  // present (an already-open tab from before the extension loaded), in which
+  // case a HIDE_SELECTION_UI message has no receiver and the overlay lingers
+  // after capture. So remove the element directly via scripting (always works),
+  // and still send the message best-effort so a present content script also
+  // detaches its keydown handler.
   if (state.inspectModeTabId) {
+    const tabId = state.inspectModeTabId;
+    chrome.tabs
+      .sendMessage(tabId, { type: "HIDE_SELECTION_UI" })
+      .catch(() => undefined);
     try {
-      await chrome.tabs.sendMessage(state.inspectModeTabId, {
-        type: "HIDE_SELECTION_UI",
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => document.getElementById("w2w-selection-overlay")?.remove(),
       });
     } catch {
-      // Content script might not be ready
+      // Tab closed / restricted page — nothing to clean up.
     }
   }
 

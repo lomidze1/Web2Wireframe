@@ -17,22 +17,20 @@ interface HelpLink {
  * (#7): the extension links to the Figma plugin, the plugin links here.
  */
 const HELP_LINKS: HelpLink[] = [
-  { icon: "🛒", label: "Upgrade to Pro", url: "https://web2wireframe.design/pricing" },
+  { icon: "🛒", label: "Compare plans", url: "https://web2wireframe.design/pricing" },
   { icon: "📄", label: "See our Docs", url: "https://web2wireframe.design/docs" },
   { icon: "💬", label: "Help center", url: "https://web2wireframe.design/support" },
-  { icon: "📧", label: "Contact us", url: "mailto:support@web2wireframe.design" },
+  { icon: "📧", label: "Contact us", url: "https://mail.google.com/mail/?view=cm&fs=1&to=hey@web2wireframe.design" },
   { icon: "✈️", label: "Telegram", url: "https://t.me/web2wireframe" },
-  { icon: "𝕏", label: "X (Twitter)", url: "https://twitter.com/web2wireframe" },
   { icon: "🎨", label: "Open Figma Plugin", url: "https://www.figma.com/community/plugin/web2wireframe" },
 ];
 
 export function HelpModal({ isOpen, onClose }: HelpModalProps) {
   if (!isOpen) return null;
 
-  // mailto: let the native <a> open the mail client; everything else opens in
-  // a background tab via chrome.tabs.create.
+  // Open every link in a background tab via chrome.tabs.create — extension
+  // popups block native navigation (and mailto: launches) without a gesture.
   const handleClick = (url: string) => (e: Event) => {
-    if (url.startsWith("mailto:")) return;
     e.preventDefault();
     chrome.tabs.create({ url, active: false });
   };
