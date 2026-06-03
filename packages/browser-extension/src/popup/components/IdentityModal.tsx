@@ -17,11 +17,15 @@
  * same backendUrl resolution); HelpModal is now a thin links list.
  */
 
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { CloseIcon, CopyIcon, MailIcon } from "./Icons";
-import { revokeSession } from "../../shared/licenseClient";
+import { fetchMyLicense, revokeSession } from "../../shared/licenseClient";
 import { API_URL, STORAGE_KEYS } from "../../shared/constants";
 import type { SessionState } from "../../shared/types";
+
+// Same shape used by ReportIssue's email check — keeps the Subscribe button
+// from firing on inputs like "lomidzeanna33" that lack an @ and a TLD.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface IdentityModalProps {
   isOpen: boolean;
@@ -41,7 +45,22 @@ export function IdentityModal({ isOpen, onClose, session }: IdentityModalProps) 
   const [loginStatus, setLoginStatus] = useState<LoginStatus>("idle");
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  // Refresh the license snapshot whenever the modal opens while signed in, so
+  // the Email line reflects the latest server state — e.g. an email persisted
+  // on the license doc after this session was first created. fetchMyLicense
+  // writes the fresh snapshot to storage; App.tsx's storage listener flows it
+  // back down as a new `session` prop. Errors are swallowed: a stale email is
+  // better than a surfaced network error in this passive modal.
+  useEffect(() => {
+    if (!isOpen || session === null) return;
+    void fetchMyLicense().catch(() => {
+      // Passive refresh — keep the cached snapshot rather than surface errors.
+    });
+  }, [isOpen, session?.figmaUserId]);
+
   if (!isOpen) return null;
+
+  const isValidEmail = EMAIL_RE.test(email.trim());
 
   const handleOverlayClick = (e: Event) => {
     if ((e.target as HTMLElement).classList.contains("modal-overlay")) {
@@ -122,7 +141,7 @@ export function IdentityModal({ isOpen, onClose, session }: IdentityModalProps) 
   // ------------------------------------------------------------------
   const handleSubscribe = async (e: Event) => {
     e.preventDefault();
-    if (!email || !email.includes("@")) return;
+    if (!isValidEmail) return;
 
     setSubscribeStatus("loading");
 
@@ -158,6 +177,10 @@ export function IdentityModal({ isOpen, onClose, session }: IdentityModalProps) 
   };
 
   const isLoggedIn = session !== null;
+  // Prefer the freshest email from the cached license snapshot — `session.email`
+  // is a one-time copy taken at connect/redeem time and goes stale if the email
+  // landed on the license doc only after the session was created (OAuth race).
+  const sessionEmail = session?.cachedLicense?.email ?? session?.email ?? null;
 
   return (
     <div class="modal-overlay" onClick={handleOverlayClick}>
@@ -197,15 +220,15 @@ export function IdentityModal({ isOpen, onClose, session }: IdentityModalProps) 
                 <span class="identity-label">Email</span>
                 <div class="identity-row">
                   <span class="identity-value">
-                    {session.email ?? "—"}
+                    {sessionEmail ?? "—"}
                   </span>
-                  {session.email && (
+                  {sessionEmail && (
                     <button
                       class={`copy-btn ${copyEmail === "copied" ? "copied" : ""}`}
                       type="button"
                       aria-label="Copy email"
                       title="Copy email"
-                      onClick={() => copy(session.email ?? "", setCopyEmail)}
+                      onClick={() => copy(sessionEmail, setCopyEmail)}
                     >
                       <CopyIcon />
                     </button>
@@ -265,7 +288,7 @@ export function IdentityModal({ isOpen, onClose, session }: IdentityModalProps) 
               <button
                 type="submit"
                 class="btn btn-primary newsletter-btn"
-                disabled={subscribeStatus === "loading" || !email}
+                disabled={subscribeStatus === "loading" || !isValidEmail}
               >
                 {subscribeStatus === "loading" ? "..." : "Subscribe"}
               </button>

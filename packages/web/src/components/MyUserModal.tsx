@@ -3,6 +3,10 @@ import { useAuth } from "../contexts/AuthContext";
 import { useModalA11y } from "../hooks/useModalA11y";
 import styles from "./MyUserModal.module.scss";
 
+// Mirrors the browser extension's email check — blocks the Subscribe button on
+// inputs like "lomidzeanna33" that lack an @ and a TLD.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 interface MyUserModalProps {
   open: boolean;
   onClose: () => void;
@@ -29,6 +33,8 @@ const MyUserModal = ({ open, onClose }: MyUserModalProps): ReactElement | null =
 
   if (!open) return null;
 
+  const isValidEmail = EMAIL_RE.test(email.trim());
+
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) onClose();
   };
@@ -46,7 +52,7 @@ const MyUserModal = ({ open, onClose }: MyUserModalProps): ReactElement | null =
   const handleSubscribe = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmed = email.trim();
-    if (!trimmed || !trimmed.includes("@")) return;
+    if (!isValidEmail) return;
 
     setSubscribeStatus("loading");
     try {
@@ -208,7 +214,7 @@ const MyUserModal = ({ open, onClose }: MyUserModalProps): ReactElement | null =
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={subscribeStatus === "loading" || !email}
+                disabled={subscribeStatus === "loading" || !isValidEmail}
               >
                 {subscribeStatus === "loading" ? "…" : "Subscribe"}
               </button>

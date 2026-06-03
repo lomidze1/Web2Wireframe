@@ -974,14 +974,9 @@ export default function () {
     if (msg.type === "get-current-user") {
       let userId: string | null = null;
       try {
-        // SOLE debug log — verifies the sandbox really sees the Figma user.
-        // Promoted to console.warn so it survives any future console gating
-        // — these traces are critical when figmaUserId comes back null.
-        console.warn("[W2W] figma.currentUser:", figma.currentUser);
         userId = figma.currentUser?.id ?? null;
-        console.warn("[W2W] figma.currentUser.id =", userId);
-      } catch (err) {
-        console.warn("[W2W] figma.currentUser threw:", err);
+      } catch {
+        userId = null;
       }
       figma.ui.postMessage({
         type: "current-user",
