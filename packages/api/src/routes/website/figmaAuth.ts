@@ -240,20 +240,15 @@ router.get(
             );
           return;
         }
-        const token = signToken(meData.id, secret, PLUGIN_TOKEN_EXPIRY_SECONDS);
-        pendingPluginAuth.set(pluginNonce, {
-          token,
-          tokenExpiresAt: Date.now() + PLUGIN_TOKEN_EXPIRY_SECONDS * 1000,
-          expires: Date.now() + PLUGIN_AUTH_NONCE_TTL_MS,
-        });
-
-        // Persist the Figma-provided email so it shows up in /api/license/me
-        // (and therefore in the extension's IdentityModal / Plan modal /
-        // backend admin panel). Done AFTER the token is parked so a Mongo
-        // hiccup can't block the user from completing sign-in — the email
-        // can always be backfilled on a later login. Free users get their
-        // Figma email; paid users keep the Flitt billing email since
-        // `setEmailIfMissing` won't overwrite a non-null value.
+        // Persist the Figma-provided email BEFORE parking the token so it
+        // shows up in /api/license/me (and therefore in the extension's
+        // IdentityModal / Plan modal / backend admin panel). The extension
+        // fetches /api/license/me the instant it polls the parked token, so
+        // persisting AFTER the park raced the read and could freeze the
+        // session's email empty. try/catch keeps a Mongo hiccup non-fatal —
+        // sign-in still completes and the email backfills on a later login.
+        // Free users get their Figma email; paid users keep the Flitt billing
+        // email since `setEmailIfMissing` won't overwrite a non-null value.
         if (meData.email) {
           try {
             await licenseService.getOrCreate(meData.id);
@@ -277,6 +272,13 @@ router.get(
             `[Figma OAuth] meData.email missing for id=${meData.id} — Figma did not return email. Check the Figma account's verified email.`,
           );
         }
+
+        const token = signToken(meData.id, secret, PLUGIN_TOKEN_EXPIRY_SECONDS);
+        pendingPluginAuth.set(pluginNonce, {
+          token,
+          tokenExpiresAt: Date.now() + PLUGIN_TOKEN_EXPIRY_SECONDS * 1000,
+          expires: Date.now() + PLUGIN_AUTH_NONCE_TTL_MS,
+        });
 
         res.status(200).send(
           renderResultPage(

@@ -23,6 +23,39 @@ function isAuthRelatedError(message: string): boolean {
   return lower.includes("session expired") || lower.includes("reconnect");
 }
 
+/** Two-squares copy glyph — matches the extension's CopyIcon. */
+const CopyGlyph = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    width="14"
+    height="14"
+  >
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+);
+
+/** Checkmark shown briefly after a successful copy. */
+const CheckGlyph = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    width="14"
+    height="14"
+  >
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
+
 interface PlanProps {
   isOpen: boolean;
   onClose: () => void;
@@ -71,6 +104,7 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   const [blockedCheckoutUrl, setBlockedCheckoutUrl] = useState<string | null>(
     null,
   );
+  const [copiedId, setCopiedId] = useState(false);
 
   const { modalRef } = useModal({ isOpen, onClose });
 
@@ -83,6 +117,36 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   );
 
   const displayError = error ?? licenseError;
+
+  // Copy the account ID. Figma's plugin iframe often blocks the async
+  // clipboard API, so we fall back to the synchronous execCommand path
+  // through a throwaway <textarea> when writeText rejects.
+  const copyAccountId = async () => {
+    if (!license) return;
+    const id = license.figmaUserId;
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(id);
+      ok = true;
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = id;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        ok = false;
+      }
+    }
+    if (ok) {
+      setCopiedId(true);
+      window.setTimeout(() => setCopiedId(false), 1500);
+    }
+  };
 
   // ------------------------------------------------------------------
   // Stop polling on unmount or close
@@ -315,7 +379,18 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               )}
               <div class={styles.planMetaRow}>
                 <span>Account ID</span>
-                <span class={styles.planMetaValue}>{license.figmaUserId}</span>
+                <span class={styles.planMetaIdValue}>
+                  <span class={styles.planMetaValue}>{license.figmaUserId}</span>
+                  <button
+                    type="button"
+                    class={`${styles.planMetaCopy} ${copiedId ? styles.copied : ""}`}
+                    aria-label={copiedId ? "Account ID copied" : "Copy account ID"}
+                    title={copiedId ? "Copied" : "Copy account ID"}
+                    onClick={copyAccountId}
+                  >
+                    {copiedId ? <CheckGlyph /> : <CopyGlyph />}
+                  </button>
+                </span>
               </div>
             </div>
           )}
