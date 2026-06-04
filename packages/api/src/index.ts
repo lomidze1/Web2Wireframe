@@ -424,6 +424,15 @@ websiteRouter.use(
       httpOnly: true,
       sameSite: "lax",
       secure: isProduction,
+      // Share the session cookie across apex/www/api subdomains. The website
+      // starts OAuth on web2wireframe.design but Figma's redirect_uri lands on
+      // api.web2wireframe.design — a host-only cookie set on the website host
+      // is NOT sent back to the api subdomain, so req.session.oauthState is
+      // empty at the callback → "Invalid state". A parent-domain cookie is
+      // visible to every subdomain, fixing the website flow without touching
+      // the browser extension (which already runs the whole flow on the api
+      // host). Localhost has no subdomains → leave host-only in dev.
+      domain: isProduction ? ".web2wireframe.design" : undefined,
       // No `maxAge` → session cookie. Browser deletes when the user closes
       // the browser (Firefox/Safari respect this immediately; Chrome's
       // "continue where you left off" preserves session cookies, but the

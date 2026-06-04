@@ -149,7 +149,12 @@ export const licenseService = {
     const result = await License.updateOne(
       {
         figmaUserId,
-        $or: [{ email: null }, { email: { $exists: false } }],
+        // Treat empty string as "missing" too: legacy/older rows stored
+        // `email: ""` (the schema default is `null` now, but pre-existing
+        // docs can hold ""). Without the `""` branch the filter never matched
+        // those docs, so the Figma-provided email could never backfill and the
+        // extension/plugin showed a blank email forever.
+        $or: [{ email: null }, { email: "" }, { email: { $exists: false } }],
       },
       { $set: { email } },
       // Don't upsert here — getOrCreate is the only path that creates
