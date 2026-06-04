@@ -299,15 +299,17 @@ function UnpairedView({
   return (
     <>
       <div class="plan-summary">
-        <span class="plan-label">Current plan</span>
-        <span class="plan-badge plan-badge-free">FREE</span>
+        <div class="plan-summary-row">
+          <span class="plan-label">Current plan</span>
+          <span class="plan-badge plan-badge-free">FREE</span>
+        </div>
+        <div class="plan-summary-row">
+          <span class="plan-label">Status</span>
+          <span class="plan-meta-value">Active</span>
+        </div>
       </div>
 
       <div class="plan-meta">
-        <div class="plan-meta-row">
-          <span>Status</span>
-          <span class="plan-meta-value">Active</span>
-        </div>
         <div class="plan-meta-row">
           <span>Usage</span>
           <span class="plan-meta-value">0/10 imports this month</span>
@@ -421,10 +423,18 @@ function LoadedView({
   return (
     <>
       <div class="plan-summary">
-        <span class="plan-label">Current plan</span>
-        <span class={`plan-badge ${isPro ? "plan-badge-pro" : "plan-badge-free"}`}>
-          {planLabel(license)}
-        </span>
+        <div class="plan-summary-row">
+          <span class="plan-label">Current plan</span>
+          <span class={`plan-badge ${isPro ? "plan-badge-pro" : "plan-badge-free"}`}>
+            {planLabel(license)}
+          </span>
+        </div>
+        {!isPro && (
+          <div class="plan-summary-row">
+            <span class="plan-label">Status</span>
+            <span class="plan-meta-value">{statusLabel}</span>
+          </div>
+        )}
       </div>
 
       <div class="plan-meta">
