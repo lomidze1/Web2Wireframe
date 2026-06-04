@@ -79,15 +79,18 @@ const renderResultPage = (heading: string, body: string): string => `<!DOCTYPE h
 </style></head>
 <body><div class="card"><h1>${heading}</h1><p>${body}</p></div></body></html>`;
 
-router.get("/auth/figma/login", authRateLimiter, (req: Request, res: Response) => {
-  const clientId = config.figma.clientId;
-  if (!clientId) {
-    res.status(500).json({ error: "Figma client ID not configured" });
-    return;
-  }
+router.get(
+  "/auth/figma/login",
+  authRateLimiter,
+  async (req: Request, res: Response) => {
+    const clientId = config.figma.clientId;
+    if (!clientId) {
+      res.status(500).json({ error: "Figma client ID not configured" });
+      return;
+    }
 
-  const state = generateState();
-  req.session.oauthState = state;
+    const state = generateState();
+    req.session.oauthState = state;
 
   // Plugin OAuth bridge: when the request carries a valid plugin nonce, keep
   // it in the session so the callback can hand the minted token to the plugin.
@@ -114,8 +117,27 @@ router.get("/auth/figma/login", authRateLimiter, (req: Request, res: Response) =
   authorizeUrl.searchParams.set("scope", "current_user:read");
   authorizeUrl.searchParams.set("state", state);
 
-  res.redirect(authorizeUrl.toString());
-});
+    // Persist the session BEFORE handing control to Figma. express-session's
+    // store write is async and fire-and-forget on response end — but if the
+    // user has ALREADY authorized this Figma app, Figma skips the consent
+    // screen and 302s straight back to /auth/figma/callback in milliseconds,
+    // fast enough to beat the MongoStore write. The callback then loads a
+    // session with no `oauthState` → "Invalid state". Saving explicitly makes
+    // the state durable first. (The callback already does this for its own
+    // post-auth session; the login side was missing it.)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+    } catch (err) {
+      console.error("[Figma OAuth] session save failed at login:", err);
+      res.status(500).json({ error: "Could not start login" });
+      return;
+    }
+
+    res.redirect(authorizeUrl.toString());
+  },
+);
 
 router.get(
   "/auth/figma/callback",
