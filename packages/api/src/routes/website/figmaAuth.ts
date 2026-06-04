@@ -427,9 +427,14 @@ router.post("/auth/figma/logout", (req: Request, res: Response) => {
       return;
     }
     // express-session keeps the cookie alive even after destroy unless we
-    // explicitly clear it — the cookie name must match the one we set in
-    // index.ts (`w2w_session`).
+    // explicitly clear it — the name must match the one set in index.ts
+    // (`w2w_sid`).
+    res.clearCookie("w2w_sid");
+    // Legacy cleanup: an earlier build used "w2w_session", briefly with a
+    // parent-domain variant. Clear both shapes so a user who signed in under
+    // the old name isn't left carrying orphaned cookies.
     res.clearCookie("w2w_session");
+    res.clearCookie("w2w_session", { domain: ".web2wireframe.design" });
     res.json({ ok: true });
   });
 });

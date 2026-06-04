@@ -415,7 +415,18 @@ const websiteSessionStore = process.env.MONGODB_URI
 
 websiteRouter.use(
   session({
-    name: "w2w_session",
+    // Renamed from "w2w_session" to break a duplicate-cookie bug: a previous
+    // build set a parent-domain cookie (Domain=.web2wireframe.design) which
+    // coexisted with the older host-only "w2w_session" of the same name. The
+    // browser sent BOTH on every request and express-session read whichever
+    // it parsed first — often the stale one with no current oauthState → the
+    // Figma callback failed with "Invalid state". A fresh name guarantees a
+    // single cookie; the orphaned "w2w_session" pair is ignored and expires
+    // on browser close. We no longer set a Domain at all: every consumer
+    // (website, extension, plugin) talks to api.web2wireframe.design directly,
+    // so a plain host-only cookie is sufficient and can't be shadowed by a
+    // domain-scoped twin.
+    name: "w2w_sid",
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
@@ -424,15 +435,6 @@ websiteRouter.use(
       httpOnly: true,
       sameSite: "lax",
       secure: isProduction,
-      // Share the session cookie across apex/www/api subdomains. The website
-      // starts OAuth on web2wireframe.design but Figma's redirect_uri lands on
-      // api.web2wireframe.design — a host-only cookie set on the website host
-      // is NOT sent back to the api subdomain, so req.session.oauthState is
-      // empty at the callback → "Invalid state". A parent-domain cookie is
-      // visible to every subdomain, fixing the website flow without touching
-      // the browser extension (which already runs the whole flow on the api
-      // host). Localhost has no subdomains → leave host-only in dev.
-      domain: isProduction ? ".web2wireframe.design" : undefined,
       // No `maxAge` → session cookie. Browser deletes when the user closes
       // the browser (Firefox/Safari respect this immediately; Chrome's
       // "continue where you left off" preserves session cookies, but the
