@@ -52,6 +52,23 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const PRICING_RESTORE_KEY = "w2w_pricing_modal_pending";
 
 /**
+ * Auth + session calls must hit the API host DIRECTLY in production.
+ *
+ * The website (Vercel) and API (Render) live on different subdomains, bridged
+ * by Vercel rewrites (`/auth`, `/web` → api.web2wireframe.design). But Vercel's
+ * external rewrites drop the `Set-Cookie` from the proxied OAuth login response,
+ * so the session cookie was never stored and the Figma callback then read an
+ * empty session → "Invalid state". Talking straight to api.web2wireframe.design
+ * sets the cookie on the api host itself; it is shared across subdomains via
+ * `Domain=.web2wireframe.design` (set server-side) and is sent on these
+ * same-site, credentialed calls.
+ *
+ * In dev, "" keeps the relative path so the Vite proxy (vite.config.ts) still
+ * routes to localhost:3002, where there are no subdomains to bridge.
+ */
+const API_BASE = import.meta.env.PROD ? "https://api.web2wireframe.design" : "";
+
+/**
  * Hydrate the in-memory auth state from /web/me. The session cookie is
  * httpOnly; React can't read it, so the only source of truth for "am I
  * logged in" is asking the API. We do this once on mount and again on
@@ -72,7 +89,7 @@ type FetchMeResult =
 async function fetchMe(): Promise<FetchMeResult> {
   let response: Response;
   try {
-    response = await fetch("/web/me", { credentials: "include" });
+    response = await fetch(`${API_BASE}/web/me`, { credentials: "include" });
   } catch {
     // Network down — we don't know if the cookie is still valid. Don't
     // downgrade the user to logged-out on a transient blip.
@@ -189,13 +206,13 @@ export function AuthProvider({
     // that isn't a same-origin path; we still default to "/" defensively.
     const path = returnTo ?? window.location.pathname + window.location.search;
     const safePath = path.startsWith("/") ? path : "/";
-    const url = `/auth/figma/login?return_to=${encodeURIComponent(safePath)}`;
+    const url = `${API_BASE}/auth/figma/login?return_to=${encodeURIComponent(safePath)}`;
     window.location.href = url;
   }, []);
 
   const logout = useCallback(async () => {
     try {
-      await fetch("/auth/figma/logout", {
+      await fetch(`${API_BASE}/auth/figma/logout`, {
         method: "POST",
         credentials: "include",
       });
