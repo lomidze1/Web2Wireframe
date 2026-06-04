@@ -16,7 +16,10 @@
  */
 export const websiteAllowedOrigins: ReadonlyArray<string> = (
   process.env.WEBSITE_ALLOWED_ORIGINS ||
-  "http://localhost:5173,https://www.web2wireframe.design"
+  // Both the apex and the www host are live on Vercel; the website now makes
+  // credentialed /web and /auth calls straight to the api subdomain, so the
+  // browsing origin (whichever Vercel treats as canonical) must be allowlisted.
+  "http://localhost:5173,https://web2wireframe.design,https://www.web2wireframe.design"
 )
   .split(",")
   .map((o) => o.trim())
