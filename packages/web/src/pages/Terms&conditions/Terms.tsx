@@ -34,7 +34,8 @@ const Terms = (): ReactElement => {
             <p>
               The Service is operated by Glinc ("Glinc", "we", "us", "our"), a
               project of Giorgi Lomidze, a registered Individual Entrepreneur in
-              Georgia. You can contact us at{" "}
+              Georgia. Registered address: Georgia, Shida Kartli, Khashuri,
+              Borjomis st. N 106. You can contact us at{" "}
               <EmailLink email="hey@web2wireframe.design" />
             </p>
           </>

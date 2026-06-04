@@ -30,7 +30,8 @@ const Privacy = (): ReactElement => {
             W2W is operated by Glinc, a project of Giorgi Lomidze, a registered
             Individual Entrepreneur in Georgia (the country, not the U.S. state).
             Glinc is the data controller for personal data processed through the
-            Service. If you have questions, contact us at{" "}
+            Service. Registered address: Georgia, Shida Kartli, Khashuri,
+            Borjomis st. N 106. If you have questions, contact us at{" "}
             <EmailLink email="hey@web2wireframe.design" />
           </p>
         ),
