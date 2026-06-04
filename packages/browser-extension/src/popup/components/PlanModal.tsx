@@ -428,10 +428,12 @@ function LoadedView({
       </div>
 
       <div class="plan-meta">
-        <div class="plan-meta-row">
-          <span>Status</span>
-          <span class="plan-meta-value">{statusLabel}</span>
-        </div>
+        {isPro && (
+          <div class="plan-meta-row">
+            <span>Status</span>
+            <span class="plan-meta-value">{statusLabel}</span>
+          </div>
+        )}
         {isPro && license.email && (
           <div class="plan-meta-row">
             <span>Billing email</span>
@@ -445,10 +447,6 @@ function LoadedView({
         <div class="plan-meta-row">
           <span>{isPro ? "Access expires" : "Cycle resets"}</span>
           <span class="plan-meta-value">{inDaysPhrase(license.cycleEndsAt)}</span>
-        </div>
-        <div class="plan-meta-row">
-          <span>Account ID</span>
-          <span class="plan-meta-value">{license.figmaUserId}</span>
         </div>
       </div>
 
