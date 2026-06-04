@@ -31,7 +31,7 @@ function buildApp() {
   app.use(express.json());
   app.use(
     session({
-      name: "w2w_session",
+      name: "w2w_sid",
       secret: "test-session-secret",
       resave: false,
       saveUninitialized: false,
@@ -96,7 +96,7 @@ describe("POST /auth/figma/logout — Origin check (H-3)", () => {
     }
   });
 
-  it("clears the w2w_session cookie when logout succeeds", async () => {
+  it("clears the w2w_sid cookie when logout succeeds", async () => {
     const res = await request(app)
       .post("/auth/figma/logout")
       .set("Origin", "http://localhost:5173");
@@ -105,7 +105,7 @@ describe("POST /auth/figma/logout — Origin check (H-3)", () => {
     // Should contain a Set-Cookie that expires the session cookie.
     expect(cookies).toBeDefined();
     const cookieList = Array.isArray(cookies) ? cookies : [cookies];
-    const cleared = cookieList.find((c) => c.startsWith("w2w_session="));
+    const cleared = cookieList.find((c) => c.startsWith("w2w_sid="));
     expect(cleared).toBeDefined();
     // Either Max-Age=0 or Expires in the past — express's clearCookie
     // produces one of these.
