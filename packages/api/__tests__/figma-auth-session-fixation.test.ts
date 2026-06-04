@@ -38,8 +38,13 @@ describe("figmaAuth.ts contract — session fixation defense (M-7)", () => {
   });
 
   it("calls req.session.save after writing identity (to avoid redirect race)", () => {
-    const saveIdx = src.indexOf("req.session.save");
     const figmaUserIdAssignIdx = src.indexOf("req.session.figmaUserId =");
+    // Look for the save that follows the identity write specifically — the
+    // /auth/figma/login handler also calls req.session.save (to persist
+    // oauthState before redirecting to Figma), which appears earlier in the
+    // file, so a plain indexOf would match the wrong one.
+    const saveIdx = src.indexOf("req.session.save", figmaUserIdAssignIdx);
+    expect(figmaUserIdAssignIdx).toBeGreaterThan(-1);
     expect(saveIdx).toBeGreaterThan(figmaUserIdAssignIdx);
   });
 
