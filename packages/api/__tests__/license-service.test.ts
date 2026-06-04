@@ -759,10 +759,26 @@ describe("licenseService.setEmailIfMissing", () => {
     const [filter, update, options] = mockUpdateOne.mock.calls[0];
     expect(filter).toEqual({
       figmaUserId: "u-42",
-      $or: [{ email: null }, { email: { $exists: false } }],
+      $or: [{ email: null }, { email: "" }, { email: { $exists: false } }],
     });
     expect(update).toEqual({ $set: { email: "owner@example.com" } });
     expect(options).toEqual({ upsert: false });
+    expect(result).toEqual({ matched: 1, modified: 1 });
+  });
+
+  it("backfills a legacy doc whose email is an empty string", async () => {
+    // Regression: older rows stored `email: ""`. The filter must treat "" as
+    // "missing" (alongside null / not-present) so the Figma-provided email can
+    // backfill — otherwise the extension/plugin shows a blank email forever.
+    mockUpdateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+
+    const result = await licenseService.setEmailIfMissing(
+      "u-99",
+      "owner@example.com",
+    );
+
+    const [filter] = mockUpdateOne.mock.calls[0];
+    expect(filter.$or).toContainEqual({ email: "" });
     expect(result).toEqual({ matched: 1, modified: 1 });
   });
 
