@@ -14,44 +14,20 @@ import iconScreenshot from "../../assets/how-it-work/card-icons/screenshot-icon.
 import iconHTML from "../../assets/how-it-work/card-icons/html-icon.png";
 import iconAreaSelection from "../../assets/how-it-work/card-icons/area-selection-icon.png";
 
-// Card Cover images
-// 1. Cover images for Configuration Cards
-import textCardCover from "../../assets/how-it-work/card-cover/text-card-cover.png";
-import colorCardCover from "../../assets/how-it-work/card-cover/color-card-cover.png";
-import fontCardCover from "../../assets/how-it-work/card-cover/font-card-cover.png";
-// 2. Cover images for Input Method Cards
-import urlCardCover from "../../assets/how-it-work/card-cover/url-card-cover.png";
-import screenshotCardCover from "../../assets/how-it-work/card-cover/screenshot-card-cover.png";
-import htmlCardCover from "../../assets/how-it-work/card-cover/html-card-cover.png";
-import areaCardCover from "../../assets/how-it-work/card-cover/area-card-cover.png";
-
-// Card Details images :
-// 1. Configuration details
-import textSettings1 from "../../assets/how-it-work/card-details/text-settings-1.png";
-import textSettings2 from "../../assets/how-it-work/card-details/text-settings-2.png";
-import colorSettings1 from "../../assets/how-it-work/card-details/color-settings-1.png";
-import colorSettings2 from "../../assets/how-it-work/card-details/color-settings-2.png";
-import fontSettings1 from "../../assets/how-it-work/card-details/font-settings-1.png";
-import fontSettings2 from "../../assets/how-it-work/card-details/font-settings-2.png";
-// 2. Input Method details
-import urlImport1 from "../../assets/how-it-work/card-details/url-import-1.png";
-import urlImport2 from "../../assets/how-it-work/card-details/url-import-2.png";
-import screenshotImport1 from "../../assets/how-it-work/card-details/screenshot-import-1.png";
-import screenshotImport2 from "../../assets/how-it-work/card-details/screenshot-import-2.png";
-import htmlCodeImport1 from "../../assets/how-it-work/card-details/html-import-1.png";
-import htmlCodeImport2 from "../../assets/how-it-work/card-details/html-import-2.png";
-import areaSelectionImport1 from "../../assets/how-it-work/card-details/area-selection-import-1.png";
-import areaSelectionImport2 from "../../assets/how-it-work/card-details/area-selection-import-2.png";
+// TODO (owner, today/tomorrow): card cover + detail screenshots are shown as
+// Template placeholders until fresh screenshots are captured. The original PNGs
+// still live in assets/how-it-work/card-cover/ and assets/how-it-work/card-details/.
+// To restore: re-import them, add `cardImage` back to each card, and replace the
+// `screenshotCount` placeholders with real <img> tags.
 
 type Card = {
   id: string;
   icon?: string;
-  cardImage?: string;
   title: string;
   description: string | string[];
   details: {
     howToUse: string | string[];
-    screenshots: (string | typeof import("*.png"))[]; // Support both string paths and imported modules
+    screenshotCount: number; // number of Template placeholders to show until real screenshots land
   };
 };
 
@@ -74,39 +50,36 @@ const sections: Section[] = [
       {
         id: "text-settings",
         icon: iconTextOption,
-        cardImage: textCardCover,
         title: "Text Settings",
         description:
           "Control how text content is generated and represented during import.",
         details: {
           howToUse:
             "Define how text is handled when converting websites into wireframes. Choose between semantic placeholders, original website copy, or length-matched Lorem Ipsum. This allows you to focus on structure, hierarchy, and layout without being distracted by real content — or keep original text when fidelity matters.",
-          screenshots: [textSettings1, textSettings2],
+          screenshotCount: 2,
         },
       },
       {
         id: "color-settings",
         icon: iconColorOption,
-        cardImage: colorCardCover,
         title: "Color Settings",
         description: "Control color extraction and palette creation rules.",
         details: {
           howToUse:
             "Define how colors are extracted from your source designs. Set color naming conventions, palette organization, and automatic color simplification. Create reusable color tokens.",
-          screenshots: [colorSettings1, colorSettings2],
+          screenshotCount: 2,
         },
       },
       {
         id: "font-settings",
         icon: iconFontOption,
-        cardImage: fontCardCover,
         title: "Font Settings",
         description:
           "Map web fonts to Figma-available typefaces automatically.",
         details: {
           howToUse:
             "Set up font mappings so non-standard web fonts are converted to Figma-compatible alternatives. Define fallback chains and keep your designs consistent across projects.",
-          screenshots: [fontSettings1, fontSettings2],
+          screenshotCount: 2,
         },
       },
     ],
@@ -120,7 +93,6 @@ const sections: Section[] = [
       {
         id: "url-import",
         icon: iconWebsiteUrl,
-        cardImage: urlCardCover,
         title: "URL Import",
         description:
           "Paste any public URL. W2W fetches, segments, and cleans the layout.",
@@ -130,13 +102,12 @@ const sections: Section[] = [
             "Adjust import settings (colors, fonts, text, viewport).",
             "Click Import to generate your Figma wireframe.",
           ],
-          screenshots: [urlImport1, urlImport2],
+          screenshotCount: 2,
         },
       },
       {
         id: "screenshot",
         icon: iconScreenshot,
-        cardImage: screenshotCardCover,
         title: "Screenshot",
         description:
           "Upload a screenshot and extract structure directly from the image.",
@@ -147,13 +118,12 @@ const sections: Section[] = [
             "Choose color, font, and text handling options.",
             "Click Generate Wireframe to create an editable Figma layout.",
           ],
-          screenshots: [screenshotImport1, screenshotImport2],
+          screenshotCount: 2,
         },
       },
       {
         id: "html-code",
         icon: iconHTML,
-        cardImage: htmlCardCover,
         title: "HTML Code",
         description:
           "Paste raw HTML and CSS for instant conversion to Figma components.",
@@ -165,13 +135,12 @@ const sections: Section[] = [
             "Choose color, font, and text handling options.",
             "Click Generate Wireframe to convert your code into editable Figma layers.",
           ],
-          screenshots: [htmlCodeImport1, htmlCodeImport2],
+          screenshotCount: 2,
         },
       },
       {
         id: "area-selection",
         icon: iconAreaSelection,
-        cardImage: areaCardCover,
         title: "Area Selection",
         description:
           "Use the browser extension to highlight and capture specific regions.",
@@ -183,7 +152,7 @@ const sections: Section[] = [
             "Adjust import settings (viewport, colors, fonts, text).",
             "Click Generate Wireframe to create an editable Figma layout.",
           ],
-          screenshots: [areaSelectionImport1, areaSelectionImport2],
+          screenshotCount: 2,
         },
       },
     ],
@@ -281,15 +250,10 @@ const HowItWorks = (): ReactElement => {
                       <p>{card.description}</p>
                     )}
                     <div className={styles.cardPreview}>
-                      {card.cardImage && (
-                        <img
-                          src={card.cardImage}
-                          alt={`${card.title} preview`}
-                          className={styles.cardPreviewImg}
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      )}
+                      <div
+                        className={styles.cardPreviewPlaceholder}
+                        aria-hidden="true"
+                      />
                     </div>
                   </button>
                 );
@@ -334,24 +298,19 @@ const HowItWorks = (): ReactElement => {
                   )}
 
                   <div className={styles.panelScreenshots}>
-                    {getActiveCard()?.card.details.screenshots.map(
-                      (src, idx) => (
-                        <div key={idx} className={styles.screenshotContainer}>
-                          <img
-                            src={String(
-                              typeof src === "string" ? src : src.default || src
-                            )}
-                            alt={`${getActiveCard()?.card.title} example ${
-                              idx + 1
-                            }`}
-                            width="300"
-                            height="200"
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        </div>
-                      )
-                    )}
+                    {Array.from({
+                      length:
+                        getActiveCard()?.card.details.screenshotCount ?? 0,
+                    }).map((_, idx) => (
+                      <div
+                        key={idx}
+                        className={styles.screenshotPlaceholder}
+                        role="img"
+                        aria-label={`${getActiveCard()?.card.title} screenshot placeholder ${
+                          idx + 1
+                        }`}
+                      />
+                    ))}
                   </div>
                 </div>
               )}

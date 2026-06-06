@@ -253,8 +253,7 @@ export default function Settings({
                       <summary>Desktop Viewports</summary>
                       <div class={styles.accordionContent}>
                         Use 1440px widths for primary layouts. Keep spacing
-                        generous to mirror production breakpoints. Some viewport
-                        sizes may be locked depending on your plan.
+                        generous to mirror production breakpoints.
                       </div>
                     </details>
                     <details class={styles.accordion}>
