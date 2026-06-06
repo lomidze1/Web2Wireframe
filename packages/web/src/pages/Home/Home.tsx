@@ -73,13 +73,13 @@ const steps: Step[] = [
 
 const comparisonRows: ComparisonRow[] = [
   { feature: "Imports per month", free: "10", pro: "Unlimited" },
-  { feature: "Colors", free: "Plugin only", pro: "Full access" },
-  { feature: "Fonts", free: "Plugin only", pro: "Full access" },
-  { feature: "Viewports", free: "Only: 1920, 1440", pro: "Full access" },
-  { feature: "Text Content", free: "Placeholders only", pro: "Full access" },
-  { feature: "Styles & Assets", free: "No", pro: "Included" },
-  { feature: "Hover state capture", free: "No", pro: "Yes" },
-  { feature: "Font binary download", free: "No", pro: "Yes" },
+  { feature: "Colors", free: "Full access", pro: "Full access" },
+  { feature: "Fonts", free: "Full access", pro: "Full access" },
+  { feature: "Viewports", free: "Full access", pro: "Full access" },
+  { feature: "Text Content", free: "Full access", pro: "Full access" },
+  { feature: "Styles & Assets", free: "Included", pro: "Included" },
+  { feature: "Hover state capture", free: "Yes", pro: "Yes" },
+  { feature: "Font binary download", free: "Yes", pro: "Yes" },
   { feature: "Support", free: "Community", pro: "Priority" },
 ];
 

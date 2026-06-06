@@ -150,6 +150,15 @@
   flex-shrink: 0;
 }
 
+// Template placeholder for the card cover (matches Docs .imagePlaceholder)
+.cardPreviewPlaceholder {
+  width: 100%;
+  height: 100%;
+  background: #e9ecef;
+  border: 1px dashed #cfd4da;
+  border-radius: 8px;
+}
+
 .cardList {
   margin: 0.35rem 0 0 0;
   padding-left: 1.2rem;
@@ -260,6 +269,15 @@
     height: auto;
     background: #f9f9f9;
   }
+}
+
+// Template placeholder for panel screenshots (matches Docs .imagePlaceholder)
+.screenshotPlaceholder {
+  width: 100%;
+  height: 200px;
+  background: #e9ecef;
+  border: 1px dashed #cfd4da;
+  border-radius: 12px;
 }
 
 // CTA Box
