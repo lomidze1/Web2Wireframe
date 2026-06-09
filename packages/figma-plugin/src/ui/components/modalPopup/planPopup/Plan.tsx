@@ -538,6 +538,22 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               </p>
             </Fragment>
           )}
+
+          {license && (
+            <button
+              type="button"
+              class={styles.planDisconnect}
+              onClick={() => {
+                // Same path "Reconnect Figma" takes: clear the stored token and
+                // let ConnectionGate (App.tsx) flip back to the ConnectFigma
+                // screen.
+                clearAuthToken();
+                dispatchAuthExpired();
+              }}
+            >
+              Disconnect Figma
+            </button>
+          )}
         </div>
       </div>
     </div>
