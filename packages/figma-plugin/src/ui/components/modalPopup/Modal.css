@@ -498,6 +498,25 @@
   text-align: center;
 }
 
+.planDisconnect {
+  margin: 14px 6px 4px 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--muted);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition-normal);
+}
+
+.planDisconnect:hover {
+  background: var(--muted);
+  color: var(--accent-fg);
+}
+
 .planActions {
   margin-top: auto;
   display: flex;
