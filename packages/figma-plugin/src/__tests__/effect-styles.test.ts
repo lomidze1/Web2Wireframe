@@ -27,6 +27,7 @@ let effectStyleIdCounter = 0;
 function installFigmaMock(): void {
   (globalThis as Record<string, unknown>).figma = {
     getLocalEffectStyles: vi.fn(() => mockEffectStyles),
+    getLocalEffectStylesAsync: vi.fn(async () => mockEffectStyles),
     createEffectStyle: vi.fn(() => {
       createEffectStyleCallCount++;
       const style: MockEffectStyle = {

@@ -30,7 +30,7 @@ export async function createImagePlaceholderIcon(
   const strokeWeight = Math.max(1.5, size / 30);
 
   // Helper function to link style for shape nodes
-  const linkShapeStyle = (
+  const linkShapeStyle = async (
     node: RectangleNode | EllipseNode | PolygonNode,
     isFill: boolean
   ) => {
@@ -45,7 +45,7 @@ export async function createImagePlaceholderIcon(
         // so it lives in the "W2W/" group instead of a per-hostname group —
         // keeps it consistent across multi-site wireframes.
         const styleName = "W2W/--image-placeholder-icon";
-        const existingStyles = figma.getLocalPaintStyles();
+        const existingStyles = await figma.getLocalPaintStylesAsync();
         const existing = existingStyles.find((s) => s.name === styleName);
         if (existing) {
           existing.paints = [{ type: "SOLID", color: iconColor }];
@@ -64,9 +64,9 @@ export async function createImagePlaceholderIcon(
 
     if (linkedStyle) {
       if (isFill) {
-        node.fillStyleId = linkedStyle.id;
+        await node.setFillStyleIdAsync(linkedStyle.id);
       } else {
-        node.strokeStyleId = linkedStyle.id;
+        await node.setStrokeStyleIdAsync(linkedStyle.id);
       }
     }
   };
@@ -82,7 +82,7 @@ export async function createImagePlaceholderIcon(
   outerRect.strokes = [{ type: "SOLID", color: iconColor }];
   outerRect.strokeWeight = strokeWeight;
   outerRect.cornerRadius = size * 0.06;
-  linkShapeStyle(outerRect, false); // Link stroke style
+  await linkShapeStyle(outerRect, false); // Link stroke style
   iconFrame.appendChild(outerRect);
 
   // Sun circle (top right area)
@@ -93,7 +93,7 @@ export async function createImagePlaceholderIcon(
   sun.y = outerRect.y + rectHeight * 0.15;
   sun.fills = [{ type: "SOLID", color: iconColor }];
   sun.strokes = [];
-  linkShapeStyle(sun, true); // Link fill style
+  await linkShapeStyle(sun, true); // Link fill style
   iconFrame.appendChild(sun);
 
   // Large mountain (bottom left, triangle)
@@ -106,7 +106,7 @@ export async function createImagePlaceholderIcon(
   mountain1.y = outerRect.y + rectHeight - mountain1Height - rectHeight * 0.08;
   mountain1.fills = [{ type: "SOLID", color: iconColor }];
   mountain1.strokes = [];
-  linkShapeStyle(mountain1, true); // Link fill style
+  await linkShapeStyle(mountain1, true); // Link fill style
   iconFrame.appendChild(mountain1);
 
   // Small mountain (overlapping, right side)
@@ -119,7 +119,7 @@ export async function createImagePlaceholderIcon(
   mountain2.y = outerRect.y + rectHeight - mountain2Height - rectHeight * 0.08;
   mountain2.fills = [{ type: "SOLID", color: iconColor }];
   mountain2.strokes = [];
-  linkShapeStyle(mountain2, true); // Link fill style
+  await linkShapeStyle(mountain2, true); // Link fill style
   iconFrame.appendChild(mountain2);
 
   return iconFrame;
@@ -176,7 +176,7 @@ export async function createPlaceholder(
       try {
         // Plugin-generated helper style — see note at image-placeholder-icon above.
         const styleName = "W2W/--image-placeholder";
-        const existingStyles = figma.getLocalPaintStyles();
+        const existingStyles = await figma.getLocalPaintStylesAsync();
         const existing = existingStyles.find((s) => s.name === styleName);
         if (existing) {
           existing.paints = [{ type: "SOLID", color: surfaceRgb, opacity }];
@@ -194,7 +194,7 @@ export async function createPlaceholder(
     }
 
     if (linkedStyle) {
-      placeholder.fillStyleId = linkedStyle.id;
+      await placeholder.setFillStyleIdAsync(linkedStyle.id);
       styleLinked = true;
     }
   }

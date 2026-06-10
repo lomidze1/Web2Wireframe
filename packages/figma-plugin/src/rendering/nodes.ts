@@ -89,13 +89,13 @@ export function mapCSSBlendMode(
 /**
  * Apply fill to a frame with optional style linking (legacy support)
  */
-function applyFillToFrame(
+async function applyFillToFrame(
   frame: FrameNode,
   color: string,
   context: RenderContext,
   tag?: string,
   className?: string
-): void {
+): Promise<void> {
   // When colorMode is "plugin", use smart color mapping
   let effectiveColor = color;
   if (context.colorMode === "plugin") {
@@ -119,7 +119,7 @@ function applyFillToFrame(
     const linkedStyle = context.colorStyleMap.get(normalizedColor);
 
     if (linkedStyle) {
-      frame.fillStyleId = linkedStyle.id;
+      await frame.setFillStyleIdAsync(linkedStyle.id);
       return;
     }
   }
@@ -137,12 +137,12 @@ function applyFillToFrame(
 /**
  * Apply stroke to a frame with optional style linking (legacy support)
  */
-function applyStrokeToFrame(
+async function applyStrokeToFrame(
   frame: FrameNode,
   color: string,
   strokeWeight: number,
   context: RenderContext
-): void {
+): Promise<void> {
   // When colorMode is "plugin", always use text color for borders
   const effectiveColor =
     context.colorMode === "plugin" ? context.pluginColors.text : color;
@@ -156,7 +156,7 @@ function applyStrokeToFrame(
     const linkedStyle = context.colorStyleMap.get(normalizedColor);
 
     if (linkedStyle) {
-      frame.strokeStyleId = linkedStyle.id;
+      await frame.setStrokeStyleIdAsync(linkedStyle.id);
       frame.strokeWeight = strokeWeight;
       return;
     }
@@ -405,7 +405,7 @@ export async function createNodeInFigma(
     );
     if (paints.length > 0) {
       frame.fills = paints;
-      linkFillStyleIfAvailable(frame, context, node.fills);
+      await linkFillStyleIfAvailable(frame, context, node.fills);
     } else {
       frame.fills = [];
     }
@@ -418,9 +418,9 @@ export async function createNodeInFigma(
     );
     if (gradientPaint) {
       frame.fills = [gradientPaint];
-      linkFillStyleIfAvailable(frame, context);
+      await linkFillStyleIfAvailable(frame, context);
     } else if (node.backgroundColor) {
-      applyFillToFrame(
+      await applyFillToFrame(
         frame,
         node.backgroundColor,
         context,
@@ -431,7 +431,7 @@ export async function createNodeInFigma(
       frame.fills = [];
     }
   } else if (node.backgroundColor) {
-    applyFillToFrame(
+    await applyFillToFrame(
       frame,
       node.backgroundColor,
       context,
@@ -461,12 +461,12 @@ export async function createNodeInFigma(
       if (style === "DASHED") frame.dashPattern = [6, 4];
       else if (style === "DOTTED") frame.dashPattern = [2, 2];
       else frame.dashPattern = [];
-      linkStrokeStyleIfAvailable(frame, context, node.strokes);
+      await linkStrokeStyleIfAvailable(frame, context, node.strokes);
     }
   }
   // LEGACY: Fallback to old borderColor/borderWidth fields
   else if (node.borderWidth > 0 && node.borderColor) {
-    applyStrokeToFrame(frame, node.borderColor, node.borderWidth, context);
+    await applyStrokeToFrame(frame, node.borderColor, node.borderWidth, context);
   }
 
   // Apply effects from Figma-ready array
@@ -700,7 +700,7 @@ export async function createNodeInFigma(
           const colorKey = paintKeyFromCSSColor(textColorToUse);
           const linkedStyle = context.colorStyleMap.get(colorKey);
           if (linkedStyle) {
-            textNode.fillStyleId = linkedStyle.id;
+            await textNode.setFillStyleIdAsync(linkedStyle.id);
             styleLinked = true;
           }
         }
@@ -1332,7 +1332,7 @@ export async function createWireframeFrame(
       const normalizedColor = normalizeColorForLookup(pluginColors.background);
       const linkedStyle = context.colorStyleMap.get(normalizedColor);
       if (linkedStyle) {
-        wireframeFrame.fillStyleId = linkedStyle.id;
+        await wireframeFrame.setFillStyleIdAsync(linkedStyle.id);
         rootStyleLinked = true;
       }
     }
@@ -1358,7 +1358,7 @@ export async function createWireframeFrame(
       );
       if (rootFills.length > 0) {
         wireframeFrame.fills = rootFills;
-        linkFillStyleIfAvailable(wireframeFrame, context, frameData.tree.fills);
+        await linkFillStyleIfAvailable(wireframeFrame, context, frameData.tree.fills);
       } else {
         wireframeFrame.fills = [
           {
