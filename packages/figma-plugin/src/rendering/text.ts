@@ -340,13 +340,13 @@ export function isBlockLevelElement(node: WireframeNode): boolean {
  * Skips linking when:
  * - Multi-segment nodes (TextStyle would override per-range formatting)
  */
-function linkTextStyleIfApplicable(
+async function linkTextStyleIfApplicable(
   textNode: TextNode,
   node: WireframeNode,
   segments: TextSegment[],
   usedFontFamily: string,
   context?: RenderContext
-): void {
+): Promise<void> {
   if (
     !context ||
     context.variableMode !== "styles" ||
@@ -368,7 +368,7 @@ function linkTextStyleIfApplicable(
   const textStyle = context.textStyleMap.get(tsKey);
   if (textStyle) {
     try {
-      textNode.textStyleId = textStyle.id;
+      await textNode.setTextStyleIdAsync(textStyle.id);
 
       // Re-apply text decoration — setting textStyleId resets it to the
       // style's default (NONE), but the original segment may have underline/etc.
@@ -785,7 +785,7 @@ export async function createTextNode(
         }
       }
       if (baseLinkedStyle) {
-        textNode.fillStyleId = baseLinkedStyle.id;
+        await textNode.setFillStyleIdAsync(baseLinkedStyle.id);
       } else {
         textNode.fills = [
           {
@@ -835,7 +835,7 @@ export async function createTextNode(
         }
 
         if (linkedStyle) {
-          textNode.setRangeFillStyleId(startIdx, endIdx, linkedStyle.id);
+          await textNode.setRangeFillStyleIdAsync(startIdx, endIdx, linkedStyle.id);
         } else {
           textNode.setRangeFills(startIdx, endIdx, [
             {
@@ -1061,7 +1061,7 @@ export async function createTextNode(
       }
 
       if (linkedStyle) {
-        textNode.fillStyleId = linkedStyle.id;
+        await textNode.setFillStyleIdAsync(linkedStyle.id);
       } else {
         textNode.fills = [
           {
@@ -1173,11 +1173,11 @@ export async function createTextNode(
 
   // Helper: apply all deferred TextStyle links (multi-segment per-range + single-segment whole-node).
   // MUST be called LAST — after lineHeight, letterSpacing, sizing, and fontSize changes.
-  const applyDeferredTextStyles = () => {
+  const applyDeferredTextStyles = async (): Promise<void> => {
     // Per-range links (multi-segment text)
     for (const link of pendingTextStyleLinks) {
       try {
-        textNode.setRangeTextStyleId(link.startIdx, link.endIdx, link.styleId);
+        await textNode.setRangeTextStyleIdAsync(link.startIdx, link.endIdx, link.styleId);
         // Re-apply text decoration — setting textStyleId resets it to the
         // style's default (NONE), but the original segment may have underline/etc.
         if (link.textDecoration) {
@@ -1191,7 +1191,7 @@ export async function createTextNode(
       }
     }
     // Whole-node link (single-segment text)
-    linkTextStyleIfApplicable(textNode, node, segments, usedFontFamily, context);
+    await linkTextStyleIfApplicable(textNode, node, segments, usedFontFamily, context);
   };
 
   // Special cases: always HUG
@@ -1201,7 +1201,7 @@ export async function createTextNode(
   const isBlock = isBlockLevelElement(node);
   if (!isBlock && (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow || isInlineElement)) {
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
-    applyDeferredTextStyles();
+    await applyDeferredTextStyles();
     return textNode;
   }
 
@@ -1213,7 +1213,7 @@ export async function createTextNode(
     textNode.resize(browserWidth, browserHeight);
     textNode.textAutoResize = "NONE";
     textNode.textTruncation = "ENDING";
-    applyDeferredTextStyles();
+    await applyDeferredTextStyles();
     return textNode;
   }
 
@@ -1247,7 +1247,7 @@ export async function createTextNode(
     trimLoremToFitLineCount(textNode, browserLineCount, lineHeightPx);
     textNode.textAutoResize = "NONE";
     textNode.resize(browserWidth, browserHeight);
-    applyDeferredTextStyles();
+    await applyDeferredTextStyles();
     return textNode;
   }
 
@@ -1352,7 +1352,7 @@ export async function createTextNode(
   }
 
   // Apply all deferred TextStyle links LAST (after sizing, lineHeight, letterSpacing)
-  applyDeferredTextStyles();
+  await applyDeferredTextStyles();
 
   return textNode;
 }
@@ -1414,7 +1414,7 @@ export async function createTextWithBackground(
     );
     if (paints.length > 0) {
       frame.fills = paints;
-      linkFillStyleIfAvailable(frame, context, node.fills);
+      await linkFillStyleIfAvailable(frame, context, node.fills);
     } else {
       frame.fills = [];
     }
@@ -1441,7 +1441,7 @@ export async function createTextWithBackground(
       if (style === "DASHED") frame.dashPattern = [6, 4];
       else if (style === "DOTTED") frame.dashPattern = [2, 2];
       else frame.dashPattern = [];
-      linkStrokeStyleIfAvailable(frame, context);
+      await linkStrokeStyleIfAvailable(frame, context);
     }
   }
 

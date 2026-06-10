@@ -28,10 +28,11 @@
     "editorType": [
       "figma"
     ],
-    "id": "w2w-plugin",
+    "id": "1646327864971730293",
     "name": "web2wireframe",
     "main": "src/main.ts",
     "ui": "src/ui/index.tsx",
+    "documentAccess": "dynamic-page",
     "permissions": [
       "currentuser"
     ],

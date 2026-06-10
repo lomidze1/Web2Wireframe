@@ -28,6 +28,7 @@ let gridStyleIdCounter = 0;
 function installFigmaMock(): void {
   (globalThis as Record<string, unknown>).figma = {
     getLocalGridStyles: vi.fn(() => mockGridStyles),
+    getLocalGridStylesAsync: vi.fn(async () => mockGridStyles),
     createGridStyle: vi.fn(() => {
       createGridStyleCallCount++;
       const style: MockGridStyle = {

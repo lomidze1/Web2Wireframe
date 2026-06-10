@@ -58,6 +58,12 @@ function makeMockFrame(overrides?: {
     strokes: overrides?.strokes || [],
     fillStyleId: "",
     strokeStyleId: "",
+    async setFillStyleIdAsync(id: string) {
+      this.fillStyleId = id;
+    },
+    async setStrokeStyleIdAsync(id: string) {
+      this.strokeStyleId = id;
+    },
   };
 }
 

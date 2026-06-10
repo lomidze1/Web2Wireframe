@@ -124,11 +124,11 @@ function compoundPaintKey(fills: FigmaFill[]): string {
  *   When provided, enables gradient and semi-transparent style matching.
  *   Without sourceFills, only solid fills can be matched (via Paint key).
  */
-export function linkFillStyleIfAvailable(
+export async function linkFillStyleIfAvailable(
   frame: FrameNode,
   context: RenderContext,
   sourceFills?: FigmaFill[]
-): void {
+): Promise<void> {
   if (context.variableMode !== "styles") return;
 
   const fills = frame.fills as readonly Paint[];
@@ -140,7 +140,7 @@ export function linkFillStyleIfAvailable(
     if (visibleFills.length === 1 && visibleFills[0].cssVariable) {
       const style = context.variableStyleMap.get(visibleFills[0].cssVariable);
       if (style) {
-        frame.fillStyleId = style.id;
+        await frame.setFillStyleIdAsync(style.id);
         return;
       }
     }
@@ -154,7 +154,7 @@ export function linkFillStyleIfAvailable(
       if (key) {
         const style = context.colorStyleMap.get(key);
         if (style) {
-          frame.fillStyleId = style.id;
+          await frame.setFillStyleIdAsync(style.id);
           return;
         }
       }
@@ -165,7 +165,7 @@ export function linkFillStyleIfAvailable(
       if (compound) {
         const style = context.colorStyleMap.get(compound);
         if (style) {
-          frame.fillStyleId = style.id;
+          await frame.setFillStyleIdAsync(style.id);
           return;
         }
       }
@@ -178,7 +178,7 @@ export function linkFillStyleIfAvailable(
     if (key) {
       const style = context.colorStyleMap.get(key);
       if (style) {
-        frame.fillStyleId = style.id;
+        await frame.setFillStyleIdAsync(style.id);
       }
     }
   }
@@ -189,11 +189,11 @@ export function linkFillStyleIfAvailable(
  * Call this AFTER setting frame.strokes.
  * Supports both opaque and semi-transparent strokes via compound keys.
  */
-export function linkStrokeStyleIfAvailable(
+export async function linkStrokeStyleIfAvailable(
   frame: FrameNode,
   context: RenderContext,
   sourceStrokes?: import("../types").FigmaStroke[]
-): void {
+): Promise<void> {
   if (context.variableMode !== "styles") return;
 
   const strokes = frame.strokes as readonly Paint[];
@@ -204,7 +204,7 @@ export function linkStrokeStyleIfAvailable(
     if (sourceStrokes[0].cssVariable) {
       const style = context.variableStyleMap.get(sourceStrokes[0].cssVariable);
       if (style) {
-        frame.strokeStyleId = style.id;
+        await frame.setStrokeStyleIdAsync(style.id);
         return;
       }
     }
@@ -216,7 +216,7 @@ export function linkStrokeStyleIfAvailable(
     if (key) {
       const style = context.colorStyleMap.get(key);
       if (style) {
-        frame.strokeStyleId = style.id;
+        await frame.setStrokeStyleIdAsync(style.id);
       }
     }
   }
@@ -633,7 +633,7 @@ export async function createPluginColorStyles(
   });
 
   // Hoist getLocalPaintStyles() to once per function (was called 5× before).
-  const existingStyles = figma.getLocalPaintStyles();
+  const existingStyles = await figma.getLocalPaintStylesAsync();
   const createdInThisRun = new Map<string, PaintStyle>();
 
   for (const key of colorRoles) {
@@ -900,7 +900,7 @@ export async function createUnifiedWebsiteColorStyles(
   const variableStyleMap = new Map<string, PaintStyle>();
 
   // Get existing styles once (avoid repeated queries)
-  const existingStyles = figma.getLocalPaintStyles();
+  const existingStyles = await figma.getLocalPaintStylesAsync();
 
   // Track styles created during THIS run (shared across Pass 1 / 3 / 4 so
   // within-run dedupe works; value-first cache entries use `__val:{key}`).
@@ -1490,7 +1490,7 @@ export async function createTextStyles(
   });
 
   // Get existing text styles once
-  const existingTextStyles = figma.getLocalTextStyles();
+  const existingTextStyles = await figma.getLocalTextStylesAsync();
   let stylesCreated = 0;
   const skippedMissingFont = new Set<string>();
   // All modes nest under the site's hostname folder so multi-site imports
@@ -1762,7 +1762,7 @@ export async function createEffectStyles(
   }
   if (unique.size === 0) return styleMap;
 
-  const existingStyles = figma.getLocalEffectStyles();
+  const existingStyles = await figma.getLocalEffectStylesAsync();
   const createdInThisRun = new Map<string, EffectStyle>();
   const counterState = {
     next: nextEffectCounterStart(hostnamePrefix, existingStyles),
@@ -1984,7 +1984,7 @@ export async function createGridStyles(
   }
   if (unique.size === 0) return styleMap;
 
-  const existingStyles = figma.getLocalGridStyles();
+  const existingStyles = await figma.getLocalGridStylesAsync();
   const createdInThisRun = new Map<string, GridStyle>();
 
   for (const [key, node] of Array.from(unique)) {

@@ -40,6 +40,7 @@ let textStyleIdCounter = 0;
 function installFigmaMock(): void {
   (globalThis as Record<string, unknown>).figma = {
     getLocalPaintStyles: vi.fn(() => mockPaintStyles),
+    getLocalPaintStylesAsync: vi.fn(async () => mockPaintStyles),
     createPaintStyle: vi.fn(() => {
       createPaintStyleCallCount++;
       const style: MockPaintStyle = {
@@ -51,6 +52,7 @@ function installFigmaMock(): void {
       return style;
     }),
     getLocalTextStyles: vi.fn(() => mockTextStyles),
+    getLocalTextStylesAsync: vi.fn(async () => mockTextStyles),
     createTextStyle: vi.fn(() => {
       createTextStyleCallCount++;
       const style: MockTextStyle = {
