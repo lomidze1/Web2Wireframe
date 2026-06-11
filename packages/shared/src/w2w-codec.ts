@@ -30,6 +30,8 @@
 
 import { encode as msgpackEncode, decode as msgpackDecode } from "@msgpack/msgpack";
 import type { webcrypto } from "node:crypto";
+import { gcm } from "@noble/ciphers/aes";
+import { gzipSync, Gunzip } from "fflate";
 
 const W2W_VERSION = 0x02;
 const IV_LENGTH = 12;
@@ -84,6 +86,22 @@ const TAG_BYTES = assemble(
 // Web Crypto + stream helpers (isomorphic: browser SW, Figma iframe, Node ≥18)
 // ---------------------------------------------------------------------------
 
+// Web Crypto (`crypto.subtle`) and CompressionStream exist in the browser
+// extension service worker and Node ≥18, but NOT in the Figma desktop plugin
+// iframe (opaque-origin, non-secure context). We detect each at call time and
+// fall back to pure-JS implementations of the SAME standards (AES-256-GCM,
+// gzip), so the container bytes are byte-identical and any file round-trips
+// across both paths regardless of where it was encoded or decoded.
+function hasSubtle(): boolean {
+  return typeof globalThis.crypto?.subtle !== "undefined";
+}
+function hasCompressionStream(): boolean {
+  return typeof globalThis.CompressionStream !== "undefined";
+}
+function hasDecompressionStream(): boolean {
+  return typeof globalThis.DecompressionStream !== "undefined";
+}
+
 let keyPromise: Promise<webcrypto.CryptoKey> | null = null;
 function getKey(): Promise<webcrypto.CryptoKey> {
   if (!keyPromise) {
@@ -98,9 +116,32 @@ function getKey(): Promise<webcrypto.CryptoKey> {
   return keyPromise;
 }
 
+/** AES-256-GCM encrypt → ciphertext ‖ 16-byte tag. Native when available, else pure-JS. */
+async function aesGcmEncrypt(iv: Bytes, data: Bytes): Promise<Bytes> {
+  if (hasSubtle()) {
+    return new Uint8Array(
+      await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv }, await getKey(), data),
+    );
+  }
+  return new Uint8Array(gcm(KEY_BYTES, iv).encrypt(data));
+}
+
+/** AES-256-GCM decrypt; throws on auth-tag mismatch. Native when available, else pure-JS. */
+async function aesGcmDecrypt(iv: Bytes, body: Bytes): Promise<Bytes> {
+  if (hasSubtle()) {
+    return new Uint8Array(
+      await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, await getKey(), body),
+    );
+  }
+  return new Uint8Array(gcm(KEY_BYTES, iv).decrypt(body));
+}
+
 async function gzip(data: Bytes): Promise<Bytes> {
-  const stream = new Response(data).body!.pipeThrough(new CompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  if (hasCompressionStream()) {
+    const stream = new Response(data).body!.pipeThrough(new CompressionStream("gzip"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  return gzipSync(data);
 }
 
 /**
@@ -110,22 +151,7 @@ async function gzip(data: Bytes): Promise<Bytes> {
  */
 const MAX_DECOMPRESSED_BYTES = 300 * 1024 * 1024; // 300 MB
 
-async function gunzip(data: Bytes, maxBytes = MAX_DECOMPRESSED_BYTES): Promise<Bytes> {
-  const reader = new Response(data).body!
-    .pipeThrough(new DecompressionStream("gzip"))
-    .getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > maxBytes) {
-      await reader.cancel();
-      throw new Error("Decompressed .w2w payload exceeds the size limit.");
-    }
-    chunks.push(value);
-  }
+function concatChunks(chunks: Uint8Array[], total: number): Bytes {
   const out = new Uint8Array(total);
   let offset = 0;
   for (const c of chunks) {
@@ -133,6 +159,45 @@ async function gunzip(data: Bytes, maxBytes = MAX_DECOMPRESSED_BYTES): Promise<B
     offset += c.length;
   }
   return out;
+}
+
+/**
+ * Gunzip with a bomb guard. Exported so the plugin's legacy gzip path can reuse
+ * the same DecompressionStream-or-fflate fallback instead of calling the Web API
+ * directly (which is undefined in the Figma desktop iframe).
+ */
+export async function gunzip(data: Bytes, maxBytes = MAX_DECOMPRESSED_BYTES): Promise<Bytes> {
+  if (hasDecompressionStream()) {
+    const reader = new Response(data).body!
+      .pipeThrough(new DecompressionStream("gzip"))
+      .getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error("Decompressed .w2w payload exceeds the size limit.");
+      }
+      chunks.push(value);
+    }
+    return concatChunks(chunks, total);
+  }
+  // Pure-JS streaming gunzip (fflate) with the same bomb guard. push() is
+  // synchronous, so a throw inside the handler propagates out of this call.
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const stream = new Gunzip((chunk) => {
+    total += chunk.length;
+    if (total > maxBytes) {
+      throw new Error("Decompressed .w2w payload exceeds the size limit.");
+    }
+    chunks.push(chunk);
+  });
+  stream.push(data, true);
+  return concatChunks(chunks, total);
 }
 
 /** xorshift32 step (returns the next 32-bit state). */
@@ -205,9 +270,7 @@ export async function encodeW2W(value: unknown): Promise<Bytes> {
   const compressed = await gzip(payload);
 
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const cipher = new Uint8Array(
-    await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv }, await getKey(), compressed),
-  );
+  const cipher = await aesGcmEncrypt(iv, compressed);
   const scrambled = scramble(cipher, iv);
 
   const out = new Uint8Array(HEADER_LENGTH + scrambled.length);
@@ -222,9 +285,7 @@ export async function encodeW2W(value: unknown): Promise<Bytes> {
 async function decodeBody(iv: Bytes, body: Uint8Array): Promise<unknown> {
   const cipher = scramble(body, iv); // XOR is self-inverse
   // Throws on auth-tag mismatch (tampered or wrong key).
-  const compressed = new Uint8Array(
-    await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv }, await getKey(), cipher),
-  );
+  const compressed = await aesGcmDecrypt(iv, cipher);
   const payload = await gunzip(compressed);
   return msgpackDecode(payload);
 }

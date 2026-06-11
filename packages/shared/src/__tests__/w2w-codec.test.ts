@@ -1,6 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { encode as msgpackEncode } from "@msgpack/msgpack";
 import { encodeW2W, decodeW2W, detectFormat } from "../w2w-codec";
+
+/**
+ * Simulate the Figma desktop plugin iframe: an opaque-origin, non-secure
+ * context where `crypto.subtle` and CompressionStream/DecompressionStream are
+ * undefined, while `crypto.getRandomValues` still works. Forces the codec onto
+ * its pure-JS AES-GCM + fflate fallback.
+ */
+function disableWebApis(): void {
+  const realCrypto = globalThis.crypto;
+  vi.stubGlobal("crypto", {
+    getRandomValues: (a: Uint8Array) => realCrypto.getRandomValues(a),
+    subtle: undefined,
+  });
+  vi.stubGlobal("CompressionStream", undefined);
+  vi.stubGlobal("DecompressionStream", undefined);
+}
 
 /** A representative capture-shaped object exercising nesting, arrays, unicode. */
 function sampleCapture(): Record<string, unknown> {
@@ -110,6 +126,47 @@ describe("w2w-codec", () => {
     it("classifies JSON with leading whitespace as 'json'", () => {
       const json = new TextEncoder().encode('\n  {"a":1}');
       expect(detectFormat(json)).toBe("json");
+    });
+  });
+
+  // The container must round-trip across native (browser/Node) and pure-JS
+  // (Figma desktop iframe) implementations — same format bytes, same security.
+  describe("pure-JS fallback (no Web Crypto / CompressionStream)", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("decodes a natively-encoded container (native encode → fallback decode)", async () => {
+      const input = sampleCapture();
+      const bytes = await encodeW2W(input); // native
+      disableWebApis();
+      expect(await decodeW2W(bytes)).toEqual(input); // fallback
+    });
+
+    it("produces a container the native path reads (fallback encode → native decode)", async () => {
+      const input = sampleCapture();
+      disableWebApis();
+      const bytes = await encodeW2W(input); // fallback
+      vi.unstubAllGlobals();
+      expect(await decodeW2W(bytes)).toEqual(input); // native
+    });
+
+    it("round-trips entirely in the fallback path", async () => {
+      const input = sampleCapture();
+      disableWebApis();
+      const bytes = await encodeW2W(input);
+      expect(await decodeW2W(bytes)).toEqual(input);
+    });
+
+    it("still rejects a tampered container under fallback (AES-GCM auth)", async () => {
+      disableWebApis();
+      const bytes = await encodeW2W(sampleCapture());
+      bytes[30] ^= 0xff; // flip a byte inside the encrypted body
+      await expect(decodeW2W(bytes)).rejects.toThrow();
+    });
+
+    it("still detects the keyed 'w2w' format under fallback", async () => {
+      disableWebApis();
+      const bytes = await encodeW2W(sampleCapture());
+      expect(detectFormat(bytes)).toBe("w2w");
     });
   });
 });
