@@ -2,7 +2,7 @@
 import { h } from "preact";
 import { useState, useRef, useEffect } from "preact/hooks";
 import { decode } from "@msgpack/msgpack";
-import { decodeW2W, detectFormat } from "@w2w/shared/w2w-codec";
+import { decodeW2W, detectFormat, gunzip } from "@w2w/shared/w2w-codec";
 import styles from "./AreaSelection.css";
 import importStyles from "../Import.css";
 import { useConfig } from "../../../shared/ConfigContext";
@@ -215,44 +215,6 @@ interface ImportState {
 
 /** Max raw upload size. A real capture is a few MB; this caps the JSON path. */
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB
-/** Decompressed-size ceiling for the legacy gzip path — guards against gzip bombs. */
-const MAX_DECOMPRESSED_BYTES = 300 * 1024 * 1024; // 300 MB
-
-/**
- * Decompress gzip data, aborting if the output exceeds {@link MAX_DECOMPRESSED_BYTES}
- * so a crafted "bomb" file can't exhaust memory.
- */
-async function decompressGzip(compressedData: ArrayBuffer): Promise<Uint8Array> {
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(new Uint8Array(compressedData));
-      controller.close();
-    },
-  });
-
-  const reader = stream
-    .pipeThrough(new DecompressionStream("gzip"))
-    .getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > MAX_DECOMPRESSED_BYTES) {
-      await reader.cancel();
-      throw new Error("Decompressed payload exceeds the size limit.");
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    out.set(c, offset);
-    offset += c.length;
-  }
-  return out;
-}
 
 const TAB_ID = "areaSelection";
 const STORAGE_KEY = "w2w_settings_expanded_areaSelection";
@@ -558,7 +520,7 @@ export default function AreaSelection() {
       } else if (format === "gzip-legacy") {
         // Legacy .w2w — gzip + msgpack (pre-hardening exports).
         setImportState({ status: "loading", message: "Decompressing…" });
-        const decompressedData = await decompressGzip(arrayBuffer);
+        const decompressedData = await gunzip(new Uint8Array(arrayBuffer));
 
         setImportState({ status: "loading", message: "Decoding data…" });
         rawData = decode(decompressedData) as MultiFrameCaptureResult | SingleViewportCaptureResult;
