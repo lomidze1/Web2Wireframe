@@ -974,6 +974,7 @@ body {
 
 .plan-badge {
   display: inline-block;
+  padding: 5px 14px;
   border-radius: 20px;
   font-size: 13px;
   font-weight: 600;
