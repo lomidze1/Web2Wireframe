@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Web2Wireframe",
   "version": "1.0.0",
-  "description": "Capture websites and convert them to editable Figma wireframes using Chrome DevTools Protocol",
+  "description": "Capture any website and convert it to an editable Figma wireframe — colors, fonts, layout, hover states preserved.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

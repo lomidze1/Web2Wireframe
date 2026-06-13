@@ -22,7 +22,7 @@ const HELP_LINKS: HelpLink[] = [
   { icon: "💬", label: "Help center", url: "https://web2wireframe.design/support" },
   { icon: "📧", label: "Contact us", url: "https://mail.google.com/mail/?view=cm&fs=1&to=hey@web2wireframe.design" },
   { icon: "✈️", label: "Telegram", url: "https://t.me/web2wireframe" },
-  { icon: "🎨", label: "Open Figma Plugin", url: "https://www.figma.com/community/plugin/web2wireframe" },
+  { icon: "🎨", label: "Open Figma Plugin", url: "https://www.figma.com/community/plugin/1646327864971730293" },
 ];
 
 export function HelpModal({ isOpen, onClose }: HelpModalProps) {
@@ -75,6 +75,7 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
             <div class="help-tagline">
               Transform any website into editable Figma wireframes
             </div>
+            {/* Hidden until glinc.io/products is live — re-enable in a future update:
             <a
               href="https://glinc.io/products"
               onClick={handleClick("https://glinc.io/products")}
@@ -82,11 +83,9 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
             >
               🚀 Explore our other products
             </a>
+            */}
             <div class="help-made-by">
-              Made with ❤️ by{" "}
-              <a href="https://glinc.io" onClick={handleClick("https://glinc.io")}>
-                Glinc
-              </a>
+              Made with ❤️ by Glinc
             </div>
           </div>
         </div>
