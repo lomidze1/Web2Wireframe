@@ -102,6 +102,39 @@ Browser Extension (Content Script primary + CDP for specific tasks)
 
 ### IMPORTANT: არ ატვირთო კოდი GitHub-ზე დადასტურების გარეშე
 
+### IMPORTANT: 🔒 LIVE ზონა — `api` / `shared` / `extension` არ შევეხოთ
+
+**🛑 ხისტი წესი: ამ 3 დირექტორიაში Edit/Write აკრძალულია.**
+არასოდეს შეცვალო ფაილი `packages/api/`, `packages/shared/`, ან
+`packages/browser-extension/`-ში. თუ დავალება მათ შეხებას მოითხოვს — **ჯერ
+გაჩერდი და ჰკითხე მომხმარებელს**, არ შეცვალო თვითნებურად.
+
+**კონტექსტი (2026-06):** plugin = published (Figma Community), website = published
+(Vercel), browser-extension = pending review (გაგზავნილი, ჯერ არა live).
+დაშვებული აქტიური სამუშაო = **მხოლოდ `packages/figma-plugin`** (rendering/UI/import
+ლოგიკის დახვეწა).
+
+**წესი:** შემდეგ პაკეტებზე ცვლილება **არ გავაკეთოთ** სანამ მომხმარებელი
+**explicitly არ მოითხოვს და 3-4-ჯერ არ გადამოწმდება:**
+
+- `packages/api` — 🔴 LIVE infra (`api.web2wireframe.design`, Render). Request/
+  response ფორმატი გამოქვეყნებულ plugin-ს ეყრდნობა → breaking change რეალურ
+  მომხმარებლებს რეალურ დროში უფუჭებს.
+- `packages/shared` (`@w2w/shared`, `CDPClientInterface`, import data format) —
+  **extension → API → plugin** კონტრაქტი. extension pending-ში გაყინული ფორმატია.
+- `packages/browser-extension` — გაგზავნილი ვერსია გაყინულია; მისი data format
+  API-სთან თავსებადი უნდა დარჩეს.
+
+**რატომ უსაფრთხოა plugin-ის ცვლილება:** გამოქვეყნებული რამ "გაყინულია" იმ ვერსიაზე,
+რომელიც მომხმარებლებს აქვთ — ლოკალური ცვლილება მათ არ ეხებათ სანამ ახალ build-ს არ
+გამოვაქვეყნებთ. ერთადერთი გამონაკლისი = **LIVE API**: გაზიარებული ინფრაა, breaking
+redeploy-ი რეალურ დროში აზიანებს გამოქვეყნებულ plugin-ს.
+
+**Deploy მექანიზმი (გასათვალისწინებელი):** `main`-ში merge **სავარაუდოდ ავტომატურად
+deploy-ს უკეთებს** API-ს (Render Auto-Deploy) და website-ს (Vercel) — GitHub Actions
+არ გვაქვს, კონფიგი dashboard-ებშია. **დაცვა:** თუ `api`/`shared` ხელუხლებელია,
+redeploy-იც იდენტურ API-ს ააწყობს (იგივე კოდი = იგივე ქცევა) → არაფერი ფუჭდება.
+
 ### IMPORTANT: USE_PRODUCTION = false — Git commit/push-ის წინ
 
 **წესი:** `packages/figma-plugin/src/ui/shared/apiConfig.ts`-ში `USE_PRODUCTION`

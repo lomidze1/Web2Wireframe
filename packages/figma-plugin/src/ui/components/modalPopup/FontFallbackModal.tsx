@@ -300,7 +300,7 @@ export default function FontFallbackModal({
               <div class={styles.variablesOption}>
                 <div class={styles.variablesOptionContent}>
                   <span class={styles.originalFontHint}>
-                    Text Styles will use original font names. Download the fonts, install them, then update the styles in Figma.
+                    Text Styles will use original font names. Download the fonts, install them, then update the styles in Figma. Once installed, re-apply the originals to your text via Settings → Fonts → “Re-apply original fonts” (a “Re-apply fonts” button also appears in the footer).
                   </span>
                   {fontDownloads && fontDownloads.length > 0 && (
                     <button

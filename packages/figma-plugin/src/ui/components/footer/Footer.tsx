@@ -10,6 +10,9 @@ interface FooterProps {
   onPlanClick?: () => void;
   showExtension?: boolean;
   onExtensionClick?: () => void;
+  /** Only show the Re-apply fonts button when there's actually something to
+   * re-apply (current page has substituted-font text). */
+  showRebindFonts?: boolean;
   onRebindFontsClick?: () => void;
 }
 
@@ -49,6 +52,7 @@ export default function Footer({
   onPlanClick,
   showExtension = true,
   onExtensionClick,
+  showRebindFonts = false,
   onRebindFontsClick,
 }: FooterProps) {
   // License is preloaded + cached by LicenseProvider (mounted in App.tsx).
@@ -104,43 +108,21 @@ export default function Footer({
         </button>
       </div>
 
+      {/* Center slot — reserved for the contextual "Re-apply fonts" prompt.
+          Empty (and invisible) when nothing needs re-applying; because the
+          slot is flex:1, toggling it never shifts the side groups. */}
       <div class={styles.footerCenter}>
-        {showExtension && onExtensionClick && (
+        {showRebindFonts && onRebindFontsClick && (
           <button
             type="button"
-            class={styles.extensionBtn}
-            onClick={onExtensionClick}
-          >
-            Extension
-          </button>
-        )}
-      </div>
-
-      <div class={styles.footerGroup}>
-        {onPlanClick && (
-          <button
-            type="button"
-            class={`${styles.planPill} ${planLabel.nearLimit ? styles.planPillWarn : ""} ${planLabel.isPro ? styles.planPillPro : ""}`}
-            onClick={onPlanClick}
-            aria-label={planLabel.ariaLabel}
-          >
-            {planLabel.isPro && (
-              <span class={styles.proDot} aria-hidden="true" />
-            )}
-            <span>{planLabel.text}</span>
-          </button>
-        )}
-        {onRebindFontsClick && (
-          <button
-            type="button"
-            class={styles.iconBtn}
+            class={styles.rebindFontsBtn}
             onClick={onRebindFontsClick}
             aria-label="Re-apply original fonts"
-            title="Re-apply original fonts (after installing the .zip download)"
+            title="Re-apply original fonts to text imported with substituted fonts (after installing the .zip download)"
           >
             <svg
-              width="16"
-              height="16"
+              width="14"
+              height="14"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -154,6 +136,32 @@ export default function Footer({
               <path d="M16 4v4h-4" />
               <path d="M20 12a8 8 0 1 1-2.34-5.66L20 8" />
             </svg>
+            Re-apply fonts
+          </button>
+        )}
+      </div>
+
+      <div class={styles.footerGroup}>
+        {showExtension && onExtensionClick && (
+          <button
+            type="button"
+            class={styles.extensionBtn}
+            onClick={onExtensionClick}
+          >
+            Extension
+          </button>
+        )}
+        {onPlanClick && (
+          <button
+            type="button"
+            class={`${styles.planPill} ${planLabel.nearLimit ? styles.planPillWarn : ""} ${planLabel.isPro ? styles.planPillPro : ""}`}
+            onClick={onPlanClick}
+            aria-label={planLabel.ariaLabel}
+          >
+            {planLabel.isPro && (
+              <span class={styles.proDot} aria-hidden="true" />
+            )}
+            <span>{planLabel.text}</span>
           </button>
         )}
       </div>
