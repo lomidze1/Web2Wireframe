@@ -1077,6 +1077,34 @@ export default function Settings({
                           </div>
                         </label>
                       </div>
+
+                      {/* Re-apply original fonts — when an import used website
+                          fonts that weren't installed in Figma, text falls back
+                          to a substitute. After downloading & installing the
+                          fonts (.zip from the import dialog), this re-applies
+                          the original fonts to the marked text. */}
+                      <div class={styles.originalFontHint}>
+                        Imported text using a substituted font? After installing
+                        the downloaded fonts (.zip), re-apply the originals to
+                        the current selection — or the whole page if nothing is
+                        selected.
+                      </div>
+                      <button
+                        type="button"
+                        class={styles.fontDownloadBtn}
+                        onClick={() =>
+                          parent.postMessage(
+                            {
+                              pluginMessage: {
+                                type: "rebind-original-fonts",
+                              },
+                            },
+                            "*",
+                          )
+                        }
+                      >
+                        Re-apply original fonts
+                      </button>
                     </Fragment>
                   )}
                 </div>

@@ -132,7 +132,7 @@ export default function Help({ isOpen, onClose }: HelpProps) {
               Transform any website into editable Figma wireframes
             </div>
             <a
-              href="https://glinc.io/products"
+              href="https://www.glinc.io/#plugins"
               target="_blank"
               rel="noopener noreferrer"
               class={styles.helpOtherProducts}

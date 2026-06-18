@@ -51,6 +51,7 @@ import {
 import {
   rebindOriginalFonts,
   collectTextNodesIn,
+  ORIGINAL_FONT_PLUGIN_KEY,
 } from "./rendering/rebindFonts";
 
 // ============================================================================
@@ -67,10 +68,33 @@ export default function () {
     missingFonts: string[];
   } | null = null;
 
+  // Count text nodes on the current page still awaiting original-font re-apply
+  // (they carry a non-empty `w2w_original_font` marker — imported with a
+  // substituted font). The UI uses this to conditionally show the
+  // "Re-apply fonts" footer button only when there's actually work to do.
+  const postRebindableCount = () => {
+    try {
+      const count = figma.currentPage
+        .findAll((n) => n.type === "TEXT")
+        .filter((n) => !!n.getPluginData(ORIGINAL_FONT_PLUGIN_KEY)).length;
+      figma.ui.postMessage({ type: "rebindable-count", data: { count } });
+    } catch {
+      // Page scan can fail on unusual/huge docs — non-fatal, just skip.
+    }
+  };
+
+  // Switching Figma pages changes which nodes are in scope; refresh the count.
+  figma.on("currentpagechange", () => postRebindableCount());
+
   // Listen for messages from UI
   figma.ui.onmessage = async (msg) => {
     // Relay debug logs from UI iframe — silenced.
     if (msg.type === "debug-log") {
+      return;
+    }
+    // UI asks how many text nodes still need their original font re-applied.
+    if (msg.type === "count-rebindable-fonts") {
+      postRebindableCount();
       return;
     }
     // Handle font fallback choice from popup
@@ -784,6 +808,10 @@ export default function () {
             frameCount: createdFrames.length,
           },
         });
+
+        // The fresh import may have introduced substituted-font text — refresh
+        // the count so the "Re-apply fonts" button surfaces if needed.
+        postRebindableCount();
       } catch (error) {
         errorHandler.handle({
           code: ErrorCode.WIREFRAME_CREATION_FAILED,
@@ -901,6 +929,9 @@ export default function () {
         logger.warn("rebind-original-fonts handler failed", { error: err });
         figma.notify("Couldn't re-apply fonts. Please try again.", { error: true });
       }
+      // Markers are cleared on successful re-apply — refresh so the button
+      // hides once everything is re-applied (and stays if fonts still missing).
+      postRebindableCount();
       return;
     }
 

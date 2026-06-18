@@ -19,8 +19,6 @@ export default function BrowserExtension() {
 
   return (
     <div class={styles.extensionContainer}>
-      <div class={styles.extensionTitle}>Browser Extension</div>
-
       <div class={styles.extensionDescription}>
         Capture any webpage from your browser — including private, local, and
         login-protected pages — then bring it into Figma.

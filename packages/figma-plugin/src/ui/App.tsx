@@ -7,11 +7,11 @@ import Web from "./pages/import/web";
 import Screenshot from "./pages/import/screenshot";
 import HTML from "./pages/import/html";
 import AreaSelection from "./pages/import/areaSelection";
-import BrowserExtension from "./pages/import/browserExtension";
 
 // Modals
 import Settings from "./components/modalPopup/Settings";
 import Help from "./components/modalPopup/Help";
+import ExtensionModal from "./components/modalPopup/ExtensionModal";
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
@@ -43,7 +43,7 @@ import { LicenseProvider, useLicense } from "./shared/LicenseContext";
 import styles from "./styles/ui.css";
 import importStyles from "./pages/import/Import.css";
 
-type ImportTab = "web" | "screenshot" | "html" | "area" | "extension";
+type ImportTab = "web" | "screenshot" | "html" | "area";
 
 export default function App() {
   return (
@@ -145,8 +145,16 @@ function AppContent() {
   const [settingsPanel, setSettingsPanel] =
     useState<SettingsPanel>("configuration");
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isExtensionOpen, setIsExtensionOpen] = useState(false);
   const [isPlanOpen, setIsPlanOpen] = useState(false);
   const [isQuotaExceededOpen, setIsQuotaExceededOpen] = useState(false);
+  // Number of text nodes on the current page still carrying the
+  // `w2w_original_font` marker (imported with a substituted font, awaiting
+  // re-apply). Drives the conditional "Re-apply fonts" footer button — it only
+  // appears when there's actually something to re-apply. The sandbox owns the
+  // count: it pushes `rebindable-count` on request, after each import, after a
+  // rebind, and on Figma page change.
+  const [rebindableCount, setRebindableCount] = useState(0);
   const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
     number | null
   >(null);
@@ -155,6 +163,25 @@ function AppContent() {
   // (see shared/quotaEvents.ts → isQuotaExceeded).
   useEffect(() => {
     return onQuotaExceeded(() => setIsQuotaExceededOpen(true));
+  }, []);
+
+  // Track how many text nodes still need their original font re-applied.
+  // The sandbox (main.ts) scans the current page and replies with
+  // `rebindable-count`; it also pushes updates unprompted after imports,
+  // rebinds, and page switches. We request an initial count on mount.
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg.type !== "rebindable-count") return;
+      const count = msg.data?.count;
+      if (typeof count === "number") setRebindableCount(count);
+    };
+    window.addEventListener("message", handler);
+    parent.postMessage(
+      { pluginMessage: { type: "count-rebindable-fonts" } },
+      "*",
+    );
+    return () => window.removeEventListener("message", handler);
   }, []);
 
   const { setOpenSettingsCallback } = useConfig();
@@ -254,8 +281,6 @@ function AppContent() {
         return <HTML />;
       case "area":
         return <AreaSelection />;
-      case "extension":
-        return <BrowserExtension />;
       default:
         return null;
     }
@@ -285,8 +310,9 @@ function AppContent() {
         onPlanClick={() => setIsPlanOpen(true)}
         showExtension={true}
         onExtensionClick={() => {
-          setImportTab("extension");
+          setIsExtensionOpen(true);
         }}
+        showRebindFonts={rebindableCount > 0}
         onRebindFontsClick={() => {
           // Sandbox handles `rebind-original-fonts`: walks selection (or page
           // if empty), re-applies any text node that carries the
@@ -308,6 +334,10 @@ function AppContent() {
       initialPanel={settingsPanel}
     />
     <Help isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+    <ExtensionModal
+      isOpen={isExtensionOpen}
+      onClose={() => setIsExtensionOpen(false)}
+    />
     <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
     <QuotaExceededModal
       isOpen={isQuotaExceededOpen}

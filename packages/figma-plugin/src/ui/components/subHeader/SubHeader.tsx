@@ -3,7 +3,7 @@ import { h } from "preact";
 import { useRef } from "preact/hooks";
 import styles from "./SubHeader.css";
 
-type ImportTab = "web" | "screenshot" | "html" | "area" | "extension";
+type ImportTab = "web" | "screenshot" | "html" | "area";
 
 interface TabDef {
   id: ImportTab;
