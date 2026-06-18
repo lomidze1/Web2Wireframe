@@ -3,6 +3,7 @@ import express from "express";
 import request from "supertest";
 
 const mockLicenseCount = vi.fn();
+const mockLicenseFind = vi.fn();
 const mockWebhookCount = vi.fn();
 const mockAuditCount = vi.fn();
 
@@ -10,7 +11,10 @@ vi.mock("../src/models/License.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/models/License.js")>();
   return {
     ...actual,
-    License: { countDocuments: (...args: unknown[]) => mockLicenseCount(...args) },
+    License: {
+      countDocuments: (...args: unknown[]) => mockLicenseCount(...args),
+      find: (...args: unknown[]) => mockLicenseFind(...args),
+    },
   };
 });
 
@@ -38,9 +42,23 @@ const ADMIN_TOKEN = "test-admin-token-32-bytes-or-more!";
 beforeEach(() => {
   delete process.env.ADMIN_TOKEN;
   mockLicenseCount.mockReset();
+  mockLicenseFind.mockReset();
   mockWebhookCount.mockReset();
   mockAuditCount.mockReset();
+  // Default: the roster query (License.find(...).sort(...).lean()) resolves to
+  // an empty list. Tests that care about the users table override this.
+  primeUserList([]);
 });
+
+/**
+ * Primes the roster query — License.find(projection).sort().lean() — with the
+ * supplied rows. Mirrors the chainable Mongoose call in stats.ts.
+ */
+function primeUserList(rows: unknown[]): void {
+  mockLicenseFind.mockReturnValue({
+    sort: () => ({ lean: () => Promise.resolve(rows) }),
+  });
+}
 
 /**
  * Helper — primes all 13 countDocuments calls with the supplied values.
@@ -164,6 +182,41 @@ describe("GET /api/admin/stats — response shape", () => {
     mockLicenseCount.mockRejectedValue(new Error("mongo down"));
     const res = await request(makeApp()).get("/api/admin/stats");
     expect(res.status).toBe(500);
+  });
+
+  it("returns users.list projecting only id/email/plan/status/imports/joined", async () => {
+    primeCounts({ totalUsers: 2 });
+    primeUserList([
+      {
+        figmaUserId: "u-1",
+        email: "a@example.com",
+        plan: "pro",
+        status: "active",
+        usage: { imports: 42 },
+        createdAt: new Date("2026-06-01T00:00:00Z"),
+      },
+      {
+        figmaUserId: "u-2",
+        email: null,
+        plan: "free",
+        status: "active",
+        usage: { imports: 0 },
+        createdAt: new Date("2026-06-10T00:00:00Z"),
+      },
+    ]);
+    const res = await request(makeApp()).get("/api/admin/stats");
+    expect(res.body.users.list).toHaveLength(2);
+    expect(res.body.users.list[0]).toEqual({
+      figmaUserId: "u-1",
+      email: "a@example.com",
+      plan: "pro",
+      status: "active",
+      imports: 42,
+      createdAt: "2026-06-01T00:00:00.000Z",
+    });
+    // null email is preserved (rendered as "—" client-side)
+    expect(res.body.users.list[1].email).toBeNull();
+    expect(res.body.users.list[1].imports).toBe(0);
   });
 });
 
