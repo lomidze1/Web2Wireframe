@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { License } from "../../models/License.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
 import { LicenseAudit } from "../../models/LicenseAudit.js";
+import { ImportEvent } from "../../models/ImportEvent.js";
 import { PLAN_PRICES } from "../../models/License.js";
 import { verifyAdminCredential } from "../../middleware/adminAuth.js";
 
@@ -51,6 +52,7 @@ router.get("/", async (req: Request, res: Response) => {
       proActivationsAudit30d,
       refundsAudit30d,
       userList,
+      recentImportEvents,
     ] = await Promise.all([
       License.countDocuments({}),
       License.countDocuments({ plan: "pro" }),
@@ -101,6 +103,25 @@ router.get("/", async (req: Request, res: Response) => {
       )
         .sort({ createdAt: -1 })
         .lean(),
+      // Recent import attempts across all paths — the "what did people try to
+      // import, and what failed?" feed. Newest 50 is plenty for a glance.
+      ImportEvent.find(
+        {},
+        {
+          _id: 0,
+          figmaUserId: 1,
+          sourceUrl: 1,
+          title: 1,
+          type: 1,
+          viewports: 1,
+          success: 1,
+          errorCode: 1,
+          createdAt: 1,
+        },
+      )
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean(),
     ]);
 
     // Revenue estimate: approved webhooks × Pro price, minus reversals.
@@ -119,8 +140,29 @@ router.get("/", async (req: Request, res: Response) => {
         ? Math.round((proActivationsAudit30d / newUsers30d) * 10000) / 100
         : 0;
 
+    // Join each import event to its user's email via the roster we already
+    // fetched — avoids a second round-trip / $lookup.
+    const emailByUserId = new Map(
+      userList.map((u) => [u.figmaUserId, u.email ?? null]),
+    );
+    const recentImports = recentImportEvents.map((e) => ({
+      figmaUserId: e.figmaUserId,
+      email: emailByUserId.get(e.figmaUserId) ?? null,
+      sourceUrl: e.sourceUrl,
+      title: e.title ?? null,
+      type: e.type,
+      viewports: e.viewports ?? [],
+      success: e.success,
+      errorCode: e.errorCode ?? null,
+      createdAt:
+        e.createdAt instanceof Date
+          ? e.createdAt.toISOString()
+          : (e.createdAt ?? null),
+    }));
+
     res.json({
       generatedAt: now.toISOString(),
+      recentImports,
       users: {
         total: totalUsers,
         byPlan: { free: freeUsers, pro: proUsers },
@@ -163,6 +205,65 @@ router.get("/", async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("[Admin] stats error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * GET /api/admin/stats/imports?figmaUserId=<id>
+ *
+ * One user's import history — the drill-down behind a clickable row in the
+ * dashboard. Newest 100 imports with their full parameters, so the owner can
+ * reproduce exactly what a given user did. Admin-gated, same credential as the
+ * main stats endpoint.
+ */
+router.get("/imports", async (req: Request, res: Response) => {
+  if (!verifyAdminCredential(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const figmaUserId = String(req.query.figmaUserId || "");
+  if (!figmaUserId) {
+    res.status(400).json({ error: "Missing figmaUserId" });
+    return;
+  }
+  try {
+    const events = await ImportEvent.find(
+      { figmaUserId },
+      {
+        _id: 0,
+        sourceUrl: 1,
+        title: 1,
+        type: 1,
+        viewports: 1,
+        params: 1,
+        success: 1,
+        errorCode: 1,
+        createdAt: 1,
+      },
+    )
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    res.json({
+      figmaUserId,
+      imports: events.map((e) => ({
+        sourceUrl: e.sourceUrl,
+        title: e.title ?? null,
+        type: e.type,
+        viewports: e.viewports ?? [],
+        params: e.params ?? null,
+        success: e.success,
+        errorCode: e.errorCode ?? null,
+        createdAt:
+          e.createdAt instanceof Date
+            ? e.createdAt.toISOString()
+            : (e.createdAt ?? null),
+      })),
+    });
+  } catch (err) {
+    console.error("[Admin] stats/imports error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -226,6 +327,22 @@ const STATS_HTML = `<!DOCTYPE html>
   .pill.pro { background: #e6f4ea; color: #1e7a3b; }
   .pill.free { background: #eef0f4; color: #5a6072; }
   .pill.status { background: #f0f2f5; color: #5a6072; font-weight: 500; }
+  .pill.ok { background: #e6f4ea; color: #1e7a3b; }
+  .pill.fail { background: #fdecea; color: #842029; }
+  .pill.type { background: #eef0f4; color: #3a4256; font-weight: 500; }
+  table.users td.url { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: #3a4256; word-break: break-all; }
+  table.users tr.clickable { cursor: pointer; }
+  table.users tr.clickable:hover td { background: #f5f7fa; }
+  .overlay { position: fixed; inset: 0; background: rgba(12,13,18,0.45); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; z-index: 50; }
+  .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 900px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #eef0f4; }
+  .modal-head h2 { margin: 0; font-size: 1rem; }
+  .modal-head .uid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; color: #9aa0ac; margin-top: 2px; }
+  .modal-close { border: none; background: #f0f2f5; border-radius: 6px; width: 30px; height: 30px; font-size: 1.1rem; line-height: 1; cursor: pointer; color: #5a6072; }
+  .modal-close:hover { background: #e3e6eb; }
+  .modal-body { padding: 16px 20px; }
+  .modal-body table.users { margin: 0; }
+  td.params { font-size: 0.78rem; color: #5a6072; }
 </style>
 </head>
 <body>
@@ -234,6 +351,8 @@ const STATS_HTML = `<!DOCTYPE html>
 <div class="sub" id="generated">Loading…</div>
 <div id="root"></div>
 <section id="users-section"></section>
+<section id="imports-section"></section>
+<div id="modal-root"></div>
 <script>
 function fmtUsd(cents) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -344,7 +463,7 @@ function renderUsers() {
     tbody.appendChild(emptyTr);
   }
   rows.forEach(function (u, i) {
-    var tr = el("tr");
+    var tr = el("tr", { className: "clickable", onClick: function () { openUserImports(u.figmaUserId, u.email); } });
     tr.appendChild(el("td", { className: "num", text: i + 1 }));
     tr.appendChild(el("td", { className: "id", text: u.figmaUserId }));
     tr.appendChild(u.email ? el("td", { text: u.email }) : el("td", { className: "muted", text: "—" }));
@@ -367,6 +486,201 @@ function paintUsers() {
   var c = document.getElementById("users-section");
   if (c) c.replaceChildren(renderUsers());
 }
+
+// ── Recent imports: who imported which site, and what failed ─────────────
+// Same DOM-method rendering as the users table — sourceUrl/title are
+// user-controlled, so they are only ever set via textContent.
+var IMPORTS = [];
+var importView = { filter: "all" };
+
+function fmtWhen(iso) {
+  if (!iso) return "—";
+  var d = new Date(iso);
+  return isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
+
+function filteredImports() {
+  if (importView.filter === "failed") return IMPORTS.filter(function (e) { return !e.success; });
+  return IMPORTS.slice();
+}
+
+function mkImportBtn(key, label) {
+  return el("button", {
+    className: "btn" + (importView.filter === key ? " active" : ""),
+    text: label,
+    onClick: function () { importView.filter = key; paintImports(); },
+  });
+}
+
+function renderImports() {
+  var rows = filteredImports();
+  var frag = document.createDocumentFragment();
+  frag.appendChild(el("h2", { text: "Recent imports" }));
+
+  var toolbar = el("div", { className: "toolbar" });
+  var group = el("div", { className: "group" });
+  group.appendChild(mkImportBtn("all", "ყველა"));
+  group.appendChild(mkImportBtn("failed", "ჩავარდნილი"));
+  toolbar.appendChild(group);
+  toolbar.appendChild(el("span", { className: "count", text: rows.length + " / " + IMPORTS.length + " import(s)" }));
+  frag.appendChild(toolbar);
+
+  var table = el("table", { className: "users" });
+  var thead = el("thead");
+  var htr = el("tr");
+  ["When", "Email", "URL", "Type", "Viewports", "Result"].forEach(function (h) {
+    htr.appendChild(el("th", { text: h }));
+  });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+
+  var tbody = el("tbody");
+  if (!rows.length) {
+    var emptyTd = el("td", { className: "muted", text: "No imports yet" });
+    emptyTd.colSpan = 6;
+    emptyTd.style.textAlign = "center";
+    emptyTd.style.padding = "18px";
+    var emptyTr = el("tr");
+    emptyTr.appendChild(emptyTd);
+    tbody.appendChild(emptyTr);
+  }
+  rows.forEach(function (e) {
+    var tr = el("tr");
+    tr.appendChild(el("td", { className: "muted", text: fmtWhen(e.createdAt) }));
+    tr.appendChild(e.email ? el("td", { text: e.email }) : el("td", { className: "muted", text: "—" }));
+    tr.appendChild(el("td", { className: "url", text: e.title ? e.sourceUrl + "  (" + e.title + ")" : e.sourceUrl }));
+    var typeTd = el("td");
+    typeTd.appendChild(el("span", { className: "pill type", text: e.type }));
+    tr.appendChild(typeTd);
+    tr.appendChild(el("td", { className: "muted", text: (e.viewports || []).join(", ") || "—" }));
+    var resTd = el("td");
+    if (e.success) {
+      resTd.appendChild(el("span", { className: "pill ok", text: "✓" }));
+    } else {
+      resTd.appendChild(el("span", { className: "pill fail", text: "✗ " + (e.errorCode || "error") }));
+    }
+    tr.appendChild(resTd);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  frag.appendChild(table);
+  return frag;
+}
+
+function paintImports() {
+  var c = document.getElementById("imports-section");
+  if (c) c.replaceChildren(renderImports());
+}
+
+// ── Per-user drill-down: click a user row → modal with their import history ──
+function fmtParams(p) {
+  if (!p) return "—";
+  var parts = [];
+  if (p.colorMode) parts.push("color:" + p.colorMode);
+  if (p.typographyMode) parts.push("font:" + p.typographyMode);
+  if (p.textMode) parts.push("text:" + p.textMode);
+  if (p.pluginFont) parts.push("typeface:" + p.pluginFont);
+  return parts.length ? parts.join(" · ") : "—";
+}
+
+function closeModal() {
+  var o = document.getElementById("modal-root");
+  if (o) o.replaceChildren();
+}
+
+function renderUserImports(email, figmaUserId, imports) {
+  var overlay = el("div", { className: "overlay" });
+  overlay.addEventListener("click", function (e) { if (e.target === overlay) closeModal(); });
+
+  var modal = el("div", { className: "modal" });
+
+  var head = el("div", { className: "modal-head" });
+  var titleWrap = el("div");
+  titleWrap.appendChild(el("h2", { text: email || "(no email)" }));
+  titleWrap.appendChild(el("div", { className: "uid", text: figmaUserId }));
+  head.appendChild(titleWrap);
+  head.appendChild(el("button", { className: "modal-close", text: "✕", onClick: closeModal }));
+  modal.appendChild(head);
+
+  var body = el("div", { className: "modal-body" });
+
+  var table = el("table", { className: "users" });
+  var thead = el("thead");
+  var htr = el("tr");
+  ["When", "Type", "URL", "Viewports", "Params", "Result"].forEach(function (h) {
+    htr.appendChild(el("th", { text: h }));
+  });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+
+  var tbody = el("tbody");
+  if (!imports.length) {
+    var emptyTd = el("td", { className: "muted", text: "No imports yet" });
+    emptyTd.colSpan = 6;
+    emptyTd.style.textAlign = "center";
+    emptyTd.style.padding = "18px";
+    var emptyTr = el("tr");
+    emptyTr.appendChild(emptyTd);
+    tbody.appendChild(emptyTr);
+  }
+  imports.forEach(function (e) {
+    var tr = el("tr");
+    tr.appendChild(el("td", { className: "muted", text: fmtWhen(e.createdAt) }));
+    var typeTd = el("td");
+    typeTd.appendChild(el("span", { className: "pill type", text: e.type }));
+    tr.appendChild(typeTd);
+    tr.appendChild(el("td", { className: "url", text: e.title ? e.sourceUrl + "  (" + e.title + ")" : e.sourceUrl }));
+    tr.appendChild(el("td", { className: "muted", text: (e.viewports || []).join(", ") || "—" }));
+    tr.appendChild(el("td", { className: "params", text: fmtParams(e.params) }));
+    var resTd = el("td");
+    if (e.success) {
+      resTd.appendChild(el("span", { className: "pill ok", text: "✓" }));
+    } else {
+      resTd.appendChild(el("span", { className: "pill fail", text: "✗ " + (e.errorCode || "error") }));
+    }
+    tr.appendChild(resTd);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  body.appendChild(table);
+  modal.appendChild(body);
+  overlay.appendChild(modal);
+  return overlay;
+}
+
+async function openUserImports(figmaUserId, email) {
+  var root = document.getElementById("modal-root");
+  if (!root) return;
+  // Loading state
+  var loading = el("div", { className: "overlay" });
+  loading.addEventListener("click", function (e) { if (e.target === loading) closeModal(); });
+  var lm = el("div", { className: "modal" });
+  lm.appendChild(el("div", { className: "modal-body muted", text: "Loading…" }));
+  loading.appendChild(lm);
+  root.replaceChildren(loading);
+
+  try {
+    var t = token();
+    var res = await fetch("/api/admin/stats/imports?figmaUserId=" + encodeURIComponent(figmaUserId), {
+      headers: t ? { "Authorization": "Bearer " + t } : {},
+    });
+    if (!res.ok) {
+      var em = el("div", { className: "overlay" });
+      em.addEventListener("click", function (e) { if (e.target === em) closeModal(); });
+      var emc = el("div", { className: "modal" });
+      emc.appendChild(el("div", { className: "modal-body error", text: "Failed to load imports: HTTP " + res.status }));
+      em.appendChild(emc);
+      root.replaceChildren(em);
+      return;
+    }
+    var d = await res.json();
+    root.replaceChildren(renderUserImports(email, figmaUserId, d.imports || []));
+  } catch (e) {
+    closeModal();
+  }
+}
+
+document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
 
 async function load() {
   document.getElementById("root").replaceChildren();
@@ -395,6 +709,9 @@ async function load() {
 
   USERS = (d.users && d.users.list) || [];
   paintUsers();
+
+  IMPORTS = d.recentImports || [];
+  paintImports();
 
   let html = "";
   html += '<section><h2>Users</h2><div class="grid">'
