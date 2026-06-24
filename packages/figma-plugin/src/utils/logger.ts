@@ -28,9 +28,14 @@ class Logger {
     return `[${timestamp}] [${level}] ${message}${contextStr}`;
   }
 
-  private log(_level: LogLevel, _message: string, _context?: LogContext): void {
-    // Logger silenced for figmaUserId debug session — all logger.* calls
-    // are no-ops. Single targeted console.log lives in main.ts.
+  private log(level: LogLevel, message: string, context?: LogContext): void {
+    // Production: no-op (stripped to nothing by DCE). Dev: route through
+    // console so the dev-log bridge (devLogger.ts) mirrors it to Claude.
+    if (!__W2W_DEV_LOG__) return;
+    const line = this.formatMessage(level, message, context);
+    if (level === LogLevel.ERROR) console.error(line);
+    else if (level === LogLevel.WARN) console.warn(line);
+    else console.log(line);
   }
 
   /**

@@ -12,7 +12,49 @@ import { describe, it, expect } from "vitest";
 import {
   fontWeightToStyle,
   fontWeightToStyleCandidates,
+  fontStyleCandidates,
+  isItalicStyle,
 } from "../rendering/styles";
+
+describe("isItalicStyle", () => {
+  it("detects italic / oblique (case-insensitive), ignores upright", () => {
+    expect(isItalicStyle("italic")).toBe(true);
+    expect(isItalicStyle("Italic")).toBe(true);
+    expect(isItalicStyle("oblique")).toBe(true);
+    expect(isItalicStyle("normal")).toBe(false);
+    expect(isItalicStyle(undefined)).toBe(false);
+    expect(isItalicStyle(null)).toBe(false);
+    expect(isItalicStyle("")).toBe(false);
+  });
+});
+
+describe("fontStyleCandidates", () => {
+  it("returns the plain weight candidates when not italic", () => {
+    expect(fontStyleCandidates(400, false)).toEqual(
+      fontWeightToStyleCandidates(400),
+    );
+  });
+
+  it("tries 'Italic' first for a regular-weight italic run (Newsreader case)", () => {
+    const c = fontStyleCandidates(400, true);
+    expect(c[0]).toBe("Italic");
+    // Upright cuts are kept only as a last resort.
+    expect(c.indexOf("Italic")).toBeLessThan(c.indexOf("Regular"));
+  });
+
+  it("produces weight+Italic forms for heavier italic runs", () => {
+    const c = fontStyleCandidates(700, true);
+    expect(c).toContain("Bold Italic");
+    expect(c).toContain("Italic");
+    // Falls back to upright Bold if no italic cut exists.
+    expect(c).toContain("Bold");
+  });
+
+  it("never returns duplicates", () => {
+    const c = fontStyleCandidates(400, true);
+    expect(new Set(c).size).toBe(c.length);
+  });
+});
 
 describe("fontWeightToStyle — CSS 9-step mapping", () => {
   it("100 → Thin", () => expect(fontWeightToStyle(100)).toBe("Thin"));

@@ -24,6 +24,13 @@
 /** Pluginata key written by `createTextNode` and consumed here. */
 export const ORIGINAL_FONT_PLUGIN_KEY = "w2w_original_font";
 
+/** Pluginata key stamped on MIXED text nodes: a JSON array of the substituted
+ *  runs `[{ start, end, family }]`, where `family` is the real (SFNT) family
+ *  each range should become. Lets Re-apply rebind only those ranges and leave
+ *  runs that already show their correct font (e.g. a Newsreader <em>) intact —
+ *  the node-level `ORIGINAL_FONT_PLUGIN_KEY` only records the primary family. */
+export const SEGMENT_FONT_PLUGIN_KEY = "w2w_original_font_segments";
+
 /** Pluginata key stamped on a text node *after* a successful rebind. Carries
  *  the family the node was rebound to. Survives the clearing of
  *  `ORIGINAL_FONT_PLUGIN_KEY` so subsequent Re-apply passes can count
@@ -36,6 +43,28 @@ export const REBOUND_DONE_PLUGIN_KEY = "w2w_rebound_done";
  *  was rendered with Medium). Mirrors the conventional cuts most fonts ship
  *  with. */
 const STYLE_FALLBACK_LADDER = ["Regular", "Bold", "Medium", "Light", "Normal"];
+
+/** Style names that read as the "default"/upright cut across foundries. Söhne
+ *  ships "Buch" (German for Book), other foundries use "Roman"/"Text" — none of
+ *  which appear in the conventional ladder above. */
+const REGULARISH_STYLES = ["regular", "book", "buch", "normal", "roman", "text"];
+
+/**
+ * Orders a font family's ACTUAL installed styles so the most sensible cut is
+ * tried first: an exact match to the requested style, then a regular-ish one,
+ * then everything else. Used as a last resort when the conventional ladder
+ * misses a font that only ships non-standard style names (e.g. "Buch").
+ */
+function orderActualStyles(preferredStyle: string, styles: string[]): string[] {
+  const wanted = preferredStyle.toLowerCase();
+  const rank = (s: string): number => {
+    const sl = s.toLowerCase();
+    if (sl === wanted) return 0;
+    if (REGULARISH_STYLES.includes(sl)) return 1;
+    return 2;
+  };
+  return [...styles].sort((a, b) => rank(a) - rank(b));
+}
 
 export interface RebindResult {
   /** Number of text nodes that successfully had their fontName swapped. */
@@ -107,9 +136,18 @@ async function loadFontWithFallback(
   family: string,
   preferredStyle: string,
   trace: { nodeId: string; attempts: Array<{ family: string; style: string; ok: boolean; error?: string }> },
+  installedStyles: Map<string, string[]>,
 ): Promise<string | null> {
   const tried = new Set<string>();
-  const candidates = [preferredStyle, ...STYLE_FALLBACK_LADDER];
+  // The conventional ladder first; then, as a last resort, the family's ACTUAL
+  // installed styles. This is what rescues fonts that only ship non-standard
+  // style names — e.g. Söhne installs as family "Copyright Klim Type Foundry"
+  // + style "Buch", which neither the node's style nor the ladder ever names.
+  const actual = orderActualStyles(
+    preferredStyle,
+    installedStyles.get(family) ?? [],
+  );
+  const candidates = [preferredStyle, ...STYLE_FALLBACK_LADDER, ...actual];
   for (const style of candidates) {
     if (tried.has(style)) continue;
     tried.add(style);
@@ -149,6 +187,25 @@ export async function rebindOriginalFonts(
     if (node.getPluginData(REBOUND_DONE_PLUGIN_KEY)) previouslyRebound++;
   }
 
+  // Map of installed family → its actual available styles, fetched once. Lets
+  // loadFontWithFallback rescue fonts whose only styles are non-standard names
+  // (Söhne ships "Buch", not "Regular"). Guarded so unit envs without the
+  // font API simply fall back to the conventional style ladder.
+  const installedStyles = new Map<string, string[]>();
+  try {
+    if (typeof figma.listAvailableFontsAsync === "function") {
+      const avail = await figma.listAvailableFontsAsync();
+      for (const f of avail) {
+        const fam = f.fontName.family;
+        const arr = installedStyles.get(fam);
+        if (arr) arr.push(f.fontName.style);
+        else installedStyles.set(fam, [f.fontName.style]);
+      }
+    }
+  } catch {
+    /* font list unavailable — ladder-only behavior */
+  }
+
   // Per-node breakdown so the user can correlate "X rebound, Y missing" in
   // the toast with the exact families & styles each node tried. Logged at the
   // end as a single console.table for easy scanning.
@@ -172,24 +229,103 @@ export async function rebindOriginalFonts(
 
     const charsPreview = (node.characters || "").slice(0, 40).replace(/\s+/g, " ");
 
-    // Mixed-style text needs per-segment handling — out of MVP scope. Leave
-    // the marker in place so a future segment-aware rebind can pick it up.
+    // Mixed-style text: a single block can mix SEVERAL real families (e.g.
+    // paco.me: Söhne body + a Newsreader-italic <em>). The render stamps a
+    // per-run marker recording ONLY the substituted ranges + the real family
+    // each should become. We rebind exactly those ranges — runs already showing
+    // their correct font (Newsreader) are never touched. Without the per-run
+    // marker we can't tell the runs apart, so we skip (the safe old behavior).
     if (node.fontName === figma.mixed) {
-      skippedMixed++;
-      perNode.push({
-        nodeId: node.id,
-        family: originalFamily,
-        requestedStyle: "(mixed)",
-        outcome: "skippedMixed",
-        attemptsTried: 0,
-        chars: charsPreview,
-      });
+      let segs: Array<{ start: number; end: number; family: string }> = [];
+      const segJson = node.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
+      if (segJson) {
+        try {
+          const parsed: unknown = JSON.parse(segJson);
+          if (Array.isArray(parsed)) {
+            segs = parsed as Array<{ start: number; end: number; family: string }>;
+          }
+        } catch {
+          /* corrupt marker — treat as no per-run data */
+        }
+      }
+
+      if (segs.length === 0) {
+        skippedMixed++;
+        perNode.push({
+          nodeId: node.id,
+          family: originalFamily,
+          requestedStyle: "(mixed)",
+          outcome: "skippedMixed",
+          attemptsTried: 0,
+          chars: charsPreview,
+        });
+        continue;
+      }
+
+      const segTrace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
+      let allRunsSet = true;
+      for (const s of segs) {
+        if (
+          typeof s.start !== "number" ||
+          typeof s.end !== "number" ||
+          s.end <= s.start ||
+          !s.family
+        ) {
+          continue; // skip malformed entry without failing the whole node
+        }
+        // Use the range's current style to pick the matching cut of the real
+        // family (loadFontWithFallback also tries the family's installed cuts).
+        let curStyle = "Regular";
+        try {
+          const cur = node.getRangeFontName(s.start, s.end);
+          if (cur !== figma.mixed) curStyle = (cur as FontName).style;
+        } catch {
+          /* fall back to "Regular" */
+        }
+        const loaded = await loadFontWithFallback(s.family, curStyle, segTrace, installedStyles);
+        if (loaded === null) {
+          allRunsSet = false;
+          stillMissing.add(s.family);
+          continue;
+        }
+        try {
+          node.setRangeFontName(s.start, s.end, { family: s.family, style: loaded });
+        } catch {
+          allRunsSet = false;
+          stillMissing.add(s.family);
+        }
+      }
+
+      if (allRunsSet) {
+        node.setPluginData(REBOUND_DONE_PLUGIN_KEY, originalFamily);
+        node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+        node.setPluginData(SEGMENT_FONT_PLUGIN_KEY, "");
+        rebound++;
+        perNode.push({
+          nodeId: node.id,
+          family: originalFamily,
+          requestedStyle: "(mixed)",
+          outcome: "rebound",
+          attemptsTried: segTrace.attempts.length,
+          chars: charsPreview,
+        });
+      } else {
+        perNode.push({
+          nodeId: node.id,
+          family: originalFamily,
+          requestedStyle: "(mixed)",
+          outcome: "stillMissing",
+          attemptsTried: segTrace.attempts.length,
+          firstError: segTrace.attempts.find((a) => !a.ok)?.error,
+          chars: charsPreview,
+        });
+      }
       continue;
     }
 
     const currentStyle = (node.fontName as FontName).style;
     const trace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
-    const loadedStyle = await loadFontWithFallback(originalFamily, currentStyle, trace);
+    const loadedStyle = await loadFontWithFallback(originalFamily, currentStyle, trace, installedStyles);
 
     if (loadedStyle === null) {
       stillMissing.add(originalFamily);
@@ -240,17 +376,8 @@ export async function rebindOriginalFonts(
     }
   }
 
-  // ------------------------------------------------------------------
-  // Diagnostic dump — read top-down to understand which families Figma
-  // accepted via loadFontAsync mid-session vs which still need a desktop
-  // restart for the OS font cache to expose them.
-  //
-  // Implementation note: Figma's plugin sandbox doesn't implement
-  // `console.table`, so calling it throws and tears down the function
-  // mid-run. We log per-node results as a plain JSON-stringified array
-  // instead — same data, no API surface gamble.
-  // ------------------------------------------------------------------
-  // (per-node + summary logging silenced for figmaUserId debug session)
+  // Per-node breakdown is collected for future diagnostics but not logged in
+  // normal runs (Figma's sandbox lacks console.table; plain logs are noisy).
   void perNode;
 
   return {

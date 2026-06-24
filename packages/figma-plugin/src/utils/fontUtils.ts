@@ -174,6 +174,20 @@ export async function checkFontsAvailability(
   // Icon fonts use extra styles like "Solid", "Brands"
   const iconStylesExtra = ["Solid", "Brands", "Thin"];
 
+  // Set of every installed family name, used as a final check for fonts whose
+  // ONLY cut is a non-standard style name the ladder above never names — e.g.
+  // Söhne installs as "Copyright Klim Type Foundry" with the single style
+  // "Buch". Without this, such an installed font is wrongly reported missing.
+  let installedFamilies = new Set<string>();
+  try {
+    if (typeof figma.listAvailableFontsAsync === "function") {
+      const avail = await figma.listAvailableFontsAsync();
+      installedFamilies = new Set(avail.map((f) => f.fontName.family));
+    }
+  } catch {
+    /* font list unavailable — rely on the style-ladder checks below */
+  }
+
   for (const font of Array.from(allFonts)) {
     // Skip CSS generic keywords
     if (CSS_GENERIC_FONTS.has(font)) {
@@ -227,6 +241,13 @@ export async function checkFontsAvailability(
           if (isAvailable) break;
         }
       }
+    }
+
+    // Final check: the family is installed, but only under a style name none
+    // of the ladders tried (e.g. Söhne's "Buch"). Presence in the installed
+    // list is enough — the rebind step resolves the exact cut later.
+    if (!isAvailable && installedFamilies.has(font)) {
+      isAvailable = true;
     }
 
     if (isAvailable) {

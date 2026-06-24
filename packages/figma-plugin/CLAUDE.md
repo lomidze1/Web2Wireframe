@@ -120,6 +120,36 @@ src/
 
 **No Flitt SDK in plugin** — all checkout URLs come from backend.
 
+## Dev-Log Bridge (Claude → plugin console)
+
+Figma desktop exposes the plugin console nowhere Claude can read (remote
+debugging disabled; renderer `console.*` not piped to stdout). The dev-log
+bridge mirrors plugin output to a local receiver Claude tails.
+
+**ჩართვა (ერთი ბრძანება):** როცა მომხმარებელი იტყვის "შეამოწმე ლოგები" /
+"check logs", Claude უშვებს receiver-ს background-ში:
+
+```bash
+node packages/figma-plugin/scripts/devlog-server.mjs   # listens on 127.0.0.1:3999
+```
+
+შემდეგ მომხმარებელი dev plugin-ით აკეთებს import-ს → ლოგები server-ის
+stdout-ში ჩამოდის (Claude კითხულობს). წინაპირობა: plugin გაშვებულია dev/watch
+build-ით (`npm run watch`).
+
+**როგორ მუშაობს:** sandbox (`main.ts`) console/logger → `figma.ui.postMessage`
+→ UI iframe → batched `fetch` → `http://localhost:3999/log`. იხ.
+`src/utils/devLogger.ts`. `logger.*` (logger.ts) dev-ში console-ში გადის და
+bridge იჭერს; prod-ში no-op რჩება.
+
+**🔒 prod-safety (live-ზე ვერ აიტვირთება):**
+- gate = `if (__W2W_DEV_LOG__)` — compile-time global (esbuild `define`).
+  dev/watch → `true`; `npm run build` (W2W_PROD=1) → `false` → DCE სრულად
+  ამოაგდებს bridge-ს bundle-დან (`build-figma-plugin.{main,ui}.cjs`).
+- `scripts/build-prod.mjs`-ში post-build grep gate: თუ `__W2W_DEVLOG__` ან
+  `localhost:3999` build-ში დარჩა → build **fail**. ე.ი. ფიზიკურად ვერ აიტვირთება.
+- `localhost:3999` მხოლოდ `devAllowedDomains`-შია (published plugin იგნორირებს).
+
 ## Warnings
 
 - **Preact, NOT React!** — `import { h } from 'preact'`, არა `import React`

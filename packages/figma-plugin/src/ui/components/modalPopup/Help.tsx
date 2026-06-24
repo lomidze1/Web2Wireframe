@@ -48,8 +48,7 @@ export default function Help({ isOpen, onClose }: HelpProps) {
     {
       icon: "🧩",
       label: "Get Browser Extension",
-      // TODO: replace with the real Chrome Web Store listing URL once published.
-      url: "https://chromewebstore.google.com/detail/web2wireframe",
+      url: "https://chromewebstore.google.com/detail/web2wireframe/fcmicolldgpmpdkcdljkaaimmjmboipl",
     },
   ];
 

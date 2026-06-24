@@ -14,7 +14,7 @@ export default function BrowserExtension() {
    * Open extension install page
    */
   const handleInstall = () => {
-    window.open("https://chrome.google.com/webstore", "_blank");
+    window.open("https://chromewebstore.google.com/detail/web2wireframe/fcmicolldgpmpdkcdljkaaimmjmboipl", "_blank");
   };
 
   return (

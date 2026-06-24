@@ -177,6 +177,7 @@ export interface WireframeNode {
   fontSize: number;
   fontWeight: number;
   fontFamily: string;
+  fontStyle?: string;                // CSS font-style (e.g. "italic", "oblique")
   fontFamilyList?: string[];         // Full CSS font-family fallback chain
   textAlign: string;
   lineHeight: number | string;
@@ -283,6 +284,11 @@ export interface RenderWireframeData {
   textMode?: "semantic" | "lorem" | "website";
   assetMode?: "placeholders" | "realAssets";
   interactionMode?: "none" | "variants";
+  /** Map of CSS-declared family → real (SFNT) family, derived from the page's
+   *  @font-face entries. Lets the sandbox auto-apply an already-installed font
+   *  registered under an anti-piracy-aliased name (e.g. CSS "Söhne" → installed
+   *  "Copyright Klim Type Foundry") without the fallback modal. */
+  fontRealNames?: Record<string, string>;
 }
 
 /** Map from missing/website font name → replacement font name */
@@ -402,6 +408,7 @@ export interface TextSegment {
   fontSize: number;
   fontFamily?: string;
   fontFamilyList?: string[];  // Full CSS font-family fallback chain for this segment
+  fontStyle?: string;  // CSS font-style (e.g. "italic", "oblique") for this run
   isLink?: boolean;  // Is this an <a> element?
   tag?: string;      // Original tag (span, a, strong, etc.)
   textDecoration?: "underline" | "line-through" | "none";  // CSS text-decoration

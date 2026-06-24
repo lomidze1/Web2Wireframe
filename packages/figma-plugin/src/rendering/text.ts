@@ -213,7 +213,7 @@ import {
   getSmartTextColor,
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
-import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates } from "./styles";
+import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, isItalicStyle } from "./styles";
 import { isIconFont, stripFontStyleSuffix } from "../utils/fontUtils";
 
 /** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
@@ -351,7 +351,11 @@ async function linkTextStyleIfApplicable(
     !context ||
     context.variableMode !== "styles" ||
     !context.textStyleMap ||
-    segments.length !== 1
+    segments.length !== 1 ||
+    // Italic nodes: the weight-based TextStyle has no italic, so linking it
+    // would overwrite the italic cut already applied. Keep the direct font.
+    isItalicStyle(segments[0]?.fontStyle) ||
+    isItalicStyle(node.fontStyle)
   ) {
     return;
   }
@@ -410,14 +414,14 @@ export async function createTextNode(
   // CSS standard 9-step mapping: 600 = Semibold, 700 = Bold, etc.
   // candidates[0] is preferred; later entries fall back when the font lacks
   // the preferred style (e.g. system-ui without Semibold).
-  const mainCandidates = fontWeightToStyleCandidates(node.fontWeight);
+  const mainCandidates = fontStyleCandidates(node.fontWeight, isItalicStyle(node.fontStyle));
   let mainFontStyle = mainCandidates[0];
 
   // Load required fonts — include all candidates so the loader can fall back
   const fontsToLoad = new Set<string>();
   for (const c of mainCandidates) fontsToLoad.add(c);
   for (const seg of segments) {
-    for (const c of fontWeightToStyleCandidates(seg.fontWeight)) {
+    for (const c of fontStyleCandidates(seg.fontWeight, isItalicStyle(seg.fontStyle))) {
       fontsToLoad.add(c);
     }
   }
@@ -798,6 +802,11 @@ export async function createTextNode(
     }
 
     let charIndex = 0;
+    // Per-run record of which segments were substituted (their real font was
+    // missing at render). A later Re-apply rebinds ONLY these ranges, so runs
+    // already showing their correct font (e.g. a Newsreader <em>) are never
+    // overwritten. Each entry: the char range + the real family it should become.
+    const substitutedSegments: Array<{ start: number; end: number; family: string }> = [];
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx];
 
@@ -853,7 +862,7 @@ export async function createTextNode(
       // Apply segment font weight + per-segment font family.
       // Use first candidate (preferred for this CSS weight); fall back to next
       // when the font family lacks the preferred style.
-      const segCandidates = fontWeightToStyleCandidates(segment.fontWeight);
+      const segCandidates = fontStyleCandidates(segment.fontWeight, isItalicStyle(segment.fontStyle));
       const segStyle = segCandidates[0];
 
       let segFontFamily: string;
@@ -994,6 +1003,20 @@ export async function createTextNode(
         }
       }
 
+      // Record this run for Re-apply when its real font was substituted. The
+      // map `originalFontNames` only carries genuinely-missing families (Söhne,
+      // …) — so available runs (a Newsreader <em>, plain Inter) never qualify
+      // and are left untouched on rebind.
+      if (context?.fontMode === "website" && context.originalFontNames) {
+        const segOriginalCss = segment.fontFamily || node.fontFamily;
+        const segReal = segOriginalCss
+          ? context.originalFontNames[segOriginalCss]
+          : undefined;
+        if (segReal && segReal !== resolvedSegFont && !isIconFont(segOriginalCss)) {
+          substitutedSegments.push({ start: startIdx, end: endIdx, family: segReal });
+        }
+      }
+
       if (segment.fontSize && segment.fontSize !== node.fontSize) {
         textNode.setRangeFontSize(
           startIdx,
@@ -1015,7 +1038,10 @@ export async function createTextNode(
         const lsKey = ls !== 0 ? `ls${Math.round(ls * 10)}` : "";
         const tsKey = [resolvedSegFont, segStyleStr, segFontSize, lhKey, lsKey].filter(Boolean).join("-");
         const segTextStyle = context.textStyleMap.get(tsKey);
-        if (segTextStyle) {
+        // Skip linking for italic runs: the TextStyle key/name is weight-based
+        // (no italic), so linking it would overwrite the italic font we just
+        // applied via setRangeFontName. Keep the directly-applied italic cut.
+        if (segTextStyle && !isItalicStyle(segment.fontStyle)) {
           pendingTextStyleLinks.push({ startIdx, endIdx, styleId: segTextStyle.id, textDecoration: segment.textDecoration });
         }
       }
@@ -1032,6 +1058,20 @@ export async function createTextNode(
             // Keep default
           }
         }
+      }
+    }
+
+    // Stamp the substituted runs so Re-apply rebinds ONLY these ranges. A
+    // mixed block can mix several real families; the node-level marker alone
+    // would clobber the runs that already show their correct font.
+    if (substitutedSegments.length > 0) {
+      try {
+        textNode.setPluginData(
+          "w2w_original_font_segments",
+          JSON.stringify(substitutedSegments),
+        );
+      } catch {
+        // setPluginData unavailable in some test environments; non-fatal.
       }
     }
   } else {

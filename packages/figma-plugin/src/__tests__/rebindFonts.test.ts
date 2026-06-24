@@ -13,6 +13,7 @@ import {
   collectTextNodesIn,
   ORIGINAL_FONT_PLUGIN_KEY,
   REBOUND_DONE_PLUGIN_KEY,
+  SEGMENT_FONT_PLUGIN_KEY,
 } from "../rendering/rebindFonts";
 
 // ---------------------------------------------------------------------------
@@ -33,6 +34,9 @@ interface MockTextNode {
   // Mixed-segment helpers
   getRangeFontName?: (start: number, end: number) => MockFontName;
   setRangeFontName?: (start: number, end: number, font: MockFontName) => void;
+  getStyledTextSegments?: (
+    fields: string[],
+  ) => Array<{ start: number; end: number; fontName: MockFontName }>;
 }
 
 interface MockFrameNode {
@@ -85,18 +89,37 @@ function makeFrame(id: string, children: Array<MockTextNode | MockFrameNode>): M
 
 let unavailableFonts: Set<string>;
 let loadFontCalls: Array<{ family: string; style: string }>;
+// (family, style) pairs the installed-font API reports. When non-empty,
+// loadFontAsync also rejects styles that aren't installed for a known family —
+// this models real fonts that only ship non-standard cuts (e.g. Söhne "Buch").
+let installedFontList: Array<{ family: string; style: string }>;
 
 beforeEach(() => {
   unavailableFonts = new Set();
   loadFontCalls = [];
+  installedFontList = [];
 
   (globalThis as Record<string, unknown>).figma = {
     mixed: MIXED,
     notify: vi.fn(),
+    listAvailableFontsAsync: vi.fn(async () =>
+      installedFontList.map((f) => ({ fontName: { ...f } })),
+    ),
     loadFontAsync: vi.fn(async (font: { family: string; style: string }) => {
       loadFontCalls.push({ family: font.family, style: font.style });
       if (unavailableFonts.has(font.family)) {
         throw new Error(`Font "${font.family}" not installed`);
+      }
+      // Style-aware rejection only when we've declared installed cuts for this
+      // family; otherwise stay family-only (back-compat for existing tests).
+      const familyCuts = installedFontList.filter((f) => f.family === font.family);
+      if (
+        familyCuts.length > 0 &&
+        !familyCuts.some((f) => f.style === font.style)
+      ) {
+        throw new Error(
+          `The font "${font.family} ${font.style}" could not be loaded`,
+        );
       }
     }),
     currentPage: {
@@ -130,6 +153,44 @@ describe("rebindOriginalFonts", () => {
     expect(t.getPluginData(ORIGINAL_FONT_PLUGIN_KEY)).toBe("");
     // We tried with the node's current style, "Medium"
     expect(loadFontCalls.some((c) => c.family === "PSA" && c.style === "Medium")).toBe(true);
+  });
+
+  it("rebinds a font whose only installed style is non-standard (Söhne 'Buch')", async () => {
+    // Real case: Söhne installs as family "Copyright Klim Type Foundry" with the
+    // single style "Buch". The node's style ("Regular") and the conventional
+    // ladder never name "Buch", so the rebind must discover it from the
+    // family's actual installed styles via listAvailableFontsAsync.
+    const FAM = "Copyright Klim Type Foundry";
+    installedFontList = [
+      { family: FAM, style: "Buch" },
+      { family: "Inter", style: "Regular" },
+    ];
+    const t = makeText("t1", "Inter", "Regular", {
+      [ORIGINAL_FONT_PLUGIN_KEY]: FAM,
+    });
+
+    const result = await rebindOriginalFonts([t as unknown as TextNode]);
+
+    expect(result.rebound).toBe(1);
+    expect(result.stillMissing).toEqual([]);
+    expect(t.fontName).toEqual({ family: FAM, style: "Buch" });
+    // It only succeeded after falling through to the real installed style.
+    expect(loadFontCalls.some((c) => c.family === FAM && c.style === "Buch")).toBe(true);
+  });
+
+  it("still reports missing when the family is not installed at all", async () => {
+    // Family absent from the installed list → no real styles to fall back to →
+    // stays missing (no false-positive rebind).
+    installedFontList = [{ family: "Inter", style: "Regular" }];
+    unavailableFonts.add("Söhne Nowhere");
+    const t = makeText("t1", "Inter", "Regular", {
+      [ORIGINAL_FONT_PLUGIN_KEY]: "Söhne Nowhere",
+    });
+
+    const result = await rebindOriginalFonts([t as unknown as TextNode]);
+
+    expect(result.rebound).toBe(0);
+    expect(result.stillMissing).toEqual(["Söhne Nowhere"]);
   });
 
   it("stamps `w2w_rebound_done` after a successful rebind", async () => {
@@ -252,20 +313,96 @@ describe("rebindOriginalFonts", () => {
     expect(attemptedCount).toBeGreaterThanOrEqual(2); // tried Medium first, then Regular
   });
 
-  it("counts and skips mixed-fontName text nodes (MVP: documented limitation)", async () => {
+  it("skips mixed-fontName nodes WITHOUT overwriting their runs", async () => {
+    // A mixed block can contain SEVERAL real families (e.g. paco.me: Söhne body
+    // + a Newsreader-italic <em>). The node-level marker records only the
+    // PRIMARY family, so blanket-applying it would destroy the Newsreader run.
+    // Until per-segment original data exists, mixed nodes are left untouched.
+    const setRangeCalls: unknown[] = [];
     const t = makeText("t1", "Inter", "Regular", {
-      [ORIGINAL_FONT_PLUGIN_KEY]: "PSA",
+      [ORIGINAL_FONT_PLUGIN_KEY]: "Söhne",
     });
     t.fontName = MIXED;
+    t.setRangeFontName = (start, end, font) => {
+      setRangeCalls.push({ start, end, font });
+    };
 
     const result = await rebindOriginalFonts([t as unknown as TextNode]);
 
     expect(result.rebound).toBe(0);
     expect(result.skippedMixed).toBe(1);
-    expect(result.previouslyRebound).toBe(0);
-    expect(loadFontCalls).toHaveLength(0); // nothing attempted
-    // Marker preserved so future single-style re-render can pick it up
-    expect(t.getPluginData(ORIGINAL_FONT_PLUGIN_KEY)).toBe("PSA");
+    // Crucially: no run was rewritten — the Newsreader/etc. segments are safe.
+    expect(setRangeCalls).toHaveLength(0);
+    // Marker preserved for a future segment-aware pass.
+    expect(t.getPluginData(ORIGINAL_FONT_PLUGIN_KEY)).toBe("Söhne");
+  });
+
+  it("rebinds ONLY the substituted runs of a mixed node (preserves others)", async () => {
+    // paco.me case: a paragraph rendered as a mix of the fallback (substituted
+    // Söhne runs) and a real Newsreader-italic <em>. The render stamped a
+    // per-run marker for the two Söhne ranges only; the Newsreader gap (5..20)
+    // must stay untouched.
+    installedFontList = [
+      { family: "Copyright Klim Type Foundry", style: "Buch" },
+    ];
+    const setRangeCalls: Array<{
+      start: number;
+      end: number;
+      font: { family: string; style: string };
+    }> = [];
+    const t = makeText("t1", "Inter", "Regular", {
+      [ORIGINAL_FONT_PLUGIN_KEY]: "Copyright Klim Type Foundry",
+      [SEGMENT_FONT_PLUGIN_KEY]: JSON.stringify([
+        { start: 0, end: 5, family: "Copyright Klim Type Foundry" },
+        { start: 20, end: 30, family: "Copyright Klim Type Foundry" },
+      ]),
+    });
+    t.fontName = MIXED;
+    t.getRangeFontName = () => ({ family: "Inter", style: "Regular" });
+    t.setRangeFontName = (start, end, font) => {
+      setRangeCalls.push({ start, end, font: font as { family: string; style: string } });
+    };
+
+    const result = await rebindOriginalFonts([t as unknown as TextNode]);
+
+    expect(result.rebound).toBe(1);
+    expect(result.skippedMixed).toBe(0);
+    // Exactly the two recorded ranges were rewritten — never the Newsreader gap.
+    expect(setRangeCalls.map((c) => [c.start, c.end])).toEqual([
+      [0, 5],
+      [20, 30],
+    ]);
+    expect(
+      setRangeCalls.every(
+        (c) =>
+          c.font.family === "Copyright Klim Type Foundry" &&
+          c.font.style === "Buch",
+      ),
+    ).toBe(true);
+    // Both markers cleared on full success.
+    expect(t.getPluginData(ORIGINAL_FONT_PLUGIN_KEY)).toBe("");
+    expect(t.getPluginData(SEGMENT_FONT_PLUGIN_KEY)).toBe("");
+  });
+
+  it("keeps markers and reports missing when a substituted run's font still isn't installed", async () => {
+    installedFontList = [{ family: "Inter", style: "Regular" }];
+    unavailableFonts.add("Copyright Klim Type Foundry");
+    const t = makeText("t1", "Inter", "Regular", {
+      [ORIGINAL_FONT_PLUGIN_KEY]: "Copyright Klim Type Foundry",
+      [SEGMENT_FONT_PLUGIN_KEY]: JSON.stringify([
+        { start: 0, end: 5, family: "Copyright Klim Type Foundry" },
+      ]),
+    });
+    t.fontName = MIXED;
+    t.getRangeFontName = () => ({ family: "Inter", style: "Regular" });
+    t.setRangeFontName = () => {};
+
+    const result = await rebindOriginalFonts([t as unknown as TextNode]);
+
+    expect(result.rebound).toBe(0);
+    expect(result.stillMissing).toEqual(["Copyright Klim Type Foundry"]);
+    // Markers preserved for a later retry.
+    expect(t.getPluginData(SEGMENT_FONT_PLUGIN_KEY)).not.toBe("");
   });
 
   it("aggregates results across many nodes", async () => {

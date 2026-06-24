@@ -70,6 +70,37 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   });
 }
 
+// Prod-safety gate: the dev-only log bridge (src/utils/devLogger.ts) must be
+// dead-code-eliminated from the published bundle. If any sentinel survives,
+// the bundle is unsafe to publish — fail the build hard.
+const buildDir = path.resolve(__dirname, "..", "build");
+const FORBIDDEN = ["__W2W_DEVLOG__", "localhost:3999"];
+
+function assertNoDevLoggerLeak() {
+  let files = [];
+  try {
+    files = fs
+      .readdirSync(buildDir)
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => path.join(buildDir, f));
+  } catch {
+    return; // no build dir → nothing produced; main() exit code handles it
+  }
+  const leaks = [];
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf8");
+    for (const needle of FORBIDDEN) {
+      if (content.includes(needle)) leaks.push(`${path.basename(file)} → "${needle}"`);
+    }
+  }
+  if (leaks.length > 0) {
+    throw new Error(
+      `[build-prod] DEV LOGGER LEAKED INTO PRODUCTION BUNDLE — refusing to ship:\n  ${leaks.join("\n  ")}`,
+    );
+  }
+  console.log("[build-prod] prod-safety gate passed — no dev-logger code in bundle");
+}
+
 async function main() {
   setUseProduction(true);
   console.log("[build-prod] set USE_PRODUCTION = true");
@@ -78,11 +109,15 @@ async function main() {
     const child = spawn(
       "build-figma-plugin",
       ["--typecheck", "--minify"],
-      { stdio: "inherit", shell: true },
+      // W2W_PROD=1 → esbuild define sets __W2W_DEV_LOG__ = false, stripping the
+      // dev-log bridge (see build-figma-plugin.{main,ui}.cjs).
+      { stdio: "inherit", shell: true, env: { ...process.env, W2W_PROD: "1" } },
     );
     child.on("exit", (code) => resolve(code ?? 1));
     child.on("error", reject);
   });
+
+  if (exitCode === 0) assertNoDevLoggerLeak();
 
   return exitCode;
 }

@@ -595,8 +595,37 @@ export async function createNodeInFigma(
     // Sort for correct stacking (bg images to front; z-index only in absolute mode)
     const childrenToRender = sortChildrenForStacking(orderSorted, node.layoutMode);
 
-    for (const child of childrenToRender) {
+    // Grid: build the linear append sequence with `null` spacer cells so that
+    // children with an explicit grid-column/grid-row land in the right cell
+    // (Figma's grid anchor index is read-only — see planGridSlots).
+    let renderList: (WireframeNode | null)[] = childrenToRender;
+    if (gridApplied) {
+      const gridColumnCount =
+        parseGridTemplate(node.gridTemplateColumns || "").length || 1;
+      renderList = planGridSlots(childrenToRender, gridColumnCount, node.gridAutoFlow);
+      // Spacers can push content past the row count computed in applyGridLayout
+      // (which only counted real children) — grow it so cells aren't clipped.
+      const neededRows = Math.ceil(renderList.length / gridColumnCount);
+      const gridFrame = frame as unknown as { gridRowCount?: number };
+      if (typeof gridFrame.gridRowCount === "number" && gridFrame.gridRowCount < neededRows) {
+        try { gridFrame.gridRowCount = neededRows; } catch { /* Grid API */ }
+      }
+    }
+
+    for (const entry of renderList) {
       try {
+        if (entry === null) {
+          // Empty spacer cell (grid only) — invisible frame occupying one grid
+          // cell so the following child is auto-placed into its intended cell.
+          const spacer = figma.createFrame();
+          spacer.name = "grid-spacer";
+          spacer.fills = [];
+          spacer.resize(1, 1);
+          frame.appendChild(spacer);
+          continue;
+        }
+        const child = entry;
+
         const childNode = await createNodeInFigma(child, childContext, depth + 1);
 
         if (childNode) {
@@ -657,8 +686,8 @@ export async function createNodeInFigma(
         }
       } catch (err) {
         logger.error("Error creating child node", err, {
-          childId: child.id,
-          childName: child.name,
+          childId: entry?.id,
+          childName: entry?.name,
         });
       }
     }
@@ -1717,6 +1746,68 @@ function sortGridChildren(
     // Row flow (default): sort by row first, then column
     return aRow - bRow || aCol - bCol;
   });
+}
+
+/**
+ * Build the linear append sequence for a Figma grid, inserting `null` spacer
+ * markers so children with an explicit CSS `grid-column` / `grid-row` land in
+ * the correct cell.
+ *
+ * Figma's grid anchor index (gridColumnAnchorIndex) is read-only, so children
+ * are auto-placed sequentially in append order. To honor a definite grid line
+ * we push empty spacer cells ahead of the positioned child, which shifts it
+ * into its target cell — the fix for centering grids like paco.me
+ * (`grid-template-columns: 192px 640px 192px`, article on `grid-column: 2`).
+ *
+ * Children must already be sorted by grid position (see sortGridChildren).
+ * Each returned entry is either a child node (one append) or `null` (render an
+ * empty placeholder cell). A child's column span is honored: it occupies
+ * `span` cells but is a single append, so no spacers are emitted for the cells
+ * it covers.
+ */
+export function planGridSlots(
+  children: WireframeNode[],
+  columnCount: number,
+  gridAutoFlow?: string
+): (WireframeNode | null)[] {
+  const cols = Math.max(1, columnCount);
+  const columnFlow = !!gridAutoFlow && gridAutoFlow.includes("column");
+  const slots: (WireframeNode | null)[] = [];
+  let cellCursor = 0; // next free linear cell index (0-based, row-major)
+
+  for (const child of children) {
+    const colStart =
+      typeof child.gridColumnStart === "number" ? child.gridColumnStart : undefined;
+    const rowStart =
+      typeof child.gridRowStart === "number" ? child.gridRowStart : undefined;
+
+    let target = cellCursor;
+    if (colStart && colStart >= 1) {
+      const targetCol = colStart - 1; // 0-based column
+      if (rowStart && rowStart >= 1) {
+        // Definite row + column → exact linear cell index.
+        target = (rowStart - 1) * cols + targetCol;
+      } else if (!columnFlow) {
+        // Row flow, column-only: first cell at/after the cursor in that column
+        // (wraps to the next row when the column is behind the cursor).
+        target = cellCursor;
+        while (target % cols !== targetCol) target++;
+      }
+    }
+
+    if (target < cellCursor) target = cellCursor; // overlap guard — never go back
+
+    for (let i = cellCursor; i < target; i++) slots.push(null);
+    slots.push(child);
+
+    const span = Math.max(
+      1,
+      getGridSpanFromNode(child.gridColumnStart, child.gridColumnEnd)
+    );
+    cellCursor = target + span;
+  }
+
+  return slots;
 }
 
 /**

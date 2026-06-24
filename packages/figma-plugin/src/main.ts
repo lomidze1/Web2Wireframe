@@ -19,6 +19,7 @@
  */
 
 import { showUI } from "@create-figma-plugin/utilities";
+import { installDevLogger } from "./utils/devLogger";
 import { logger } from "./utils/logger";
 import { errorHandler, ErrorCode } from "./utils/errorHandler";
 import type {
@@ -59,6 +60,7 @@ import {
 // ============================================================================
 
 export default function () {
+  if (__W2W_DEV_LOG__) installDevLogger();
   showUI({ width: 410, height: 560 });
 
   // Pending render state for font fallback popup flow
@@ -172,6 +174,36 @@ export default function () {
         layoutMode: (layoutMode || "autoLayout") as "absolute" | "autoLayout",
         interactionMode: (interactionMode || "none") as "none" | "variants",
       });
+
+      // TEMP GRID DIAGNOSTIC — remove after debugging paco.me grid placement.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const root: any = frames[0]?.tree;
+        let total = 0;
+        let gridCount = 0;
+        const gridLines: string[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const walk = (n: any) => {
+          if (!n) return;
+          total++;
+          if (n.layoutMode === "GRID") {
+            gridCount++;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const kids = (n.children || [])
+              .map((c: any) => `${c.tag}(gcs=${c.gridColumnStart},w=${Math.round(c.width)})`)
+              .join(", ");
+            gridLines.push(`<${n.tag}> cols="${n.gridTemplateColumns}" gap=${n.gridColumnGap} kids=[${kids}]`);
+          }
+          (n.children || []).forEach(walk);
+        };
+        walk(root);
+        logger.info(
+          `[GRID-DIAG] layoutModeOpt=${layoutMode} format=${frames[0]?.capturedData ? "W2W" : "legacy"} total=${total} gridNodes=${gridCount} rootTag=${root?.tag} rootLayout=${root?.layoutMode}`
+        );
+        gridLines.slice(0, 25).forEach((l) => logger.info("[GRID-DIAG] " + l));
+      } catch (e) {
+        logger.warn("[GRID-DIAG] failed", { e: String(e) });
+      }
 
       // Determine font family based on fontMode
       const websiteFont = frames[0]?.tree?.fontFamily || "Inter";
@@ -837,6 +869,52 @@ export default function () {
         const { missing } = await checkFontsAvailability(allFonts);
 
         if (missing.length > 0) {
+          // Auto-resolve: a "missing" CSS family may already be installed under
+          // its real (SFNT) name — Söhne installs as "Copyright Klim Type
+          // Foundry". If EVERY missing font resolves to an installed real
+          // family, skip the modal entirely: render via the proven marker +
+          // rebind path so the original font lands directly. Re-imports of a
+          // font the user installed once just work, no modal, no Re-apply.
+          const realNames = data.fontRealNames || {};
+          let installedFamilies = new Set<string>();
+          try {
+            if (typeof figma.listAvailableFontsAsync === "function") {
+              const avail = await figma.listAvailableFontsAsync();
+              installedFamilies = new Set(avail.map((f) => f.fontName.family));
+            }
+          } catch {
+            /* no font list available — fall through to the modal */
+          }
+
+          const autoOriginal: FontMapping = {};
+          const stillMissing: string[] = [];
+          for (const css of missing) {
+            const real = realNames[css];
+            if (real && real !== css && installedFamilies.has(real)) {
+              autoOriginal[css] = real;
+            } else {
+              stillMissing.push(css);
+            }
+          }
+
+          if (stillMissing.length === 0 && Object.keys(autoOriginal).length > 0) {
+            // Render with Inter + original-name markers (the modal "continue"
+            // path), then immediately rebind to the installed real fonts.
+            const renderMapping: FontMapping = {};
+            for (const css of Object.keys(autoOriginal)) renderMapping[css] = "Inter";
+            await executeRender("Inter", renderMapping, autoOriginal);
+            try {
+              const textNodes = figma.currentPage.findAll(
+                (n) => n.type === "TEXT",
+              ) as TextNode[];
+              await rebindOriginalFonts(textNodes);
+            } catch {
+              /* rebind best-effort — markers remain for a manual Re-apply */
+            }
+            postRebindableCount();
+            return;
+          }
+
           const pluginFontOptions = [
             pluginFont || "Montserrat",
             "Inter", "Roboto", "Open Sans", "Lato", "Poppins",
