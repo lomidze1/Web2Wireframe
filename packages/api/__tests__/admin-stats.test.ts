@@ -6,6 +6,7 @@ const mockLicenseCount = vi.fn();
 const mockLicenseFind = vi.fn();
 const mockWebhookCount = vi.fn();
 const mockAuditCount = vi.fn();
+const mockImportEventFind = vi.fn();
 
 vi.mock("../src/models/License.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/models/License.js")>();
@@ -24,6 +25,10 @@ vi.mock("../src/models/WebhookEvent.js", () => ({
 
 vi.mock("../src/models/LicenseAudit.js", () => ({
   LicenseAudit: { countDocuments: (...args: unknown[]) => mockAuditCount(...args) },
+}));
+
+vi.mock("../src/models/ImportEvent.js", () => ({
+  ImportEvent: { find: (...args: unknown[]) => mockImportEventFind(...args) },
 }));
 
 const { default: statsRouter } = await import(
@@ -45,9 +50,12 @@ beforeEach(() => {
   mockLicenseFind.mockReset();
   mockWebhookCount.mockReset();
   mockAuditCount.mockReset();
+  mockImportEventFind.mockReset();
   // Default: the roster query (License.find(...).sort(...).lean()) resolves to
   // an empty list. Tests that care about the users table override this.
   primeUserList([]);
+  // Default: the recent-imports feed resolves empty too.
+  primeRecentImports([]);
 });
 
 /**
@@ -57,6 +65,16 @@ beforeEach(() => {
 function primeUserList(rows: unknown[]): void {
   mockLicenseFind.mockReturnValue({
     sort: () => ({ lean: () => Promise.resolve(rows) }),
+  });
+}
+
+/**
+ * Primes the recent-imports feed — ImportEvent.find(projection).sort().limit().lean()
+ * — with the supplied rows. Mirrors the chainable Mongoose call in stats.ts.
+ */
+function primeRecentImports(rows: unknown[]): void {
+  mockImportEventFind.mockReturnValue({
+    sort: () => ({ limit: () => ({ lean: () => Promise.resolve(rows) }) }),
   });
 }
 
@@ -217,6 +235,60 @@ describe("GET /api/admin/stats — response shape", () => {
     // null email is preserved (rendered as "—" client-side)
     expect(res.body.users.list[1].email).toBeNull();
     expect(res.body.users.list[1].imports).toBe(0);
+  });
+});
+
+describe("GET /api/admin/stats — recent imports", () => {
+  it("returns recentImports with email joined from the roster", async () => {
+    primeCounts({ totalUsers: 1 });
+    primeUserList([
+      {
+        figmaUserId: "u-1",
+        email: "a@example.com",
+        plan: "free",
+        status: "active",
+        usage: { imports: 1 },
+        createdAt: new Date("2026-06-01T00:00:00Z"),
+      },
+    ]);
+    primeRecentImports([
+      {
+        figmaUserId: "u-1",
+        sourceUrl: "https://acme.test/pricing",
+        title: "Acme",
+        type: "extension",
+        viewports: [1440],
+        success: true,
+        createdAt: new Date("2026-06-20T00:00:00Z"),
+      },
+      {
+        figmaUserId: "u-unknown",
+        sourceUrl: "https://broken.test",
+        type: "url",
+        viewports: [1440],
+        success: false,
+        errorCode: "TIMEOUT",
+        createdAt: new Date("2026-06-19T00:00:00Z"),
+      },
+    ]);
+
+    const res = await request(makeApp()).get("/api/admin/stats");
+
+    expect(res.body.recentImports).toHaveLength(2);
+    expect(res.body.recentImports[0]).toMatchObject({
+      figmaUserId: "u-1",
+      email: "a@example.com",
+      sourceUrl: "https://acme.test/pricing",
+      type: "extension",
+      success: true,
+    });
+    // Unknown user (no roster row) → email null, failure fields preserved.
+    expect(res.body.recentImports[1]).toMatchObject({
+      figmaUserId: "u-unknown",
+      email: null,
+      success: false,
+      errorCode: "TIMEOUT",
+    });
   });
 });
 

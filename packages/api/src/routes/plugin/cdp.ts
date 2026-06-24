@@ -26,6 +26,7 @@ import {
   clearPairingFailures,
 } from "../../state.js";
 import { convertAssetsForFigma } from "../../lib/cdp/convertImage.js";
+import { logImportEvent } from "../../models/ImportEvent.js";
 import { authenticatePlugin } from "../../middleware/auth.js";
 import {
   authRateLimiter,
@@ -472,6 +473,18 @@ router.get(
     // One-time fetch — delete only after the gate passes so a quota-exceeded
     // user can re-poll after upgrading.
     pendingCDPImports.delete(latestId!);
+
+    // Record which user imported which site (activation debugging). The
+    // capture already succeeded server-side by the time it lands here.
+    const d = latestEntry.data;
+    void logImportEvent({
+      figmaUserId,
+      sourceUrl: typeof d.sourceUrl === "string" ? d.sourceUrl : "unknown",
+      title: typeof d.title === "string" ? d.title : undefined,
+      type: "extension",
+      viewports: Array.isArray(d.viewports) ? (d.viewports as number[]) : [],
+      success: true,
+    });
 
     // Convert AVIF/WebP assets to JPEG for Figma compatibility (sharp on server)
     try {

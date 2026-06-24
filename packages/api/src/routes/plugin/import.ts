@@ -9,6 +9,7 @@
 
 import { Router, Request, Response } from "express";
 import Wireframe from "../../models/Wireframe.js";
+import { logImportEvent } from "../../models/ImportEvent.js";
 import { createWireframeDataW2W, createWireframeDataFromHTMLW2W } from "../../lib/htmlExtractor.js";
 import {
   DEFAULT_PLUGIN_COLORS,
@@ -143,6 +144,17 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
       }
     }
 
+    // Record which user imported which site, with what parameters
+    // (activation debugging — owner reproduces the exact import).
+    void logImportEvent({
+      figmaUserId: userId,
+      sourceUrl: normalizedSourceUrl!,
+      type: "url",
+      viewports,
+      params: { colorMode, typographyMode, textMode, pluginFont },
+      success: true,
+    });
+
     res.json({
       success: true,
       wireframeId,
@@ -176,6 +188,22 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
       errorCode = "NAVIGATION_ERROR";
       errorMessage = "Could not navigate to the website. It may be blocking automated access.";
     }
+
+    // Log the failed attempt — these are the sites our extractor chokes on.
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl: req.body?.sourceUrl ?? "unknown",
+      type: "url",
+      viewports: Array.isArray(req.body?.viewports) ? req.body.viewports : [1440],
+      params: {
+        colorMode: req.body?.colorMode,
+        typographyMode: req.body?.typographyMode,
+        textMode: req.body?.textMode,
+        pluginFont: req.body?.pluginFont,
+      },
+      success: false,
+      errorCode,
+    });
 
     res.status(500).json({
       success: false,
@@ -265,7 +293,8 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
       primary: pluginFont,
     });
 
-    // No MongoDB save -- ephemeral HTML import
+    // No MongoDB save -- ephemeral HTML import.
+    // Not logged to ImportEvent — only extension + url imports are tracked.
 
     res.json({
       success: true,
@@ -297,5 +326,25 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
     });
   }
 });
+
+/**
+ * POST /api/import-w2w-file - Count a locally-imported `.w2w` capture against
+ * the user's quota.
+ *
+ * The Browser Extension downloads `.w2w` files which the plugin then imports
+ * offline (rendered fully client-side), so this is the only point where an
+ * extension capture can be attributed to a figmaUserId. The gate counts via
+ * the verified token identity (`req.userId`) — there is no body to process,
+ * the file itself never reaches the server.
+ */
+router.post(
+  "/import-w2w-file",
+  importRateLimiter,
+  authenticatePlugin,
+  requireImportAllowance,
+  (req: Request, res: Response) => {
+    res.json({ success: true, importRemaining: req.importRemaining ?? null });
+  },
+);
 
 export default router;
