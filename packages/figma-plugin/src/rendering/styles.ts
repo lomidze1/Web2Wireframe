@@ -1334,6 +1334,33 @@ export function fontWeightToStyle(weight: number): string {
   return fontWeightToStyleCandidates(weight)[0];
 }
 
+/** True when a CSS `font-style` value means slanted text (italic or oblique). */
+export function isItalicStyle(fontStyle?: string | null): boolean {
+  if (!fontStyle) return false;
+  const s = fontStyle.toLowerCase();
+  return s.includes("italic") || s.includes("oblique");
+}
+
+/**
+ * Like `fontWeightToStyleCandidates`, but italic-aware. For italic/oblique runs
+ * it returns the Italic-named cuts first (e.g. "Italic", "Medium Italic"),
+ * keeping the upright cuts as a last resort so a family without an italic still
+ * renders. "Italic" alone is tried early because many subsetted webfonts ship a
+ * single italic cut named exactly "Italic" (e.g. Newsreader on paco.me).
+ */
+export function fontStyleCandidates(weight: number, italic: boolean): string[] {
+  const base = fontWeightToStyleCandidates(weight);
+  if (!italic) return base;
+  const out: string[] = [];
+  for (const s of base) {
+    if (s === "Regular" || s === "Normal" || s === "Book") out.push("Italic");
+    out.push(`${s} Italic`);
+  }
+  out.push("Italic", "Oblique");
+  out.push(...base); // upright fallback, last
+  return Array.from(new Set(out));
+}
+
 /**
  * Parse a node's lineHeight value to Figma LineHeight format.
  * Handles: number (px), "NNpx", "NN%", ratio "1.5", "normal", undefined.

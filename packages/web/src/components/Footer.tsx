@@ -41,9 +41,9 @@ const Footer = (): ReactElement => {
             <a href={installLinks.figmaCommunity} target="_blank" rel="noreferrer">
               Start Free
             </a>
-            <Link to="/docs/browser-extension/extension-overview">
+            <a href={installLinks.chrome} target="_blank" rel="noreferrer">
               Browser Extension
-            </Link>
+            </a>
             <button
               type="button"
               className={styles.linkButton}

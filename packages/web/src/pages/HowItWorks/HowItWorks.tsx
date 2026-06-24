@@ -8,26 +8,112 @@ import styles from "./HowItWorks.module.scss";
 import iconTextOption from "../../assets/how-it-work/card-icons/icon-text-option.png";
 import iconColorOption from "../../assets/how-it-work/card-icons/color-option-icon.png";
 import iconFontOption from "../../assets/how-it-work/card-icons/font-option-icon.png";
+import iconLayout from "../../assets/how-it-work/card-icons/layout-detection-icon.png";
 // 2. Input Method Icons
 import iconWebsiteUrl from "../../assets/how-it-work/card-icons/website-url-icon.png";
 import iconScreenshot from "../../assets/how-it-work/card-icons/screenshot-icon.png";
 import iconHTML from "../../assets/how-it-work/card-icons/html-icon.png";
 import iconAreaSelection from "../../assets/how-it-work/card-icons/area-selection-icon.png";
 
-// TODO (owner, today/tomorrow): card cover + detail screenshots are shown as
-// Template placeholders until fresh screenshots are captured. The original PNGs
-// still live in assets/how-it-work/card-cover/ and assets/how-it-work/card-details/.
-// To restore: re-import them, add `cardImage` back to each card, and replace the
-// `screenshotCount` placeholders with real <img> tags.
+// Detail screenshots are served from `public/how-it-works/` (absolute
+// `/how-it-works/...` paths) so new images can be dropped in without touching
+// code: detail screenshots in `public/how-it-works/details/`, plus a few
+// reused covers in `public/how-it-works/covers/`.
+
+// Inline SVG icons for the three cards that have no PNG icon asset
+// (Viewports, Assets, CSS Variables). Sized to match the 40x40 PNG icons.
+const iconViewports = (
+  <svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+    <rect
+      x="4"
+      y="8"
+      width="23"
+      height="17"
+      rx="2"
+      stroke="currentColor"
+      strokeWidth="2"
+    />
+    <line
+      x1="11"
+      y1="29"
+      x2="20"
+      y2="29"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+    <rect
+      x="25"
+      y="16"
+      width="11"
+      height="18"
+      rx="2"
+      fill="var(--surface, #fff)"
+      stroke="currentColor"
+      strokeWidth="2"
+    />
+    <line
+      x1="28"
+      y1="31"
+      x2="33"
+      y2="31"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const iconAssets = (
+  <svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+    <rect
+      x="6"
+      y="8"
+      width="28"
+      height="24"
+      rx="3"
+      stroke="currentColor"
+      strokeWidth="2"
+    />
+    <circle cx="15" cy="16" r="2.5" stroke="currentColor" strokeWidth="2" />
+    <path
+      d="M9 30 L18 21 L24 27 L29 23 L33 27"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const iconCssVariables = (
+  <svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
+    <path
+      d="M16 8 C12 8 13 16 9 20 C13 24 12 32 16 32"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M24 8 C28 8 27 16 31 20 C27 24 28 32 24 32"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 type Card = {
   id: string;
   icon?: string;
+  iconSvg?: ReactElement;
   title: string;
   description: string | string[];
   details: {
     howToUse: string | string[];
-    screenshotCount: number; // number of Template placeholders to show until real screenshots land
+    screenshots: string[];
   };
 };
 
@@ -45,41 +131,110 @@ const sections: Section[] = [
     number: "01",
     title: "Configuration Settings",
     subtitle:
-      "Configure colors, fonts, and text rules once, and reuse them across all imports for consistent results.",
+      "Set up viewports, colors, fonts, text, assets, variables, and layout once, then reuse them across all imports for consistent results.",
     cards: [
       {
-        id: "text-settings",
-        icon: iconTextOption,
-        title: "Text Settings",
+        id: "viewport-settings",
+        iconSvg: iconViewports,
+        title: "Viewports",
         description:
-          "Control how text content is generated and represented during import.",
+          "Choose which screen widths are captured for each import.",
         details: {
           howToUse:
-            "Define how text is handled when converting websites into wireframes. Choose between semantic placeholders, original website copy, or length-matched Lorem Ipsum. This allows you to focus on structure, hierarchy, and layout without being distracted by real content — or keep original text when fidelity matters.",
-          screenshotCount: 2,
+            "Pick one or more capture widths (1920, 1440, 1024, 768, 375) so a single import produces every breakpoint you need. Each selected viewport is rendered and converted into its own Figma frame — ideal for comparing desktop, tablet, and mobile layouts side by side. Use More Options for finer control.",
+          screenshots: [
+            "/how-it-works/details/viewport-settings-1.png",
+            "/how-it-works/details/viewport-settings-2.png",
+          ],
         },
       },
       {
         id: "color-settings",
         icon: iconColorOption,
-        title: "Color Settings",
+        title: "Colors",
         description: "Control color extraction and palette creation rules.",
         details: {
           howToUse:
             "Define how colors are extracted from your source designs. Set color naming conventions, palette organization, and automatic color simplification. Create reusable color tokens.",
-          screenshotCount: 2,
+          screenshots: [
+            "/how-it-works/details/color-settings-1.png",
+            "/how-it-works/details/color-settings-2.png",
+          ],
         },
       },
       {
         id: "font-settings",
         icon: iconFontOption,
-        title: "Font Settings",
+        title: "Fonts",
         description:
           "Map web fonts to Figma-available typefaces automatically.",
         details: {
           howToUse:
             "Set up font mappings so non-standard web fonts are converted to Figma-compatible alternatives. Define fallback chains and keep your designs consistent across projects.",
-          screenshotCount: 2,
+          screenshots: [
+            "/how-it-works/details/font-settings-1.png",
+            "/how-it-works/details/font-settings-2.png",
+          ],
+        },
+      },
+      {
+        id: "text-settings",
+        icon: iconTextOption,
+        title: "Text",
+        description:
+          "Control how text content is generated and represented during import.",
+        details: {
+          howToUse:
+            "Define how text is handled when converting websites into wireframes. Choose between semantic placeholders, original website copy, or length-matched Lorem Ipsum. This allows you to focus on structure, hierarchy, and layout without being distracted by real content — or keep original text when fidelity matters.",
+          screenshots: [
+            "/how-it-works/details/text-settings-1.png",
+            "/how-it-works/details/text-settings-2.png",
+          ],
+        },
+      },
+      {
+        id: "asset-settings",
+        iconSvg: iconAssets,
+        title: "Assets",
+        description:
+          "Decide whether images render as placeholders or real assets.",
+        details: {
+          howToUse:
+            "Switch between Plugin Placeholders — neutral boxes that keep the wireframe clean and lightweight — and Real Assets, which import the website's actual images, icons, and SVGs for a high-fidelity result. Choose placeholders for early structure work, real assets when visual accuracy matters.",
+          screenshots: [
+            "/how-it-works/details/asset-settings-1.png",
+            "/how-it-works/details/asset-settings-2.png",
+          ],
+        },
+      },
+      {
+        id: "variable-settings",
+        iconSvg: iconCssVariables,
+        title: "CSS Variables",
+        description:
+          "Control how CSS custom properties become Figma values.",
+        details: {
+          howToUse:
+            "Choose Direct Value to bake each CSS variable into its resolved color or size, or Create Figma Styles to turn variables into reusable Figma styles. Styles keep your design tokens linked and editable across the whole file, mirroring the source design system.",
+          screenshots: [
+            "/how-it-works/details/variable-settings-1.png",
+            "/how-it-works/details/variable-settings-2.png",
+          ],
+        },
+      },
+      {
+        id: "layout-settings",
+        icon: iconLayout,
+        title: "Layout Mode",
+        description:
+          "Pick how the captured structure is laid out in Figma.",
+        details: {
+          howToUse:
+            "Use Auto Layout to rebuild the page with responsive Figma auto-layout frames — easy to resize and restructure. Use Absolute (Pixel-perfect) to position every element exactly as on the source page when you need an exact visual match over flexibility.",
+          screenshots: [
+            "/how-it-works/details/layout-settings-1.png",
+            "/how-it-works/details/layout-settings-2.png",
+          ],
         },
       },
     ],
@@ -102,40 +257,7 @@ const sections: Section[] = [
             "Adjust import settings (colors, fonts, text, viewport).",
             "Click Import to generate your Figma wireframe.",
           ],
-          screenshotCount: 2,
-        },
-      },
-      {
-        id: "screenshot",
-        icon: iconScreenshot,
-        title: "Screenshot",
-        description:
-          "Upload a screenshot and extract structure directly from the image.",
-        details: {
-          howToUse: [
-            "Upload a screenshot of the design (click or drag & drop).",
-            "Select the desired viewport size.",
-            "Choose color, font, and text handling options.",
-            "Click Generate Wireframe to create an editable Figma layout.",
-          ],
-          screenshotCount: 2,
-        },
-      },
-      {
-        id: "html-code",
-        icon: iconHTML,
-        title: "HTML Code",
-        description:
-          "Paste raw HTML and CSS for instant conversion to Figma components.",
-        details: {
-          howToUse: [
-            "Paste your HTML markup into the HTML field.",
-            "(Optional) Paste related CSS to preserve styling and layout.",
-            "Select the desired viewport size.",
-            "Choose color, font, and text handling options.",
-            "Click Generate Wireframe to convert your code into editable Figma layers.",
-          ],
-          screenshotCount: 2,
+          screenshots: ["/how-it-works/covers/url-import.png"],
         },
       },
       {
@@ -152,7 +274,40 @@ const sections: Section[] = [
             "Adjust import settings (viewport, colors, fonts, text).",
             "Click Generate Wireframe to create an editable Figma layout.",
           ],
-          screenshotCount: 2,
+          screenshots: ["/how-it-works/covers/area-selection.png"],
+        },
+      },
+      {
+        id: "html-code",
+        icon: iconHTML,
+        title: "HTML Code",
+        description:
+          "Paste raw HTML and CSS for instant conversion to Figma components.",
+        details: {
+          howToUse: [
+            "Paste your HTML markup into the HTML field.",
+            "(Optional) Paste related CSS to preserve styling and layout.",
+            "Select the desired viewport size.",
+            "Choose color, font, and text handling options.",
+            "Click Generate Wireframe to convert your code into editable Figma layers.",
+          ],
+          screenshots: ["/how-it-works/covers/html-code.png"],
+        },
+      },
+      {
+        id: "screenshot",
+        icon: iconScreenshot,
+        title: "Screenshot",
+        description:
+          "Upload a screenshot and extract structure directly from the image.",
+        details: {
+          howToUse: [
+            "Upload a screenshot of the design (click or drag & drop).",
+            "Select the desired viewport size.",
+            "Choose color, font, and text handling options.",
+            "Click Generate Wireframe to create an editable Figma layout.",
+          ],
+          screenshots: ["/how-it-works/covers/screenshot.png"],
         },
       },
     ],
@@ -238,7 +393,12 @@ const HowItWorks = (): ReactElement => {
                         loading="lazy"
                         decoding="async"
                       />
-                    )}{" "}
+                    )}
+                    {card.iconSvg && (
+                      <span className={styles.cardIconSvg} aria-hidden="true">
+                        {card.iconSvg}
+                      </span>
+                    )}
                     <h3>{card.title}</h3>
                     {Array.isArray(card.description) ? (
                       <ol className={styles.cardList}>
@@ -249,12 +409,6 @@ const HowItWorks = (): ReactElement => {
                     ) : (
                       <p>{card.description}</p>
                     )}
-                    <div className={styles.cardPreview}>
-                      <div
-                        className={styles.cardPreviewPlaceholder}
-                        aria-hidden="true"
-                      />
-                    </div>
                   </button>
                 );
               })}
@@ -298,19 +452,22 @@ const HowItWorks = (): ReactElement => {
                   )}
 
                   <div className={styles.panelScreenshots}>
-                    {Array.from({
-                      length:
-                        getActiveCard()?.card.details.screenshotCount ?? 0,
-                    }).map((_, idx) => (
-                      <div
-                        key={idx}
-                        className={styles.screenshotPlaceholder}
-                        role="img"
-                        aria-label={`${getActiveCard()?.card.title} screenshot placeholder ${
-                          idx + 1
-                        }`}
-                      />
-                    ))}
+                    {getActiveCard()?.card.details.screenshots.map(
+                      (src, idx) => (
+                        <div key={idx} className={styles.screenshotContainer}>
+                          <img
+                            src={src}
+                            alt={`${getActiveCard()?.card.title} example ${
+                              idx + 1
+                            }`}
+                            width="300"
+                            height="200"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        </div>
+                      )
+                    )}
                   </div>
                 </div>
               )}

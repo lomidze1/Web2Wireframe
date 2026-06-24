@@ -366,5 +366,56 @@ export function buildFontDownloads(
     }
   }
 
+  // Narrow to only the fonts Figma actually lacks — but ONLY when every
+  // missing name maps to a download we built. On normal sites the CSS
+  // @font-face name matches `missingFonts` (e.g. "Sohne"), so we can safely
+  // drop fonts the user already has (Inter, Newsreader). On anti-piracy sites
+  // the CSS chain head ("PSA") never matches the @font-face name
+  // ("PrivateSans Apple"); there we can't tell which file covers which missing
+  // font, so we fall back to bundling everything rather than risk dropping the
+  // one font the user needs.
+  const missingSet = new Set(
+    missingFonts.map((f) => f.toLowerCase().trim()).filter(Boolean)
+  );
+  if (missingSet.size > 0) {
+    const matched = downloads.filter((d) =>
+      missingSet.has(d.family.toLowerCase().trim())
+    );
+    const accounted = new Set(matched.map((d) => d.family.toLowerCase().trim()));
+    const everyMissingAccounted = Array.from(missingSet).every((m) =>
+      accounted.has(m)
+    );
+    if (matched.length > 0 && everyMissingAccounted) {
+      return matched;
+    }
+  }
+
   return downloads.length > 0 ? downloads : undefined;
+}
+
+/**
+ * Builds a CSS-family → real-(SFNT)-family map from the extracted @font-face
+ * entries. Only includes entries where a distinct real name exists. The sandbox
+ * uses this to detect when a "missing" CSS font is actually installed under its
+ * anti-piracy-aliased real name (e.g. "Söhne" → "Copyright Klim Type Foundry"),
+ * so it can apply it directly instead of opening the fallback modal.
+ */
+export function buildFontRealNames(
+  extractedFonts?: unknown[],
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (!extractedFonts) return map;
+  for (const ef of extractedFonts) {
+    const font = ef as {
+      family?: string;
+      fontFamily?: string;
+      realFamily?: string;
+    };
+    const css = font.fontFamily || font.family;
+    const real = font.realFamily;
+    if (css && real && real.trim() && real !== css && !map[css]) {
+      map[css] = real;
+    }
+  }
+  return map;
 }

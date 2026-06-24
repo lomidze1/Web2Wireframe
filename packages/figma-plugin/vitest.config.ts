@@ -1,6 +1,11 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  define: {
+    // Dev-log bridge flag — see src/types/devlog-global.d.ts. Tests exercise
+    // the dev path.
+    __W2W_DEV_LOG__: "true",
+  },
   esbuild: {
     jsx: "automatic",
     jsxImportSource: "preact",

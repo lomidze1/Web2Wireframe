@@ -18,6 +18,7 @@ import type {
   TextSegment,
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
+import { isItalicStyle } from './styles';
 
 // Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
 interface W2WFrameNode {
@@ -89,6 +90,10 @@ interface TextChildValue {
   value: string;
   font: string;
   platformFamily?: string;
+  /** PostScript name of the actually-rendered font (e.g. "Newsreader-Italic").
+   *  Used to infer italic for an inline run whose CSS font-style lives on a
+   *  parent FRAME the merge step can't see — the W2W TEXT node is minimal. */
+  platformPostScript?: string;
   x: number;
   y: number;
   width: number;
@@ -234,6 +239,7 @@ function convertFrame(
   const fontFamily = cleanFontFamily(str(s.fontFamily) || 'Arial');
   const fontSize = parseFloat(str(s.fontSize)) || 16;
   const fontWeight = parseFontWeight(str(s.fontWeight));
+  const fontStyle = str(s.fontStyle) || undefined;
 
   // Convert children — separate TEXT nodes from FRAME/SVG nodes
   const children: WireframeNode[] = [];
@@ -302,6 +308,7 @@ function convertFrame(
         value: child.value,
         font: child.font,
         platformFamily: child.platformFont?.familyName,
+        platformPostScript: child.platformFont?.postScriptName,
         x: child.x,
         y: child.y,
         width: child.width,
@@ -320,6 +327,7 @@ function convertFrame(
               value: grandchild.value,
               font: grandchild.font,
               platformFamily: grandchild.platformFont?.familyName,
+              platformPostScript: grandchild.platformFont?.postScriptName,
               x: grandchild.x,
               y: grandchild.y,
               width: grandchild.width,
@@ -486,12 +494,21 @@ function convertFrame(
         const { family } = parseFontString(t.font);
         // Strip weight suffix from platform font name (e.g., "Space Grotesk Light" → "Space Grotesk")
         const cleanPlatformFamily = t.platformFamily ? parseFontString(t.platformFamily).family : undefined;
+        // Infer italic for this run. The W2W TEXT node is minimal (no
+        // font-style), so for an inline <em> we read it from the actually-
+        // rendered font's PostScript name (e.g. "Newsreader-Italic"); fall back
+        // to the parent FRAME's font-style for wholly-italic elements.
+        const segItalic =
+          isItalicStyle(t.platformPostScript) ||
+          isItalicStyle(t.platformFamily) ||
+          isItalicStyle(fontStyle);
         return {
           text: t.value,
           color: t.color || textColor,
           fontWeight: t.fontWeight || fontWeight, // Child override (e.g., <strong>) or parent's CSS fontWeight
           fontSize,
           fontFamily: cleanPlatformFamily || family || fontFamily,
+          fontStyle: segItalic ? 'italic' : undefined,
           textDecoration: t.textDecoration || ownTextDecoration,
           isLink: t.tag === 'a' || node.tag === 'a',
           tag: t.tag || node.tag,
@@ -694,6 +711,13 @@ function convertFrame(
     gridAutoFlow: !isAbsoluteMode ? str(s.gridAutoFlow) : undefined,
     gridColumnGap: !isAbsoluteMode ? (parseFloat(str(s.columnGap) || gapStr) || 0) : undefined,
     gridRowGap: !isAbsoluteMode ? (parseFloat(str(s.rowGap) || gapStr) || 0) : undefined,
+    // Grid child placement — explicit CSS line numbers (1-based). Needed so
+    // children land in the correct cell (e.g. a centering grid where the
+    // content sits on `grid-column: 2`). "auto"/spans/line-names → undefined.
+    gridColumnStart: !isAbsoluteMode ? parseGridLine(s.gridColumnStart) : undefined,
+    gridColumnEnd: !isAbsoluteMode ? parseGridLine(s.gridColumnEnd) : undefined,
+    gridRowStart: !isAbsoluteMode ? parseGridLine(s.gridRowStart) : undefined,
+    gridRowEnd: !isAbsoluteMode ? parseGridLine(s.gridRowEnd) : undefined,
 
     // Visual
     fills: fills.length > 0 ? fills : undefined,
@@ -748,6 +772,7 @@ function convertFrame(
     fontSize,
     fontWeight,
     fontFamily,
+    fontStyle,
     textAlign,
     lineHeight: lineHeight === 'normal' ? 'normal' : parseFloat(lineHeight) || 'normal',
     letterSpacing,
@@ -1951,6 +1976,19 @@ function str(v: string | number | undefined | null): string {
   if (v === undefined || v === null) return '';
   if (typeof v === 'symbol') return '';
   return String(v);
+}
+
+/**
+ * Parse a computed CSS grid line value (grid-column-start, etc.) to a plain
+ * integer. Only bare integers ("2", "-1") are accepted — "auto", "span 2",
+ * "1 / 3" and named lines return undefined (we can't reliably honor those as
+ * a single anchor index).
+ */
+function parseGridLine(v: string | number | undefined | null): number | undefined {
+  const sv = str(v).trim();
+  if (sv === '' || sv === 'auto') return undefined;
+  const n = parseInt(sv, 10);
+  return Number.isFinite(n) && String(n) === sv ? n : undefined;
 }
 
 function cleanFontFamily(fontFamily: string): string {

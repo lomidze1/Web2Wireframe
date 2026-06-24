@@ -5,16 +5,18 @@ import styles from "./Web.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { useLicense } from "../../../shared/LicenseContext";
 import { authHeader } from "../../../shared/licenseClient";
 import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
+import { looksLikeBlockPage } from "../../../shared/blockPageDetection";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
 import { validateUrl } from "../../../../utils/urlValidation";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
-import { buildFontDownloads } from "../../../../utils/fontDownload";
+import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -29,7 +31,13 @@ const API_URL = API_BASE_URL;
 interface ImportState {
   status: "idle" | "loading" | "success" | "error";
   message: string;
+  /** Set on the bot-protection case so the error renders an inline link to the
+   *  Browser Extension instead of plain text. */
+  blocked?: boolean;
 }
+
+const EXTENSION_URL =
+  "https://chromewebstore.google.com/detail/web2wireframe/fcmicolldgpmpdkcdljkaaimmjmboipl";
 
 interface RenderData {
   frames: unknown[];
@@ -41,6 +49,7 @@ interface RenderData {
   fontMode: "plugin" | "website" | "lines";
   textMode: "website" | "lorem" | "semantic";
   layoutMode: "autoLayout" | "absolute";
+  fontRealNames?: Record<string, string>;
 }
 
 export default function Web() {
@@ -65,6 +74,7 @@ export default function Web() {
   // Use shared hook for all settings logic
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
+  const { refresh: refreshLicense } = useLicense();
   const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for messages from Figma plugin main thread
@@ -147,6 +157,7 @@ export default function Web() {
             layoutMode: data.layoutMode, // "autoLayout" or "absolute"
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            fontRealNames: data.fontRealNames,
           },
         },
       },
@@ -235,6 +246,21 @@ export default function Web() {
       }
 
       const rawFrames = data.wireframeData?.frames || [];
+
+      // Bot-protected sites (e.g. tesla.com behind Akamai) serve an "Access
+      // Denied" page to our server-side headless browser. Rendering it gives a
+      // useless frame — instead, point the user at the Browser Extension, which
+      // captures from their real, already-authenticated browser.
+      if (looksLikeBlockPage(rawFrames)) {
+        setImportState({
+          status: "error",
+          message:
+            "This site blocks automated URL import (bot protection). Try capturing it with the Browser Extension instead.",
+          blocked: true,
+        });
+        return;
+      }
+
       const pluginColors = data.pluginColors || config.pluginColors;
 
       // Detect W2W format (content script extraction) vs legacy ExtractedElement format
@@ -293,10 +319,14 @@ export default function Web() {
         fontMode: settings.localFontMode,
         textMode: settings.localTextMode,
         layoutMode: settings.localLayoutMode,
+        fontRealNames: buildFontRealNames(data.fonts),
       };
 
       // Always use the user's configured CSS variables mode from settings
       sendToFigma(renderData, settings.localCssVariablesMode);
+
+      // Import consumed a quota slot server-side — refresh the footer badge.
+      void refreshLicense();
     } catch (error) {
       setImportState({
         status: "error",
@@ -369,7 +399,23 @@ export default function Web() {
           {importState.status === "loading" && (
             <span class={importStyles.spinner} aria-hidden="true"></span>
           )}
-          <span>{importState.message}</span>
+          {importState.blocked ? (
+            <span>
+              This site blocks automated URL import (bot protection). Try
+              capturing it with the{" "}
+              <a
+                href={EXTENSION_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ textDecoration: "underline" }}
+              >
+                Browser Extension
+              </a>{" "}
+              instead.
+            </span>
+          ) : (
+            <span>{importState.message}</span>
+          )}
         </div>
       )}
 

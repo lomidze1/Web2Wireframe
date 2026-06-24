@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
-import { Link } from "react-router-dom";
 import { installLinks } from "../../data/links";
 import { useAuth } from "../../contexts/AuthContext";
+import BeforeAfterSlider from "../../components/BeforeAfterSlider";
 import styles from "./Home.module.scss";
 
 type ComparisonRow = {
@@ -108,41 +108,14 @@ const Home = (): ReactElement => {
           </div>
 
           <div className={styles.heroVisual}>
-            <div className={styles.flow}>
-              <div className={styles.browserMock}>
-                <div className={styles.browserDots}>
-                  <span />
-                  <span />
-                  <span />
-                </div>
-                <div className={styles.browserBody}>
-                  <div className={styles.browserNav} />
-                  <div className={styles.browserCard} />
-                  <div className={styles.browserGrid}>
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                </div>
-              </div>
-              <div className={styles.arrow}>→</div>
-              <img
-                src="/logo.svg"
-                alt="Web2Wireframe logo"
-                className={styles.logoMark}
-              />
-              <div className={styles.arrow}>→</div>
-              <div className={styles.wireframeMock}>
-                <div className={styles.figmaTag}>Figma</div>
-                <div className={styles.wireframeHeader} />
-                <div className={styles.wireframeBlocks}>
-                  <span />
-                  <span />
-                  <span />
-                  <span />
-                </div>
-              </div>
-            </div>
+            <BeforeAfterSlider
+              beforeSrc="/home/before-1.png"
+              afterSrc="/home/after-1.png"
+              beforeAlt="Website before conversion"
+              afterAlt="Figma wireframe result"
+              beforeLabel="Website"
+              afterLabel="Figma wireframe"
+            />
             <h2 className={styles.visualNote}>
               Built specifically for Figma workflows
             </h2>
@@ -200,20 +173,14 @@ const Home = (): ReactElement => {
                   </div>
                 </li>
               </ul>
-              {/* S-H2: until the Figma Community plugin URL exists, the
-                primary CTA is a disabled "Available soon" placeholder.
-                Using a button (not anchor) so `aria-disabled` + cursor
-                styling work without an `href`. Once the plugin ships,
-                restore the anchor pointing to the real community URL. */}
-              <button
-                type="button"
+              <a
                 className="btn btn-primary"
-                aria-disabled="true"
-                disabled
-                title="Plugin launches soon"
+                href={installLinks.figma}
+                target="_blank"
+                rel="noreferrer"
               >
-                Available soon • Figma Community
-              </button>
+                Get it on Figma Community
+              </a>
             </div>
           </div>
         </div>
@@ -348,12 +315,14 @@ const Home = (): ReactElement => {
                   Start Free
                 </a>
 
-                <Link
+                <a
                   className="btn btn-secondary"
-                  to="/docs/browser-extension/extension-overview"
+                  href={installLinks.chrome}
+                  target="_blank"
+                  rel="noreferrer"
                 >
                   Browser Extension
-                </Link>
+                </a>
               </div>
               <button
                 type="button"

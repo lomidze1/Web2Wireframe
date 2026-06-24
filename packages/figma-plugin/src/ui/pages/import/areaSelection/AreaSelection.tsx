@@ -6,6 +6,10 @@ import { decodeW2W, detectFormat, gunzip } from "@w2w/shared/w2w-codec";
 import styles from "./AreaSelection.css";
 import importStyles from "../Import.css";
 import { useConfig } from "../../../shared/ConfigContext";
+import { useLicense } from "../../../shared/LicenseContext";
+import { authHeader } from "../../../shared/licenseClient";
+import { httpErrorMessage } from "../../../shared/httpErrors";
+import { API_BASE_URL } from "../../../shared/apiConfig";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import RenderingLoader, {
   type RenderingProgress,
@@ -14,7 +18,7 @@ import { transformFramesData, transformW2WTreeText } from "../../../shared/trans
 import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import SettingsPanel from "../../../components/settingsPanel";
-import { buildFontDownloads } from "../../../../utils/fontDownload";
+import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -246,6 +250,7 @@ export default function AreaSelection() {
   const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderingProgressRef = useRef<RenderingProgress | undefined>();
   const { config } = useConfig();
+  const { refresh: refreshLicense } = useLicense();
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
 
   // Listen for messages from Figma plugin main thread
@@ -452,6 +457,7 @@ export default function AreaSelection() {
             textMode: settings.localTextMode,
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            fontRealNames: buildFontRealNames(captureResult.fonts),
           },
         },
       },
@@ -538,8 +544,33 @@ export default function AreaSelection() {
         );
       }
 
+      // Count this .w2w import against the user's quota. Extension captures
+      // are otherwise untracked (the extension just downloads the file). Done
+      // after a successful decode so an invalid file never consumes a slot.
+      const response = await fetch(`${API_BASE_URL}/api/import-w2w-file`, {
+        method: "POST",
+        headers: { Authorization: authHeader() },
+      });
+
+      const { isAuthExpired } = await import("../../../shared/authEvents");
+      if (isAuthExpired(response)) return;
+
+      const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
+      if (await isQuotaExceeded(response)) {
+        // QuotaExceededModal shows via the w2w:quota-exceeded event.
+        setImportState({ status: "idle", message: "" });
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(httpErrorMessage(response.status));
+      }
+
       // Render directly using inline settings (no modal)
       processAndRender(unifiedResult);
+
+      // Refresh the footer badge to reflect the just-incremented count.
+      void refreshLicense();
     } catch (error) {
       setShowRenderingLoader(false);
       setRenderingProgress(undefined);
@@ -553,7 +584,7 @@ export default function AreaSelection() {
 
   // Open extension install page
   const handleInstallExtension = () => {
-    window.open("https://chrome.google.com/webstore", "_blank");
+    window.open("https://chromewebstore.google.com/detail/web2wireframe/fcmicolldgpmpdkcdljkaaimmjmboipl", "_blank");
   };
 
   const isDisabled = !fileName || importState.status === "loading";

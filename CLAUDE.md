@@ -109,10 +109,10 @@ Browser Extension (Content Script primary + CDP for specific tasks)
 `packages/browser-extension/`-ში. თუ დავალება მათ შეხებას მოითხოვს — **ჯერ
 გაჩერდი და ჰკითხე მომხმარებელს**, არ შეცვალო თვითნებურად.
 
-**კონტექსტი (2026-06):** plugin = published (Figma Community), website = published
-(Vercel), browser-extension = pending review (გაგზავნილი, ჯერ არა live).
-დაშვებული აქტიური სამუშაო = **მხოლოდ `packages/figma-plugin`** (rendering/UI/import
-ლოგიკის დახვეწა).
+**კონტექსტი (2026-06): ყველაფერი LIVE-ია.** plugin = published (Figma Community),
+website = published (Vercel), browser-extension = **published & live** (Chrome Web
+Store: `fcmicolldgpmpdkcdljkaaimmjmboipl`). დაშვებული აქტიური სამუშაო = **მხოლოდ
+`packages/figma-plugin`** (rendering/UI/import ლოგიკის დახვეწა).
 
 **წესი:** შემდეგ პაკეტებზე ცვლილება **არ გავაკეთოთ** სანამ მომხმარებელი
 **explicitly არ მოითხოვს და 3-4-ჯერ არ გადამოწმდება:**
@@ -121,9 +121,9 @@ Browser Extension (Content Script primary + CDP for specific tasks)
   response ფორმატი გამოქვეყნებულ plugin-ს ეყრდნობა → breaking change რეალურ
   მომხმარებლებს რეალურ დროში უფუჭებს.
 - `packages/shared` (`@w2w/shared`, `CDPClientInterface`, import data format) —
-  **extension → API → plugin** კონტრაქტი. extension pending-ში გაყინული ფორმატია.
-- `packages/browser-extension` — გაგზავნილი ვერსია გაყინულია; მისი data format
-  API-სთან თავსებადი უნდა დარჩეს.
+  **extension → API → plugin** კონტრაქტი. extension live-ია, მისი ფორმატი გაყინულია.
+- `packages/browser-extension` — 🔴 LIVE (Chrome Web Store-ზე გამოქვეყნებული);
+  მისი data format API-სთან თავსებადი უნდა დარჩეს.
 
 **რატომ უსაფრთხოა plugin-ის ცვლილება:** გამოქვეყნებული რამ "გაყინულია" იმ ვერსიაზე,
 რომელიც მომხმარებლებს აქვთ — ლოკალური ცვლილება მათ არ ეხებათ სანამ ახალ build-ს არ
@@ -161,6 +161,22 @@ redeploy-იც იდენტურ API-ს ააწყობს (იგი�
 **Override:** მხოლოდ მაშინ commit შესაძლებელია `USE_PRODUCTION = true`,
 თუ მომხმარებელი explicitly მოითხოვს (მაგ. release tag-ისთვის). Default
 ქცევა = ყოველთვის false-ად ვტოვებთ.
+
+### IMPORTANT: Dev-Log Bridge — "შეამოწმე ლოგები"
+
+როცა მომხმარებელი ითხოვს plugin-ის კონსოლის ლოგების ნახვას ("შეამოწმე ლოგები",
+"check logs", "რა ლოგდება"), Claude **ერთი ბრძანებით** უშვებს ლოკალურ receiver-ს
+(background):
+
+```bash
+node packages/figma-plugin/scripts/devlog-server.mjs   # 127.0.0.1:3999
+```
+
+შემდეგ მომხმარებელი dev plugin-ით აკეთებს import-ს → ლოგები server-ის stdout-ში
+ჩამოდის. **წინაპირობა:** `npm run watch` გაშვებულია და dev plugin reload-ია
+Figma-ში. დეტალები + prod-safety: `packages/figma-plugin/CLAUDE.md` → "Dev-Log
+Bridge". **🔒 live-ზე ვერ აიტვირთება** (compile-time `__W2W_DEV_LOG__` DCE +
+build-prod grep gate).
 
 ### IMPORTANT: ყოველთვის მონიშნე Recommended
 

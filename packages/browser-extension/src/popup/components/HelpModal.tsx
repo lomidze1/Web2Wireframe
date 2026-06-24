@@ -75,17 +75,21 @@ export function HelpModal({ isOpen, onClose }: HelpModalProps) {
             <div class="help-tagline">
               Transform any website into editable Figma wireframes
             </div>
-            {/* Hidden until glinc.io/products is live — re-enable in a future update:
             <a
-              href="https://glinc.io/products"
-              onClick={handleClick("https://glinc.io/products")}
+              href="https://glinc.io/plugins"
+              onClick={handleClick("https://glinc.io/plugins")}
               class="help-other-products"
             >
               🚀 Explore our other products
             </a>
-            */}
             <div class="help-made-by">
-              Made with ❤️ by Glinc
+              Made with ❤️ by{" "}
+              <a
+                href="https://glinc.io"
+                onClick={handleClick("https://glinc.io")}
+              >
+                Glinc
+              </a>
             </div>
           </div>
         </div>

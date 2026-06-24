@@ -554,6 +554,17 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
               Disconnect Figma
             </button>
           )}
+
+          <p class={styles.planTrustNote}>
+            We ship updates every week. Found a bug or have an idea?{" "}
+            <a
+              href="https://mail.google.com/mail/?view=cm&fs=1&to=hey@web2wireframe.design"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Send feedback →
+            </a>
+          </p>
         </div>
       </div>
     </div>

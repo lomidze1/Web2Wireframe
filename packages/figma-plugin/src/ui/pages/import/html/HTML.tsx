@@ -5,6 +5,7 @@ import styles from "./HTML.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { useLicense } from "../../../shared/LicenseContext";
 import { authHeader } from "../../../shared/licenseClient";
 import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
@@ -13,7 +14,7 @@ import { prepareFramesForRendering, type ExtractedElement } from "../../../share
 import type { WireframeFrame, WireframeNode } from "../../../../types";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
-import { buildFontDownloads } from "../../../../utils/fontDownload";
+import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
 import HtmlWarningModal from "../../../components/modalPopup/HtmlWarningModal";
 import RenderingLoader, {
   type RenderingProgress,
@@ -40,6 +41,7 @@ interface RenderData {
   fontMode: "plugin" | "website" | "lines";
   textMode: "website" | "lorem" | "semantic";
   layoutMode: "autoLayout" | "absolute";
+  fontRealNames?: Record<string, string>;
 }
 
 export default function HTML() {
@@ -65,6 +67,7 @@ export default function HTML() {
 
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
+  const { refresh: refreshLicense } = useLicense();
   const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for messages from Figma plugin main thread
@@ -143,6 +146,7 @@ export default function HTML() {
             layoutMode: data.layoutMode,
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            fontRealNames: data.fontRealNames,
           },
         },
       },
@@ -269,9 +273,13 @@ export default function HTML() {
         fontMode: settings.localFontMode,
         textMode: settings.localTextMode,
         layoutMode: settings.localLayoutMode,
+        fontRealNames: buildFontRealNames(data.fonts),
       };
 
       sendToFigma(renderData, settings.localCssVariablesMode);
+
+      // Import consumed a quota slot server-side — refresh the footer badge.
+      void refreshLicense();
     } catch (error) {
       setImportState({
         status: "error",

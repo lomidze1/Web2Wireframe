@@ -79,6 +79,13 @@ vi.mock("../ui/components/modalPopup/FontFallbackModal", () => ({
   },
 }));
 
+// Provide a valid auth header — the .w2w import now POSTs to the quota-count
+// endpoint, and authHeader() throws without a stored token.
+vi.mock("../ui/shared/licenseClient", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../ui/shared/licenseClient")>();
+  return { ...actual, authHeader: () => "Bearer test-token" };
+});
+
 // Stub heavy renderers so the test stays focused on prop wiring
 vi.mock("../ui/components/renderingLoader/RenderingLoader", () => ({
   default: () => null,
@@ -179,6 +186,19 @@ describe("AreaSelection — Font download prop wiring (P0 #1)", () => {
   beforeEach(() => {
     mockFontModalProps.current = null;
     vi.clearAllMocks();
+    // The .w2w import now counts against quota via POST /api/import-w2w-file
+    // before rendering. Stub a successful (within-quota) response so the flow
+    // proceeds to processAndRender.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ success: true, importRemaining: 5 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+      )
+    );
   });
 
   it("forwards extractedFonts to FontFallbackModal after a .w2w capture is processed", async () => {

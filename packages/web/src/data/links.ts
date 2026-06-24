@@ -7,9 +7,14 @@ export type CheckoutLinks = {
 // flow needs `figma.currentUser.id`, only available inside the plugin),
 // so the marketing page directs users to the Figma Community plugin
 // listing first. After install, the user upgrades from the plugin.
+// Published Figma Community plugin listing — canonical "install / start free"
+// destination (Pro upgrade happens in-plugin once installed).
+const FIGMA_PLUGIN_URL =
+  "https://www.figma.com/community/plugin/1646327864971730293";
+
 export const checkoutLinks: CheckoutLinks = {
-  free: "https://www.figma.com/community/plugin/web2wireframe", // Update once published
-  pro: "https://www.figma.com/community/plugin/web2wireframe",  // Update once published
+  free: FIGMA_PLUGIN_URL,
+  pro: FIGMA_PLUGIN_URL,
 };
 
 export type InstallLinks = {
@@ -19,7 +24,9 @@ export type InstallLinks = {
 };
 
 export const installLinks: InstallLinks = {
-  figma: "#figma-plugin-coming-soon",
-  chrome: "#chrome-extension-coming-soon",
-  figmaCommunity: "https://www.figma.com/community/",
+  figma: FIGMA_PLUGIN_URL,
+  chrome:
+    "https://chromewebstore.google.com/detail/web2wireframe/fcmicolldgpmpdkcdljkaaimmjmboipl",
+  // "Start Free" CTAs point at the plugin listing (the free tier IS the plugin).
+  figmaCommunity: FIGMA_PLUGIN_URL,
 };

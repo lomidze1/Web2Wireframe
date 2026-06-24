@@ -5,6 +5,7 @@ import styles from "./Screenshot.css";
 import importStyles from "../Import.css";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import { useConfig } from "../../../shared/ConfigContext";
+import { useLicense } from "../../../shared/LicenseContext";
 import { authHeader } from "../../../shared/licenseClient";
 import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
@@ -21,6 +22,7 @@ export default function Screenshot() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { config } = useConfig();
+  const { refresh: refreshLicense } = useLicense();
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
 
   // Screenshot mode can't use website fonts, auto-layout, real assets, hover
@@ -156,6 +158,9 @@ export default function Screenshot() {
         },
         "*"
       );
+
+      // Import consumed a quota slot server-side — refresh the footer badge.
+      void refreshLicense();
     } catch (err: unknown) {
       setIsGenerating(false);
       setError(toUserMessage(err, "Screenshot analysis failed"));
@@ -163,7 +168,7 @@ export default function Screenshot() {
     // `settings` is the full hook return value (collapseSettings + local*
     // state) — include it whole; eslint's exhaustive-deps can't track the
     // individual fields we use across the callback body.
-  }, [imagePreview, textMode, config, settings]);
+  }, [imagePreview, textMode, config, settings, refreshLicense]);
 
   return (
     <div class={styles.screenshotContainer}>

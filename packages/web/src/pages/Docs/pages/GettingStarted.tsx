@@ -74,8 +74,22 @@ const InstallPlugin = (): ReactElement => (
     <h2>Install Plugin</h2>
     <p>
       This guide shows how to install{" "}
-      <a href="https://www.figma.com/community">Web2Wireframe (W2W)</a> from the{" "}
-      <a href="https://www.figma.com/community">Figma Community</a> and start
+      <a
+        href="https://www.figma.com/community/plugin/1646327864971730293"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Web2Wireframe (W2W)
+      </a>{" "}
+      from the{" "}
+      <a
+        href="https://www.figma.com/community/plugin/1646327864971730293"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Figma Community
+      </a>{" "}
+      and start
       using it right away. It takes about a minute.
     </p>
 
@@ -110,14 +124,21 @@ const InstallPlugin = (): ReactElement => (
     <h3>More from GLINC</h3>
     <p>
       Web2Wireframe is built by GLINC. Explore our other plugins on our{" "}
-      <a href="https://www.figma.com/@GLINC">Figma Community profile</a>.
+      <a
+        href="https://www.figma.com/@glinc"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Figma Community profile
+      </a>
+      .
     </p>
 
     <h3>Next step</h3>
     <p>
       Continue to{" "}
-      <a href="https://www.figma.com/community">First Import</a> to generate
-      your first wireframe.
+      <a href="/docs/start/fast-first-import">First Import</a> to generate your
+      first wireframe.
     </p>
   </DocsLayout>
 );

@@ -129,34 +129,18 @@
   object-fit: cover;
 }
 
-.cardPreviewImg {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 6px;
-  object-position: top;
-}
+// Inline SVG icons (Viewports, Assets, CSS Variables) — sized and tinted to
+// sit alongside the 40x40 PNG icons used by the other cards.
+.cardIconSvg {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
 
-.cardPreview {
-  width: 100%;
-  height: 60px;
-  background: linear-gradient(
-    90deg,
-    rgba(59, 130, 246, 0.05),
-    rgba(59, 130, 246, 0.02)
-  );
-  border-radius: 8px;
-  margin-top: 0.4rem;
-  flex-shrink: 0;
-}
-
-// Template placeholder for the card cover (matches Docs .imagePlaceholder)
-.cardPreviewPlaceholder {
-  width: 100%;
-  height: 100%;
-  background: #e9ecef;
-  border: 1px dashed #cfd4da;
-  border-radius: 8px;
+  svg {
+    width: 100%;
+    height: 100%;
+  }
 }
 
 .cardList {
@@ -252,12 +236,22 @@
 
 .panelScreenshots {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  // Fixed-width tracks + centering so panels with 1 or 2 screenshots both
+  // render identically sized boxes (no full-width blow-up on single images).
+  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
+  justify-content: center;
   gap: 1.2rem;
 }
 
+// Uniform screenshot box — fixed aspect ratio + object-fit: cover means every
+// image fills the box edge-to-edge (no empty bands), cropping any overflow so
+// all rows stay exactly the same size regardless of source dimensions.
 .screenshotContainer {
-  background: #fff;
+  aspect-ratio: 3 / 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f4f6fb;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -266,18 +260,9 @@
   img {
     display: block;
     width: 100%;
-    height: auto;
-    background: #f9f9f9;
+    height: 100%;
+    object-fit: cover;
   }
-}
-
-// Template placeholder for panel screenshots (matches Docs .imagePlaceholder)
-.screenshotPlaceholder {
-  width: 100%;
-  height: 200px;
-  background: #e9ecef;
-  border: 1px dashed #cfd4da;
-  border-radius: 12px;
 }
 
 // CTA Box

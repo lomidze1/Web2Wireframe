@@ -19,7 +19,28 @@ import { describe, it, expect } from "vitest";
 import {
   buildFontDownloads,
   buildFontDownloadEntries,
+  buildFontRealNames,
 } from "../utils/fontDownload";
+
+describe("buildFontRealNames", () => {
+  it("maps CSS family → real (SFNT) family, skipping identity/empty entries", () => {
+    const map = buildFontRealNames([
+      { fontFamily: "Sohne", realFamily: "Copyright Klim Type Foundry" },
+      { fontFamily: "Inter", realFamily: "Inter" }, // identity → skipped
+      { fontFamily: "Newsreader" }, // no realFamily → skipped
+      { family: "PSA", realFamily: "PrivateSans Apple" }, // legacy `family` shape
+    ]);
+    expect(map).toEqual({
+      Sohne: "Copyright Klim Type Foundry",
+      PSA: "PrivateSans Apple",
+    });
+  });
+
+  it("returns an empty map for missing/empty input", () => {
+    expect(buildFontRealNames(undefined)).toEqual({});
+    expect(buildFontRealNames([])).toEqual({});
+  });
+});
 
 describe("buildFontDownloads — bundle-all on naming mismatch", () => {
   it("bundles ALL extractedFonts when none of the names match missingFonts", () => {
@@ -190,5 +211,52 @@ describe("buildFontDownloads — bundle-all on naming mismatch", () => {
 
     expect(result).toHaveLength(1);
     expect(result![0].family).toBe("Inter");
+  });
+});
+
+describe("buildFontDownloads — narrow to only-missing when names are accountable", () => {
+  it("bundles ONLY the missing font, skipping ones already in Figma (paco.me case)", () => {
+    // paco.me: Söhne is missing from Figma; Inter & Newsreader are installed.
+    // node.fontFamily (missing list) uses the CSS @font-face name "Sohne",
+    // which matches extractedFonts[].fontFamily — so we can safely drop the
+    // two the user already has.
+    const missingFonts = ["Sohne"];
+    const extractedFonts = [
+      { fontFamily: "Sohne", src: 'url("https://example.com/sohne.woff2")', realFamily: "Copyright Klim Type Foundry Buch" },
+      { fontFamily: "Inter", src: 'url("https://example.com/inter.woff2")' },
+      { fontFamily: "Newsreader", src: 'url("https://example.com/newsreader.woff2")' },
+    ];
+
+    const result = buildFontDownloads(missingFonts, extractedFonts);
+
+    expect(result).toHaveLength(1);
+    expect(result![0].family).toBe("Sohne");
+  });
+
+  it("matches case-insensitively", () => {
+    const result = buildFontDownloads(
+      ["sohne"],
+      [
+        { fontFamily: "Sohne", src: 'url("https://example.com/sohne.woff2")' },
+        { fontFamily: "Inter", src: 'url("https://example.com/inter.woff2")' },
+      ],
+    );
+    expect(result).toHaveLength(1);
+    expect(result![0].family).toBe("Sohne");
+  });
+
+  it("falls back to bundling ALL when any missing name can't be matched (anti-piracy safety net)", () => {
+    // "PSA" (CSS chain head) has no matching @font-face name, so we can't tell
+    // which file covers it — bundle everything rather than risk dropping it.
+    const missingFonts = ["Sohne", "PSA"];
+    const extractedFonts = [
+      { fontFamily: "Sohne", src: 'url("https://example.com/sohne.woff2")' },
+      { fontFamily: "PrivateSans Apple", src: 'url("https://example.com/psa.woff2")' },
+      { fontFamily: "Inter", src: 'url("https://example.com/inter.woff2")' },
+    ];
+
+    const result = buildFontDownloads(missingFonts, extractedFonts);
+
+    expect(result).toHaveLength(3);
   });
 });

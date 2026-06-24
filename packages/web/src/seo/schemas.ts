@@ -9,7 +9,10 @@ export const organizationSchema: JsonLd = {
   logo: `${SITE_URL}/logo.svg`,
   description:
     "Convert any website into editable Figma wireframes instantly using our Figma plugin.",
-  sameAs: ["https://www.figma.com/community"],
+  sameAs: [
+    "https://www.figma.com/@glinc",
+    "https://www.figma.com/community/plugin/1646327864971730293",
+  ],
 };
 
 export const softwareApplicationSchema: JsonLd = {
