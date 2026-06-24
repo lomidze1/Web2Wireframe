@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '💡 Reminder: pnpm type-check && pnpm test after completing changes'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if ! git diff --quiet HEAD -- '*.ts' '*.tsx' 2>/dev/null; then echo '🔍 Running pnpm type-check (TS files changed)...' >&2; pnpm type-check 2>&1 | tail -40 || { echo '❌ Type check failed — fix errors before finishing.' >&2; exit 2; }; fi",
+            "timeout": 180
+          }
+        ]
+      }
+    ]
+  }
+}
