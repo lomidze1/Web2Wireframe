@@ -334,15 +334,27 @@ const STATS_HTML = `<!DOCTYPE html>
   table.users tr.clickable { cursor: pointer; }
   table.users tr.clickable:hover td { background: #f5f7fa; }
   .overlay { position: fixed; inset: 0; background: rgba(12,13,18,0.45); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; z-index: 50; }
-  .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 900px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
-  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #eef0f4; }
-  .modal-head h2 { margin: 0; font-size: 1rem; }
+  .modal { background: #fff; border-radius: 14px; width: 100%; max-width: 1080px; box-shadow: 0 24px 70px rgba(0,0,0,0.28); overflow: hidden; }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid #eef0f4; background: #fafbfc; }
+  .modal-head h2 { margin: 0; font-size: 1.05rem; }
   .modal-head .uid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; color: #9aa0ac; margin-top: 2px; }
   .modal-close { border: none; background: #f0f2f5; border-radius: 6px; width: 30px; height: 30px; font-size: 1.1rem; line-height: 1; cursor: pointer; color: #5a6072; }
   .modal-close:hover { background: #e3e6eb; }
-  .modal-body { padding: 16px 20px; }
+  .modal-body { padding: 18px 24px; }
   .modal-body table.users { margin: 0; }
   td.params { font-size: 0.78rem; color: #5a6072; }
+  .pager { display: flex; align-items: center; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
+  .page-btn { border: 1px solid #d9dde4; background: #fff; border-radius: 6px; min-width: 30px; height: 30px; padding: 0 8px; font-size: 0.82rem; cursor: pointer; color: #3a4256; }
+  .page-btn:hover:not(:disabled) { background: #f5f7fa; }
+  .page-btn.active { background: #1a1d24; border-color: #1a1d24; color: #fff; font-weight: 600; }
+  .page-btn:disabled { opacity: 0.4; cursor: default; }
+  .copy-btn { border: none; background: transparent; cursor: pointer; color: #9aa0ac; font-size: 0.85rem; line-height: 1; padding: 2px 4px; border-radius: 4px; vertical-align: middle; }
+  .copy-btn:hover { background: #eef0f4; color: #3a4256; }
+  td.url .copy-btn { margin-left: 6px; }
+  .kv { display: flex; align-items: center; gap: 8px; }
+  .kv + .kv { margin-top: 2px; }
+  .kv-label { color: #9aa0ac; font-size: 0.78rem; font-weight: 600; }
+  .modal-head .kv h2 { margin: 0; }
 </style>
 </head>
 <body>
@@ -390,7 +402,7 @@ function card(label, value, meta) {
 // concatenation so user-controlled values (email, figmaUserId) can never be
 // interpreted as markup — no escaping to get wrong.
 var USERS = [];
-var view = { filter: "all", sort: "recent" };
+var view = { filter: "all", sort: "recent", page: 1 };
 
 function el(tag, opts) {
   var node = document.createElement(tag);
@@ -399,6 +411,45 @@ function el(tag, opts) {
   if (opts.text != null) node.textContent = String(opts.text);
   if (opts.onClick) node.addEventListener("click", opts.onClick);
   return node;
+}
+
+// Numbered pager shared by the Recent imports feed and the per-user modal.
+// Returns null when everything fits on one page (caller skips appending it).
+function pager(total, page, pageSize, onGo) {
+  var totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) return null;
+  var wrap = el("div", { className: "pager" });
+  var prev = el("button", { className: "page-btn", text: "‹", onClick: function () { if (page > 1) onGo(page - 1); } });
+  if (page <= 1) prev.disabled = true;
+  wrap.appendChild(prev);
+  for (var p = 1; p <= totalPages; p++) {
+    (function (pp) {
+      wrap.appendChild(el("button", {
+        className: "page-btn" + (pp === page ? " active" : ""),
+        text: String(pp),
+        onClick: function () { onGo(pp); },
+      }));
+    })(p);
+  }
+  var next = el("button", { className: "page-btn", text: "›", onClick: function () { if (page < totalPages) onGo(page + 1); } });
+  if (page >= totalPages) next.disabled = true;
+  wrap.appendChild(next);
+  return wrap;
+}
+
+// Small inline copy-to-clipboard button. stopPropagation so clicking it inside
+// a clickable row does not also open the row's modal.
+function copyBtn(value) {
+  var b = el("button", { className: "copy-btn", text: "⧉" });
+  b.title = "Copy";
+  b.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    try { navigator.clipboard.writeText(String(value)); } catch (err) {}
+    var prev = b.textContent;
+    b.textContent = "✓";
+    setTimeout(function () { b.textContent = prev; }, 1000);
+  });
+  return b;
 }
 
 function fmtDate(iso) {
@@ -420,7 +471,7 @@ function mkBtn(group, key, label) {
   return el("button", {
     className: "btn" + (view[group] === key ? " active" : ""),
     text: label,
-    onClick: function () { view[group] = key; paintUsers(); },
+    onClick: function () { view[group] = key; view.page = 1; paintUsers(); },
   });
 }
 
@@ -462,9 +513,10 @@ function renderUsers() {
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
   }
-  rows.forEach(function (u, i) {
+  var pageRows = rows.slice((view.page - 1) * 20, view.page * 20);
+  pageRows.forEach(function (u, i) {
     var tr = el("tr", { className: "clickable", onClick: function () { openUserImports(u.figmaUserId, u.email); } });
-    tr.appendChild(el("td", { className: "num", text: i + 1 }));
+    tr.appendChild(el("td", { className: "num", text: (view.page - 1) * 20 + i + 1 }));
     tr.appendChild(el("td", { className: "id", text: u.figmaUserId }));
     tr.appendChild(u.email ? el("td", { text: u.email }) : el("td", { className: "muted", text: "—" }));
     var planTd = el("td");
@@ -479,6 +531,9 @@ function renderUsers() {
   });
   table.appendChild(tbody);
   frag.appendChild(table);
+
+  var pg = pager(rows.length, view.page, 20, function (p) { view.page = p; paintUsers(); });
+  if (pg) frag.appendChild(pg);
   return frag;
 }
 
@@ -491,7 +546,7 @@ function paintUsers() {
 // Same DOM-method rendering as the users table — sourceUrl/title are
 // user-controlled, so they are only ever set via textContent.
 var IMPORTS = [];
-var importView = { filter: "all" };
+var importView = { filter: "all", page: 1 };
 
 function fmtWhen(iso) {
   if (!iso) return "—";
@@ -508,7 +563,7 @@ function mkImportBtn(key, label) {
   return el("button", {
     className: "btn" + (importView.filter === key ? " active" : ""),
     text: label,
-    onClick: function () { importView.filter = key; paintImports(); },
+    onClick: function () { importView.filter = key; importView.page = 1; paintImports(); },
   });
 }
 
@@ -544,11 +599,15 @@ function renderImports() {
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
   }
-  rows.forEach(function (e) {
-    var tr = el("tr");
+  var pageRows = rows.slice((importView.page - 1) * 10, importView.page * 10);
+  pageRows.forEach(function (e) {
+    var tr = el("tr", { className: "clickable", onClick: function () { openUserImports(e.figmaUserId, e.email); } });
     tr.appendChild(el("td", { className: "muted", text: fmtWhen(e.createdAt) }));
     tr.appendChild(e.email ? el("td", { text: e.email }) : el("td", { className: "muted", text: "—" }));
-    tr.appendChild(el("td", { className: "url", text: e.title ? e.sourceUrl + "  (" + e.title + ")" : e.sourceUrl }));
+    var urlTd = el("td", { className: "url" });
+    urlTd.appendChild(el("span", { text: e.sourceUrl }));
+    urlTd.appendChild(copyBtn(e.sourceUrl));
+    tr.appendChild(urlTd);
     var typeTd = el("td");
     typeTd.appendChild(el("span", { className: "pill type", text: e.type }));
     tr.appendChild(typeTd);
@@ -564,6 +623,9 @@ function renderImports() {
   });
   table.appendChild(tbody);
   frag.appendChild(table);
+
+  var pg = pager(rows.length, importView.page, 10, function (p) { importView.page = p; paintImports(); });
+  if (pg) frag.appendChild(pg);
   return frag;
 }
 
@@ -588,7 +650,20 @@ function closeModal() {
   if (o) o.replaceChildren();
 }
 
-function renderUserImports(email, figmaUserId, imports) {
+// Modal drill-down state — set by openUserImports, read by renderUserImports so
+// the in-modal pager can re-render a different page without re-fetching.
+var MODAL = { email: "", figmaUserId: "", imports: [], page: 1 };
+
+function paintModal() {
+  var root = document.getElementById("modal-root");
+  if (root) root.replaceChildren(renderUserImports());
+}
+
+function renderUserImports() {
+  var email = MODAL.email;
+  var figmaUserId = MODAL.figmaUserId;
+  var imports = MODAL.imports;
+
   var overlay = el("div", { className: "overlay" });
   overlay.addEventListener("click", function (e) { if (e.target === overlay) closeModal(); });
 
@@ -596,8 +671,19 @@ function renderUserImports(email, figmaUserId, imports) {
 
   var head = el("div", { className: "modal-head" });
   var titleWrap = el("div");
-  titleWrap.appendChild(el("h2", { text: email || "(no email)" }));
-  titleWrap.appendChild(el("div", { className: "uid", text: figmaUserId }));
+
+  var emailRow = el("div", { className: "kv" });
+  emailRow.appendChild(el("span", { className: "kv-label", text: "email:" }));
+  emailRow.appendChild(el("h2", { text: email || "(no email)" }));
+  if (email) emailRow.appendChild(copyBtn(email));
+  titleWrap.appendChild(emailRow);
+
+  var idRow = el("div", { className: "kv" });
+  idRow.appendChild(el("span", { className: "kv-label", text: "id:" }));
+  idRow.appendChild(el("div", { className: "uid", text: figmaUserId }));
+  if (figmaUserId) idRow.appendChild(copyBtn(figmaUserId));
+  titleWrap.appendChild(idRow);
+
   head.appendChild(titleWrap);
   head.appendChild(el("button", { className: "modal-close", text: "✕", onClick: closeModal }));
   modal.appendChild(head);
@@ -623,13 +709,17 @@ function renderUserImports(email, figmaUserId, imports) {
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
   }
-  imports.forEach(function (e) {
+  var pageImports = imports.slice((MODAL.page - 1) * 10, MODAL.page * 10);
+  pageImports.forEach(function (e) {
     var tr = el("tr");
     tr.appendChild(el("td", { className: "muted", text: fmtWhen(e.createdAt) }));
     var typeTd = el("td");
     typeTd.appendChild(el("span", { className: "pill type", text: e.type }));
     tr.appendChild(typeTd);
-    tr.appendChild(el("td", { className: "url", text: e.title ? e.sourceUrl + "  (" + e.title + ")" : e.sourceUrl }));
+    var urlTd = el("td", { className: "url" });
+    urlTd.appendChild(el("span", { text: e.sourceUrl }));
+    urlTd.appendChild(copyBtn(e.sourceUrl));
+    tr.appendChild(urlTd);
     tr.appendChild(el("td", { className: "muted", text: (e.viewports || []).join(", ") || "—" }));
     tr.appendChild(el("td", { className: "params", text: fmtParams(e.params) }));
     var resTd = el("td");
@@ -643,6 +733,10 @@ function renderUserImports(email, figmaUserId, imports) {
   });
   table.appendChild(tbody);
   body.appendChild(table);
+
+  var pg = pager(imports.length, MODAL.page, 10, function (p) { MODAL.page = p; paintModal(); });
+  if (pg) body.appendChild(pg);
+
   modal.appendChild(body);
   overlay.appendChild(modal);
   return overlay;
@@ -674,7 +768,8 @@ async function openUserImports(figmaUserId, email) {
       return;
     }
     var d = await res.json();
-    root.replaceChildren(renderUserImports(email, figmaUserId, d.imports || []));
+    MODAL = { email: email, figmaUserId: figmaUserId, imports: d.imports || [], page: 1 };
+    paintModal();
   } catch (e) {
     closeModal();
   }
