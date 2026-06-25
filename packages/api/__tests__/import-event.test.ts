@@ -11,11 +11,35 @@ vi.mock("../src/models/ImportEvent.js", async (importOriginal) => {
   return { ...actual, logImportEvent: mockLogImportEvent };
 });
 
-// Mock the W2W URL extractor used by /import-url.
+// Mock the W2W extractors used by /import-url and /import-html.
 const mockCreateWireframeDataW2W = vi.fn();
+const mockCreateWireframeDataFromHTMLW2W = vi.fn();
 vi.mock("../src/lib/htmlExtractor.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
-  return { ...actual, createWireframeDataW2W: mockCreateWireframeDataW2W };
+  return {
+    ...actual,
+    createWireframeDataW2W: mockCreateWireframeDataW2W,
+    createWireframeDataFromHTMLW2W: mockCreateWireframeDataFromHTMLW2W,
+  };
+});
+
+// Mock the screenshot AI pipeline used by /import-screenshot. Keep the tree
+// converter trivial — these tests assert on event logging, not rendering.
+const mockAnalyzeScreenshot = vi.fn();
+vi.mock("../src/lib/aiGenerator.js", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    analyzeScreenshotAbsoluteWithRetry: mockAnalyzeScreenshot,
+    validateExtractedColors: () => ({ valid: false, colors: {} }),
+  };
+});
+vi.mock("../src/lib/wireframeConverter.js", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    convertAbsoluteToWireframeTree: () => ({ tag: "BODY", children: [] }),
+  };
 });
 
 // Bypass quota gate — counter enforcement is covered elsewhere.
@@ -95,5 +119,115 @@ describe("POST /api/import-url — import-event logging", () => {
       errorCode: "TIMEOUT",
     });
     expect(evt.sourceUrl).toContain("example.com");
+  });
+});
+
+describe("POST /api/import-html — import-event logging", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("logs a success event with type 'html' and the chosen params", async () => {
+    mockCreateWireframeDataFromHTMLW2W.mockResolvedValue({
+      frames: [{ viewportWidth: 1440, viewportHeight: 900, tree: {} }],
+      cssVariables: [],
+    });
+
+    const res = await request(app)
+      .post("/api/import-html")
+      .send({
+        htmlCode: "<h1>Hello</h1>",
+        viewports: [1440],
+        colorMode: "website",
+        typographyMode: "lines",
+        textMode: "lorem",
+        pluginFont: "Inter",
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockLogImportEvent).toHaveBeenCalledTimes(1);
+    expect(mockLogImportEvent.mock.calls[0][0]).toMatchObject({
+      figmaUserId: "user-123",
+      sourceUrl: "html-import",
+      type: "html",
+      success: true,
+      viewports: [1440],
+      params: {
+        colorMode: "website",
+        typographyMode: "lines",
+        textMode: "lorem",
+        pluginFont: "Inter",
+      },
+    });
+  });
+
+  it("logs a failure event with errorCode when extraction throws", async () => {
+    mockCreateWireframeDataFromHTMLW2W.mockRejectedValue(
+      new Error("HTML rendering took too long — timeout"),
+    );
+
+    const res = await request(app)
+      .post("/api/import-html")
+      .send({ htmlCode: "<h1>Crash</h1>" });
+
+    expect(res.status).toBe(500);
+    expect(mockLogImportEvent).toHaveBeenCalledTimes(1);
+    expect(mockLogImportEvent.mock.calls[0][0]).toMatchObject({
+      figmaUserId: "user-123",
+      sourceUrl: "html-import",
+      type: "html",
+      success: false,
+      errorCode: "TIMEOUT",
+    });
+  });
+});
+
+describe("POST /api/import-screenshot — import-event logging", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("logs a success event with type 'screenshot'", async () => {
+    mockAnalyzeScreenshot.mockResolvedValue({
+      pageHeight: 1200,
+      extractedColors: {},
+    });
+
+    const res = await request(app)
+      .post("/api/import-screenshot")
+      .send({
+        imageBase64: "data:image/png;base64,AAAA",
+        viewports: [1440],
+        textMode: "lorem",
+        colorMode: "plugin",
+        pluginFont: "Inter",
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockLogImportEvent).toHaveBeenCalledTimes(1);
+    expect(mockLogImportEvent.mock.calls[0][0]).toMatchObject({
+      figmaUserId: "user-123",
+      sourceUrl: "screenshot-import",
+      type: "screenshot",
+      success: true,
+      viewports: [1440],
+    });
+  });
+
+  it("logs a failure event when AI analysis throws", async () => {
+    mockAnalyzeScreenshot.mockRejectedValue(new Error("model exploded"));
+
+    const res = await request(app)
+      .post("/api/import-screenshot")
+      .send({ imageBase64: "data:image/png;base64,AAAA" });
+
+    expect(res.status).toBe(500);
+    expect(mockLogImportEvent).toHaveBeenCalledTimes(1);
+    expect(mockLogImportEvent.mock.calls[0][0]).toMatchObject({
+      figmaUserId: "user-123",
+      sourceUrl: "screenshot-import",
+      type: "screenshot",
+      success: false,
+    });
   });
 });

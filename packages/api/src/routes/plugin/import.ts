@@ -294,7 +294,17 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
     });
 
     // No MongoDB save -- ephemeral HTML import.
-    // Not logged to ImportEvent — only extension + url imports are tracked.
+
+    // Record the attempt (no real URL — pasted HTML), so the import counter
+    // and the per-user history stay in sync.
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl: "html-import",
+      type: "html",
+      viewports,
+      params: { colorMode, typographyMode, textMode, pluginFont },
+      success: true,
+    });
 
     res.json({
       success: true,
@@ -317,6 +327,22 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
       errorCode = "TIMEOUT";
       errorMessage = "HTML rendering took too long. Please simplify your HTML and try again.";
     }
+
+    // Log the failed attempt — surfaces HTML the extractor chokes on.
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl: "html-import",
+      type: "html",
+      viewports: Array.isArray(req.body?.viewports) ? req.body.viewports : [1440],
+      params: {
+        colorMode: req.body?.colorMode,
+        typographyMode: req.body?.typographyMode,
+        textMode: req.body?.textMode,
+        pluginFont: req.body?.pluginFont,
+      },
+      success: false,
+      errorCode,
+    });
 
     res.status(500).json({
       success: false,
@@ -343,6 +369,22 @@ router.post(
   authenticatePlugin,
   requireImportAllowance,
   (req: Request, res: Response) => {
+    // Attribute the extension capture for activation debugging. The .w2w file
+    // never reaches the server, so the plugin forwards just the metadata
+    // (sourceUrl/title/viewports) it decoded client-side. Older published
+    // plugins send no body — tolerate that and record "unknown".
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl:
+        typeof req.body?.sourceUrl === "string"
+          ? req.body.sourceUrl
+          : "unknown",
+      title: typeof req.body?.title === "string" ? req.body.title : undefined,
+      type: "extension",
+      viewports: Array.isArray(req.body?.viewports) ? req.body.viewports : [],
+      success: true,
+    });
+
     res.json({ success: true, importRemaining: req.importRemaining ?? null });
   },
 );

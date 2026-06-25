@@ -41,3 +41,28 @@ describe("logImportEvent — best-effort", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe("ImportEvent schema — type enum", () => {
+  it.each(["extension", "url", "screenshot", "html"] as const)(
+    "accepts type '%s' without a validation error",
+    (type) => {
+      const doc = new ImportEvent({
+        figmaUserId: "u1",
+        sourceUrl: "https://acme.test",
+        type,
+        success: true,
+      });
+      expect(doc.validateSync()?.errors.type).toBeUndefined();
+    },
+  );
+
+  it("rejects an unknown type", () => {
+    const doc = new ImportEvent({
+      figmaUserId: "u1",
+      sourceUrl: "https://acme.test",
+      type: "carrier-pigeon",
+      success: true,
+    });
+    expect(doc.validateSync()?.errors.type).toBeDefined();
+  });
+});

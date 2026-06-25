@@ -16,6 +16,7 @@ import {
 import { requireImportAllowance } from "../../middleware/licenseGate.js";
 import { authenticatePlugin } from "../../middleware/auth.js";
 import { importRateLimiter } from "../../middleware/rateLimit.js";
+import { logImportEvent } from "../../models/ImportEvent.js";
 
 const router = Router();
 
@@ -120,6 +121,17 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
       primary: pluginFont,
     });
 
+    // Record the attempt (no real URL — uploaded image), so the import
+    // counter and the per-user history stay in sync.
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl: "screenshot-import",
+      type: "screenshot",
+      viewports: numericViewports,
+      params: { colorMode, textMode, pluginFont },
+      success: true,
+    });
+
     res.json({
       success: true,
       wireframeData: { frames },
@@ -130,6 +142,27 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
   } catch (error) {
     const err = error as Error & { status?: number };
     console.error("[Screenshot Import] Error:", err.message || error);
+
+    // Log the failed attempt — surfaces screenshots the AI pipeline rejects.
+    const failureCode =
+      err.status === 429
+        ? "AI_RATE_LIMITED"
+        : err.status === 401 || err.status === 403
+          ? "AI_AUTH_ERROR"
+          : "SCREENSHOT_ANALYSIS_ERROR";
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl: "screenshot-import",
+      type: "screenshot",
+      viewports: Array.isArray(req.body?.viewports) ? req.body.viewports : [],
+      params: {
+        colorMode: req.body?.colorMode,
+        textMode: req.body?.textMode,
+        pluginFont: req.body?.pluginFont,
+      },
+      success: false,
+      errorCode: failureCode,
+    });
 
     if (err.status === 429) {
       return res.status(429).json({
