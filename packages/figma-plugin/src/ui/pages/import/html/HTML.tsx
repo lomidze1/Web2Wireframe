@@ -187,6 +187,9 @@ export default function HTML() {
           colorMode: settings.localColorMode,
           typographyMode: settings.localFontMode,
           textMode: settings.localTextMode,
+          assetMode: settings.localAssetMode,
+          cssVariablesMode: settings.localCssVariablesMode,
+          layoutMode: settings.localLayoutMode,
           pluginColors: config.pluginColors,
         }),
       });

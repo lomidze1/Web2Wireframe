@@ -46,6 +46,9 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
       textMode = "website",
       pluginColors = {},
       pluginFont = "Montserrat",
+      assetMode,
+      cssVariablesMode,
+      layoutMode,
     } = req.body;
 
     // Identity comes from the verified plugin token, never the request body.
@@ -151,7 +154,7 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
       sourceUrl: normalizedSourceUrl!,
       type: "url",
       viewports,
-      params: { colorMode, typographyMode, textMode, pluginFont },
+      params: { colorMode, typographyMode, textMode, pluginFont, assetMode, cssVariablesMode, layoutMode },
       success: true,
     });
 
@@ -200,6 +203,9 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
         typographyMode: req.body?.typographyMode,
         textMode: req.body?.textMode,
         pluginFont: req.body?.pluginFont,
+        assetMode: req.body?.assetMode,
+        cssVariablesMode: req.body?.cssVariablesMode,
+        layoutMode: req.body?.layoutMode,
       },
       success: false,
       errorCode,
@@ -238,6 +244,9 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
       textMode = "website",
       pluginColors = {},
       pluginFont = "Montserrat",
+      assetMode,
+      cssVariablesMode,
+      layoutMode,
     } = req.body;
 
     // Validation
@@ -294,7 +303,17 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
     });
 
     // No MongoDB save -- ephemeral HTML import.
-    // Not logged to ImportEvent — only extension + url imports are tracked.
+
+    // Record the attempt (no real URL — pasted HTML), so the import counter
+    // and the per-user history stay in sync.
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl: "html-import",
+      type: "html",
+      viewports,
+      params: { colorMode, typographyMode, textMode, pluginFont, assetMode, cssVariablesMode, layoutMode },
+      success: true,
+    });
 
     res.json({
       success: true,
@@ -317,6 +336,25 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
       errorCode = "TIMEOUT";
       errorMessage = "HTML rendering took too long. Please simplify your HTML and try again.";
     }
+
+    // Log the failed attempt — surfaces HTML the extractor chokes on.
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl: "html-import",
+      type: "html",
+      viewports: Array.isArray(req.body?.viewports) ? req.body.viewports : [1440],
+      params: {
+        colorMode: req.body?.colorMode,
+        typographyMode: req.body?.typographyMode,
+        textMode: req.body?.textMode,
+        pluginFont: req.body?.pluginFont,
+        assetMode: req.body?.assetMode,
+        cssVariablesMode: req.body?.cssVariablesMode,
+        layoutMode: req.body?.layoutMode,
+      },
+      success: false,
+      errorCode,
+    });
 
     res.status(500).json({
       success: false,
@@ -343,6 +381,32 @@ router.post(
   authenticatePlugin,
   requireImportAllowance,
   (req: Request, res: Response) => {
+    // Attribute the extension capture for activation debugging. The .w2w file
+    // never reaches the server, so the plugin forwards just the metadata
+    // (sourceUrl/title/viewports) it decoded client-side. Older published
+    // plugins send no body — tolerate that and record "unknown".
+    void logImportEvent({
+      figmaUserId: req.userId!,
+      sourceUrl:
+        typeof req.body?.sourceUrl === "string"
+          ? req.body.sourceUrl
+          : "unknown",
+      title: typeof req.body?.title === "string" ? req.body.title : undefined,
+      type: "extension",
+      viewports: Array.isArray(req.body?.viewports) ? req.body.viewports : [],
+      // The plugin renders the .w2w client-side, so it forwards the render
+      // settings (the 6 More Options) for the admin history.
+      params: {
+        colorMode: req.body?.colorMode,
+        typographyMode: req.body?.typographyMode,
+        textMode: req.body?.textMode,
+        assetMode: req.body?.assetMode,
+        cssVariablesMode: req.body?.cssVariablesMode,
+        layoutMode: req.body?.layoutMode,
+      },
+      success: true,
+    });
+
     res.json({ success: true, importRemaining: req.importRemaining ?? null });
   },
 );

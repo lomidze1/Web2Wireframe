@@ -1,10 +1,11 @@
 import mongoose, { Schema, type Document } from "mongoose";
 
 /**
- * One row per import attempt for the two flows that matter for activation
- * debugging: Browser Extension capture ("extension") and URL import ("url").
- * Answers the question we previously could not: "which user imported which
- * site, with what parameters, and did it succeed?"
+ * One row per import attempt across every flow that consumes the user's quota:
+ * Browser Extension capture ("extension"), URL import ("url"), pasted HTML
+ * ("html") and screenshot import ("screenshot"). Answers the question we
+ * previously could not: "which user imported which site, with what parameters,
+ * and did it succeed?"
  *
  * Why we keep it:
  *   - Activation debugging: a user who imports once and never returns probably
@@ -20,19 +21,23 @@ import mongoose, { Schema, type Document } from "mongoose";
  * record — long enough to investigate recent drop-off, short enough that the
  * collection never grows unbounded.
  */
-export type ImportType = "extension" | "url";
+export type ImportType = "extension" | "url" | "html" | "screenshot";
 
 /**
- * Style parameters the import was rendered with. Populated for "url" imports
- * (they arrive in the request body). For "extension" imports these are chosen
- * in the Figma plugin at render time and never reach the server, so they stay
- * undefined until a future plugin beacon reports them (Phase 2).
+ * Style parameters the import was rendered with. Populated for "url", "html"
+ * and "screenshot" imports (they arrive in the request body). For "extension"
+ * imports these are chosen in the Figma plugin at render time and never reach
+ * the server, so they stay undefined until a future plugin beacon reports them
+ * (Phase 2).
  */
 export interface IImportParams {
-  colorMode?: string; // "plugin" | "website"
-  typographyMode?: string; // "plugin" | "website" | "lines"
-  textMode?: string; // "website" | "lorem" | "semantic"
-  pluginFont?: string;
+  colorMode?: string; // "plugin" | "website"           (More Options: Colors)
+  typographyMode?: string; // "plugin" | "website" | "lines"  (More Options: Fonts)
+  textMode?: string; // "website" | "lorem" | "semantic"      (More Options: Text)
+  assetMode?: string; // "placeholders" | "realAssets"        (More Options: Assets)
+  cssVariablesMode?: string; // "styles" | "direct"           (More Options: CSS Variables)
+  layoutMode?: string; // "autoLayout" | "absolute"           (More Options: Layout Mode)
+  pluginFont?: string; // chosen typeface (not a More Options dropdown)
 }
 
 export interface IImportEvent extends Document {
@@ -60,13 +65,16 @@ const ImportEventSchema = new Schema<IImportEvent>(
     type: {
       type: String,
       required: true,
-      enum: ["extension", "url"],
+      enum: ["extension", "url", "html", "screenshot"],
     },
     viewports: { type: [Number], default: [] },
     params: {
       colorMode: { type: String },
       typographyMode: { type: String },
       textMode: { type: String },
+      assetMode: { type: String },
+      cssVariablesMode: { type: String },
+      layoutMode: { type: String },
       pluginFont: { type: String },
     },
     success: { type: Boolean, required: true },

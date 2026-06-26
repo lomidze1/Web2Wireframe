@@ -118,6 +118,13 @@ export default function Screenshot() {
           pluginFont: config.pluginFont,
           textMode,
           colorMode: settings.localColorMode,
+          // Screenshot mode coerces incompatible settings (website fonts →
+          // plugin, auto-layout → absolute, real assets → placeholders); log
+          // the coerced values that the import actually used, not the raw ones.
+          typographyMode: fontMode,
+          assetMode: assetMode,
+          cssVariablesMode: settings.localCssVariablesMode,
+          layoutMode: layoutMode,
         }),
       });
 

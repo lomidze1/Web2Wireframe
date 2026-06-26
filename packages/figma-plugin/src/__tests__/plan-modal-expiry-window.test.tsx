@@ -145,7 +145,7 @@ describe("ExpiringSoonModal", () => {
     expect(onExtend).toHaveBeenCalledTimes(1);
   });
 
-  it("invokes onClose when the user clicks 'Maybe later'", () => {
+  it("invokes onClose when the user clicks the × close button", () => {
     const onClose = vi.fn();
     render(
       <ExpiringSoonModal
@@ -155,7 +155,9 @@ describe("ExpiringSoonModal", () => {
         onClose={onClose}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /maybe later/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /close expiry reminder/i }),
+    );
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

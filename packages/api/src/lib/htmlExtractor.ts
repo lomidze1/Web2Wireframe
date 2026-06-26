@@ -595,8 +595,10 @@ export async function renderHTMLContentW2W(
     // Set HTML content
     await page.setContent(htmlString, { waitUntil: "networkidle0", timeout: 30000 });
 
-    // Extract using content script
-    const result = await extractWithContentScript(page, { viewportWidth });
+    // Extract using content script. skipReload: the document was injected via
+    // page.setContent() (URL stays about:blank); reloading would wipe it and
+    // leave an empty body.
+    const result = await extractWithContentScript(page, { viewportWidth, skipReload: true });
 
     await browser.close();
     return result;

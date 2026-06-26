@@ -226,8 +226,20 @@ export function parseJSONFromResponse(text: string): unknown {
   if (fencedMatch) {
     return JSON.parse(fencedMatch[1].trim());
   }
-  // Otherwise try parsing the whole text as JSON
-  return JSON.parse(text.trim());
+  const trimmed = text.trim();
+  try {
+    // Otherwise try parsing the whole text as JSON
+    return JSON.parse(trimmed);
+  } catch (err) {
+    // Without assistant prefill the model may add a short preamble before the
+    // JSON object. Fall back to the outermost { … } span.
+    const first = trimmed.indexOf("{");
+    const last = trimmed.lastIndexOf("}");
+    if (first !== -1 && last > first) {
+      return JSON.parse(trimmed.slice(first, last + 1));
+    }
+    throw err;
+  }
 }
 
 // ============================================================================
@@ -433,10 +445,6 @@ export async function analyzeScreenshot({ imageBase64, imageWidth, imageHeight, 
           },
         ],
       },
-      {
-        role: "assistant",
-        content: "{",
-      },
     ],
   });
 
@@ -461,8 +469,7 @@ export async function analyzeScreenshot({ imageBase64, imageWidth, imageHeight, 
   if (firstBlock.type !== "text") {
     throw new Error("Unexpected response content type from Claude API");
   }
-  const fullJSON = "{" + firstBlock.text;
-  const parsed = parseJSONFromResponse(fullJSON) as ScreenshotAnalysisResult;
+  const parsed = parseJSONFromResponse(firstBlock.text) as ScreenshotAnalysisResult;
   return postProcessScreenshotResult(parsed);
 }
 
@@ -826,10 +833,6 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
           },
         ],
       },
-      {
-        role: "assistant",
-        content: "{",
-      },
     ],
   });
 
@@ -852,8 +855,7 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
   if (firstBlock.type !== "text") {
     throw new Error("Unexpected response content type from Claude API");
   }
-  const fullJSON = "{" + firstBlock.text;
-  const parsed = parseJSONFromResponse(fullJSON) as AbsoluteAnalysisResult;
+  const parsed = parseJSONFromResponse(firstBlock.text) as AbsoluteAnalysisResult;
   return postProcessAbsoluteResult(parsed);
 }
 

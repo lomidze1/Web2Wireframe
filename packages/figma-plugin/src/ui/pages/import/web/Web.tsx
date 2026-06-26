@@ -216,6 +216,9 @@ export default function Web() {
           colorMode: settings.localColorMode,        // "plugin" | "website"
           typographyMode: settings.localFontMode,     // "plugin" | "website" | "lines"
           textMode: settings.localTextMode,
+          assetMode: settings.localAssetMode,
+          cssVariablesMode: settings.localCssVariablesMode,
+          layoutMode: settings.localLayoutMode,
           pluginColors: config.pluginColors, // Send full 6-color palette
         }),
       });

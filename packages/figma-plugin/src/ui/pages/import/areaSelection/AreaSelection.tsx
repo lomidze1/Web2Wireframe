@@ -547,9 +547,27 @@ export default function AreaSelection() {
       // Count this .w2w import against the user's quota. Extension captures
       // are otherwise untracked (the extension just downloads the file). Done
       // after a successful decode so an invalid file never consumes a slot.
+      // Forward the decoded metadata so the server can attribute the import in
+      // the admin history (the .w2w file itself never leaves the client).
       const response = await fetch(`${API_BASE_URL}/api/import-w2w-file`, {
         method: "POST",
-        headers: { Authorization: authHeader() },
+        headers: {
+          Authorization: authHeader(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sourceUrl: unifiedResult.url,
+          title: unifiedResult.title,
+          viewports: unifiedResult.frames.map((f) => f.viewport.width),
+          // The .w2w renders client-side, so forward the render settings (the 6
+          // More Options) for the admin import history.
+          colorMode: settings.localColorMode,
+          typographyMode: settings.localFontMode,
+          textMode: settings.localTextMode,
+          assetMode: settings.localAssetMode,
+          cssVariablesMode: settings.localCssVariablesMode,
+          layoutMode: settings.localLayoutMode,
+        }),
       });
 
       const { isAuthExpired } = await import("../../../shared/authEvents");

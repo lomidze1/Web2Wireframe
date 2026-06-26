@@ -68,6 +68,14 @@ export interface W2WExtractionOptions {
   viewportWidth?: number;
   captureAssets?: boolean;
   captureFonts?: boolean;
+  /**
+   * Skip the `Page.reload` step. Required for the raw-HTML path, where the
+   * document is injected via `page.setContent()` and the URL stays
+   * `about:blank` — reloading that wipes the content and leaves an empty body.
+   * The URL path (`page.goto`) keeps reload so fonts re-download with
+   * `ignoreCache`.
+   */
+  skipReload?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +96,7 @@ export async function extractWithContentScript(
     viewportWidth = 1440,
     captureAssets = true,
     captureFonts = true,
+    skipReload = false,
   } = options;
 
   // Note: Emulation domain doesn't have .enable — it's always available
@@ -146,8 +155,14 @@ export async function extractWithContentScript(
     // ignoreCache=true forces every resource to re-download, including fonts
     // that the initial page.goto already cached. The response listener
     // attached above can then capture each font's bytes for the download ZIP.
-    await client.send("Page.reload", { ignoreCache: true });
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    //
+    // Skipped on the raw-HTML path: that document is injected via
+    // `page.setContent()` and lives on `about:blank`, so a reload re-fetches
+    // the empty blank page and discards every element (empty body downstream).
+    if (!skipReload) {
+      await client.send("Page.reload", { ignoreCache: true });
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
 
     // Auto-scroll for lazy content
     await autoScrollPage(client);
