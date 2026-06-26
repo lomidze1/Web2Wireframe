@@ -65,8 +65,22 @@ const isValidReturnTo = (value: unknown): value is string => {
   return true;
 };
 
-/** Minimal HTML shown in the OAuth browser tab once the plugin flow finishes. */
-const renderResultPage = (heading: string, body: string): string => `<!DOCTYPE html>
+/**
+ * Minimal HTML shown in the OAuth browser tab once the plugin flow finishes.
+ *
+ * `autoClose` (success page only): show a 5s progress bar, then attempt to
+ * close the tab. `window.close()` only succeeds when the tab was opened by a
+ * script (`window.open()` from the plugin UI) — true for Figma in the browser,
+ * where the tab self-closes. In the Figma desktop app the URL is handed to the
+ * system browser, which refuses script-driven close, so the call is a silent
+ * no-op and the page just stays open. Either way it's a safe progressive
+ * enhancement; never set on error pages so the user can read the failure.
+ */
+const renderResultPage = (
+  heading: string,
+  body: string,
+  autoClose = false,
+): string => `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Web2Wireframe</title>
@@ -76,8 +90,21 @@ const renderResultPage = (heading: string, body: string): string => `<!DOCTYPE h
   .card{background:#fff;border-radius:12px;padding:40px 48px;text-align:center;
     box-shadow:0 4px 24px rgba(0,0,0,.08);max-width:380px}
   h1{font-size:18px;margin:0 0 8px}p{color:#666;font-size:14px;margin:0;line-height:1.5}
+  .note{color:#888;font-size:13px;margin:20px 0 10px}
+  .bar{height:4px;background:#e5e7eb;border-radius:999px;overflow:hidden}
+  .bar>i{display:block;height:100%;width:0;background:#16a34a;border-radius:999px;
+    animation:w2wfill 5s linear forwards}
+  @keyframes w2wfill{from{width:0}to{width:100%}}
 </style></head>
-<body><div class="card"><h1>${heading}</h1><p>${body}</p></div></body></html>`;
+<body><div class="card"><h1>${heading}</h1><p>${body}</p>${
+  autoClose
+    ? `<p class="note">This tab will close automatically…</p><div class="bar"><i></i></div>`
+    : ""
+}</div>${
+  autoClose
+    ? `<script>setTimeout(function(){window.close();},5000);</script>`
+    : ""
+}</body></html>`;
 
 router.get(
   "/auth/figma/login",
@@ -305,7 +332,8 @@ router.get(
         res.status(200).send(
           renderResultPage(
             "Connected to Figma",
-            "You can close this tab and return to the Web2Wireframe plugin.",
+            "Return to the Web2Wireframe plugin to continue.",
+            true,
           ),
         );
         return;

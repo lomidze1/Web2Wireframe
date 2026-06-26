@@ -151,6 +151,55 @@ export function convertW2WToWireframe(
   return convertFrame(w2wFrame, null, options);
 }
 
+/**
+ * Deepest content bottom edge within a node, relative to the node's own top.
+ *
+ * Scroll-root elements (html/body with `height: 100%`) are captured at the
+ * viewport height while their real content lives in a taller descendant
+ * (e.g. paco.me `div#__next` at 1424px inside a 900px body). Walking the whole
+ * subtree — not just direct children — is required because conversion is
+ * top-down: when sizing `<html>`, the raw `<body>` child still reads 900px and
+ * only the deeper `#__next` reads 1424px.
+ *
+ * Returns at least the node's own height (never shrinks).
+ */
+export function maxDescendantBottom(node: W2WFrameNode): number {
+  const rootY = node.y;
+  let max = node.height;
+  const walk = (n: W2WNode): void => {
+    const bottom = n.y - rootY + n.height;
+    if (bottom > max) max = bottom;
+    if (n.type === 'FRAME' && n.children) {
+      for (const child of n.children) walk(child);
+    }
+  };
+  for (const child of node.children || []) walk(child);
+  return max;
+}
+
+/**
+ * Full-bleed horizontal scroller: a flex strip that escapes its parent's width
+ * via the `width:100vw; left:50%; margin-left:-50vw` breakout and scrolls
+ * horizontally (`overflow-x: auto|scroll`). paco.me uses one for its 3-column
+ * Building/Projects/Writing band.
+ *
+ * Its `::before`/`::after` are pure spacer pseudos (content:"") sized to
+ * re-center the content inside the full-width strip. A wireframe doesn't scroll,
+ * and Figma auto-layout can't reproduce a child wider than its parent, so the
+ * spacers lose their anchor and instead crush the real content into a narrow
+ * mid-frame block. We detect this shape (scrolls horizontally AND broke out
+ * wider than its parent) so the caller can drop the spacers.
+ */
+function isFullBleedHScroller(
+  node: W2WFrameNode,
+  parent: W2WFrameNode | null,
+): boolean {
+  if (!parent) return false;
+  const ox = str(node.styles.overflowX) || str(node.styles.overflow);
+  if (ox !== 'auto' && ox !== 'scroll') return false;
+  return node.width > parent.width + 1;
+}
+
 // ---------------------------------------------------------------------------
 // display:contents flattening
 // ---------------------------------------------------------------------------
@@ -264,6 +313,12 @@ function convertFrame(
   // direct children of this parent (same as CSS behavior).
   const effectiveChildren = getEffectiveChildren(node);
 
+  // Full-bleed horizontal scrollers (paco.me's [basics-scroller]) carry pure
+  // `::before`/`::after` spacer pseudos that only make sense while the strip
+  // spans the viewport and scrolls. In a non-scrolling wireframe they have no
+  // anchor and crush the real content, so drop them below.
+  const dropScrollSpacers = isFullBleedHScroller(node, parent);
+
   // Bubble-up margin: when a text-only inline wrapper is the sole child of
   // a text-coalesce parent and has only margin (no padding/width), transfer
   // its margin onto this parent so Figma auto-layout pushes THIS node's
@@ -367,6 +422,16 @@ function convertFrame(
         // via the same path as any regular div; absolute positioning is honored
         // downstream by nodes.ts.
         if (child.children.length === 0) {
+          // …unless it's a pure spacer of a full-bleed horizontal scroller —
+          // those exist only to pad the scroll strip and have no place in a
+          // wireframe (they otherwise crush the real content; see paco.me).
+          if (
+            dropScrollSpacers &&
+            (child.classList.includes('__w2w-pseudo-before') ||
+              child.classList.includes('__w2w-pseudo-after'))
+          ) {
+            continue;
+          }
           const pseudoFrame = convertFrame(child, node, options);
           if (isAbsolutePseudo) {
             pseudoFrame.position = pseudoPosition as 'absolute' | 'fixed';
@@ -625,6 +690,17 @@ function convertFrame(
     }
   }
 
+  // Scroll-root expansion: html/body/scrollingElement using `height: 100%`
+  // are captured at viewport height (e.g. 900px) while their real content lives
+  // in a taller descendant. Expand them to content height and stop them from
+  // clipping so the whole page renders instead of being cut to the viewport.
+  const isScrollRoot =
+    !parent || node.tag === 'html' || node.tag === 'body' || node.isScrollingElt === true;
+  const effectiveHeight = isScrollRoot ? Math.max(node.height, maxDescendantBottom(node)) : node.height;
+  const effectiveOverflow = isScrollRoot ? ('visible' as const) : overflow;
+  const effectiveVertical =
+    isScrollRoot && sizing.vertical === 'FILL' ? ('FIXED' as const) : sizing.vertical;
+
   const wireframeNode: WireframeNode = {
     id,
     name: getNodeName(node),
@@ -634,7 +710,7 @@ function convertFrame(
     x: parent ? node.x - parent.x : node.x,
     y: parent ? node.y - parent.y : node.y,
     width: node.width,
-    height: node.height,
+    height: effectiveHeight,
 
     position: str(s.position) as WireframeNode['position'] || undefined,
     zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
@@ -703,7 +779,7 @@ function convertFrame(
       // sized to fit the text, no stretch happening).
       return maxTextChildWidth >= parent.width - 1 ? 'HUG' : sizing.horizontal;
     })(),
-    layoutSizingVertical: sizing.vertical,
+    layoutSizingVertical: effectiveVertical,
 
     // Grid
     gridTemplateColumns: !isAbsoluteMode ? str(s.gridTemplateColumns) : undefined,
@@ -714,7 +790,9 @@ function convertFrame(
     // Grid child placement — explicit CSS line numbers (1-based). Needed so
     // children land in the correct cell (e.g. a centering grid where the
     // content sits on `grid-column: 2`). "auto"/spans/line-names → undefined.
-    gridColumnStart: !isAbsoluteMode ? parseGridLine(s.gridColumnStart) : undefined,
+    gridColumnStart: !isAbsoluteMode
+      ? (parseGridLine(s.gridColumnStart) ?? inferGridColumnStart(node, parent))
+      : undefined,
     gridColumnEnd: !isAbsoluteMode ? parseGridLine(s.gridColumnEnd) : undefined,
     gridRowStart: !isAbsoluteMode ? parseGridLine(s.gridRowStart) : undefined,
     gridRowEnd: !isAbsoluteMode ? parseGridLine(s.gridRowEnd) : undefined,
@@ -740,7 +818,7 @@ function convertFrame(
     borderRadius,
     opacity,
     blendMode: str(s.mixBlendMode),
-    overflow,
+    overflow: effectiveOverflow,
     margin: margin.top || margin.right || margin.bottom || margin.left ? margin : undefined,
     horizontallyCentered: isHorizontallyCentered || undefined,
 
@@ -1989,6 +2067,41 @@ function parseGridLine(v: string | number | undefined | null): number | undefine
   if (sv === '' || sv === 'auto') return undefined;
   const n = parseInt(sv, 10);
   return Number.isFinite(n) && String(n) === sv ? n : undefined;
+}
+
+/**
+ * Recover a grid child's 1-based column from geometry when the explicit
+ * `grid-column-start` was lost in capture. Matches the child's left offset
+ * inside the grid against the column-track boundaries derived from the parent's
+ * `grid-template-columns` + `column-gap`. paco.me: article at offset 216 in
+ * `192px 640px 192px` (gap 24) → column 2. Returns undefined when the parent
+ * isn't a grid, the template has no fixed px tracks, or nothing lines up.
+ */
+function inferGridColumnStart(
+  node: W2WFrameNode,
+  parent: W2WFrameNode | null,
+): number | undefined {
+  if (!parent) return undefined;
+  const pd = str(parent.styles.display);
+  if (pd !== 'grid' && pd !== 'inline-grid') return undefined;
+  const tokens = str(parent.styles.gridTemplateColumns).split(/\s+/).filter(Boolean);
+  // Only fixed-pixel templates have stable track offsets to match against; fr/%/
+  // auto/minmax tracks depend on container sizing and can't be matched to a
+  // captured x-offset.
+  if (tokens.length < 2 || !tokens.every((t) => /^[\d.]+px$/.test(t))) {
+    return undefined;
+  }
+  const tracks = tokens.map((t) => parseFloat(t));
+  const gap =
+    parseFloat(str(parent.styles.columnGap) || str(parent.styles.gridColumnGap)) || 0;
+  const padL = parseFloat(str(parent.styles.paddingLeft)) || 0;
+  const offset = node.x - parent.x - padL;
+  let cursor = 0;
+  for (let i = 0; i < tracks.length; i++) {
+    if (Math.abs(offset - cursor) < 3) return i + 1;
+    cursor += tracks[i] + gap;
+  }
+  return undefined;
 }
 
 function cleanFontFamily(fontFamily: string): string {

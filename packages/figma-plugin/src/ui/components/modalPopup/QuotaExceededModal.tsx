@@ -11,8 +11,8 @@ interface QuotaExceededModalProps {
 
 /**
  * Hard block shown when a Free user hits the 11th import in their monthly
- * cycle. Two CTAs: `Get Pro` opens the in-plugin checkout flow (Plan
- * modal), `Maybe later` dismisses.
+ * cycle. `Get Pro` opens the in-plugin checkout flow (Plan modal); the
+ * header × dismisses.
  */
 export default function QuotaExceededModal({
   isOpen,
@@ -70,19 +70,11 @@ export default function QuotaExceededModal({
               >
                 Get Pro
               </button>
-              <p class={styles.planTrustNote}>
-                Secure checkout by Flitt · Apple Pay, Google Pay & all major
-                cards
-              </p>
-              <button
-                type="button"
-                class={styles.planCtaLink}
-                onClick={onClose}
-              >
-                Maybe later
-              </button>
             </div>
           </div>
+          <p class={styles.planTrustNote}>
+            Secure checkout by Flitt · Apple Pay, Google Pay & all major cards
+          </p>
         </div>
       </div>
     </div>

@@ -334,7 +334,7 @@ const STATS_HTML = `<!DOCTYPE html>
   table.users tr.clickable { cursor: pointer; }
   table.users tr.clickable:hover td { background: #f5f7fa; }
   .overlay { position: fixed; inset: 0; background: rgba(12,13,18,0.45); display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; z-index: 50; }
-  .modal { background: #fff; border-radius: 14px; width: 100%; max-width: 1080px; box-shadow: 0 24px 70px rgba(0,0,0,0.28); overflow: hidden; }
+  .modal { background: #fff; border-radius: 14px; width: 100%; max-width: 1280px; box-shadow: 0 24px 70px rgba(0,0,0,0.28); overflow: hidden; }
   .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid #eef0f4; background: #fafbfc; }
   .modal-head h2 { margin: 0; font-size: 1.05rem; }
   .modal-head .uid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; color: #9aa0ac; margin-top: 2px; }
@@ -348,9 +348,10 @@ const STATS_HTML = `<!DOCTYPE html>
   .page-btn:hover:not(:disabled) { background: #f5f7fa; }
   .page-btn.active { background: #1a1d24; border-color: #1a1d24; color: #fff; font-weight: 600; }
   .page-btn:disabled { opacity: 0.4; cursor: default; }
+  .page-ellipsis { color: #9aa0ac; padding: 0 4px; user-select: none; }
   .copy-btn { border: none; background: transparent; cursor: pointer; color: #9aa0ac; font-size: 0.85rem; line-height: 1; padding: 2px 4px; border-radius: 4px; vertical-align: middle; }
   .copy-btn:hover { background: #eef0f4; color: #3a4256; }
-  td.url .copy-btn { margin-left: 6px; }
+  td.url .copy-btn, td.params .copy-btn { margin-left: 6px; }
   .kv { display: flex; align-items: center; gap: 8px; }
   .kv + .kv { margin-top: 2px; }
   .kv-label { color: #9aa0ac; font-size: 0.78rem; font-weight: 600; }
@@ -413,16 +414,40 @@ function el(tag, opts) {
   return node;
 }
 
-// Numbered pager shared by the Recent imports feed and the per-user modal.
-// Returns null when everything fits on one page (caller skips appending it).
+// At most 5 numeric buttons, sliding around the current page. «/»/‹/› cover
+// everything beyond the window, so a 24-page list still shows just 5 numbers.
+function pageWindow(page, totalPages) {
+  var MAX = 5;
+  var start = Math.max(1, Math.min(page - 2, totalPages - MAX + 1));
+  var end = Math.min(totalPages, start + MAX - 1);
+  var pages = [];
+  for (var i = start; i <= end; i++) pages.push(i);
+  return pages;
+}
+
+// Numbered pager shared by the Users/Recent imports feeds and the per-user
+// modal. «/» jump to first/last, ‹/› step. Returns null when it all fits on
+// one page (caller skips appending it).
 function pager(total, page, pageSize, onGo) {
   var totalPages = Math.max(1, Math.ceil(total / pageSize));
   if (totalPages <= 1) return null;
   var wrap = el("div", { className: "pager" });
-  var prev = el("button", { className: "page-btn", text: "‹", onClick: function () { if (page > 1) onGo(page - 1); } });
-  if (page <= 1) prev.disabled = true;
-  wrap.appendChild(prev);
-  for (var p = 1; p <= totalPages; p++) {
+
+  function navBtn(label, target, disabled, title) {
+    var b = el("button", { className: "page-btn", text: label, onClick: function () { if (!disabled) onGo(target); } });
+    b.title = title;
+    if (disabled) b.disabled = true;
+    return b;
+  }
+
+  wrap.appendChild(navBtn("«", 1, page <= 1, "First"));
+  wrap.appendChild(navBtn("‹", page - 1, page <= 1, "Previous"));
+
+  pageWindow(page, totalPages).forEach(function (p) {
+    if (p === "…") {
+      wrap.appendChild(el("span", { className: "page-ellipsis", text: "…" }));
+      return;
+    }
     (function (pp) {
       wrap.appendChild(el("button", {
         className: "page-btn" + (pp === page ? " active" : ""),
@@ -430,10 +455,10 @@ function pager(total, page, pageSize, onGo) {
         onClick: function () { onGo(pp); },
       }));
     })(p);
-  }
-  var next = el("button", { className: "page-btn", text: "›", onClick: function () { if (page < totalPages) onGo(page + 1); } });
-  if (page >= totalPages) next.disabled = true;
-  wrap.appendChild(next);
+  });
+
+  wrap.appendChild(navBtn("›", page + 1, page >= totalPages, "Next"));
+  wrap.appendChild(navBtn("»", totalPages, page >= totalPages, "Last"));
   return wrap;
 }
 
@@ -513,10 +538,10 @@ function renderUsers() {
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
   }
-  var pageRows = rows.slice((view.page - 1) * 20, view.page * 20);
+  var pageRows = rows.slice((view.page - 1) * 10, view.page * 10);
   pageRows.forEach(function (u, i) {
     var tr = el("tr", { className: "clickable", onClick: function () { openUserImports(u.figmaUserId, u.email); } });
-    tr.appendChild(el("td", { className: "num", text: (view.page - 1) * 20 + i + 1 }));
+    tr.appendChild(el("td", { className: "num", text: (view.page - 1) * 10 + i + 1 }));
     tr.appendChild(el("td", { className: "id", text: u.figmaUserId }));
     tr.appendChild(u.email ? el("td", { text: u.email }) : el("td", { className: "muted", text: "—" }));
     var planTd = el("td");
@@ -532,7 +557,7 @@ function renderUsers() {
   table.appendChild(tbody);
   frag.appendChild(table);
 
-  var pg = pager(rows.length, view.page, 20, function (p) { view.page = p; paintUsers(); });
+  var pg = pager(rows.length, view.page, 10, function (p) { view.page = p; paintUsers(); });
   if (pg) frag.appendChild(pg);
   return frag;
 }
@@ -635,13 +660,25 @@ function paintImports() {
 }
 
 // ── Per-user drill-down: click a user row → modal with their import history ──
-function fmtParams(p) {
+// Render the 6 real "More Options" settings the user picked. Each key is
+// optional — older rows (and the browser-extension CDP flow) only carry a
+// subset, so they degrade cleanly. "typeface" (pluginFont) is intentionally
+// not shown: it is not a More Options dropdown.
+function fmtParams(p, type) {
   if (!p) return "—";
+  var assetLabel = { placeholders: "placeholder", realAssets: "real" };
+  var layoutLabel = { autoLayout: "auto", absolute: "absolute" };
+  // The "website" value means "derive from the source". The plugin relabels
+  // that option per tab — "Code Colors/Fonts/Text" for HTML, "Screenshot
+  // Colors/Text" for screenshots — so mirror the same label here.
+  var source = type === "html" ? "code" : type === "screenshot" ? "screenshot" : "website";
   var parts = [];
-  if (p.colorMode) parts.push("color:" + p.colorMode);
-  if (p.typographyMode) parts.push("font:" + p.typographyMode);
-  if (p.textMode) parts.push("text:" + p.textMode);
-  if (p.pluginFont) parts.push("typeface:" + p.pluginFont);
+  if (p.colorMode) parts.push("colors:" + (p.colorMode === "website" ? source : p.colorMode));
+  if (p.typographyMode) parts.push("fonts:" + (p.typographyMode === "website" ? source : p.typographyMode));
+  if (p.textMode) parts.push("text:" + (p.textMode === "website" ? source : p.textMode));
+  if (p.assetMode) parts.push("assets:" + (assetLabel[p.assetMode] || p.assetMode));
+  if (p.cssVariablesMode) parts.push("cssVars:" + p.cssVariablesMode);
+  if (p.layoutMode) parts.push("layout:" + (layoutLabel[p.layoutMode] || p.layoutMode));
   return parts.length ? parts.join(" · ") : "—";
 }
 
@@ -721,7 +758,11 @@ function renderUserImports() {
     urlTd.appendChild(copyBtn(e.sourceUrl));
     tr.appendChild(urlTd);
     tr.appendChild(el("td", { className: "muted", text: (e.viewports || []).join(", ") || "—" }));
-    tr.appendChild(el("td", { className: "params", text: fmtParams(e.params) }));
+    var paramsTd = el("td", { className: "params" });
+    var paramsText = fmtParams(e.params, e.type);
+    paramsTd.appendChild(el("span", { text: paramsText }));
+    if (e.params) paramsTd.appendChild(copyBtn(paramsText));
+    tr.appendChild(paramsTd);
     var resTd = el("td");
     if (e.success) {
       resTd.appendChild(el("span", { className: "pill ok", text: "✓" }));

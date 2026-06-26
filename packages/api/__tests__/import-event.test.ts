@@ -82,6 +82,9 @@ describe("POST /api/import-url — import-event logging", () => {
         typographyMode: "lines",
         textMode: "lorem",
         pluginFont: "Inter",
+        assetMode: "realAssets",
+        cssVariablesMode: "direct",
+        layoutMode: "absolute",
       });
 
     expect(res.status).toBe(200);
@@ -97,6 +100,9 @@ describe("POST /api/import-url — import-event logging", () => {
         typographyMode: "lines",
         textMode: "lorem",
         pluginFont: "Inter",
+        assetMode: "realAssets",
+        cssVariablesMode: "direct",
+        layoutMode: "absolute",
       },
     });
     expect(evt.sourceUrl).toContain("example.com");
@@ -142,6 +148,9 @@ describe("POST /api/import-html — import-event logging", () => {
         typographyMode: "lines",
         textMode: "lorem",
         pluginFont: "Inter",
+        assetMode: "realAssets",
+        cssVariablesMode: "direct",
+        layoutMode: "absolute",
       });
 
     expect(res.status).toBe(200);
@@ -157,6 +166,9 @@ describe("POST /api/import-html — import-event logging", () => {
         typographyMode: "lines",
         textMode: "lorem",
         pluginFont: "Inter",
+        assetMode: "realAssets",
+        cssVariablesMode: "direct",
+        layoutMode: "absolute",
       },
     });
   });
@@ -201,6 +213,10 @@ describe("POST /api/import-screenshot — import-event logging", () => {
         textMode: "lorem",
         colorMode: "plugin",
         pluginFont: "Inter",
+        typographyMode: "lines",
+        assetMode: "realAssets",
+        cssVariablesMode: "direct",
+        layoutMode: "absolute",
       });
 
     expect(res.status).toBe(200);
@@ -211,6 +227,15 @@ describe("POST /api/import-screenshot — import-event logging", () => {
       type: "screenshot",
       success: true,
       viewports: [1440],
+      params: {
+        colorMode: "plugin",
+        textMode: "lorem",
+        pluginFont: "Inter",
+        typographyMode: "lines",
+        assetMode: "realAssets",
+        cssVariablesMode: "direct",
+        layoutMode: "absolute",
+      },
     });
   });
 

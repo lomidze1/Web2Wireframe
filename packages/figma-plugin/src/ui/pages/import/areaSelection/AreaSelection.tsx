@@ -559,6 +559,14 @@ export default function AreaSelection() {
           sourceUrl: unifiedResult.url,
           title: unifiedResult.title,
           viewports: unifiedResult.frames.map((f) => f.viewport.width),
+          // The .w2w renders client-side, so forward the render settings (the 6
+          // More Options) for the admin import history.
+          colorMode: settings.localColorMode,
+          typographyMode: settings.localFontMode,
+          textMode: settings.localTextMode,
+          assetMode: settings.localAssetMode,
+          cssVariablesMode: settings.localCssVariablesMode,
+          layoutMode: settings.localLayoutMode,
         }),
       });
 

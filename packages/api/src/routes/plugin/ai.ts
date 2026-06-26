@@ -128,7 +128,15 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
       sourceUrl: "screenshot-import",
       type: "screenshot",
       viewports: numericViewports,
-      params: { colorMode, textMode, pluginFont },
+      params: {
+        colorMode,
+        textMode,
+        pluginFont,
+        typographyMode: req.body?.typographyMode,
+        assetMode: req.body?.assetMode,
+        cssVariablesMode: req.body?.cssVariablesMode,
+        layoutMode: req.body?.layoutMode,
+      },
       success: true,
     });
 
@@ -159,6 +167,10 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
         colorMode: req.body?.colorMode,
         textMode: req.body?.textMode,
         pluginFont: req.body?.pluginFont,
+        typographyMode: req.body?.typographyMode,
+        assetMode: req.body?.assetMode,
+        cssVariablesMode: req.body?.cssVariablesMode,
+        layoutMode: req.body?.layoutMode,
       },
       success: false,
       errorCode: failureCode,

@@ -17,7 +17,7 @@ interface ExpiringSoonModalProps {
  * want the message to stay visible until they act or lapse.
  *
  * `Extend Pro` opens the Plan modal (which then runs the existing checkout
- * flow). `Maybe later` dismisses the prompt for this session.
+ * flow). The header × dismisses the prompt for this session.
  */
 export default function ExpiringSoonModal({
   isOpen,
@@ -79,13 +79,6 @@ export default function ExpiringSoonModal({
                 Secure checkout by Flitt · Apple Pay, Google Pay & all major
                 cards
               </p>
-              <button
-                type="button"
-                class={styles.planCtaLink}
-                onClick={onClose}
-              >
-                Maybe later
-              </button>
             </div>
           </div>
         </div>

@@ -105,6 +105,32 @@ describe("POST /api/import-w2w-file", () => {
     });
   });
 
+  it("logs the 6 More Options params forwarded by the plugin", async () => {
+    mockUseImport.mockResolvedValue({ ok: true, remaining: 4 });
+
+    const res = await request(app).post("/api/import-w2w-file").send({
+      sourceUrl: "https://acme.test/pricing",
+      viewports: [1440],
+      colorMode: "website",
+      typographyMode: "lines",
+      textMode: "lorem",
+      assetMode: "realAssets",
+      cssVariablesMode: "direct",
+      layoutMode: "absolute",
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockLogImportEvent).toHaveBeenCalledTimes(1);
+    expect(mockLogImportEvent.mock.calls[0][0].params).toMatchObject({
+      colorMode: "website",
+      typographyMode: "lines",
+      textMode: "lorem",
+      assetMode: "realAssets",
+      cssVariablesMode: "direct",
+      layoutMode: "absolute",
+    });
+  });
+
   it("logs an event with sourceUrl 'unknown' when the body is empty (older published plugin)", async () => {
     mockUseImport.mockResolvedValue({ ok: true, remaining: 4 });
 

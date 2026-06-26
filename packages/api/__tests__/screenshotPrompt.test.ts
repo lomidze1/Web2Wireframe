@@ -260,11 +260,10 @@ describe("analyzeScreenshot", () => {
       totalHeight: 1000,
       sections: [{ name: "Hero", sectionType: "hero", height: 500, elements: [{ type: "heading", text: "Test" }] }],
     });
-    // The response will be prepended with "{", so the mock returns text without leading "{"
     const mockClient = {
       messages: {
         create: vi.fn().mockResolvedValue({
-          content: [{ type: "text", text: mockResponse.slice(1) }],
+          content: [{ type: "text", text: mockResponse }],
         }),
       },
     };
@@ -290,7 +289,7 @@ describe("analyzeScreenshot", () => {
     const mockClient = {
       messages: {
         create: vi.fn().mockResolvedValue({
-          content: [{ type: "text", text: mockResponse.slice(1) }],
+          content: [{ type: "text", text: mockResponse }],
         }),
       },
     };
@@ -308,7 +307,10 @@ describe("analyzeScreenshot", () => {
     expect(callArgs.max_tokens).toBe(12000);
   });
 
-  it("should include assistant prefill message", async () => {
+  it("should NOT use assistant prefill (conversation ends with a user message)", async () => {
+    // claude-sonnet-4-6 (and newer models) reject assistant-message prefill with
+    // a 400. The request must end with the user message; the model returns the
+    // full JSON object on its own.
     const mockResponse = JSON.stringify({
       totalHeight: 1000,
       sections: [{ name: "Hero", sectionType: "hero", height: 500, elements: [{ type: "heading", text: "Test" }] }],
@@ -316,7 +318,7 @@ describe("analyzeScreenshot", () => {
     const mockClient = {
       messages: {
         create: vi.fn().mockResolvedValue({
-          content: [{ type: "text", text: mockResponse.slice(1) }],
+          content: [{ type: "text", text: mockResponse }],
         }),
       },
     };
@@ -332,24 +334,20 @@ describe("analyzeScreenshot", () => {
 
     const callArgs = mockClient.messages.create.mock.calls[0][0];
     const messages = callArgs.messages;
-    expect(messages).toHaveLength(2);
-    expect(messages[1].role).toBe("assistant");
-    expect(messages[1].content).toBe("{");
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe("user");
   });
 
-  it("should prepend '{' to response text for parsing", async () => {
-    // If Claude returns '"totalHeight":1000,...}' (without leading {),
-    // the prefill logic prepends "{" to make valid JSON
+  it("should parse a full JSON object response", async () => {
     const innerJSON = {
       totalHeight: 1000,
       sections: [{ name: "Hero", sectionType: "hero", height: 500, elements: [{ type: "heading", text: "Test" }] }],
     };
     const fullStr = JSON.stringify(innerJSON);
-    // Claude's response will be everything after the first "{"
     const mockClient = {
       messages: {
         create: vi.fn().mockResolvedValue({
-          content: [{ type: "text", text: fullStr.slice(1) }],
+          content: [{ type: "text", text: fullStr }],
         }),
       },
     };

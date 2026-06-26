@@ -31,10 +31,13 @@ export type ImportType = "extension" | "url" | "html" | "screenshot";
  * (Phase 2).
  */
 export interface IImportParams {
-  colorMode?: string; // "plugin" | "website"
-  typographyMode?: string; // "plugin" | "website" | "lines"
-  textMode?: string; // "website" | "lorem" | "semantic"
-  pluginFont?: string;
+  colorMode?: string; // "plugin" | "website"           (More Options: Colors)
+  typographyMode?: string; // "plugin" | "website" | "lines"  (More Options: Fonts)
+  textMode?: string; // "website" | "lorem" | "semantic"      (More Options: Text)
+  assetMode?: string; // "placeholders" | "realAssets"        (More Options: Assets)
+  cssVariablesMode?: string; // "styles" | "direct"           (More Options: CSS Variables)
+  layoutMode?: string; // "autoLayout" | "absolute"           (More Options: Layout Mode)
+  pluginFont?: string; // chosen typeface (not a More Options dropdown)
 }
 
 export interface IImportEvent extends Document {
@@ -69,6 +72,9 @@ const ImportEventSchema = new Schema<IImportEvent>(
       colorMode: { type: String },
       typographyMode: { type: String },
       textMode: { type: String },
+      assetMode: { type: String },
+      cssVariablesMode: { type: String },
+      layoutMode: { type: String },
       pluginFont: { type: String },
     },
     success: { type: Boolean, required: true },

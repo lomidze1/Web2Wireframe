@@ -46,6 +46,9 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
       textMode = "website",
       pluginColors = {},
       pluginFont = "Montserrat",
+      assetMode,
+      cssVariablesMode,
+      layoutMode,
     } = req.body;
 
     // Identity comes from the verified plugin token, never the request body.
@@ -151,7 +154,7 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
       sourceUrl: normalizedSourceUrl!,
       type: "url",
       viewports,
-      params: { colorMode, typographyMode, textMode, pluginFont },
+      params: { colorMode, typographyMode, textMode, pluginFont, assetMode, cssVariablesMode, layoutMode },
       success: true,
     });
 
@@ -200,6 +203,9 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
         typographyMode: req.body?.typographyMode,
         textMode: req.body?.textMode,
         pluginFont: req.body?.pluginFont,
+        assetMode: req.body?.assetMode,
+        cssVariablesMode: req.body?.cssVariablesMode,
+        layoutMode: req.body?.layoutMode,
       },
       success: false,
       errorCode,
@@ -238,6 +244,9 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
       textMode = "website",
       pluginColors = {},
       pluginFont = "Montserrat",
+      assetMode,
+      cssVariablesMode,
+      layoutMode,
     } = req.body;
 
     // Validation
@@ -302,7 +311,7 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
       sourceUrl: "html-import",
       type: "html",
       viewports,
-      params: { colorMode, typographyMode, textMode, pluginFont },
+      params: { colorMode, typographyMode, textMode, pluginFont, assetMode, cssVariablesMode, layoutMode },
       success: true,
     });
 
@@ -339,6 +348,9 @@ router.post("/import-html", importRateLimiter, authenticatePlugin, requireImport
         typographyMode: req.body?.typographyMode,
         textMode: req.body?.textMode,
         pluginFont: req.body?.pluginFont,
+        assetMode: req.body?.assetMode,
+        cssVariablesMode: req.body?.cssVariablesMode,
+        layoutMode: req.body?.layoutMode,
       },
       success: false,
       errorCode,
@@ -382,6 +394,16 @@ router.post(
       title: typeof req.body?.title === "string" ? req.body.title : undefined,
       type: "extension",
       viewports: Array.isArray(req.body?.viewports) ? req.body.viewports : [],
+      // The plugin renders the .w2w client-side, so it forwards the render
+      // settings (the 6 More Options) for the admin history.
+      params: {
+        colorMode: req.body?.colorMode,
+        typographyMode: req.body?.typographyMode,
+        textMode: req.body?.textMode,
+        assetMode: req.body?.assetMode,
+        cssVariablesMode: req.body?.cssVariablesMode,
+        layoutMode: req.body?.layoutMode,
+      },
       success: true,
     });
 

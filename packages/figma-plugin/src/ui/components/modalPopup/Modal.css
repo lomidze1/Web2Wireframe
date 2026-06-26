@@ -491,29 +491,93 @@
 }
 
 .planTrustNote {
-  margin: 6px 6px 0 6px;
+  margin: 0;
   font-size: var(--font-sm);
   line-height: 1.5;
   color: var(--muted);
   text-align: center;
 }
 
-.planDisconnect {
-  margin: 14px 6px 4px 6px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--muted);
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--font-sm);
+/* Inline legal links (Terms / Privacy) — the default link blue is too dark
+ * to read on the modal background, so use the brand accent with a clear
+ * underline. */
+.planTrustNote a {
+  color: var(--accent);
   font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.planTrustNote a:hover {
+  opacity: 0.8;
+}
+
+/* When two trust notes stack (checkout line + legal line) hug them into one
+ * block — 4px instead of the parent's 10px gap. */
+.planTrustNote + .planTrustNote {
+  margin-top: calc(var(--space-1) - 10px);
+}
+
+/* Always-on account tail: Disconnect + feedback, separated from the
+ * purchase/legal copy above by a hairline. The parent's 10px gap plus this
+ * margin/padding give the divider breathing room on both sides. */
+.planFooter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.planDisconnect {
+  margin: 0;
+  padding: 4px 8px;
+  align-self: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
   text-align: center;
   cursor: pointer;
   transition: var(--transition-normal);
 }
 
 .planDisconnect:hover {
-  background: var(--muted);
+  background: transparent;
+  color: var(--error);
+  text-decoration: underline;
+}
+
+/* Feedback sign-off — same muted treatment as .planTrustNote but its own
+ * class so the "+ .planTrustNote" hug rule doesn't catch it. */
+.planFooterNote {
+  margin: 0;
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Feedback link on its own centered second line, styled as a subtle accent
+ * pill so it reads on the dark modal background (the default link blue is
+ * nearly invisible here). */
+.planFooterLink {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-accent);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition-normal);
+}
+
+.planFooterLink:hover {
+  background: var(--accent);
   color: var(--accent-fg);
 }
 
