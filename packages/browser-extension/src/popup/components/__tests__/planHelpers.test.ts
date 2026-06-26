@@ -175,14 +175,14 @@ describe("limitText", () => {
 // ---------------------------------------------------------------------------
 
 describe("usagePillText", () => {
-  it("returns '0/10' when no license is loaded (unpaired)", () => {
-    expect(usagePillText(null)).toBe("0/10");
+  it("returns '0/10 imports per month' when no license is loaded (unpaired)", () => {
+    expect(usagePillText(null)).toBe("0/10 imports per month");
   });
 
-  it("returns 'N/10' for a free license with N imports used", () => {
+  it("returns 'N/10 imports per month' for a free license with N imports used", () => {
     expect(
       usagePillText(fakeLicense({ usage: { imports: 3, periodStartedAt: "" } })),
-    ).toBe("3/10");
+    ).toBe("3/10 imports per month");
   });
 
   it("returns 'Pro' for a pro license regardless of usage", () => {
