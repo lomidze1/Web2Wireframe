@@ -219,10 +219,14 @@ export function convertFillsToPaints(
                 if (p < bufLen) bytes[p++] = ((c & 3) << 6) | d;
               }
               const image = figma.createImage(bytes);
+              const scaleMode = fill.scaleMode ?? "FILL";
               paints.push({
                 type: "IMAGE",
                 imageHash: image.hash,
-                scaleMode: "FILL",
+                scaleMode,
+                // TILE renders the image at natural size × scalingFactor;
+                // natural size is unknown here, so tile 1:1.
+                ...(scaleMode === "TILE" ? { scalingFactor: 1 } : {}),
                 visible: true,
                 opacity: 1,
               } as Paint);

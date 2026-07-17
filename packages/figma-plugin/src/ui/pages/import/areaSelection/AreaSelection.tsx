@@ -19,6 +19,7 @@ import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer"
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import SettingsPanel from "../../../components/settingsPanel";
 import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
+import type { FontCut } from "../../../../utils/fontUtils";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -236,6 +237,9 @@ export default function AreaSelection() {
     defaultMapping: Record<string, string>;
     pluginFont: string;
     pluginFontOptions: string[];
+    /** Per family, the cuts the page needs but Figma lacks — narrows the
+     *  download ZIP to just those files. */
+    missingCuts?: Record<string, FontCut[]>;
   } | null>(null);
   // Extracted fonts from the captured file — fed into FontFallbackModal so the
   // "Download fonts (.zip)" button can appear when fonts are missing locally.
@@ -725,7 +729,7 @@ export default function AreaSelection() {
         defaultMapping={fontModalData?.defaultMapping || {}}
         pluginFont={fontModalData?.pluginFont || "Montserrat"}
         pluginFontOptions={fontModalData?.pluginFontOptions || []}
-        fontDownloads={buildFontDownloads(fontModalData?.missingFonts || [], extractedFonts)}
+        fontDownloads={buildFontDownloads(fontModalData?.missingFonts || [], extractedFonts, fontModalData?.missingCuts)}
         extractedFonts={extractedFonts as Array<{ family: string; style?: string; weight?: string; format?: string; src?: string; fontBase64?: string; fontMimeType?: string }>}
         onChoice={handleFontFallbackChoice}
       />

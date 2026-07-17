@@ -21,6 +21,8 @@
  *     a no-op for the same node.
  */
 
+import { fontStyleCandidates, orderStylesByProximity, parseStyleName } from "./styles";
+
 /** Pluginata key written by `createTextNode` and consumed here. */
 export const ORIGINAL_FONT_PLUGIN_KEY = "w2w_original_font";
 
@@ -44,26 +46,28 @@ export const REBOUND_DONE_PLUGIN_KEY = "w2w_rebound_done";
  *  with. */
 const STYLE_FALLBACK_LADDER = ["Regular", "Bold", "Medium", "Light", "Normal"];
 
-/** Style names that read as the "default"/upright cut across foundries. Söhne
- *  ships "Buch" (German for Book), other foundries use "Roman"/"Text" — none of
- *  which appear in the conventional ladder above. */
-const REGULARISH_STYLES = ["regular", "book", "buch", "normal", "roman", "text"];
+/** All spelling variants for the requested style's weight bucket ("Semi Bold"
+ *  → Semibold, SemiBold, Semi Bold, DemiBold, …), so a node rendered as Inter
+ *  "Semi Bold" rebinds to the target family's "Semibold" cut instead of
+ *  collapsing to Regular via the generic ladder. */
+function styleSpellingCandidates(preferredStyle: string): string[] {
+  const { weight, italic } = parseStyleName(preferredStyle);
+  return fontStyleCandidates(weight, italic);
+}
 
 /**
- * Orders a font family's ACTUAL installed styles so the most sensible cut is
- * tried first: an exact match to the requested style, then a regular-ish one,
- * then everything else. Used as a last resort when the conventional ladder
- * misses a font that only ships non-standard style names (e.g. "Buch").
+ * Orders a font family's ACTUAL installed styles so the closest cut to the one
+ * we want is tried first. Used as a last resort when the conventional ladder
+ * misses a font that only ships non-standard style names (e.g. Söhne's "Buch").
+ *
+ * Ranking by weight proximity — rather than "exact name, then regular-ish,
+ * then everything else" — is what stops a family without a Regular from
+ * rebinding every 400 run to whatever Figma happens to list first (which is
+ * alphabetical, i.e. "Black Italic").
  */
 function orderActualStyles(preferredStyle: string, styles: string[]): string[] {
-  const wanted = preferredStyle.toLowerCase();
-  const rank = (s: string): number => {
-    const sl = s.toLowerCase();
-    if (sl === wanted) return 0;
-    if (REGULARISH_STYLES.includes(sl)) return 1;
-    return 2;
-  };
-  return [...styles].sort((a, b) => rank(a) - rank(b));
+  const { weight, italic } = parseStyleName(preferredStyle);
+  return orderStylesByProximity(styles, weight, italic);
 }
 
 export interface RebindResult {
@@ -147,7 +151,12 @@ async function loadFontWithFallback(
     preferredStyle,
     installedStyles.get(family) ?? [],
   );
-  const candidates = [preferredStyle, ...STYLE_FALLBACK_LADDER, ...actual];
+  const candidates = [
+    preferredStyle,
+    ...styleSpellingCandidates(preferredStyle),
+    ...STYLE_FALLBACK_LADDER,
+    ...actual,
+  ];
   for (const style of candidates) {
     if (tried.has(style)) continue;
     tried.add(style);
@@ -224,7 +233,8 @@ export async function rebindOriginalFonts(
 
   for (const node of nodes) {
     const originalFamily = node.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
-    if (!originalFamily) continue;
+    const segJson = node.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
+    if (!originalFamily && !segJson) continue;
     total++;
 
     const charsPreview = (node.characters || "").slice(0, 40).replace(/\s+/g, " ");
@@ -233,11 +243,11 @@ export async function rebindOriginalFonts(
     // paco.me: Söhne body + a Newsreader-italic <em>). The render stamps a
     // per-run marker recording ONLY the substituted ranges + the real family
     // each should become. We rebind exactly those ranges — runs already showing
-    // their correct font (Newsreader) are never touched. Without the per-run
-    // marker we can't tell the runs apart, so we skip (the safe old behavior).
-    if (node.fontName === figma.mixed) {
+    // their correct font (Newsreader) are never touched. Nodes with per-run
+    // markers are handled here even when the node-level marker is absent
+    // (e.g. only one inline icon run was substituted).
+    if (node.fontName === figma.mixed || segJson) {
       let segs: Array<{ start: number; end: number; family: string }> = [];
-      const segJson = node.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
       if (segJson) {
         try {
           const parsed: unknown = JSON.parse(segJson);
@@ -250,15 +260,80 @@ export async function rebindOriginalFonts(
       }
 
       if (segs.length === 0) {
-        skippedMixed++;
-        perNode.push({
-          nodeId: node.id,
-          family: originalFamily,
-          requestedStyle: "(mixed)",
-          outcome: "skippedMixed",
-          attemptsTried: 0,
-          chars: charsPreview,
-        });
+        // No per-run markers (imports predating segment stamping). The render
+        // pipeline's only substitute font is Inter, so every Inter run in a
+        // marked mixed node is OUR substitution artifact — rebinding exactly
+        // those runs to the node's marker family is safe. Runs showing any
+        // other family (their own correct font) are left untouched.
+        let interRuns: Array<{ start: number; end: number; fontName: FontName }> = [];
+        if (originalFamily) {
+          try {
+            const styled = (node as TextNode & {
+              getStyledTextSegments?: (
+                fields: string[],
+              ) => Array<{ start: number; end: number; fontName: FontName }>;
+            }).getStyledTextSegments?.(["fontName"]);
+            if (Array.isArray(styled)) {
+              interRuns = styled.filter((r) => r.fontName && r.fontName.family === "Inter");
+            }
+          } catch {
+            /* runs API unavailable — keep the safe skip behavior */
+          }
+        }
+
+        if (interRuns.length === 0) {
+          skippedMixed++;
+          perNode.push({
+            nodeId: node.id,
+            family: originalFamily,
+            requestedStyle: "(mixed)",
+            outcome: "skippedMixed",
+            attemptsTried: 0,
+            chars: charsPreview,
+          });
+          continue;
+        }
+
+        const fbTrace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
+        let allRunsSet = true;
+        for (const r of interRuns) {
+          const loaded = await loadFontWithFallback(originalFamily, r.fontName.style, fbTrace, installedStyles);
+          if (loaded === null) {
+            allRunsSet = false;
+            stillMissing.add(originalFamily);
+            continue;
+          }
+          try {
+            node.setRangeFontName(r.start, r.end, { family: originalFamily, style: loaded });
+          } catch {
+            allRunsSet = false;
+            stillMissing.add(originalFamily);
+          }
+        }
+
+        if (allRunsSet) {
+          node.setPluginData(REBOUND_DONE_PLUGIN_KEY, originalFamily);
+          node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+          rebound++;
+          perNode.push({
+            nodeId: node.id,
+            family: originalFamily,
+            requestedStyle: "(mixed:inter-runs)",
+            outcome: "rebound",
+            attemptsTried: fbTrace.attempts.length,
+            chars: charsPreview,
+          });
+        } else {
+          perNode.push({
+            nodeId: node.id,
+            family: originalFamily,
+            requestedStyle: "(mixed:inter-runs)",
+            outcome: "stillMissing",
+            attemptsTried: fbTrace.attempts.length,
+            firstError: fbTrace.attempts.find((a) => !a.ok)?.error,
+            chars: charsPreview,
+          });
+        }
         continue;
       }
 
@@ -297,13 +372,19 @@ export async function rebindOriginalFonts(
       }
 
       if (allRunsSet) {
-        node.setPluginData(REBOUND_DONE_PLUGIN_KEY, originalFamily);
+        // Segment-only nodes have no node-level marker — record the run
+        // families instead so the "done" stamp is never empty (an empty
+        // value would delete the key and break the cumulative count).
+        node.setPluginData(
+          REBOUND_DONE_PLUGIN_KEY,
+          originalFamily || segs.map((s) => s.family).join(", "),
+        );
         node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
         node.setPluginData(SEGMENT_FONT_PLUGIN_KEY, "");
         rebound++;
         perNode.push({
           nodeId: node.id,
-          family: originalFamily,
+          family: originalFamily || segs.map((s) => s.family).join(", "),
           requestedStyle: "(mixed)",
           outcome: "rebound",
           attemptsTried: segTrace.attempts.length,

@@ -8,7 +8,7 @@
 
 import JSZip from "jszip";
 import type { FontDownloadInfo } from "../ui/components/modalPopup/FontFallbackModal";
-import { parseFontSrcUrls } from "./fontUtils";
+import { parseFontSrcUrls, type FontCut } from "./fontUtils";
 
 // ============================================================================
 // Types
@@ -104,6 +104,32 @@ export function isEotUrl(url: string): boolean {
 }
 
 // ============================================================================
+// pickInstallableUrl
+// ============================================================================
+
+/**
+ * Rank a URL by how useful its file is to the user. The ZIP exists so they
+ * can INSTALL the font: Font Book (and Windows) take TTF/OTF and reject WOFF
+ * and WOFF2, which are web-delivery wrappers. A face served in all three
+ * formats — apple.com serves woff2 + woff + ttf for every cut — should
+ * therefore ship its TTF, not three files the user can't tell apart.
+ */
+function installabilityRank(url: string): number {
+  const lower = url.toLowerCase();
+  if (lower.includes(".ttf") || lower.includes(".otf") || lower.includes(".ttc")) return 0;
+  if (lower.includes(".woff2")) return 1;
+  if (lower.includes(".woff")) return 2;
+  return 3;
+}
+
+/** The most installable of a face's URLs (see {@link installabilityRank}). */
+function pickInstallableUrl(urls: string[]): string {
+  return urls.reduce((best, url) =>
+    installabilityRank(url) < installabilityRank(best) ? url : best,
+  );
+}
+
+// ============================================================================
 // buildFontDownloadEntries
 // ============================================================================
 
@@ -140,6 +166,17 @@ type FontMetadata = {
  *
  * Two source shapes coexist (see {@link FontMetadata}); we normalize each
  * field so a single read works on either side.
+ *
+ * Each URL is matched to the @font-face that DECLARES it. The obvious
+ * shortcut — walk `dl.urls` and read `extractedFonts[i]` at the same index —
+ * silently mislabels everything, because a face contributes one metadata
+ * entry but several URLs (apple.com serves woff2 + woff + ttf per cut), and
+ * because `dl.urls` may be narrowed to the user's missing cuts while the
+ * metadata list is not. That produced ZIPs whose files carried a completely
+ * unrelated face's name, weight and format.
+ *
+ * One file per face, not per URL: the three formats are the same typeface,
+ * and only the TTF/OTF is installable (see {@link pickInstallableUrl}).
  */
 export function buildFontDownloadEntries(
   downloads: FontDownloadInfo[],
@@ -147,59 +184,66 @@ export function buildFontDownloadEntries(
 ): FontDownloadEntry[] {
   const entries: FontDownloadEntry[] = [];
 
+  // url → the face that declares it. Built once across all families so a URL
+  // is always described by its own @font-face.
+  const faceByUrl = new Map<string, FontMetadata>();
+  for (const ef of extractedFonts || []) {
+    if (!(ef.family || ef.fontFamily)) continue; // unlabelled — can't name a file from it
+    for (const url of ef.src ? parseFontSrcUrls(ef.src) : []) {
+      if (!faceByUrl.has(url)) faceByUrl.set(url, ef);
+    }
+  }
+
   for (const dl of downloads) {
-    if (dl.urls.length === 0 && !dl.isGoogleFont) continue;
+    if (dl.urls.length === 0) continue;
 
-    // Find matching extracted font metadata for style/weight info.
-    // Read both shapes; skip entries with no usable family at all.
-    const matchingFonts = extractedFonts?.filter((ef) => {
-      const efFamily = ef.family || ef.fontFamily;
-      if (!efFamily) return false;
-      return efFamily.toLowerCase() === dl.family.toLowerCase();
-    }) || [];
+    // Group this family's URLs by their owning face. URLs with no known face
+    // keep their own group so they still ship, named from the family.
+    const urlsByFace = new Map<FontMetadata | string, string[]>();
+    for (const url of dl.urls) {
+      // Drop EOT entries — Figma & macOS Font Book can't use them, so packaging
+      // them would only ship the user a file they can't install.
+      if (isEotUrl(url)) continue;
+      const key = faceByUrl.get(url) ?? `__orphan:${url}`;
+      const group = urlsByFace.get(key);
+      if (group) group.push(url);
+      else urlsByFace.set(key, [url]);
+    }
 
-    if (dl.urls.length > 0) {
-      for (let i = 0; i < dl.urls.length; i++) {
-        const url = dl.urls[i];
+    for (const key of Array.from(urlsByFace.keys())) {
+      const meta = typeof key === "string" ? undefined : key;
+      const url = pickInstallableUrl(urlsByFace.get(key)!);
 
-        // Drop EOT entries — Figma & macOS Font Book can't use them, so packaging
-        // them would only ship the user a file they can't install.
-        if (isEotUrl(url)) {
-          continue;
-        }
+      const style = meta?.style || meta?.fontStyle || "normal";
+      const weight = meta?.weight || meta?.fontWeight || "400";
+      // The extension must describe the BYTES we ship. A pre-extracted binary
+      // is whatever format the server grabbed, so it names the file; otherwise
+      // we'll fetch `url`, and the URL names it.
+      const format = meta?.fontBase64
+        ? meta.format || guessFormatFromUrl(url)
+        : guessFormatFromUrl(url);
 
-        const meta = matchingFonts[i] || matchingFonts[0];
-        const style = meta?.style || meta?.fontStyle || "normal";
-        const weight = meta?.weight || meta?.fontWeight || "400";
-        const format = meta?.format || guessFormatFromUrl(url);
+      // Prefer real names from the SFNT `name` table when the API supplied
+      // them — they're what the OS will list after install, so matching
+      // the filename to the real name makes the download self-describing.
+      // Fall back to (CSS family, css style, css weight) for fonts the
+      // server couldn't decompress / parse.
+      const fileName = meta?.realFamily
+        ? buildFontFileName(
+            meta.realFamily,
+            meta.realSubfamily || style,
+            weight,
+            format,
+          )
+        : buildFontFileName(dl.family, style, weight, format);
 
-        // Find the extracted font with matching URL that has base64 data
-        const fontWithBinary = matchingFonts.find(
-          (ef) => ef.fontBase64 && ef.src?.includes(url)
-        ) || (meta?.fontBase64 ? meta : undefined);
-
-        // Prefer real names from the SFNT `name` table when the API supplied
-        // them — they're what the OS will list after install, so matching
-        // the filename to the real name makes the download self-describing.
-        // Fall back to (CSS family, css style, css weight) for fonts the
-        // server couldn't decompress / parse.
-        const fileName = meta?.realFamily
-          ? buildFontFileName(
-              meta.realFamily,
-              meta.realSubfamily || style,
-              weight,
-              format,
-            )
-          : buildFontFileName(dl.family, style, weight, format);
-
-        entries.push({
-          url,
-          fileName,
-          family: dl.family,
-          fontBase64: fontWithBinary?.fontBase64,
-          fontMimeType: fontWithBinary?.fontMimeType,
-        });
-      }
+      entries.push({
+        url,
+        fileName,
+        family: dl.family,
+        fontBase64: meta?.fontBase64,
+        fontMimeType: meta?.fontMimeType,
+      });
     }
   }
 
@@ -289,6 +333,97 @@ export async function createFontsZipBlob(
 }
 
 // ============================================================================
+// filterExtractedFontsToCuts
+// ============================================================================
+
+/** Named CSS font-weight keywords that @font-face rules use instead of numbers. */
+const WEIGHT_KEYWORDS: Record<string, number> = { normal: 400, bold: 700 };
+
+/**
+ * Parse an @font-face `font-weight` descriptor into the range it covers.
+ * Handles numbers ("300"), keywords ("normal"/"bold") and variable-font
+ * ranges ("100 900"). Returns null when unparseable — callers treat that as
+ * "covers anything" so an odd descriptor never drops a needed file.
+ */
+function parseFaceWeightRange(raw: string | undefined): { min: number; max: number } | null {
+  if (!raw) return null;
+  const value = raw.trim().toLowerCase();
+  if (WEIGHT_KEYWORDS[value]) {
+    const w = WEIGHT_KEYWORDS[value];
+    return { min: w, max: w };
+  }
+  const nums = value.split(/\s+/).map((p) => parseFloat(p)).filter((n) => Number.isFinite(n));
+  if (nums.length === 0) return null;
+  return { min: Math.min(...nums), max: Math.max(...nums) };
+}
+
+/**
+ * Narrow the extracted @font-face entries to the files that cover the cuts
+ * the user is actually missing.
+ *
+ * Without this, needing a single SF Pro Text Light meant downloading all 18
+ * SF Pro Text faces and hunting for the one that mattered. Families absent
+ * from `missingCuts` (i.e. missing in their entirety) keep all their entries.
+ *
+ * Safety net: if a family's filter matches nothing — unparseable descriptors,
+ * or a page that uses a weight it never declared a face for — that family
+ * falls back to its full set. An over-complete ZIP is recoverable; an empty
+ * one is a dead end.
+ */
+export function filterExtractedFontsToCuts<T>(
+  extractedFonts: T[],
+  missingCuts: Record<string, FontCut[]>,
+): T[] {
+  if (!extractedFonts || extractedFonts.length === 0) return extractedFonts;
+  if (Object.keys(missingCuts).length === 0) return extractedFonts;
+
+  // Cut lists are keyed by CSS family; match case-insensitively.
+  const cutsByFamily = new Map<string, FontCut[]>();
+  for (const [family, cuts] of Object.entries(missingCuts)) {
+    cutsByFamily.set(family.toLowerCase().trim(), cuts);
+  }
+
+  const matchesACut = (font: FontMetadata, cuts: FontCut[]): boolean => {
+    const faceItalic = /italic|oblique/i.test(font.style || font.fontStyle || "");
+    const range = parseFaceWeightRange(font.weight || font.fontWeight);
+    return cuts.some((cut) => {
+      if (cut.italic !== faceItalic) return false;
+      if (!range) return true; // unknown weight → assume it covers the cut
+      return cut.weight >= range.min && cut.weight <= range.max;
+    });
+  };
+
+  const kept: T[] = [];
+  const droppedByFamily = new Map<string, T[]>();
+  const keptFamilies = new Set<string>();
+
+  for (const ef of extractedFonts) {
+    const font = ef as FontMetadata;
+    const family = (font.family || font.fontFamily || "").toLowerCase().trim();
+    const cuts = cutsByFamily.get(family);
+    if (!cuts || cuts.length === 0) {
+      kept.push(ef); // not a partial family — ship as before
+      continue;
+    }
+    if (matchesACut(font, cuts)) {
+      kept.push(ef);
+      keptFamilies.add(family);
+    } else {
+      const list = droppedByFamily.get(family);
+      if (list) list.push(ef);
+      else droppedByFamily.set(family, [ef]);
+    }
+  }
+
+  // Restore any family whose filter matched nothing at all.
+  for (const family of Array.from(droppedByFamily.keys())) {
+    if (!keptFamilies.has(family)) kept.push(...droppedByFamily.get(family)!);
+  }
+
+  return kept;
+}
+
+// ============================================================================
 // Build Font Downloads from extracted fonts + missing fonts list
 // ============================================================================
 
@@ -314,15 +449,22 @@ export async function createFontsZipBlob(
  */
 export function buildFontDownloads(
   missingFonts: string[],
-  extractedFonts?: unknown[]
+  extractedFonts?: unknown[],
+  missingCuts?: Record<string, FontCut[]>
 ): FontDownloadInfo[] | undefined {
   if (!extractedFonts || extractedFonts.length === 0) {
     return undefined;
   }
 
+  // Partially-installed families only need their absent cuts (see
+  // filterExtractedFontsToCuts) — everything else ships whole.
+  const sourceFonts = missingCuts
+    ? filterExtractedFontsToCuts(extractedFonts, missingCuts)
+    : extractedFonts;
+
   const downloads: FontDownloadInfo[] = [];
 
-  for (const ef of extractedFonts) {
+  for (const ef of sourceFonts) {
     // Two shapes coexist in the wild:
     //   - browser-extension capture → ExtractedFont    { family,     src, isGoogleFont }
     //   - API W2W content-script    → W2WFontEntry    { fontFamily, src }            (no isGoogleFont)

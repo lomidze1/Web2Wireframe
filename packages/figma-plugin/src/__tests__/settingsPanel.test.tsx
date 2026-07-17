@@ -83,6 +83,23 @@ describe("SettingsPanel", () => {
     expect(container.querySelector(".collapsibleContent")).toBeTruthy();
   });
 
+  it("renders the settings hint under the 'More Options' toggle", () => {
+    const { container } = render(<SettingsPanel {...defaultProps} />);
+    const hint = container.querySelector(".settingsHint");
+    expect(hint).toBeTruthy();
+    expect(hint?.textContent).toContain("Try different settings");
+  });
+
+  it("keeps the hint visible while the section is collapsed", () => {
+    // The hint exists to get users to open the section, so it must not live
+    // inside the content it is advertising.
+    const { container } = render(
+      <SettingsPanel {...defaultProps} isExpanded={false} />
+    );
+    expect(container.querySelector(".collapsibleContent")).toBeNull();
+    expect(container.querySelector(".settingsHint")).toBeTruthy();
+  });
+
   describe("when expanded", () => {
     const expandedProps = { ...defaultProps, isExpanded: true };
 

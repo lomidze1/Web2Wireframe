@@ -13,6 +13,14 @@ export interface IWebhookEvent extends Document {
   transactionId: string;
   orderId: string;
   orderStatus: string;
+  /**
+   * The validated charge amount in cents (e.g. 1600 monthly, 14400 yearly).
+   * Optional: rows written before this field existed, and any payload whose
+   * amount was not a finite number, carry no value — admin-stats revenue
+   * falls back to the monthly price for those. Lets revenue sum real dollars
+   * instead of assuming every charge is monthly.
+   */
+  amountCents?: number;
   processedAt: Date;
 }
 
@@ -20,6 +28,7 @@ const WebhookEventSchema = new Schema<IWebhookEvent>({
   transactionId: { type: String, required: true, unique: true, index: true },
   orderId: { type: String, required: true, index: true },
   orderStatus: { type: String, required: true },
+  amountCents: { type: Number },
   processedAt: { type: Date, default: () => new Date() },
 });
 

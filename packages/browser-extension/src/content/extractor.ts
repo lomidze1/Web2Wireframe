@@ -83,6 +83,13 @@ export interface ExtractPageResult {
 export async function extractPage(): Promise<ExtractPageResult> {
   nodeIndexCounter = 0;
 
+  // 0. Wait for web fonts + in-flight images before measuring anything.
+  //    Text line-breaking (Range.getClientRects) measured with a fallback
+  //    font produces wrong rects for every line; images still loading have
+  //    empty currentSrc/naturalWidth. Both waits are capped so a hung
+  //    resource can never stall the capture.
+  await waitForRenderReadiness();
+
   // 1. Inject pre-capture styles
   injectPreCaptureStyles();
 
@@ -114,6 +121,12 @@ export async function extractPage(): Promise<ExtractPageResult> {
     //    background-image: url(*.svg) so the plugin renders them as vectors.
     await inlineSvgMarkup(frame);
 
+    // 5b. Post-pass: resolve <use href="sprite.svg#icon"> (external sprite
+    //     sheets) and <use href="#icon"> pointing at hidden in-page sprite
+    //     <svg> blocks — both render blank in Figma unless the referenced
+    //     symbol is inlined into the SVG markup itself.
+    await resolveSvgUseRefs(frame);
+
     // [W2W-VERIFY] === instrumentation: collect font strings from CSS ===
     const __verifyFonts = new Set<string>();
     const __walk = (n: W2WFrameNode | W2WTextNode | W2WSVGNode): void => {
@@ -135,6 +148,40 @@ export async function extractPage(): Promise<ExtractPageResult> {
     removePreCaptureStyles();
     cleanupMarkers();
     throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Render readiness (fonts + images)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wait until web fonts are loaded and visible images are decoded, with hard
+ * timeouts (fonts 3s, images 2.5s) so a slow resource never blocks capture.
+ */
+async function waitForRenderReadiness(): Promise<void> {
+  const sleep = (ms: number): Promise<void> => new Promise((res) => setTimeout(res, ms));
+
+  try {
+    if (document.fonts && document.fonts.status !== 'loaded') {
+      await Promise.race([document.fonts.ready.then(() => undefined), sleep(3000)]);
+    }
+  } catch {
+    /* fonts API unavailable — proceed */
+  }
+
+  try {
+    const pending = Array.from(document.images)
+      .filter((img) => !img.complete && img.src)
+      .slice(0, 50); // cap the wait set — a page with hundreds of lazy images shouldn't stall
+    if (pending.length > 0) {
+      await Promise.race([
+        Promise.all(pending.map((img) => img.decode().catch(() => undefined))),
+        sleep(2500),
+      ]);
+    }
+  } catch {
+    /* decoding is best-effort */
   }
 }
 
@@ -168,6 +215,104 @@ async function inlineSvgMarkup(root: W2WFrameNode): Promise<void> {
     const targets = nodesByUrl.get(url);
     if (!targets) continue;
     for (const node of targets) node.$svgMarkup = markup;
+  }
+}
+
+/**
+ * Resolve `<use>` references inside captured SVG markup.
+ *
+ * Two dangling-reference patterns break Figma rendering:
+ *   1. `<use href="/sprites.svg#icon">` — external sprite sheet
+ *   2. `<use href="#icon">` where the `<symbol>` lives in a hidden in-page
+ *      sprite `<svg>` (display:none, so extraction skipped it)
+ * Both are fixed by cloning the referenced element into the SVG's own <defs>
+ * and rewriting the href to the now-local `#id`.
+ */
+async function resolveSvgUseRefs(root: W2WFrameNode): Promise<void> {
+  const svgNodes: W2WSVGNode[] = [];
+  const walk = (n: W2WNode): void => {
+    if (n.type === 'SVG') svgNodes.push(n);
+    else if (n.type === 'FRAME') n.children.forEach(walk);
+  };
+  walk(root);
+  if (svgNodes.length === 0) return;
+
+  const spriteCache = new Map<string, Document | null>();
+  const getSprite = async (url: string): Promise<Document | null> => {
+    const cached = spriteCache.get(url);
+    if (cached !== undefined) return cached;
+    let doc: Document | null = null;
+    try {
+      const res = await fetch(url, { credentials: 'same-origin' });
+      if (res.ok) {
+        doc = new DOMParser().parseFromString(await res.text(), 'image/svg+xml');
+        if (doc.querySelector('parsererror')) doc = null;
+      }
+    } catch {
+      doc = null;
+    }
+    spriteCache.set(url, doc);
+    return doc;
+  };
+
+  for (const node of svgNodes) {
+    if (!node.svg || !node.svg.includes('<use')) continue;
+
+    let svgDoc: Document;
+    try {
+      svgDoc = new DOMParser().parseFromString(node.svg, 'image/svg+xml');
+    } catch {
+      continue;
+    }
+    if (svgDoc.querySelector('parsererror')) continue;
+    const svgRoot = svgDoc.documentElement;
+    const uses = Array.from(svgDoc.querySelectorAll('use'));
+    if (uses.length === 0) continue;
+
+    let changed = false;
+    let defs: Element | null = svgDoc.querySelector('defs');
+
+    for (const use of uses) {
+      const href = use.getAttribute('href') || use.getAttribute('xlink:href') || '';
+      const hashIdx = href.indexOf('#');
+      if (hashIdx === -1) continue;
+      const id = href.slice(hashIdx + 1);
+      if (!id) continue;
+
+      // Already resolvable inside this SVG (either originally, or inlined by
+      // an earlier <use> with the same target)?
+      if (svgDoc.getElementById(id)) {
+        if (hashIdx > 0) {
+          use.setAttribute('href', `#${id}`);
+          use.removeAttribute('xlink:href');
+          changed = true;
+        }
+        continue;
+      }
+
+      let target: Element | null = null;
+      if (hashIdx === 0) {
+        // In-page sprite block (usually a hidden <svg> of <symbol>s)
+        target = document.getElementById(id);
+      } else {
+        const sprite = await getSprite(resolveUrl(href.slice(0, hashIdx)));
+        target = sprite?.getElementById(id) ?? null;
+      }
+      if (!target) continue;
+
+      if (!defs) {
+        defs = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        svgRoot.insertBefore(defs, svgRoot.firstChild);
+      }
+      defs.appendChild(svgDoc.importNode(target, true));
+      use.setAttribute('href', `#${id}`);
+      use.removeAttribute('xlink:href');
+      changed = true;
+    }
+
+    if (changed) {
+      node.svg = new XMLSerializer().serializeToString(svgRoot);
+    }
   }
 }
 
@@ -247,7 +392,7 @@ function traverseElement(
   const isZeroSize = rect.width < 1 && rect.height < 1 && tag !== 'html' && tag !== 'body';
 
   // Skip offscreen elements
-  if (isOffscreen(rect, viewportWidth, window.innerHeight * 10)) return null;
+  if (isOffscreen(rect, viewportWidth, window.innerHeight * 10, el)) return null;
 
   // Extract geometry (round to 2 decimals)
   const x = round(rect.left);
@@ -410,6 +555,37 @@ function extractTextNodes(
   const text = textNode.textContent;
   if (!text || !text.trim()) return [];
 
+  // white-space: pre / pre-wrap / break-spaces render internal spacing as-is;
+  // collapsing `\s+` there flattens code blocks and ASCII layouts. Newlines
+  // are still dropped per extracted value because line splitting below already
+  // emits one TEXT node per visual line.
+  //
+  // Whitespace runs containing U+00A0 (nbsp) collapse to nbsp, not a plain
+  // space — "MacBook Air" must stay unbreakable in Figma, otherwise the
+  // headline wraps where the browser never would.
+  const preserveSpaces = /^(pre|break-spaces)/.test(parentStyle.whiteSpace || '');
+  const collapse = (t: string): string =>
+    t.replace(/\s+/g, (m) => (m.includes(' ') ? ' ' : ' '));
+  const normalize = (t: string): string =>
+    preserveSpaces
+      ? t.replace(/[\r\n]+/g, ' ').replace(/^[ \t]+$/, '')
+      : collapse(t).trim();
+
+  // Inline-flow boundary spaces: `<p>shop: <a>Store</a> or <a>web</a></p>`
+  // splits into text runs whose leading/trailing spaces are significant —
+  // trimming them glues the runs to the neighboring links ("shop:Store orweb").
+  // Keep ONE space at a boundary when the raw run had whitespace there AND an
+  // element sibling exists on that side (spaces at true line edges collapse,
+  // matching CSS semantics).
+  const keepBoundarySpaces = (value: string, raw: string): string => {
+    if (preserveSpaces || !value) return value;
+    const prevIsElement = textNode.previousSibling?.nodeType === Node.ELEMENT_NODE;
+    const nextIsElement = textNode.nextSibling?.nodeType === Node.ELEMENT_NODE;
+    const lead = prevIsElement && /^\s/.test(raw) ? ' ' : '';
+    const trail = nextIsElement && /\s$/.test(raw) ? ' ' : '';
+    return lead + value + trail;
+  };
+
   // Build font string
   const fontFamily = cleanFontFamily(parentStyle.fontFamily);
   const fontWeight = parentStyle.fontWeight;
@@ -433,7 +609,7 @@ function extractTextNodes(
       width: round(rect.width),
       height: round(rect.height),
       quad: rectToQuad(x, y, round(rect.width), round(rect.height)),
-      value: text.replace(/\s+/g, ' ').trim(),
+      value: keepBoundarySpaces(normalize(text), text),
       font,
     }];
   }
@@ -459,7 +635,7 @@ function extractTextNodes(
 
     // Detect new visual line (Y position jumped)
     if (charTop !== prevTop && prevTop !== -Infinity && i > lineStart) {
-      const lineText = text.slice(lineStart, i).replace(/\s+/g, ' ').trim();
+      const lineText = normalize(text.slice(lineStart, i));
       if (lineText) {
         const lineRange = document.createRange();
         lineRange.setStart(textNode, lineStart);
@@ -503,7 +679,7 @@ function extractTextNodes(
       width: round(rect.width),
       height: round(rect.height),
       quad: rectToQuad(x, y, round(rect.width), round(rect.height)),
-      value: text.replace(/\s+/g, ' ').trim(),
+      value: keepBoundarySpaces(normalize(text), text),
       font,
     }];
   }

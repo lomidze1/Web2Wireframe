@@ -1334,6 +1334,109 @@ export function fontWeightToStyle(weight: number): string {
   return fontWeightToStyleCandidates(weight)[0];
 }
 
+/**
+ * Style-name spellings that mean EXACTLY this weight — the same buckets as
+ * `fontWeightToStyleCandidates` but WITHOUT the neighbour-weight fallbacks.
+ *
+ * Detection and rendering want opposite things here. Rendering asks "what's
+ * the closest cut I can use?" and happily walks 300 → Light → Regular.
+ * Detection asks "does the family actually ship this cut?" — and must answer
+ * no for a Light the user doesn't have, even though Regular would render.
+ */
+export function fontWeightExactStyles(weight: number): string[] {
+  if (weight <= 150) return ["Thin", "Hairline"];
+  if (weight <= 250) return ["ExtraLight", "Extra Light", "UltraLight", "Ultra Light"];
+  if (weight <= 350) return ["Light"];
+  if (weight <= 450) return ["Regular", "Normal", "Book"];
+  if (weight <= 550) return ["Medium"];
+  if (weight <= 650) return ["Semibold", "SemiBold", "Semi Bold", "DemiBold", "Demi Bold"];
+  if (weight <= 750) return ["Bold"];
+  if (weight <= 850) return ["ExtraBold", "Extra Bold", "UltraBold", "Ultra Bold"];
+  return ["Black", "Heavy"];
+}
+
+/**
+ * Read a Figma style NAME back into the (weight, slant) it represents —
+ * the inverse of `fontWeightToStyleCandidates`.
+ *
+ * Needed because Figma's font API speaks only in style names: there is no
+ * numeric-weight lookup, so the only way to judge "how close is this cut to
+ * the weight I want" is to parse the installed names back into numbers.
+ *
+ * Compound tokens are matched before their suffixes ("Semibold" is 600, not
+ * a 700 "Bold"; "Ultralight" is 200, not a 300 "Light"). Unrecognised names
+ * are treated as Regular — foundry-specific default cuts ("Buch", "Roman")
+ * are exactly that.
+ */
+const STYLE_WEIGHT_TOKENS: Array<[RegExp, number]> = [
+  [/(?:extra|ultra)[\s-]?light/, 200],
+  [/(?:semi|demi)[\s-]?bold/, 600],
+  [/(?:extra|ultra)[\s-]?bold/, 800],
+  [/hairline|thin/, 100],
+  [/light/, 300],
+  [/medium/, 500],
+  [/black|heavy/, 900],
+  [/bold/, 700],
+  [/regular|normal|book|buch|roman|text/, 400],
+];
+
+export function parseStyleName(style: string): { weight: number; italic: boolean } {
+  const s = (style || "").toLowerCase();
+  const italic = /italic|oblique/.test(s);
+  for (const [pattern, weight] of STYLE_WEIGHT_TOKENS) {
+    if (pattern.test(s)) return { weight, italic };
+  }
+  return { weight: 400, italic };
+}
+
+/**
+ * Cost of substituting an upright cut for an italic one (or vice versa),
+ * expressed in font-weight units. At 350 it sits between three and four
+ * weight steps: a 400 run prefers Light (one step) over Regular Italic, but
+ * a 900 run still takes Black Italic over Ultralight — right mass, wrong
+ * slant beats right slant, wrong mass.
+ */
+const ITALIC_MISMATCH_COST = 350;
+
+/**
+ * Order a family's ACTUAL installed styles by how close each is to the cut we
+ * want. Returns every input style — this ranks, never filters.
+ *
+ * The previous ranking scored all "other" styles equally and let the sort's
+ * stability decide, which silently deferred to Figma's alphabetical order:
+ * on a family without a Regular, every 400 run rendered "Black Italic"
+ * because B sorts first.
+ */
+export function orderStylesByProximity(
+  installed: string[],
+  targetWeight: number,
+  targetItalic: boolean,
+): string[] {
+  const cost = (style: string): number => {
+    const { weight, italic } = parseStyleName(style);
+    return (
+      Math.abs(weight - targetWeight) +
+      (italic === targetItalic ? 0 : ITALIC_MISMATCH_COST)
+    );
+  };
+  return installed
+    .map((style, index) => ({ style, index, cost: cost(style) }))
+    .sort((a, b) => a.cost - b.cost || a.index - b.index)
+    .map((entry) => entry.style);
+}
+
+/** Italic-aware companion to `fontWeightExactStyles` — the exact cut only, no
+ *  upright fallback (an upright cut does NOT satisfy an italic run). */
+export function fontCutExactStyles(weight: number, italic: boolean): string[] {
+  const base = fontWeightExactStyles(weight);
+  if (!italic) return base;
+  const out = base.map((s) => `${s} Italic`);
+  // Many subsetted webfonts ship their single italic cut named just "Italic".
+  if (weight >= 350 && weight <= 450) out.unshift("Italic");
+  out.push("Oblique");
+  return Array.from(new Set(out));
+}
+
 /** True when a CSS `font-style` value means slanted text (italic or oblique). */
 export function isItalicStyle(fontStyle?: string | null): boolean {
   if (!fontStyle) return false;

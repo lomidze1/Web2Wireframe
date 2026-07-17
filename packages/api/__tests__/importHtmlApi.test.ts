@@ -17,7 +17,7 @@ vi.mock("../src/lib/htmlExtractor.js", async (importOriginal) => {
 // Bypass the license gate — these tests focus on import validation/flow,
 // not on quota enforcement (which is covered separately).
 vi.mock("../src/middleware/licenseGate.js", () => ({
-  requireImportAllowance: (
+  requireImportAllowance: () => (
     _req: unknown,
     _res: unknown,
     next: () => void,

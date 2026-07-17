@@ -682,6 +682,7 @@ export async function createNodeInFigma(
             // scrolled during capture, not their natural flow position.
             // Figma has no scroll, so sticky = natural flow position.
             childNode.y = child.position === "sticky" ? 0 : child.y;
+            applyStaticRotation(childNode, child, childNode.x, childNode.y);
           }
         }
       } catch (err) {
@@ -950,6 +951,86 @@ export async function createNodeInFigma(
 }
 
 // ============================================================================
+// Static rotation placement
+// ============================================================================
+
+/**
+ * Recover a rotated element's Figma placement from its captured AABB.
+ *
+ * getBoundingClientRect returns the axis-aligned bounding box of the rotated
+ * element, so (aabbW, aabbH) are the projected dimensions. Solving
+ *   W = w·|cos θ| + h·|sin θ|
+ *   H = w·|sin θ| + h·|cos θ|
+ * gives back the unrotated (w, h). The returned x/y position the node's
+ * origin so the rotated node's bounding box lands exactly on the captured
+ * AABB. figmaRotation is negated (CSS rotates clockwise, Figma's `rotation`
+ * property is counter-clockwise).
+ *
+ * Returns null near the degenerate 45° case (the system is unsolvable) and
+ * for non-positive results — callers keep the upright AABB rendering then.
+ */
+export function computeRotatedPlacement(
+  aabbX: number,
+  aabbY: number,
+  aabbW: number,
+  aabbH: number,
+  cssDeg: number,
+): { x: number; y: number; width: number; height: number; figmaRotation: number } | null {
+  const t = (cssDeg * Math.PI) / 180;
+  const cos = Math.cos(t);
+  const sin = Math.sin(t);
+  const c = Math.abs(cos);
+  const s = Math.abs(sin);
+  const det = c * c - s * s; // cos(2θ)
+  if (Math.abs(det) < 0.1) return null;
+
+  const width = (aabbW * c - aabbH * s) / det;
+  const height = (aabbH * c - aabbW * s) / det;
+  if (!isFinite(width) || !isFinite(height) || width < 1 || height < 1) return null;
+
+  // Corner offsets of the rotated box relative to its origin (y-down coords,
+  // clockwise rotation matrix [cos -sin; sin cos]).
+  const xs = [0, width * cos, -height * sin, width * cos - height * sin];
+  const ys = [0, width * sin, height * cos, width * sin + height * cos];
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+
+  return {
+    x: aabbX - minX,
+    y: aabbY - minY,
+    width,
+    height,
+    figmaRotation: -cssDeg,
+  };
+}
+
+/**
+ * Apply a WireframeNode's static CSS rotation to an already-positioned Figma
+ * node. No-ops when the node has no rotation or the geometry is degenerate.
+ * `baseX`/`baseY` are the coordinates where the AABB was placed.
+ */
+function applyStaticRotation(
+  childNode: SceneNode,
+  child: WireframeNode,
+  baseX: number,
+  baseY: number,
+): void {
+  if (typeof child.rotation !== 'number') return;
+  const placement = computeRotatedPlacement(baseX, baseY, child.width, child.height, child.rotation);
+  if (!placement) return;
+  try {
+    if ('resize' in childNode) {
+      (childNode as FrameNode).resize(Math.max(placement.width, 1), Math.max(placement.height, 1));
+    }
+    (childNode as FrameNode).rotation = placement.figmaRotation;
+    childNode.x = placement.x;
+    childNode.y = placement.y;
+  } catch {
+    // Rotation is best-effort — never break the render for it.
+  }
+}
+
+// ============================================================================
 // Auto Layout Child Helper
 // ============================================================================
 
@@ -972,6 +1053,7 @@ function applyChildInAutoLayout(
     }
     childNode.x = child.x;
     childNode.y = child.y;
+    applyStaticRotation(childNode, child, child.x, child.y);
     return;
   }
 
@@ -1486,6 +1568,7 @@ export async function createWireframeFrame(
             // Sticky elements: use y=0 (see nested comment for explanation)
             childNode.y = child.position === "sticky" ? 0 : child.y;
             wireframeFrame.appendChild(childNode);
+            applyStaticRotation(childNode, child, childNode.x, childNode.y);
           }
         }
       } catch (err) {
@@ -1729,15 +1812,25 @@ export function distributeExcess(
  * Sort grid children by their grid position for correct Figma auto-placement.
  * Figma's gridColumnAnchorIndex is read-only, so children must be appended in order.
  */
-function sortGridChildren(
+export function sortGridChildren(
   children: WireframeNode[],
   gridAutoFlow?: string
 ): WireframeNode[] {
   return [...children].sort((a, b) => {
+    const aHasRow = typeof a.gridRowStart === 'number';
+    const bHasRow = typeof b.gridRowStart === 'number';
     const aRow = typeof a.gridRowStart === 'number' ? a.gridRowStart : Infinity;
     const aCol = typeof a.gridColumnStart === 'number' ? a.gridColumnStart : Infinity;
     const bRow = typeof b.gridRowStart === 'number' ? b.gridRowStart : Infinity;
     const bCol = typeof b.gridColumnStart === 'number' ? b.gridColumnStart : Infinity;
+
+    // When both children have no explicit/inferred row, preserve
+    // DOM order instead of re-sorting by column. CSS grid auto-placement is
+    // DOM-order driven in this situation; column-only sorting was the source of
+    // left,left,left,right,right,right corruption on auto-placed grids.
+    if (!aHasRow && !bHasRow) {
+      return 0;
+    }
 
     if (gridAutoFlow?.includes("column")) {
       // Column flow: sort by column first, then row

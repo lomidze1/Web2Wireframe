@@ -36,6 +36,21 @@ export function resolveRelativeUrl(relativeUrl: string, baseUrl: string): string
 // ============================================================================
 
 /**
+ * Index of the last `src:` declaration inside an @font-face block, or 0 when
+ * there is none. Only counts a `src:` that starts a declaration (block start or
+ * after a `;`), so one sitting inside a url() can't be mistaken for one.
+ */
+function lastSrcDeclIndex(block: string): number {
+  let last = 0;
+  // `replace` is only a vehicle for the offsets here — the result is discarded.
+  block.replace(/(?:^|;)\s*src\s*:/gi, (match: string, offset: number) => {
+    last = offset;
+    return match;
+  });
+  return last;
+}
+
+/**
  * Parse all @font-face blocks from raw CSS text.
  * Returns one entry per @font-face block (preserves all weight/style variants).
  */
@@ -62,10 +77,20 @@ export function parseFontFaceRules(cssText: string, sourceURL: string): Extracte
     const weightMatch = block.match(/font-weight\s*:\s*([^;]+);?/i);
     const weight = weightMatch ? weightMatch[1].trim() : "400";
 
-    // Extract src — greedy match up to the last closing paren before a semicolon or end of block
-    // Need special handling because data URIs contain semicolons
-    const srcMatch = block.match(/src\s*:\s*((?:url\([^)]*\)[^;]*?)+);?/i)
-      || block.match(/src\s*:\s*([^;]+);?/i);
+    // Extract src. A @font-face may carry SEVERAL `src:` declarations — the
+    // "bulletproof" pattern names an IE-only `src: url(...eot)` first and the
+    // real formats second. CSS applies the LAST declaration, so scope the
+    // search to it: reading the first leaves such a face holding nothing but a
+    // dead EOT URL. apple.com declares SF Pro Text Regular (and only Regular)
+    // this way, which is why that one cut never reached the font download
+    // while every single-src cut did.
+    const srcScope = block.slice(lastSrcDeclIndex(block));
+
+    // Greedy match up to the last closing paren before a semicolon or end of
+    // block. Needs the url()-aware pattern first because data URIs contain
+    // semicolons; the loose pattern covers `src: local(...)`-style values.
+    const srcMatch = srcScope.match(/src\s*:\s*((?:url\([^)]*\)[^;]*?)+);?/i)
+      || srcScope.match(/src\s*:\s*([^;]+);?/i);
     const rawSrc = srcMatch ? srcMatch[1].trim() : "";
 
     // Resolve relative URLs in src

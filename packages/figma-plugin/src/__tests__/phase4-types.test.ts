@@ -8,8 +8,8 @@ import type {
 } from "../types/index";
 
 describe("Phase 4: Types & Config defaults", () => {
-  it("DEFAULT_CONFIG includes assetMode with 'placeholders' default", () => {
-    expect(DEFAULT_CONFIG.assetMode).toBe("placeholders");
+  it("DEFAULT_CONFIG includes assetMode with 'realAssets' default", () => {
+    expect(DEFAULT_CONFIG.assetMode).toBe("realAssets");
   });
 
   it("WireframeNode accepts imageUrl field", () => {

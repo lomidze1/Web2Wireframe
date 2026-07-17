@@ -146,7 +146,7 @@ describe("POST /api/import-w2w-file", () => {
     });
   });
 
-  it("does not log an event when the quota gate rejects the import", async () => {
+  it("logs the blocked attempt — and never a success row — when the quota gate rejects", async () => {
     mockUseImport.mockResolvedValue({ error: "limit_exceeded" });
 
     const res = await request(app).post("/api/import-w2w-file").send({
@@ -154,6 +154,16 @@ describe("POST /api/import-w2w-file", () => {
     });
 
     expect(res.status).toBe(403);
-    expect(mockLogImportEvent).not.toHaveBeenCalled();
+    // The gate records the paywall collision (highest-intent signal a Free
+    // user emits). The handler must still never run, so exactly one row —
+    // the QUOTA_EXCEEDED one — is written, never a success:true row.
+    expect(mockLogImportEvent).toHaveBeenCalledTimes(1);
+    expect(mockLogImportEvent.mock.calls[0][0]).toMatchObject({
+      figmaUserId: "test-user",
+      sourceUrl: "https://acme.test",
+      type: "extension",
+      success: false,
+      errorCode: "QUOTA_EXCEEDED",
+    });
   });
 });

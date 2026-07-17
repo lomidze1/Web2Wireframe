@@ -560,11 +560,18 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
       typeof payload.payment_id === "string"
         ? payload.payment_id
         : `${orderId}_${orderStatus}`;
+    // Record the real charge amount so admin-stats can sum actual dollars
+    // (yearly $144 vs monthly $16) instead of assuming every charge is
+    // monthly. Only persist a finite number — a non-numeric amount (possible
+    // on statuses that skip the approved-only amount check) is left absent,
+    // and stats falls back to the monthly price.
+    const amountCents = Number(payload.amount);
     try {
       await WebhookEvent.create({
         transactionId,
         orderId,
         orderStatus,
+        ...(Number.isFinite(amountCents) ? { amountCents } : {}),
       });
     } catch (err) {
       const code = (err as { code?: number }).code;

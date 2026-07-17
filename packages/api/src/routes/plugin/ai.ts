@@ -33,7 +33,7 @@ const router = Router();
  * - pluginFont: string - Plugin font (default: "Inter")
  * - textMode: string - Text handling mode: "website"|"lorem"|"semantic" (default: "website")
  */
-router.post("/import-screenshot", importRateLimiter, authenticatePlugin, requireImportAllowance, async (req: Request, res: Response) => {
+router.post("/import-screenshot", importRateLimiter, authenticatePlugin, requireImportAllowance("screenshot"), async (req: Request, res: Response) => {
   try {
     const {
       imageBase64,

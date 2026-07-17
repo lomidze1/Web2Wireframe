@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { licenseService } from "../services/licenseService.js";
+import { logImportEvent, type ImportType } from "../models/ImportEvent.js";
 
 declare global {
   namespace Express {
@@ -11,12 +12,29 @@ declare global {
 }
 
 /**
- * Express middleware: gate an import endpoint behind the license quota.
+ * Best-effort sourceUrl for a blocked attempt. `import-url` carries `url`,
+ * the extension file flow carries `sourceUrl`; screenshot/html have no URL at
+ * all, so fall back to the same `<type>-import` placeholder the route handlers
+ * already write (schema requires the field).
+ */
+function blockedSourceUrl(req: Request, type: ImportType): string {
+  const body = req.body as { url?: unknown; sourceUrl?: unknown } | undefined;
+  if (typeof body?.url === "string" && body.url) return body.url;
+  if (typeof body?.sourceUrl === "string" && body.sourceUrl) return body.sourceUrl;
+  return `${type}-import`;
+}
+
+/**
+ * Express middleware factory: gate an import endpoint behind the license quota.
  *
  * Identity comes from the verified plugin token (`req.userId`, set by
  * `authenticatePlugin`) — never from a client-supplied body/query field.
  * Atomically increments the user's monthly import counter and returns 403
  * with `error: "limit_exceeded"` when the Free quota is exhausted.
+ *
+ * `type` is passed in per route so a blocked attempt records which flow the
+ * user was trying. It cannot be sniffed from the path without coupling the
+ * gate to route strings.
  *
  * Trade-off: increments BEFORE the import is processed. A crash mid-import
  * "consumes" an import without delivering one — acceptable for MVP given
@@ -24,11 +42,12 @@ declare global {
  * later want stricter accounting, switch to a check/consume pair with
  * compensating decrement on failure.
  */
-export async function requireImportAllowance(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
+export function requireImportAllowance(type: ImportType) {
+  return async function importAllowanceGate(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
   const figmaUserId = req.userId;
 
   if (!figmaUserId) {
@@ -42,6 +61,22 @@ export async function requireImportAllowance(
   try {
     const result = await licenseService.useImport(figmaUserId);
     if ("error" in result) {
+      // The paywall collision is the highest-intent signal a Free user emits,
+      // and the 403 returns before any route handler runs — so this is the
+      // only place it can be recorded. Never let a telemetry failure turn a
+      // clean 403 into a 500.
+      try {
+        void logImportEvent({
+          figmaUserId,
+          sourceUrl: blockedSourceUrl(req, type),
+          type,
+          viewports: [],
+          success: false,
+          errorCode: "QUOTA_EXCEEDED",
+        });
+      } catch (logErr) {
+        console.warn("[licenseGate] quota-block log failed:", logErr);
+      }
       res.status(403).json({
         success: false,
         error: "limit_exceeded",
@@ -67,4 +102,5 @@ export async function requireImportAllowance(
     }
     next();
   }
+  };
 }

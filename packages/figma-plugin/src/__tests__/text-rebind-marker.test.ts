@@ -223,11 +223,12 @@ describe("createTextNode — w2w_original_font pluginData marker", () => {
     expect(textNode!.getPluginData("w2w_original_font")).toBe("");
   });
 
-  it("does NOT write the marker when originalFontNames is absent", async () => {
+  it("writes the CSS family as marker when originalFontNames is absent", async () => {
     unavailableFonts.add("PSA");
 
-    // User picked "Use fallback fonts" or "Use plugin fonts" — no
-    // originalFontNames passed through.
+    // User picked "Use fallback fonts" / "Use plugin fonts" — or no modal ran
+    // at all. The substitution still happened, so the CSS family itself is
+    // stamped: installing the font later + "Re-apply fonts" recovers it.
     const node = makeNode({ fontFamily: "PSA", textContent: "Hello" });
     const context = makeContext({
       fontMode: "website",
@@ -238,7 +239,7 @@ describe("createTextNode — w2w_original_font pluginData marker", () => {
     const textNode = await createTextNode(node, "Inter", context);
 
     expect(textNode).not.toBeNull();
-    expect(textNode!.getPluginData("w2w_original_font")).toBe("");
+    expect(textNode!.getPluginData("w2w_original_font")).toBe("PSA");
   });
 
   it("stores the value of originalFontNames[font] (real name remap, not the CSS key)", async () => {
@@ -247,6 +248,9 @@ describe("createTextNode — w2w_original_font pluginData marker", () => {
     // marker should hold the real name so a later
     // `loadFontAsync({family: marker})` matches what's installed.
     unavailableFonts.add("PSC");
+    // The real name must also be uninstalled — otherwise Step 0 (mapped-away
+    // original preference) applies it directly and no marker is needed.
+    unavailableFonts.add("PPCirka-Light");
 
     const node = makeNode({ fontFamily: "PSC", textContent: "Hello" });
     const context = makeContext({
@@ -266,10 +270,10 @@ describe("createTextNode — w2w_original_font pluginData marker", () => {
     expect(textNode!.getPluginData("w2w_original_font")).toBe("PPCirka-Light");
   });
 
-  it("does NOT write the marker for icon fonts", async () => {
-    // Icon fonts must keep their original glyph-bearing family even when
-    // missing — substitution would turn icons into rectangles. Rebinding
-    // is also a no-op for them; skip the marker entirely.
+  it("writes the marker for icon fonts too (download ZIP makes them installable)", async () => {
+    // Icon fonts used to be excluded from markers ("no installable form") —
+    // but the font ZIP ships icon TTFs (SF Pro Icons, FA), so a tofu glyph
+    // is recoverable: install the icon font, click Re-apply.
     unavailableFonts.add("Font Awesome 6 Brands");
 
     const node = makeNode({
@@ -285,6 +289,6 @@ describe("createTextNode — w2w_original_font pluginData marker", () => {
     const textNode = await createTextNode(node, "Inter", context);
 
     expect(textNode).not.toBeNull();
-    expect(textNode!.getPluginData("w2w_original_font")).toBe("");
+    expect(textNode!.getPluginData("w2w_original_font")).toBe("Font Awesome 6 Brands");
   });
 });

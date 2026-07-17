@@ -49,7 +49,8 @@ export const CSS_PROPERTIES: readonly string[] = [
   'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing',
   'textAlign', 'textDecoration', 'textDecorationLine', 'textOverflow',
   'whiteSpace', 'color', 'webkitTextFillColor', 'webkitTextStrokeColor',
-  'webkitTextStrokeWidth', 'listStyleType',
+  'webkitTextStrokeWidth', 'listStyleType', 'textTransform', 'wordSpacing',
+  'webkitLineClamp',
 
   // Visual
   'opacity', 'boxShadow', 'textShadow', 'filter', 'backdropFilter', 'clipPath',
@@ -149,6 +150,9 @@ export const DEFAULT_VALUES: Record<string, string | number> = {
   textDecorationLine: 'none',
   textOverflow: 'clip',
   whiteSpace: 'normal',
+  textTransform: 'none',
+  wordSpacing: '0px',
+  webkitLineClamp: 'none',
   objectFit: 'fill',
   objectPosition: '50% 50%',
   mixBlendMode: 'normal',
@@ -203,6 +207,7 @@ const PRECAPTURE_CSS = `
 *, *::before, *::after {
   animation-play-state: paused !important;
   transition-duration: 0s !important;
+  transition-delay: 0s !important;
   caret-color: transparent !important;
 }
 body::-webkit-scrollbar {

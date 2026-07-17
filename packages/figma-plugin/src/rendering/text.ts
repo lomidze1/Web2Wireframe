@@ -213,11 +213,45 @@ import {
   getSmartTextColor,
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
-import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, isItalicStyle } from "./styles";
+import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, isItalicStyle, orderStylesByProximity } from "./styles";
 import { isIconFont, stripFontStyleSuffix } from "../utils/fontUtils";
 
 /** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
 const ICON_FONT_EXTRA_STYLES = ["Solid", "Brands", "Regular", "Bold", "Light", "Thin"];
+
+// ============================================================================
+// Installed-font lookup (same-family style rescue)
+// ============================================================================
+
+// listAvailableFontsAsync result cached per figma global — one fetch per
+// plugin session (tests install a fresh mock, so they get a fresh cache).
+// Slightly stale after a mid-session font install is fine: Step 1's direct
+// loadFontAsync still picks up newly installed cuts; only the last-resort
+// same-family lookup reads this list.
+const installedFontsCache = new WeakMap<object, Promise<Map<string, string[]>>>();
+
+async function getInstalledStylesFor(family: string): Promise<string[]> {
+  try {
+    if (typeof figma.listAvailableFontsAsync !== "function") return [];
+    const key = figma as unknown as object;
+    let cached = installedFontsCache.get(key);
+    if (!cached) {
+      cached = figma.listAvailableFontsAsync().then((fonts) => {
+        const map = new Map<string, string[]>();
+        for (const f of fonts) {
+          const list = map.get(f.fontName.family);
+          if (list) list.push(f.fontName.style);
+          else map.set(f.fontName.family, [f.fontName.style]);
+        }
+        return map;
+      });
+      installedFontsCache.set(key, cached);
+    }
+    return (await cached).get(family) ?? [];
+  } catch {
+    return [];
+  }
+}
 
 // ============================================================================
 // Text Segment Collection
@@ -586,8 +620,59 @@ export async function createTextNode(
 
   let loaded = false;
 
+  // Step 0: "Use original fonts" flow — fontMapping routes this family to a
+  // substitute (Inter) so it can be rebound after the user installs the
+  // download. But when the ORIGINAL family — under its CSS name or its real
+  // SFNT name — is ALREADY installed with a cut for this weight, render it
+  // directly: no substitute round-trip, no marker, no Re-apply needed. This
+  // is what keeps a partially-installed site font on its installed cuts
+  // instead of pushing every node to Inter.
+  if (
+    context?.fontMode === "website" &&
+    context.originalFontNames &&
+    node.fontFamily &&
+    targetFont !== node.fontFamily
+  ) {
+    const realName = context.originalFontNames[node.fontFamily];
+    if (realName) {
+      const origStyles = isIconFont(node.fontFamily)
+        ? Array.from(new Set([...fontStyles, ...ICON_FONT_EXTRA_STYLES]))
+        : fontStyles;
+      const origFamilies = Array.from(new Set([realName, node.fontFamily]));
+      for (const fam of origFamilies) {
+        const oStyle = await tryLoadWithStyles(fam, origStyles);
+        if (oStyle) {
+          usedFontFamily = fam;
+          mainFontStyle = oStyle;
+          loaded = true;
+          break;
+        }
+      }
+      // The family is installed but ships no cut for this weight (apple.com:
+      // SF Pro Text without a Light cut for its 300 text). "Use original
+      // fonts" means exactly that — take the family's nearest installed cut
+      // rather than handing the whole node to Inter.
+      if (!loaded) {
+        for (const fam of origFamilies) {
+          const installed = await getInstalledStylesFor(fam);
+          if (installed.length === 0) continue;
+          const rStyle = await tryLoadWithStyles(
+            fam,
+            orderStylesByProximity(installed, node.fontWeight, isItalicStyle(node.fontStyle)),
+          );
+          if (rStyle) {
+            usedFontFamily = fam;
+            mainFontStyle = rStyle;
+            loaded = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
   // Step 1: Try target font with all style variants
-  const foundStyle = await tryLoadWithStyles(targetFont, allStylesToTry);
+  const foundStyle = loaded ? null : await tryLoadWithStyles(targetFont, allStylesToTry);
   if (foundStyle) {
     mainFontStyle = foundStyle;
     loaded = true;
@@ -628,6 +713,34 @@ export async function createTextNode(
     }
   }
 
+  // Step 3.5: Same-family installed-style rescue. The family IS installed,
+  // just not under any weight-candidate style name — e.g. SF Pro Display with
+  // only a Regular cut for a weight-600 headline, or Söhne shipping the single
+  // non-standard cut "Buch". CSS never falls to the next family for a missing
+  // weight (browsers synthesize within the first available family), so the
+  // closest installed cut of the CORRECT family beats fallback families and
+  // Inter. The proper cut arrives later via the download + re-apply flow.
+  if (!loaded) {
+    const stripped = stripFontStyleSuffix(targetFont);
+    const rescueFamilies = stripped ? [targetFont, stripped.family] : [targetFont];
+    for (const fam of rescueFamilies) {
+      const installedStyles = await getInstalledStylesFor(fam);
+      if (installedStyles.length === 0) continue;
+      const ordered = orderStylesByProximity(
+        installedStyles,
+        node.fontWeight,
+        isItalicStyle(node.fontStyle),
+      );
+      const rFoundStyle = await tryLoadWithStyles(fam, ordered);
+      if (rFoundStyle) {
+        usedFontFamily = fam;
+        mainFontStyle = rFoundStyle;
+        loaded = true;
+        break;
+      }
+    }
+  }
+
   // Step 4: Try CSS fallback chain (non-icon fonts only)
   if (!loaded && !isIcon) {
     for (const fallback of fallbackList) {
@@ -652,11 +765,15 @@ export async function createTextNode(
     }
   }
 
-  // Step 7: Final fallback — Inter
+  // Step 7: Final fallback — Inter, keeping the requested weight (a bold
+  // heading must not collapse to Inter Regular; Inter ships every cut).
   if (!loaded) {
     usedFontFamily = "Inter";
-    mainFontStyle = "Regular";
-    if (!(await tryLoad("Inter", "Regular"))) {
+    const interStyle = await tryLoadWithStyles("Inter", fontStyles);
+    if (interStyle) {
+      mainFontStyle = interStyle;
+    } else {
+      mainFontStyle = "Regular";
       await figma.loadFontAsync({ family: "Inter", style: "Regular" });
     }
   }
@@ -692,17 +809,22 @@ export async function createTextNode(
   // couldn't extract a real name the modal sends an identity entry, so we
   // get the CSS family back — current behavior preserved.
   //
-  // Icon fonts are never rebinded — their glyphs only render correctly
-  // with the source font and don't have a usable installable form.
+  // The marker is stamped on EVERY family substitution, modal or not: when
+  // the availability check passes but the family still fails at render time
+  // (or a fallback family/Inter was used without a popup), the CSS family
+  // itself is the marker — installing the font later + "Re-apply fonts"
+  // recovers it. `originalFontNames` (real SFNT names from the modal flow)
+  // still wins when present. Icon fonts are included: the download ZIP makes
+  // them installable, so a tofu glyph becomes recoverable via Re-apply.
+  // No marker when the rendered family already IS the marker target
+  // (Step 0 applied the real SFNT name directly).
   if (
     context?.fontMode === "website" &&
-    context.originalFontNames &&
     node.fontFamily &&
-    !isIconFont(node.fontFamily) &&
     usedFontFamily !== node.fontFamily
   ) {
-    const markerName = context.originalFontNames[node.fontFamily];
-    if (markerName) {
+    const markerName = context.originalFontNames?.[node.fontFamily] || node.fontFamily;
+    if (markerName && markerName !== usedFontFamily) {
       try {
         textNode.setPluginData("w2w_original_font", markerName);
       } catch {
@@ -910,12 +1032,38 @@ export async function createTextNode(
       if (segFontFamily !== usedFontFamily) {
         let segLoaded = false;
 
+        // Step 0: mapped-away original (see node-level Step 0) — when this
+        // run's ORIGINAL family (CSS or real SFNT name) is already installed,
+        // render it directly instead of the substitute.
+        if (context?.fontMode === "website" && context.originalFontNames) {
+          const segOrigCss = segment.fontFamily || node.fontFamily;
+          const segRealName = segOrigCss ? context.originalFontNames[segOrigCss] : undefined;
+          if (segOrigCss && segRealName && segFontFamily !== segOrigCss) {
+            for (const fam of Array.from(new Set([segRealName, segOrigCss]))) {
+              const famStyles = isIconFont(fam)
+                ? Array.from(new Set([...segCandidates, ...ICON_FONT_EXTRA_STYLES]))
+                : segCandidates;
+              for (const sty of famStyles) {
+                if (await tryLoad(fam, sty)) {
+                  resolvedSegFont = fam;
+                  resolvedSegStyle = sty;
+                  segLoaded = true;
+                  break;
+                }
+              }
+              if (segLoaded) break;
+            }
+          }
+        }
+
         // Step 1: Try segment font with all style variants
-        for (const sty of segStylesToTry) {
-          if (await tryLoad(segFontFamily, sty)) {
-            resolvedSegStyle = sty;
-            segLoaded = true;
-            break;
+        if (!segLoaded) {
+          for (const sty of segStylesToTry) {
+            if (await tryLoad(segFontFamily, sty)) {
+              resolvedSegStyle = sty;
+              segLoaded = true;
+              break;
+            }
           }
         }
 
@@ -1003,17 +1151,18 @@ export async function createTextNode(
         }
       }
 
-      // Record this run for Re-apply when its real font was substituted. The
-      // map `originalFontNames` only carries genuinely-missing families (Söhne,
-      // …) — so available runs (a Newsreader <em>, plain Inter) never qualify
-      // and are left untouched on rebind.
-      if (context?.fontMode === "website" && context.originalFontNames) {
+      // Record this run for Re-apply when its font was substituted. The
+      // marker carries the real (SFNT) name when the modal knows it, else
+      // the CSS family itself — same rule as the node-level marker. Icon
+      // runs are included: the download ZIP makes icon fonts installable,
+      // so a tofu glyph becomes recoverable via Re-apply.
+      if (context?.fontMode === "website") {
         const segOriginalCss = segment.fontFamily || node.fontFamily;
-        const segReal = segOriginalCss
-          ? context.originalFontNames[segOriginalCss]
+        const segMarker = segOriginalCss
+          ? context.originalFontNames?.[segOriginalCss] || segOriginalCss
           : undefined;
-        if (segReal && segReal !== resolvedSegFont && !isIconFont(segOriginalCss)) {
-          substitutedSegments.push({ start: startIdx, end: endIdx, family: segReal });
+        if (segMarker && resolvedSegFont !== segMarker && resolvedSegFont !== segOriginalCss) {
+          substitutedSegments.push({ start: startIdx, end: endIdx, family: segMarker });
         }
       }
 

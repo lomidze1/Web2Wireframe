@@ -50,6 +50,9 @@ export interface FigmaFill {
   elementHeight?: number;
   isImagePlaceholder?: boolean;
   imageUrl?: string; // URL for background-image (resolved from assets map)
+  // Figma scale mode derived from CSS background-size/background-repeat
+  // (contain → FIT, cover → FILL, tiling patterns → TILE). Default: FILL.
+  scaleMode?: "FILL" | "FIT" | "CROP" | "TILE";
   // CSS variable reference (e.g. "--primary-color") if this fill came from a var()
   cssVariable?: string;
 }
@@ -234,6 +237,14 @@ export interface WireframeNode {
   // Media
   isPlaceholder: boolean;
   imageUrl?: string; // URL pointing into frame.assets map for real image extraction
+  // CSS object-fit from the captured <img>/<video> — maps to the IMAGE fill's
+  // scaleMode (cover → FILL, contain/none/scale-down → FIT). Default fill → FILL.
+  objectFit?: string;
+
+  // Static CSS rotation in degrees (clockwise, from the computed transform
+  // matrix). width/height/x/y remain the captured AABB; nodes.ts recovers the
+  // unrotated box via computeRotatedPlacement when applying the rotation.
+  rotation?: number;
 
   // Nested children
   children: WireframeNode[];

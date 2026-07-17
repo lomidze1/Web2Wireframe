@@ -104,12 +104,41 @@ function isHiddenByClipPath(clipPath: string): boolean {
  * Check if an element is outside the viewport bounds.
  * Elements completely off-screen are skipped.
  */
-export function isOffscreen(rect: DOMRect, viewportWidth: number, _viewportHeight: number): boolean {
-  // Completely to the right of viewport
-  if (rect.left >= viewportWidth) return true;
+export function isOffscreen(
+  rect: DOMRect,
+  viewportWidth: number,
+  _viewportHeight: number,
+  el?: Element,
+): boolean {
+  // Completely to the right of viewport — EXCEPT content inside a horizontal
+  // scroll container (carousel/slider slides parked off to the right). Those
+  // are reachable by scrolling and must be captured, not dropped.
+  if (rect.left >= viewportWidth) {
+    return !isInsideHorizontalScroller(el);
+  }
   // Completely below viewport (but we capture full scroll height, so don't filter by Y)
   // Completely to the left (strict: zero-width elements at x=0 are NOT offscreen)
   if (rect.right < 0) return true;
 
+  return false;
+}
+
+/**
+ * Walk up to 4 ancestor levels looking for a horizontally scrollable
+ * container (overflow-x auto/scroll/hidden with real overflow). Covers the
+ * common carousel structure `scroller > track > slide` without paying an
+ * unbounded ancestor walk on every off-viewport element.
+ */
+function isInsideHorizontalScroller(el: Element | undefined): boolean {
+  let p: Element | null = el?.parentElement ?? null;
+  for (let i = 0; i < 4 && p; i++, p = p.parentElement) {
+    const ox = getComputedStyle(p).overflowX;
+    if (
+      (ox === 'auto' || ox === 'scroll' || ox === 'hidden') &&
+      p.scrollWidth > p.clientWidth + 1
+    ) {
+      return true;
+    }
+  }
   return false;
 }

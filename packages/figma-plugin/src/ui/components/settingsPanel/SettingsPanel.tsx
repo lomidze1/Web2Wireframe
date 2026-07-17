@@ -14,6 +14,7 @@ export interface SettingsPanelStyles {
   collapseArrow: string;
   expanded?: string;
   collapsibleContent: string;
+  settingsHint: string;
   dropdown: string;
   settingsFooter: string;
   configureBtn: string;
@@ -200,6 +201,13 @@ export default function SettingsPanel({
           ▼
         </span>
       </button>
+
+      {/* Sits outside the collapse on purpose: it exists to advertise the
+          options, so hiding it inside them would defeat the point. */}
+      <p class={styles.settingsHint}>
+        💡 Try different settings — colors, fonts and assets change the result a
+        lot.
+      </p>
 
       {/* Collapsible Content */}
       {isExpanded && (

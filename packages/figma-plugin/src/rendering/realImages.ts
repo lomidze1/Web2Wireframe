@@ -87,10 +87,28 @@ function svgDataUriToString(dataUri: string): string {
 }
 
 /**
+ * Map CSS object-fit to a Figma ImagePaint scaleMode.
+ * cover crops to fill (Figma FILL); contain letterboxes (Figma FIT);
+ * none/scale-down show the image un-cropped, approximated with FIT;
+ * fill (CSS default stretch) stays FILL — Figma cannot distort aspect
+ * without an image transform, and FILL matches when aspect ratios agree.
+ */
+export function objectFitToScaleMode(objectFit?: string): "FILL" | "FIT" {
+  switch (objectFit) {
+    case "contain":
+    case "none":
+    case "scale-down":
+      return "FIT";
+    default:
+      return "FILL";
+  }
+}
+
+/**
  * Create a real image frame from base64 data
  *
  * For raster images (PNG, JPEG, WebP):
- *   figma.createImage(bytes) → IMAGE fill with scaleMode: "FILL"
+ *   figma.createImage(bytes) → IMAGE fill with scaleMode from object-fit
  *
  * For SVG:
  *   figma.createNodeFromSvg(string) → native SVG node
@@ -180,7 +198,7 @@ export async function createRealImage(
       {
         type: "IMAGE",
         imageHash: image.hash,
-        scaleMode: "FILL",
+        scaleMode: objectFitToScaleMode(node.objectFit),
         visible: true,
         opacity: 1,
       } as ImagePaint,

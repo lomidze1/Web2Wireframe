@@ -378,7 +378,8 @@ describe("Screenshot", () => {
       expect(msg.data.sourceUrl).toBe("screenshot://uploaded");
       expect(msg.data.variableMode).toBe("direct");
       expect(msg.data.layoutMode).toBe("absolute");
-      expect(msg.data.colorMode).toBe("plugin");
+      expect(msg.data.colorMode).toBe("website");
+      // Coerced from the "website" default — Screenshot mode has no webfonts.
       expect(msg.data.fontMode).toBe("plugin");
       expect(msg.data.frames).toBeDefined();
     });
@@ -517,8 +518,8 @@ describe("Screenshot", () => {
 
       const call = postMessageSpy.mock.calls[0];
       const msg = (call[0] as { pluginMessage: { type: string; data: Record<string, unknown> } }).pluginMessage;
-      // colorMode should come from settings, which defaults to "plugin"
-      expect(msg.data.colorMode).toBe("plugin");
+      // colorMode should come from settings, which defaults to "website"
+      expect(msg.data.colorMode).toBe("website");
     });
   });
 

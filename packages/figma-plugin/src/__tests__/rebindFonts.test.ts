@@ -451,3 +451,146 @@ describe("collectTextNodesIn", () => {
     expect(collected).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mixed nodes WITHOUT per-run markers — Inter-range fallback
+// ---------------------------------------------------------------------------
+
+/** Mixed text node whose runs are enumerable via getStyledTextSegments. */
+function makeMixedText(
+  id: string,
+  ranges: Array<{ start: number; end: number; family: string; style: string }>,
+  pluginData: Record<string, string> = {},
+): MockTextNode {
+  const node = makeText(id, "Inter", "Regular", pluginData);
+  node.fontName = MIXED;
+  const _ranges = ranges.map((r) => ({
+    start: r.start,
+    end: r.end,
+    fontName: { family: r.family, style: r.style } as MockFontName,
+  }));
+  node.getStyledTextSegments = (_fields: string[]) =>
+    _ranges.map((r) => ({ ...r }));
+  node.getRangeFontName = (start, end) => {
+    const hit = _ranges.find((r) => r.start === start && r.end === end);
+    return hit ? hit.fontName : MIXED;
+  };
+  node.setRangeFontName = (start, end, font) => {
+    const hit = _ranges.find((r) => r.start === start && r.end === end);
+    if (hit) hit.fontName = font;
+  };
+  return node;
+}
+
+describe("rebindOriginalFonts — mixed node fallback (no segment markers)", () => {
+  it("rebinds every Inter run to the marker family, preserving per-run style", async () => {
+    installedFontList = [
+      { family: "SF Pro Text", style: "Regular" },
+      { family: "SF Pro Text", style: "Semibold" },
+      { family: "Inter", style: "Regular" },
+      { family: "Inter", style: "Semi Bold" },
+    ];
+    const node = makeMixedText(
+      "m1",
+      [
+        { start: 0, end: 10, family: "Inter", style: "Regular" },
+        { start: 10, end: 20, family: "Inter", style: "Semi Bold" },
+      ],
+      { [ORIGINAL_FONT_PLUGIN_KEY]: "SF Pro Text" },
+    );
+
+    const result = await rebindOriginalFonts([node as unknown as TextNode]);
+
+    expect(result.rebound).toBe(1);
+    expect(result.skippedMixed).toBe(0);
+    const ranges = node.getStyledTextSegments!(["fontName"]);
+    expect((ranges[0].fontName as { family: string }).family).toBe("SF Pro Text");
+    expect((ranges[1].fontName as { family: string }).family).toBe("SF Pro Text");
+    // "Semi Bold" (Inter spelling) must land on the "Semibold" cut, not Regular
+    expect((ranges[1].fontName as { style: string }).style).toBe("Semibold");
+    expect(node.getPluginData(ORIGINAL_FONT_PLUGIN_KEY)).toBe("");
+  });
+
+  it("leaves non-Inter runs untouched (they already show their correct font)", async () => {
+    installedFontList = [
+      { family: "Söhne", style: "Buch" },
+      { family: "Inter", style: "Regular" },
+      { family: "Newsreader", style: "Italic" },
+    ];
+    const node = makeMixedText(
+      "m2",
+      [
+        { start: 0, end: 10, family: "Inter", style: "Regular" },
+        { start: 10, end: 20, family: "Newsreader", style: "Italic" },
+      ],
+      { [ORIGINAL_FONT_PLUGIN_KEY]: "Söhne" },
+    );
+
+    const result = await rebindOriginalFonts([node as unknown as TextNode]);
+
+    expect(result.rebound).toBe(1);
+    const ranges = node.getStyledTextSegments!(["fontName"]);
+    expect((ranges[0].fontName as { family: string }).family).toBe("Söhne");
+    expect((ranges[1].fontName as { family: string }).family).toBe("Newsreader");
+    expect((ranges[1].fontName as { style: string }).style).toBe("Italic");
+  });
+
+  it("still skips as mixed when the runs API is unavailable", async () => {
+    const node = makeText("m3", "Inter", "Regular", {
+      [ORIGINAL_FONT_PLUGIN_KEY]: "PSA",
+    });
+    node.fontName = MIXED; // mixed, but no getStyledTextSegments
+
+    const result = await rebindOriginalFonts([node as unknown as TextNode]);
+
+    expect(result.rebound).toBe(0);
+    expect(result.skippedMixed).toBe(1);
+  });
+});
+
+describe("rebindOriginalFonts — weight-spelling preservation", () => {
+  it("maps the substitute's style spelling to the family's actual cut (Semi Bold → Semibold)", async () => {
+    installedFontList = [
+      { family: "SF Pro Display", style: "Regular" },
+      { family: "SF Pro Display", style: "Semibold" },
+    ];
+    const t = makeText("w1", "Inter", "Semi Bold", {
+      [ORIGINAL_FONT_PLUGIN_KEY]: "SF Pro Display",
+    });
+
+    const result = await rebindOriginalFonts([t as unknown as TextNode]);
+
+    expect(result.rebound).toBe(1);
+    expect((t.fontName as { style: string }).style).toBe("Semibold");
+  });
+});
+
+describe("rebindOriginalFonts — segment-marker-only nodes", () => {
+  it("processes a node that has segment markers but no node-level marker", async () => {
+    installedFontList = [
+      { family: "SF Pro Icons", style: "Light" },
+      { family: "Inter", style: "Light" },
+      { family: "SF Pro Text", style: "Regular" },
+    ];
+    const node = makeMixedText(
+      "s1",
+      [
+        { start: 0, end: 1, family: "Inter", style: "Light" },
+        { start: 1, end: 15, family: "SF Pro Text", style: "Regular" },
+      ],
+      {
+        [SEGMENT_FONT_PLUGIN_KEY]: JSON.stringify([
+          { start: 0, end: 1, family: "SF Pro Icons" },
+        ]),
+      },
+    );
+
+    const result = await rebindOriginalFonts([node as unknown as TextNode]);
+
+    expect(result.rebound).toBe(1);
+    const ranges = node.getStyledTextSegments!(["fontName"]);
+    expect((ranges[0].fontName as { family: string }).family).toBe("SF Pro Icons");
+    expect((ranges[1].fontName as { family: string }).family).toBe("SF Pro Text");
+    expect(node.getPluginData(SEGMENT_FONT_PLUGIN_KEY)).toBe("");
+  });
+});

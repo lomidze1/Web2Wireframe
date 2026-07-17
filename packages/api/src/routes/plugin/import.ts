@@ -36,7 +36,7 @@ const router = Router();
  * - pluginColors: object - Custom plugin color overrides
  * - pluginFont: string - Custom plugin font (e.g., "Montserrat", "Arial")
  */
-router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportAllowance, async (req: Request, res: Response) => {
+router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportAllowance("url"), async (req: Request, res: Response) => {
   try {
     const {
       sourceUrl,
@@ -233,7 +233,7 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
  * - pluginColors: object
  * - pluginFont: string
  */
-router.post("/import-html", importRateLimiter, authenticatePlugin, requireImportAllowance, async (req: Request, res: Response) => {
+router.post("/import-html", importRateLimiter, authenticatePlugin, requireImportAllowance("html"), async (req: Request, res: Response) => {
   try {
     const {
       htmlCode,
@@ -379,7 +379,7 @@ router.post(
   "/import-w2w-file",
   importRateLimiter,
   authenticatePlugin,
-  requireImportAllowance,
+  requireImportAllowance("extension"),
   (req: Request, res: Response) => {
     // Attribute the extension capture for activation debugging. The .w2w file
     // never reaches the server, so the plugin forwards just the metadata

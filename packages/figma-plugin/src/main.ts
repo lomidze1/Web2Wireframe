@@ -41,9 +41,12 @@ import { convertW2WToWireframe } from "./rendering/css-converter";
 import { extractHostname } from "./rendering/hostname";
 import {
   collectAllFonts,
+  collectFontUsage,
   checkFontsAvailability,
   buildFontsNotAvailableMessage,
   buildPluginModeFontMapping,
+  partitionMissingFonts,
+  buildChoiceRenderPlan,
 } from "./utils/fontUtils";
 import {
   prePassConvertFrames,
@@ -53,6 +56,7 @@ import {
   rebindOriginalFonts,
   collectTextNodesIn,
   ORIGINAL_FONT_PLUGIN_KEY,
+  SEGMENT_FONT_PLUGIN_KEY,
 } from "./rendering/rebindFonts";
 
 // ============================================================================
@@ -68,6 +72,9 @@ export default function () {
     data: RenderWireframeData;
     executeRender: (font: string, fontMapping?: FontMapping, originalFontNames?: FontMapping) => Promise<void>;
     missingFonts: string[];
+    /** Missing CSS families already installed under their real (SFNT) name —
+     *  resolved silently via marker + rebind, never shown in the modal. */
+    autoOriginal: FontMapping;
   } | null = null;
 
   // Count text nodes on the current page still awaiting original-font re-apply
@@ -76,10 +83,34 @@ export default function () {
   // "Re-apply fonts" footer button only when there's actually work to do.
   const postRebindableCount = () => {
     try {
-      const count = figma.currentPage
-        .findAll((n) => n.type === "TEXT")
-        .filter((n) => !!n.getPluginData(ORIGINAL_FONT_PLUGIN_KEY)).length;
-      figma.ui.postMessage({ type: "rebindable-count", data: { count } });
+      const textNodes = figma.currentPage.findAll((n) => n.type === "TEXT");
+      const families = new Set<string>();
+      let count = 0;
+      for (const n of textNodes) {
+        const fam = n.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
+        const segJson = n.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
+        if (!fam && !segJson) continue;
+        count++;
+        if (fam) families.add(fam);
+        if (segJson) {
+          try {
+            const parsed: unknown = JSON.parse(segJson);
+            if (Array.isArray(parsed)) {
+              for (const s of parsed) {
+                if (s && typeof (s as { family?: unknown }).family === "string") {
+                  families.add((s as { family: string }).family);
+                }
+              }
+            }
+          } catch {
+            /* corrupt segment marker — family list stays best-effort */
+          }
+        }
+      }
+      figma.ui.postMessage({
+        type: "rebindable-count",
+        data: { count, families: Array.from(families).sort() },
+      });
     } catch {
       // Page scan can fail on unusual/huge docs — non-fatal, just skip.
     }
@@ -87,6 +118,23 @@ export default function () {
 
   // Switching Figma pages changes which nodes are in scope; refresh the count.
   figma.on("currentpagechange", () => postRebindableCount());
+
+  // Editing the canvas changes it too — deleting the imported frames must hide
+  // the "Re-apply fonts" button, not leave it pointing at nothing. documentchange
+  // fires per edit (and in bursts while dragging), so coalesce to one rescan.
+  let rescanTimer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    figma.on("documentchange", () => {
+      if (rescanTimer) clearTimeout(rescanTimer);
+      rescanTimer = setTimeout(() => {
+        rescanTimer = null;
+        postRebindableCount();
+      }, 400);
+    });
+  } catch {
+    // documentchange needs the `documentAccess: dynamic-page` manifest flag and
+    // isn't available in every host/test env — the other refresh points remain.
+  }
 
   // Listen for messages from UI
   figma.ui.onmessage = async (msg) => {
@@ -102,22 +150,27 @@ export default function () {
     // Handle font fallback choice from popup
     if (msg.type === "font-fallback-choice") {
       if (pendingRenderData) {
-        const { executeRender } = pendingRenderData;
+        const { executeRender, autoOriginal } = pendingRenderData;
         const fontMapping: FontMapping = msg.data.fontMapping || {};
         const choice: string = msg.data.choice || "";
         pendingRenderData = null;
 
-        if (choice === "continue") {
-          // "Use original fonts": render with Inter, but preserve original names for Text Styles
-          const renderMapping: FontMapping = {};
-          for (const original of Object.keys(fontMapping)) {
-            renderMapping[original] = "Inter";
+        // The modal only saw the still-missing fonts; auto-resolvable ones
+        // (installed under their real SFNT name) always take the Inter +
+        // marker route, whatever the user picked for the rest.
+        const plan = buildChoiceRenderPlan(choice, fontMapping, autoOriginal);
+        await executeRender(plan.primaryFont, plan.renderMapping, plan.originalFontNames);
+
+        if (Object.keys(autoOriginal).length > 0) {
+          try {
+            const textNodes = figma.currentPage.findAll(
+              (n) => n.type === "TEXT",
+            ) as TextNode[];
+            await rebindOriginalFonts(textNodes);
+          } catch {
+            /* rebind best-effort — markers remain for a manual Re-apply */
           }
-          await executeRender("Inter", renderMapping, fontMapping);
-        } else {
-          // "fallback" or "plugin": use the provided mapping directly
-          const primaryFont = Object.values(fontMapping)[0] || "Inter";
-          await executeRender(primaryFont, fontMapping);
+          postRebindableCount();
         }
       }
       return;
@@ -862,13 +915,21 @@ export default function () {
       }
       }; // end executeRender
 
-      // Pre-render font availability check
+      // Pre-render font check, per CUT (family + weight + italic):
+      //   `missing`     — families with nothing installed; they lose their
+      //                   identity to Inter, so the modal must offer a choice.
+      //   `missingCuts` — installed families whose specific cuts the page uses
+      //                   are absent. They still render under their own name
+      //                   (same-family rescue), but the download should ship
+      //                   exactly those files.
       const allFonts = collectAllFonts(frames);
 
       if (effectiveFontMode === "website") {
-        const { missing } = await checkFontsAvailability(allFonts);
+        const fontUsage = collectFontUsage(frames);
+        const { missing, missingCuts } = await checkFontsAvailability(allFonts, fontUsage);
+        const partialFamilies = Object.keys(missingCuts);
 
-        if (missing.length > 0) {
+        if (missing.length > 0 || partialFamilies.length > 0) {
           // Auto-resolve: a "missing" CSS family may already be installed under
           // its real (SFNT) name — Söhne installs as "Copyright Klim Type
           // Foundry". If EVERY missing font resolves to an installed real
@@ -886,18 +947,17 @@ export default function () {
             /* no font list available — fall through to the modal */
           }
 
-          const autoOriginal: FontMapping = {};
-          const stillMissing: string[] = [];
-          for (const css of missing) {
-            const real = realNames[css];
-            if (real && real !== css && installedFamilies.has(real)) {
-              autoOriginal[css] = real;
-            } else {
-              stillMissing.push(css);
-            }
-          }
+          const { autoOriginal, stillMissing } = partitionMissingFonts(
+            missing,
+            realNames,
+            installedFamilies,
+          );
 
-          if (stillMissing.length === 0 && Object.keys(autoOriginal).length > 0) {
+          if (
+            stillMissing.length === 0 &&
+            partialFamilies.length === 0 &&
+            Object.keys(autoOriginal).length > 0
+          ) {
             // Render with Inter + original-name markers (the modal "continue"
             // path), then immediately rebind to the installed real fonts.
             const renderMapping: FontMapping = {};
@@ -923,13 +983,19 @@ export default function () {
           // Deduplicate
           const uniqueOptions = Array.from(new Set(pluginFontOptions));
 
+          // The modal covers fonts the user can act on: families with nothing
+          // installed, plus installed families whose needed cuts are absent.
+          // Auto-resolvable ones stay out of it (handled by
+          // buildChoiceRenderPlan once the user chooses).
+          const modalFonts = [...stillMissing, ...partialFamilies];
           const message = buildFontsNotAvailableMessage(
-            missing,
+            modalFonts,
             pluginFont || "Montserrat",
-            uniqueOptions
+            uniqueOptions,
+            missingCuts
           );
 
-          pendingRenderData = { data, executeRender, missingFonts: missing };
+          pendingRenderData = { data, executeRender, missingFonts: modalFonts, autoOriginal };
           figma.ui.postMessage(message);
           return; // Wait for user choice via font-fallback-choice message
         }

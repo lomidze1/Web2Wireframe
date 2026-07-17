@@ -259,6 +259,19 @@
   transform: rotate(180deg);
 }
 
+/* Settings Hint — accent-tinted so it draws the eye toward More Options */
+.settingsHint {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) 10px;
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.25);
+  border-radius: var(--radius-input);
+  color: var(--accent);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 /* Collapsible Content */
 .collapsibleContent {
   margin-top: 10px;

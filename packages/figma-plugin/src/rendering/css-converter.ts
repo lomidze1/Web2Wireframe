@@ -19,6 +19,7 @@ import type {
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
 import { isItalicStyle } from './styles';
+import { isIconFont, CSS_FONT_KEYWORDS } from '../utils/fontUtils';
 
 // Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
 interface W2WFrameNode {
@@ -286,6 +287,13 @@ function convertFrame(
 
   // Font info from parent styles (used for text children)
   const fontFamily = cleanFontFamily(str(s.fontFamily) || 'Arial');
+  // Full CSS fallback chain — text.ts walks it (Step 4) when the primary
+  // family isn't installed, instead of dropping straight to Inter.
+  const fontFamilyStack = parseFontFamilyStack(str(s.fontFamily));
+  // May be overridden in the coalesce block below when every text run carries
+  // the same measured font that differs from the element's CSS font-family
+  // (icon-font pseudo glyphs flattened into their host element).
+  let effectiveFontFamily = fontFamily;
   const fontSize = parseFloat(str(s.fontSize)) || 16;
   const fontWeight = parseFontWeight(str(s.fontWeight));
   const fontStyle = str(s.fontStyle) || undefined;
@@ -327,34 +335,8 @@ function convertFrame(
   let bubbledMargin: MarginSides | null = null;
 
   for (const child of effectiveChildren) {
-    // Skip invisible elements: visibility:hidden or opacity:0.
-    // These take layout space in CSS but should not render in Figma wireframes.
-    // Pattern: Apple.com flyout menus (visibility:hidden), globalnav-curtain (opacity:0).
-    // h2d also prunes these entirely.
-    if (child.type === 'FRAME') {
-      const vis = str(child.styles.visibility);
-      const childOpacity = child.styles.opacity;
-      const isInvisible = vis === 'hidden' || vis === 'collapse';
-      const isFullyTransparent = childOpacity === 0 || childOpacity === '0';
-      if (isInvisible || isFullyTransparent) {
-        if (options.interactionMode === 'variants') {
-          // Preserve hidden elements for component variant rendering (dropdown panels, curtains).
-          // Mark them so nodes.ts can render with visible=false in Figma.
-          (child as W2WFrameNode)._isHiddenInDefault = true;
-        } else {
-          continue; // Filter out in "none" mode (default behavior)
-        }
-      }
-
-      // Skip tiny trigger buttons (e.g. Apple nav dropdown triggers: 1px-height buttons).
-      // These are interactive dropdown triggers with no visual representation in wireframes.
-      if (child.height < 2 && child.width > 0) {
-        const tag = child.tag;
-        const role = child.attr?.role;
-        if (tag === 'button' || role === 'button' || role === 'menuitem') {
-          continue;
-        }
-      }
+    if (child.type === 'FRAME' && shouldSkipInvisibleFrame(child, options)) {
+      continue;
     }
 
     if (child.type === 'TEXT') {
@@ -377,6 +359,13 @@ function convertFrame(
       // a position:fixed nav. Without flattening, the 0x0 Figma frame clips the nav.
       if (child.width < 1 && child.height < 1 && child.children?.length > 0) {
         for (const grandchild of child.children) {
+          // Promoted grandchildren must pass the same invisibility gate as
+          // direct children — apple.com's #globalheader (0×0 wrapper) promotes
+          // #globalnav-curtain (visibility:hidden, opacity:0 fixed overlay)
+          // which otherwise renders as a page-covering blurred sheet.
+          if (grandchild.type === 'FRAME' && shouldSkipInvisibleFrame(grandchild, options)) {
+            continue;
+          }
           if (grandchild.type === 'TEXT') {
             pushTextValue({
               value: grandchild.value,
@@ -479,7 +468,14 @@ function convertFrame(
       } else if (
         TEXT_COALESCE_TAGS.has(node.tag) &&
         INLINE_TEXT_TAGS.has(child.tag) &&
-        isTextOnlyFrame(child)
+        isTextOnlyFrame(child) &&
+        // Out-of-flow wrappers must keep their own frame: collapsing an
+        // absolute/fixed span into the parent's text drops its positioning
+        // and turns it into a flow item that displaces siblings (apple.com
+        // locale-select: absolute ✓-glyph span pushed "United States" out
+        // of the box).
+        str(child.styles.position) !== 'absolute' &&
+        str(child.styles.position) !== 'fixed'
       ) {
         // Text-only inline wrapper (span, a, strong, em, …). Three outcomes
         // decided by classifyWrapper:
@@ -511,7 +507,10 @@ function convertFrame(
   let type: 'frame' | 'text' | 'placeholder' = 'frame';
   const isMedia = node.tag === 'img' || node.tag === 'video' || node.tag === 'canvas';
 
-  if (isMedia && node.$url) {
+  // A <video> is a placeholder even WITHOUT $url: extraction only captures
+  // the poster attribute, and most real-world videos (apple.com hero) ship
+  // none — an empty frame would leave the media area blank.
+  if (isMedia && (node.$url || node.tag === 'video')) {
     type = 'placeholder';
   }
 
@@ -523,6 +522,8 @@ function convertFrame(
   // - Element has NO non-text children (frames/SVGs)
   let styledSegments: TextSegment[] | undefined;
   let browserLineCount: number | undefined;
+  // Inline baseline overhang correction (set in the coalesce block below).
+  let inkGeometry: { y: number; height: number } | null = null;
 
   const hasTextChildren = textChildValues.length > 0;
   const hasNonTextChildren = children.length > 0;
@@ -541,7 +542,8 @@ function convertFrame(
     const allSameValue = textChildValues.length > 1 &&
       textChildValues.every(t => t.value === textChildValues[0].value);
     const segmentSource = allSameValue ? [textChildValues[0]] : textChildValues;
-    textContent = segmentSource.map(t => t.value).join(' ');
+    const textTransform = str(s.textTransform);
+    textContent = applyTextTransform(segmentSource.map(t => t.value).join(' '), textTransform);
     browserLineCount = textChildValues.length;
 
     // Check parent element's own text-decoration (e.g., standalone <a> with underline)
@@ -559,6 +561,12 @@ function convertFrame(
         const { family } = parseFontString(t.font);
         // Strip weight suffix from platform font name (e.g., "Space Grotesk Light" → "Space Grotesk")
         const cleanPlatformFamily = t.platformFamily ? parseFontString(t.platformFamily).family : undefined;
+        // A PUA-only run inside mixed text is an icon glyph whose measured
+        // font is the DOMINANT text font (the extension collapses platform
+        // fonts per host element) — recover the icon family from the CSS stack.
+        const segIconFamily = isPuaOnlyText(t.value)
+          ? fontFamilyStack.find(isIconFont)
+          : undefined;
         // Infer italic for this run. The W2W TEXT node is minimal (no
         // font-style), so for an inline <em> we read it from the actually-
         // rendered font's PostScript name (e.g. "Newsreader-Italic"); fall back
@@ -568,11 +576,11 @@ function convertFrame(
           isItalicStyle(t.platformFamily) ||
           isItalicStyle(fontStyle);
         return {
-          text: t.value,
+          text: applyTextTransform(t.value, textTransform),
           color: t.color || textColor,
           fontWeight: t.fontWeight || fontWeight, // Child override (e.g., <strong>) or parent's CSS fontWeight
           fontSize,
-          fontFamily: cleanPlatformFamily || family || fontFamily,
+          fontFamily: segIconFamily || cleanPlatformFamily || family || fontFamily,
           fontStyle: segItalic ? 'italic' : undefined,
           textDecoration: t.textDecoration || ownTextDecoration,
           isLink: t.tag === 'a' || node.tag === 'a',
@@ -582,6 +590,49 @@ function convertFrame(
     }
 
     type = 'text';
+
+    // Text runs carry the font they were MEASURED with. When all runs agree
+    // on a family that differs from the host's CSS font-family, trust the
+    // runs — an icon-font pseudo (::after with "SF Pro Icons") flattens into
+    // a host whose own font is the page text font; taking the host's font
+    // renders the glyph as tofu and hides the icon font from the
+    // missing-font/ZIP flow (collectAllFonts walks node.fontFamily).
+    const runFamilies = new Set(
+      segmentSource.map(t => parseFontString(t.font).family).filter(Boolean),
+    );
+    if (runFamilies.size === 1) {
+      const runFamily = Array.from(runFamilies)[0];
+      if (runFamily && runFamily !== fontFamily) {
+        effectiveFontFamily = runFamily;
+      }
+    }
+
+    // PUA icon glyphs: neither the runs nor the host family can be trusted —
+    // the extension's platform-font pass labels a minority icon glyph with
+    // the element's dominant TEXT font (highest glyphCount wins), so the run
+    // font arrives as e.g. "SF Pro Text" for a "SF Pro Icons" glyph. When the
+    // coalesced content is purely PUA codepoints and the CSS stack names an
+    // icon family, that family wins over both.
+    if (isPuaOnlyText(textContent)) {
+      const iconFamily = fontFamilyStack.find(isIconFont);
+      if (iconFamily) {
+        effectiveFontFamily = iconFamily;
+      }
+    }
+
+    // Inline baseline overhang: an element's line box can be SHORTER than its
+    // measured text ink (e.g. apple.com's locale select — a 20px-tall inline
+    // box whose 36px baseline-aligned text starts 20px above it). The ink
+    // rects are ground truth for where the browser painted the text, so for
+    // pure text wrappers snap the frame to the ink box. Elements with a
+    // background or border keep their element box (that IS their visual).
+    if (fills.length === 0 && strokes.length === 0) {
+      const inkTop = Math.min(...segmentSource.map(t => t.y));
+      const inkBottom = Math.max(...segmentSource.map(t => t.y + t.height));
+      if (isFinite(inkTop) && isFinite(inkBottom) && inkTop < node.y - 2) {
+        inkGeometry = { y: inkTop, height: Math.max(inkBottom - inkTop, node.height) };
+      }
+    }
   } else if (hasTextChildren) {
     // Mixed children (TEXT + FRAME/SVG) or container tag — keep TEXT as individual
     // children. Fix D: rebuild in DOM order using orderEntries so inline flow
@@ -615,7 +666,7 @@ function convertFrame(
     children.length = 0;
     for (const c of ordered) children.push(c);
     // Set frame's textContent for fallback rendering (li text, etc.)
-    textContent = mergedValues.map(t => t.value).join(' ');
+    textContent = applyTextTransform(mergedValues.map(t => t.value).join(' '), str(s.textTransform));
   }
 
   // Margin — own margin plus any margin bubbled up from a sole text-only
@@ -694,6 +745,35 @@ function convertFrame(
   // are captured at viewport height (e.g. 900px) while their real content lives
   // in a taller descendant. Expand them to content height and stop them from
   // clipping so the whole page renders instead of being cut to the viewport.
+  // Inline overhang, frame-children variant. A `display: inline` element's box
+  // is only its line box — inline-block / absolute children routinely paint
+  // ABOVE it (apple.com's locale dropdown title: a 20px box at y=37 whose
+  // check glyph and country name both paint from y=17). Auto-layout pins flow
+  // children to the frame's top while absolute children keep their negative
+  // offset, so the two drift apart — the stray ✓ above the field. Snap the
+  // wrapper to its children's union box and shift the children with it, so
+  // every child keeps the relationship the browser painted. Wrappers with a
+  // background/border keep their element box (that IS their visual).
+  if (
+    !inkGeometry &&
+    children.length > 0 &&
+    str(s.display) === 'inline' &&
+    fills.length === 0 &&
+    strokes.length === 0
+  ) {
+    const childTop = Math.min(...children.map((c) => c.y));
+    const childBottom = Math.max(...children.map((c) => c.y + c.height));
+    if (isFinite(childTop) && isFinite(childBottom) && childTop < -2) {
+      inkGeometry = {
+        y: node.y + childTop,
+        height: Math.max(childBottom - childTop, node.height),
+      };
+      // Children were positioned against the original box; rebase them onto
+      // the snapped one so their painted offsets are preserved.
+      for (const c of children) c.y -= childTop;
+    }
+  }
+
   const isScrollRoot =
     !parent || node.tag === 'html' || node.tag === 'body' || node.isScrollingElt === true;
   const effectiveHeight = isScrollRoot ? Math.max(node.height, maxDescendantBottom(node)) : node.height;
@@ -708,9 +788,9 @@ function convertFrame(
     tag: node.tag,
     className: node.classList.join(' ') || undefined,
     x: parent ? node.x - parent.x : node.x,
-    y: parent ? node.y - parent.y : node.y,
+    y: (inkGeometry?.y ?? node.y) - (parent ? parent.y : 0),
     width: node.width,
-    height: effectiveHeight,
+    height: inkGeometry ? inkGeometry.height : effectiveHeight,
 
     position: str(s.position) as WireframeNode['position'] || undefined,
     zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
@@ -794,7 +874,12 @@ function convertFrame(
       ? (parseGridLine(s.gridColumnStart) ?? inferGridColumnStart(node, parent))
       : undefined,
     gridColumnEnd: !isAbsoluteMode ? parseGridLine(s.gridColumnEnd) : undefined,
-    gridRowStart: !isAbsoluteMode ? parseGridLine(s.gridRowStart) : undefined,
+    // Recover a missing grid row from geometry the same way we
+    // already recover missing grid columns, so partial placement data does not
+    // cascade into wrong spacer insertion later in the Figma grid renderer.
+    gridRowStart: !isAbsoluteMode
+      ? (parseGridLine(s.gridRowStart) ?? inferGridRowStart(node, parent))
+      : undefined,
     gridRowEnd: !isAbsoluteMode ? parseGridLine(s.gridRowEnd) : undefined,
 
     // Visual
@@ -849,7 +934,8 @@ function convertFrame(
     })(),
     fontSize,
     fontWeight,
-    fontFamily,
+    fontFamily: effectiveFontFamily,
+    fontFamilyList: type === 'text' && fontFamilyStack.length > 1 ? fontFamilyStack : undefined,
     fontStyle,
     textAlign,
     lineHeight: lineHeight === 'normal' ? 'normal' : parseFloat(lineHeight) || 'normal',
@@ -912,6 +998,10 @@ function convertFrame(
     // Media
     isPlaceholder: type === 'placeholder',
     imageUrl: node.$url,
+    objectFit: type === 'placeholder' ? str(s.objectFit) || undefined : undefined,
+
+    // Static rotation (degrees, clockwise) recovered from the transform matrix
+    rotation: parseCssRotation(str(s.transform)),
     // Propagate inlined SVG markup for <img src="*.svg"> so nodes.ts can
     // render it as a native Figma Vector via figma.createNodeFromSvg().
     computedStyles: node.$svgMarkup && type === 'placeholder'
@@ -946,9 +1036,16 @@ function convertTextNodeFromValue(
     || str(parentStyles.color)
     || 'rgb(0, 0, 0)';
 
+  const value = applyTextTransform(tv.value, str(parentStyles.textTransform));
+
+  const parentStack = parseFontFamilyStack(str(parentStyles.fontFamily));
+  // PUA icon glyph rescue — same rule as the coalesced path: the platform
+  // font pass mislabels icon glyphs with the dominant text font.
+  const iconFamily = isPuaOnlyText(tv.value) ? parentStack.find(isIconFont) : undefined;
+
   return {
     id,
-    name: getTextNodeName(tv.value, parentNode),
+    name: getTextNodeName(value, parentNode),
     type: 'text' as const,
     tag: '#text',
     x: parentNode ? tv.x - parentNode.x : tv.x,
@@ -968,10 +1065,11 @@ function convertTextNodeFromValue(
     borderRadius: 0,
     opacity: 1,
 
-    textContent: tv.value,
+    textContent: value,
     fontSize: parseFloat(str(parentStyles.fontSize)) || 16,
     fontWeight: tv.fontWeight || parseFontWeight(str(parentStyles.fontWeight)) || weight,
-    fontFamily: (tv.platformFamily ? parseFontString(tv.platformFamily).family : undefined) || family,
+    fontFamily: iconFamily || (tv.platformFamily ? parseFontString(tv.platformFamily).family : undefined) || family,
+    fontFamilyList: parentStack.length > 1 ? parentStack : undefined,
     textAlign: str(parentStyles.textAlign) || 'left',
     lineHeight: str(parentStyles.lineHeight) || 'normal',
     letterSpacing: parseFloat(str(parentStyles.letterSpacing)) || 0,
@@ -1436,7 +1534,12 @@ function parseFills(
   const bgImage = str(s.backgroundImage);
   if (bgImage && bgImage !== 'none') {
     const layers = splitMultipleBackgrounds(bgImage);
-    for (const layer of layers) {
+    // background-size / background-repeat are comma-separated per layer,
+    // in the same order as background-image layers.
+    const sizes = str(s.backgroundSize).split(',').map(v => v.trim());
+    const repeats = str(s.backgroundRepeat).split(',').map(v => v.trim());
+    for (let li = 0; li < layers.length; li++) {
+      const layer = layers[li];
       const gradientFill = parseGradientToFill(layer, width, height);
       if (gradientFill) {
         fills.push(gradientFill);
@@ -1448,6 +1551,12 @@ function parseFills(
           opacity: 1,
           isImagePlaceholder: true,
           imageUrl: urlMatch?.[1] || undefined,
+          scaleMode: backgroundScaleMode(
+            sizes[li] || sizes[0] || '',
+            repeats[li] || repeats[0] || '',
+            width,
+            height,
+          ),
         });
       }
     }
@@ -1468,6 +1577,42 @@ function parseFills(
   }
 
   return fills;
+}
+
+/**
+ * Derive the Figma scaleMode for a background image layer from CSS
+ * background-size + background-repeat.
+ *
+ * The extractor filters default values, so an ABSENT background-repeat means
+ * the CSS default `repeat`. Tiling is only assumed when the author gave the
+ * layer an explicit pixel size smaller than the element (a pattern) or an
+ * explicit repeat keyword — a bare `url(...)` keeps the FILL default because
+ * most such images cover the whole box.
+ */
+function backgroundScaleMode(
+  size: string,
+  repeat: string,
+  width: number,
+  height: number,
+): 'FILL' | 'FIT' | 'TILE' {
+  const rep = repeat.toLowerCase();
+  const isNoRepeat = rep.includes('no-repeat');
+  const isExplicitRepeat = /(^|\s|-)?(repeat-x|repeat-y|space|round)/.test(rep) ||
+    rep === 'repeat' || rep === 'repeat repeat';
+
+  if (size === 'contain') return isExplicitRepeat ? 'TILE' : 'FIT';
+  if (size === 'cover') return 'FILL';
+
+  // Explicit px pattern smaller than the element + repeat (default or explicit) → TILE
+  const pxMatch = size.match(/^([\d.]+)px(?:\s+([\d.]+)px)?$/);
+  if (pxMatch && !isNoRepeat) {
+    const w = parseFloat(pxMatch[1]);
+    const h = pxMatch[2] ? parseFloat(pxMatch[2]) : w;
+    if (w < width * 0.9 || h < height * 0.9) return 'TILE';
+  }
+
+  if (isExplicitRepeat) return 'TILE';
+  return 'FILL';
 }
 
 // ---------------------------------------------------------------------------
@@ -1876,19 +2021,48 @@ function parseGradientToFill(
   width: number,
   height: number,
 ): FigmaFill | null {
+  // repeating-* variants have no Figma equivalent — approximate with a single
+  // cycle of the same gradient (stop positions are normalized/clamped below).
   // Linear gradient
-  const linearMatch = bgImage.match(/linear-gradient\((.+)\)/);
+  const linearMatch = bgImage.match(/(?:repeating-)?linear-gradient\((.+)\)/);
   if (linearMatch) {
     return parseLinearGradient(linearMatch[1], width, height);
   }
 
+  // Conic gradient → GRADIENT_CONIC (rendered as Figma GRADIENT_ANGULAR)
+  const conicMatch = bgImage.match(/(?:repeating-)?conic-gradient\((.+)\)/);
+  if (conicMatch) {
+    return parseConicGradient(conicMatch[1], width, height);
+  }
+
   // Radial gradient
-  const radialMatch = bgImage.match(/radial-gradient\((.+)\)/);
+  const radialMatch = bgImage.match(/(?:repeating-)?radial-gradient\((.+)\)/);
   if (radialMatch) {
     return parseRadialGradient(radialMatch[1], width, height);
   }
 
   return null;
+}
+
+/**
+ * Parse a CSS gradient angle token to degrees. Supports negative/decimal
+ * values and deg/turn/rad/grad units. Returns null when the content does not
+ * start with an angle.
+ */
+function parseGradientAngle(content: string): number | null {
+  const m = content.match(/^(-?[\d.]+)(deg|turn|rad|grad)\b/);
+  if (!m) return null;
+  const v = parseFloat(m[1]);
+  if (!isFinite(v)) return null;
+  let deg: number;
+  switch (m[2]) {
+    case 'turn': deg = v * 360; break;
+    case 'rad': deg = v * (180 / Math.PI); break;
+    case 'grad': deg = v * 0.9; break;
+    default: deg = v;
+  }
+  // Normalize to [0, 360)
+  return ((deg % 360) + 360) % 360;
 }
 
 function parseLinearGradient(
@@ -1898,16 +2072,33 @@ function parseLinearGradient(
 ): FigmaFill | null {
   // Parse angle
   let angle = 180; // default: top to bottom
-  const angleMatch = content.match(/^(\d+)deg/);
-  if (angleMatch) {
-    angle = parseInt(angleMatch[1]);
+  const parsedAngle = parseGradientAngle(content);
+  if (parsedAngle !== null) {
+    angle = parsedAngle;
   } else if (content.startsWith('to ')) {
-    const dirMatch = content.match(/^to\s+(top|bottom|left|right)/);
+    const dirMatch = content.match(/^to\s+(top|bottom|left|right)(?:\s+(top|bottom|left|right))?/);
     if (dirMatch) {
+      const words = [dirMatch[1], dirMatch[2]].filter(Boolean).sort().join(' ');
       const dirAngles: Record<string, number> = {
         top: 0, right: 90, bottom: 180, left: 270,
       };
-      angle = dirAngles[dirMatch[1]] || 180;
+      if (!dirMatch[2]) {
+        angle = dirAngles[dirMatch[1]] ?? 180;
+      } else {
+        // Diagonal corner keyword — the exact angle depends on the box's
+        // aspect ratio: `to top right` points along atan(width/height) from
+        // north. Fall back to 45° multiples when dimensions are unknown.
+        const w = width && width > 0 ? width : 1;
+        const h = height && height > 0 ? height : 1;
+        const corner = (Math.atan2(w, h) * 180) / Math.PI;
+        const cornerAngles: Record<string, number> = {
+          'right top': corner,
+          'bottom right': 180 - corner,
+          'bottom left': 180 + corner,
+          'left top': 360 - corner,
+        };
+        angle = cornerAngles[words] ?? 180;
+      }
     }
   }
 
@@ -1919,6 +2110,45 @@ function parseLinearGradient(
     visible: true,
     opacity: 1,
     angle,
+    stops,
+    elementWidth: width,
+    elementHeight: height,
+  };
+}
+
+/**
+ * Parse `conic-gradient([from <angle>] [at <pos>], stops)` into a
+ * GRADIENT_CONIC fill. fills.ts renders it as Figma GRADIENT_ANGULAR.
+ */
+function parseConicGradient(
+  content: string,
+  width?: number,
+  height?: number,
+): FigmaFill | null {
+  let angle = 0;
+  const fromMatch = content.match(/^from\s+(-?[\d.]+(?:deg|turn|rad|grad))/);
+  if (fromMatch) {
+    angle = parseGradientAngle(fromMatch[1]) ?? 0;
+  }
+
+  let center = { x: 0.5, y: 0.5 };
+  const atMatch = content.match(/at\s+([\d.]+%?)\s+([\d.]+%?)/i);
+  if (atMatch) {
+    center = {
+      x: parsePercentOrUnit(atMatch[1]),
+      y: parsePercentOrUnit(atMatch[2]),
+    };
+  }
+
+  const stops = parseColorStops(content);
+  if (stops.length < 2) return null;
+
+  return {
+    type: 'GRADIENT_CONIC',
+    visible: true,
+    opacity: 1,
+    angle,
+    center,
     stops,
     elementWidth: width,
     elementHeight: height,
@@ -1980,13 +2210,17 @@ function parseColorStops(content: string): FigmaGradientStop[] {
 
   // Remove direction part (angle, "to xxx", "circle at xxx", etc.)
   let stopsStr = content;
-  // Remove angle
-  stopsStr = stopsStr.replace(/^\d+deg\s*,\s*/, '');
+  // Remove angle (negative/decimal, any CSS angle unit)
+  stopsStr = stopsStr.replace(/^-?[\d.]+(?:deg|turn|rad|grad)\s*,\s*/, '');
+  // Remove conic "from <angle> [at <pos>]" prefix
+  stopsStr = stopsStr.replace(/^from\s+[^,]+,\s*/i, '');
   // Remove "to direction"
   stopsStr = stopsStr.replace(/^to\s+\w+(\s+\w+)?\s*,\s*/, '');
   // Remove radial shape/position
   stopsStr = stopsStr.replace(/^(circle|ellipse)\s*(at\s+[^,]+)?\s*,\s*/i, '');
   stopsStr = stopsStr.replace(/^(closest|farthest)-(side|corner)\s*(at\s+[^,]+)?\s*,\s*/i, '');
+  // Remove standalone conic/radial "at <pos>" prefix
+  stopsStr = stopsStr.replace(/^at\s+[^,]+,\s*/i, '');
 
   // Split by comma outside parentheses
   const parts = splitShadows(stopsStr);
@@ -1996,18 +2230,24 @@ function parseColorStops(content: string): FigmaGradientStop[] {
   // — Figma interpolates RGB linearly between stops, and going from a color to
   // black-at-alpha-0 leaves a dark/muddy halo. Matching the adjacent color's
   // RGB (with alpha 0) gives a clean fade. Same technique as h2d.
-  type RawStop = { color: FigmaColor; explicit: number | null; isTransparent: boolean };
+  type RawStop = { color: FigmaColor; explicit: number | null; isTransparent: boolean; pxPos?: number };
   const raw: RawStop[] = [];
   for (const rawPart of parts) {
     const part = rawPart.trim();
     if (!part) continue;
 
-    const posMatch = part.match(/([\d.]+%?)\s*$/);
+    const posMatch = part.match(/(-?[\d.]+)(%|px|deg|turn)?\s*$/);
     let explicit: number | null = null;
+    let pxPos: number | undefined;
     let colorStr = part;
     if (posMatch) {
-      const posStr = posMatch[1];
-      explicit = posStr.endsWith('%') ? parseFloat(posStr) / 100 : parseFloat(posStr);
+      const num = parseFloat(posMatch[1]);
+      const unit = posMatch[2];
+      if (unit === '%') explicit = num / 100;
+      else if (unit === 'px') pxPos = num; // normalized after the loop
+      else if (unit === 'deg') explicit = num / 360;   // conic stops
+      else if (unit === 'turn') explicit = num;         // conic stops
+      else explicit = num;
       colorStr = part.slice(0, part.length - posMatch[0].length).trim();
     }
     // "transparent" keyword is a valid gradient stop (= rgba(0,0,0,0)).
@@ -2022,7 +2262,16 @@ function parseColorStops(content: string): FigmaGradientStop[] {
     const color = isTransparent
       ? { r: 0, g: 0, b: 0, a: 0 }
       : parseCSSColor(colorStr);
-    if (color) raw.push({ color, explicit, isTransparent });
+    if (color) raw.push({ color, explicit, isTransparent, pxPos });
+  }
+
+  // Normalize px stop positions to one gradient cycle (0..1 across the
+  // largest px value). Used by repeating-* gradients whose stops are in px.
+  const maxPx = raw.reduce((m, s) => (s.pxPos !== undefined ? Math.max(m, s.pxPos) : m), 0);
+  if (maxPx > 0) {
+    for (const s of raw) {
+      if (s.pxPos !== undefined) s.explicit = s.pxPos / maxPx;
+    }
   }
 
   // Second pass: for each transparent stop, inherit RGB from the nearest
@@ -2036,11 +2285,12 @@ function parseColorStops(content: string): FigmaGradientStop[] {
   }
 
   // Third pass: fill auto-positions across valid stops only.
+  // Clamp to [0, 1] — Figma rejects positions outside that range.
   const denom = Math.max(raw.length - 1, 1);
   for (let i = 0; i < raw.length; i++) {
     const { color, explicit } = raw[i];
     const position = explicit !== null ? explicit : i / denom;
-    stops.push({ color, position });
+    stops.push({ color, position: Math.min(1, Math.max(0, position)) });
   }
 
   return stops;
@@ -2104,9 +2354,153 @@ function inferGridColumnStart(
   return undefined;
 }
 
+// When a capture loses `grid-row-start`, recover it from the
+// child's measured y-offset inside a fixed-pixel grid. This keeps the fix
+// general for auto-placed CSS grids instead of hardcoding a site-specific case.
+function inferGridRowStart(
+  node: W2WFrameNode,
+  parent: W2WFrameNode | null,
+): number | undefined {
+  if (!parent) return undefined;
+  const pd = str(parent.styles.display);
+  if (pd !== 'grid' && pd !== 'inline-grid') return undefined;
+  const tokens = str(parent.styles.gridTemplateRows).split(/\s+/).filter(Boolean);
+  // Mirror the column inference guard — only fixed px tracks
+  // produce stable row boundaries that can be matched back to geometry.
+  if (tokens.length < 2 || !tokens.every((t) => /^[\d.]+px$/.test(t))) {
+    return undefined;
+  }
+  const tracks = tokens.map((t) => parseFloat(t));
+  const gap =
+    parseFloat(str(parent.styles.rowGap) || str(parent.styles.gridRowGap)) || 0;
+  const padT = parseFloat(str(parent.styles.paddingTop)) || 0;
+  const offset = node.y - parent.y - padT;
+  let cursor = 0;
+  for (let i = 0; i < tracks.length; i++) {
+    if (Math.abs(offset - cursor) < 3) return i + 1;
+    cursor += tracks[i] + gap;
+  }
+  return undefined;
+}
+
 function cleanFontFamily(fontFamily: string): string {
   const first = fontFamily.split(',')[0].trim();
   return first.replace(/^["']|["']$/g, '');
+}
+
+/**
+ * Parse a raw CSS `font-family` value into the ordered fallback chain.
+ * Keeps generic families (sans-serif, …) — they terminate the chain the same
+ * way they do in CSS — but drops var()/keyword junk that can never load.
+ */
+function parseFontFamilyStack(fontFamily: string): string[] {
+  if (!fontFamily) return [];
+  return fontFamily
+    .split(',')
+    .map((f) => f.trim().replace(/^["']|["']$/g, ''))
+    .filter((f) => f.length > 0 && !f.startsWith('var(') && !CSS_FONT_KEYWORDS.has(f.toLowerCase()));
+}
+
+/**
+ * True when the text is nothing but Private Use Area codepoints (plus
+ * whitespace) — the signature of an icon-font glyph ( globe,  chevron).
+ */
+function isPuaOnlyText(text: string): boolean {
+  const chars = text.replace(/\s+/g, '');
+  if (!chars) return false;
+  for (const ch of chars) {
+    const cp = ch.codePointAt(0);
+    if (cp === undefined || cp < 0xe000 || cp > 0xf8ff) return false;
+  }
+  return true;
+}
+
+/**
+ * Decide whether a FRAME child should be skipped as invisible, applying the
+ * same policy to direct children and to grandchildren promoted by zero-size
+ * wrapper flattening.
+ *
+ * visibility:hidden / opacity:0 elements take layout space in CSS but must
+ * not render in wireframes (apple.com flyout menus, globalnav-curtain).
+ * In `variants` interaction mode they are KEPT but marked _isHiddenInDefault
+ * so nodes.ts renders them with visible=false for hover-variant use.
+ * Tiny (<2px) trigger buttons are always skipped.
+ */
+function shouldSkipInvisibleFrame(child: W2WFrameNode, options: ConvertOptions): boolean {
+  const vis = str(child.styles.visibility);
+  const childOpacity = child.styles.opacity;
+  const isInvisible = vis === 'hidden' || vis === 'collapse';
+  const isFullyTransparent = childOpacity === 0 || childOpacity === '0';
+  if (isInvisible || isFullyTransparent) {
+    if (options.interactionMode === 'variants') {
+      child._isHiddenInDefault = true;
+    } else if (child.tag === 'video' && child.width >= 100 && child.height >= 100) {
+      // A large video that fades itself out (apple.com hero animates the
+      // video's opacity between the start-frame and the animation) still
+      // marks WHERE media lives — keep it so the converter renders a media
+      // placeholder instead of a blank hero. Tiny hidden videos remain
+      // preload/utility artifacts and are dropped as before.
+    } else {
+      return true;
+    }
+  }
+
+  // Tiny trigger buttons (e.g. Apple nav dropdown triggers: 1px-height buttons)
+  // are interactive artifacts with no visual representation in wireframes.
+  if (child.height < 2 && child.width > 0) {
+    const tag = child.tag;
+    const role = child.attr?.role;
+    if (tag === 'button' || role === 'button' || role === 'menuitem') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Extract a static rotation angle (degrees, clockwise) from a computed CSS
+ * transform matrix. Returns undefined for identity/translate-only transforms,
+ * tiny angles (mid-transition noise, < 0.5°), skewed matrices and 3D
+ * transforms — none of which have a faithful Figma rotation equivalent.
+ */
+function parseCssRotation(transform: string): number | undefined {
+  if (!transform || transform === 'none') return undefined;
+  const m = transform.match(/^matrix\(\s*(-?[\d.e]+)\s*,\s*(-?[\d.e]+)\s*,\s*(-?[\d.e]+)\s*,\s*(-?[\d.e]+)\s*,/);
+  if (!m) return undefined; // matrix3d / unparsed → skip
+  const a = parseFloat(m[1]);
+  const b = parseFloat(m[2]);
+  const c = parseFloat(m[3]);
+  const d = parseFloat(m[4]);
+  if (![a, b, c, d].every(Number.isFinite)) return undefined;
+  // Skew check: for rotation(+uniform/non-uniform scale) the column vectors
+  // stay orthogonal → a·c + b·d ≈ 0 relative to their magnitudes.
+  const dot = a * c + b * d;
+  const mag = Math.hypot(a, b) * Math.hypot(c, d);
+  if (mag === 0 || Math.abs(dot) / mag > 0.01) return undefined;
+  const deg = (Math.atan2(b, a) * 180) / Math.PI;
+  if (Math.abs(deg) < 0.5) return undefined;
+  return deg;
+}
+
+/**
+ * Apply CSS `text-transform` to a captured text value. The content script
+ * stores the raw source-case textContent while the browser renders the
+ * transformed case, so the converter re-applies it here. `capitalize`
+ * uppercases the first letter of each word without lowercasing the rest
+ * (matching CSS semantics).
+ */
+function applyTextTransform(value: string, textTransform: string | undefined): string {
+  switch (textTransform) {
+    case 'uppercase':
+      return value.toUpperCase();
+    case 'lowercase':
+      return value.toLowerCase();
+    case 'capitalize':
+      return value.replace(/(^|\s)(\S)/g, (_m, sep: string, ch: string) => sep + ch.toUpperCase());
+    default:
+      return value;
+  }
 }
 
 function parseFontString(font: string | undefined | null): { family: string; weight: number } {

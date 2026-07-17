@@ -12,6 +12,7 @@ import AreaSelection from "./pages/import/areaSelection";
 import Settings from "./components/modalPopup/Settings";
 import Help from "./components/modalPopup/Help";
 import ExtensionModal from "./components/modalPopup/ExtensionModal";
+import RebindFontsModal from "./components/modalPopup/RebindFontsModal";
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
@@ -155,6 +156,10 @@ function AppContent() {
   // count: it pushes `rebindable-count` on request, after each import, after a
   // rebind, and on Figma page change.
   const [rebindableCount, setRebindableCount] = useState(0);
+  // Families still awaiting re-apply (marker values) — shown in the
+  // RebindFontsModal so the user knows exactly what to install.
+  const [rebindableFamilies, setRebindableFamilies] = useState<string[]>([]);
+  const [isRebindOpen, setIsRebindOpen] = useState(false);
   const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
     number | null
   >(null);
@@ -175,6 +180,10 @@ function AppContent() {
       if (!msg || msg.type !== "rebindable-count") return;
       const count = msg.data?.count;
       if (typeof count === "number") setRebindableCount(count);
+      const families = msg.data?.families;
+      if (Array.isArray(families)) {
+        setRebindableFamilies(families.filter((f): f is string => typeof f === "string"));
+      }
     };
     window.addEventListener("message", handler);
     parent.postMessage(
@@ -314,13 +323,9 @@ function AppContent() {
         }}
         showRebindFonts={rebindableCount > 0}
         onRebindFontsClick={() => {
-          // Sandbox handles `rebind-original-fonts`: walks selection (or page
-          // if empty), re-applies any text node that carries the
-          // `w2w_original_font` marker, and reports a toast via figma.notify.
-          parent.postMessage(
-            { pluginMessage: { type: "rebind-original-fonts" } },
-            "*",
-          );
+          // Opens the info modal (install → select → re-apply); the modal's
+          // own button fires the actual `rebind-original-fonts` action.
+          setIsRebindOpen(true);
         }}
       />
     </div>
@@ -337,6 +342,22 @@ function AppContent() {
     <ExtensionModal
       isOpen={isExtensionOpen}
       onClose={() => setIsExtensionOpen(false)}
+    />
+    <RebindFontsModal
+      isOpen={isRebindOpen}
+      onClose={() => setIsRebindOpen(false)}
+      count={rebindableCount}
+      missingFonts={rebindableFamilies}
+      onReapply={() => {
+        // Sandbox handles `rebind-original-fonts`: walks selection (or page
+        // if empty), re-applies any text node that carries the
+        // `w2w_original_font` / segment markers, and reports a toast.
+        parent.postMessage(
+          { pluginMessage: { type: "rebind-original-fonts" } },
+          "*",
+        );
+        setIsRebindOpen(false);
+      }}
     />
     <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
     <QuotaExceededModal
