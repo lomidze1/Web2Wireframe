@@ -36,6 +36,7 @@ interface W2WFrameNode {
   isScrollingElt?: boolean;
   hover?: W2WFrameNode;
   _isHiddenInDefault?: boolean; // Set by conditional visibility filtering (interactionMode=variants)
+  _posterDonor?: boolean; // Sibling picture/img whose $url was transplanted onto a posterless <video>
 }
 
 interface W2WTextNode {
@@ -320,6 +321,11 @@ function convertFrame(
   // Elements with display:contents generate no box — their children become
   // direct children of this parent (same as CSS behavior).
   const effectiveChildren = getEffectiveChildren(node);
+
+  // Posterless <video> next to a <picture>/<img> start-frame (apple.com hero):
+  // transplant the poster $url onto the video so the media area renders real
+  // pixels, and drop the donor to avoid rendering the same image twice.
+  adoptPosterFromSiblings(effectiveChildren);
 
   // Full-bleed horizontal scrollers (paco.me's [basics-scroller]) carry pure
   // `::before`/`::after` spacer pseudos that only make sense while the strip
@@ -2426,7 +2432,55 @@ function isPuaOnlyText(text: string): boolean {
  * so nodes.ts renders them with visible=false for hover-variant use.
  * Tiny (<2px) trigger buttons are always skipped.
  */
+/**
+ * Find the first descendant <img> carrying a $url within a poster candidate
+ * (<img> itself, or <picture>/<source> wrappers). Depth-capped — posters sit
+ * at most a wrapper or two below the sibling.
+ */
+function findPosterImg(node: W2WFrameNode, depth: number): W2WFrameNode | null {
+  if (node.tag === 'img' && node.$url) return node;
+  if (depth >= 3) return null;
+  for (const child of node.children) {
+    if (child.type !== 'FRAME') continue;
+    const hit = findPosterImg(child, depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Fraction of `video`'s area covered by `rect` (0..1). */
+function coverageOfVideo(rect: W2WFrameNode, video: W2WFrameNode): number {
+  const ix = Math.max(0, Math.min(rect.x + rect.width, video.x + video.width) - Math.max(rect.x, video.x));
+  const iy = Math.max(0, Math.min(rect.y + rect.height, video.y + video.height) - Math.max(rect.y, video.y));
+  const videoArea = video.width * video.height;
+  return videoArea > 0 ? (ix * iy) / videoArea : 0;
+}
+
+/**
+ * Poster transplant: a hero-sized <video> with no $url (no poster attribute —
+ * apple.com's back-to-school hero) takes the $url of an overlapping
+ * <picture>/<img> sibling (the start-frame Apple fades out during playback,
+ * which extraction still captures). The donor is marked so the child loop
+ * drops it — the same pixels must not render twice.
+ */
+function adoptPosterFromSiblings(children: W2WNode[]): void {
+  for (const video of children) {
+    if (video.type !== 'FRAME' || video.tag !== 'video' || video.$url) continue;
+    if (video.width < 100 || video.height < 100) continue;
+    for (const sibling of children) {
+      if (sibling === video || sibling.type !== 'FRAME' || sibling._posterDonor) continue;
+      if (sibling.tag !== 'picture' && sibling.tag !== 'img') continue;
+      const poster = findPosterImg(sibling, 0);
+      if (!poster || coverageOfVideo(poster, video) < 0.5) continue;
+      video.$url = poster.$url;
+      sibling._posterDonor = true;
+      break;
+    }
+  }
+}
+
 function shouldSkipInvisibleFrame(child: W2WFrameNode, options: ConvertOptions): boolean {
+  if (child._posterDonor) return true;
   const vis = str(child.styles.visibility);
   const childOpacity = child.styles.opacity;
   const isInvisible = vis === 'hidden' || vis === 'collapse';
