@@ -44,6 +44,7 @@ import {
   collectFontUsage,
   checkFontsAvailability,
   buildFontsNotAvailableMessage,
+  buildDownloadCuts,
   buildPluginModeFontMapping,
   partitionMissingFonts,
   buildChoiceRenderPlan,
@@ -55,8 +56,7 @@ import {
 import {
   rebindOriginalFonts,
   collectTextNodesIn,
-  ORIGINAL_FONT_PLUGIN_KEY,
-  SEGMENT_FONT_PLUGIN_KEY,
+  countRebindableNodes,
 } from "./rendering/rebindFonts";
 
 // ============================================================================
@@ -83,33 +83,25 @@ export default function () {
   // "Re-apply fonts" footer button only when there's actually work to do.
   const postRebindableCount = () => {
     try {
-      const textNodes = figma.currentPage.findAll((n) => n.type === "TEXT");
-      const families = new Set<string>();
-      let count = 0;
-      for (const n of textNodes) {
-        const fam = n.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
-        const segJson = n.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
-        if (!fam && !segJson) continue;
-        count++;
-        if (fam) families.add(fam);
-        if (segJson) {
-          try {
-            const parsed: unknown = JSON.parse(segJson);
-            if (Array.isArray(parsed)) {
-              for (const s of parsed) {
-                if (s && typeof (s as { family?: unknown }).family === "string") {
-                  families.add((s as { family: string }).family);
-                }
-              }
-            }
-          } catch {
-            /* corrupt segment marker — family list stays best-effort */
-          }
-        }
-      }
+      const pageNodes = figma.currentPage.findAll(
+        (n) => n.type === "TEXT",
+      ) as TextNode[];
+      const page = countRebindableNodes(pageNodes);
+
+      // Scope to the current selection too, so the footer button can offer a
+      // "Re-apply to selection" action. The rebind handler already honours the
+      // same selection-or-page scope, so the label matches what will happen.
+      const selection = figma.currentPage.selection;
+      const selectionCount =
+        selection.length > 0
+          ? countRebindableNodes(
+              collectTextNodesIn(selection as unknown as SceneNode[]),
+            ).count
+          : 0;
+
       figma.ui.postMessage({
         type: "rebindable-count",
-        data: { count, families: Array.from(families).sort() },
+        data: { count: page.count, families: page.families, selectionCount },
       });
     } catch {
       // Page scan can fail on unusual/huge docs — non-fatal, just skip.
@@ -118,6 +110,10 @@ export default function () {
 
   // Switching Figma pages changes which nodes are in scope; refresh the count.
   figma.on("currentpagechange", () => postRebindableCount());
+
+  // Selecting a frame changes the re-apply scope — refresh so the footer button
+  // can reflect "Re-apply to selection" when the selection holds pending fonts.
+  figma.on("selectionchange", () => postRebindableCount());
 
   // Editing the canvas changes it too — deleting the imported frames must hide
   // the "Re-apply fonts" button, not leave it pointing at nothing. documentchange
@@ -988,11 +984,17 @@ export default function () {
           // Auto-resolvable ones stay out of it (handled by
           // buildChoiceRenderPlan once the user chooses).
           const modalFonts = [...stillMissing, ...partialFamilies];
+          // Narrow the download ZIP to the cuts the page actually renders — for
+          // partial families (missingCuts) AND fully-missing families (their
+          // used cuts from fontUsage). Without the latter, a family absent from
+          // Figma shipped every declared @font-face weight (e.g. apple.com's
+          // unused SF Pro Text Light). See buildDownloadCuts.
+          const downloadCuts = buildDownloadCuts(stillMissing, missingCuts, fontUsage);
           const message = buildFontsNotAvailableMessage(
             modalFonts,
             pluginFont || "Montserrat",
             uniqueOptions,
-            missingCuts
+            downloadCuts
           );
 
           pendingRenderData = { data, executeRender, missingFonts: modalFonts, autoOriginal };

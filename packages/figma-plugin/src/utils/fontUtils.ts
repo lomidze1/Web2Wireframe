@@ -507,6 +507,39 @@ export function buildChoiceRenderPlan(
 }
 
 // ============================================================================
+// buildDownloadCuts
+// ============================================================================
+
+/**
+ * Merge the cuts that should narrow the download ZIP for every family the modal
+ * offers, keyed by CSS family:
+ *
+ *   - Partial families (installed, some cuts absent) keep their `missingCuts`
+ *     entry — only the absent cuts are worth shipping.
+ *   - Fully-missing families (nothing installed → whole family degrades to
+ *     Inter) get their *used* cuts from `fontUsage`, so the ZIP carries only the
+ *     weights the page actually renders instead of every declared @font-face.
+ *
+ * A fully-missing family with no recorded usage is omitted, so the downstream
+ * `filterExtractedFontsToCuts` safety net still ships its full set rather than
+ * an empty one.
+ */
+export function buildDownloadCuts(
+  missing: string[],
+  missingCuts: Record<string, FontCut[]>,
+  fontUsage: Map<string, FontCut[]>,
+): Record<string, FontCut[]> {
+  const result: Record<string, FontCut[]> = { ...missingCuts };
+  for (const family of missing) {
+    // Partial families already carry their (absent) cuts — don't overwrite.
+    if (result[family]) continue;
+    const used = fontUsage.get(family);
+    if (used && used.length > 0) result[family] = used;
+  }
+  return result;
+}
+
+// ============================================================================
 // buildFontsNotAvailableMessage
 // ============================================================================
 

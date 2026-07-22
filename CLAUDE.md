@@ -201,6 +201,36 @@ build-prod grep gate).
 (ან მსგავსს — "launch-მდე რა მჭირდება", "what's left before launch"),
 **აუცილებლად წაიკითხე** `docs/PRE-LAUNCH-CHECKLIST.md` და მისი მიხედვით უპასუხე.
 
+### IMPORTANT: Release Cadence — კვირაში ერთხელ, კვირა დღეს
+
+**წესი:** ახალ ვერსიას ვაქვეყნებთ **ყოველ კვირას, კვირა დღეს** — Figma plugin +
+Chrome extension (საჭიროებისამებრ API deploy-თან ერთად). მინიმალისტური
+განახლებაც სრულად მისაღებია.
+
+**ეს "არაუგვიანეს" ჭერია, და არა "აუცილებლად გამოუშვი":**
+- თუ იმ კვირას **ვერიფიცირებული** ცვლილება არაფერია — უკეთესია გამოტოვო, ან
+  მხოლოდ ვერიფიცირებული მინიმუმი გამოუშვა, ვიდრე უვერიფიცირებელი კოდი
+  deadline-ის გამო live-ზე გააგდო.
+- **ხარისხის gate ყოველთვის წინ უსწრებს კადენსს:** ვაქვეყნებთ მხოლოდ იმას, რაც
+  Figma-ში ხელით დამოწმდა (იხ. `verify-before-commit` auto-memory + ეს ფაილი).
+
+**🔔 New-chat reminder (session start):** ყოველი ახალი სესიის დასაწყისში
+შეამოწმე `currentDate`-ის დღე. **თუ დღეს პარასკევი, შაბათი ან კვირაა** — პასუხის
+წინ შეახსენე owner-ს (მოკლედ, ერთ ხაზად): *"🔔 შეხსენება: ვერსიის გამოქვეყნების
+დრო იწურება (კვირა დღეა deadline) — Figma plugin + extension განახლება საჭიროა."*
+თუ სხვა დღეა, ან owner-მა უკვე გამოაქვეყნა ამ კვირას — ჩუმად გამოტოვე.
+
+**Release runbook (ყოველი გამოქვეყნებისას):**
+1. `USE_PRODUCTION = false` შემოწმება (`apiConfig.ts`) — commit/push-ამდე.
+2. uncommitted ცვლილებების **Figma-ვერიფიკაცია** → მხოლოდ მერე commit.
+3. თუ რელიზი API/shared-ზეა დამოკიდებული → **ჯერ** `dev→main` merge
+   (Render auto-deploy), შემდეგ client publish.
+4. Figma plugin: `cd packages/figma-plugin && npm run build` → Figma desktop →
+   Manage plugins in development → Publish (ID `1646327864971730293`).
+5. Chrome extension: `manifest.json` `version` bump → build → zip `dist/`-ის
+   შიგთავსი → Web Store upload (ID `fcmicolldgpmpdkcdljkaaimmjmboipl`).
+6. სრული ნაბიჯები + CORS/manifest-key gotcha: auto-memory `project_republish-workflow`.
+
 ## Code Style
 
 - TypeScript strict mode (no `any`) — ყველა package-ში

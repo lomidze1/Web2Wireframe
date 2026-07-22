@@ -328,7 +328,10 @@ export function convertStrokesToFigma(
   let paints: Paint[];
   if (context?.colorMode === "plugin" && context.pluginColors) {
     const textColor = hexToFigmaRGB(context.pluginColors.text);
-    paints = [{ type: "SOLID", color: textColor, opacity: 1.0 }];
+    // Fully invisible borders (a=0, nicepage gutter) must stay invisible in
+    // plugin-colors mode too — forcing 1.0 would paint them. Semi-transparent
+    // borders still normalize to 1.0 for clean wireframes.
+    paints = [{ type: "SOLID", color: textColor, opacity: firstStroke.color.a === 0 ? 0 : 1.0 }];
   } else {
     paints = [{
       type: "SOLID",

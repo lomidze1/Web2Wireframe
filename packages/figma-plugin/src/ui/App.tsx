@@ -159,6 +159,10 @@ function AppContent() {
   // Families still awaiting re-apply (marker values) — shown in the
   // RebindFontsModal so the user knows exactly what to install.
   const [rebindableFamilies, setRebindableFamilies] = useState<string[]>([]);
+  // How many of the page's rebindable text nodes fall inside the current Figma
+  // selection. Drives the footer button's scoped "Re-apply to selection" label;
+  // the sandbox's rebind action already honours the same selection-or-page scope.
+  const [selectionRebindableCount, setSelectionRebindableCount] = useState(0);
   const [isRebindOpen, setIsRebindOpen] = useState(false);
   const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
     number | null
@@ -184,6 +188,10 @@ function AppContent() {
       if (Array.isArray(families)) {
         setRebindableFamilies(families.filter((f): f is string => typeof f === "string"));
       }
+      const selectionCount = msg.data?.selectionCount;
+      setSelectionRebindableCount(
+        typeof selectionCount === "number" ? selectionCount : 0,
+      );
     };
     window.addEventListener("message", handler);
     parent.postMessage(
@@ -322,6 +330,9 @@ function AppContent() {
           setIsExtensionOpen(true);
         }}
         showRebindFonts={rebindableCount > 0}
+        rebindFontsLabel={
+          selectionRebindableCount > 0 ? "Re-apply to selection" : "Re-apply fonts"
+        }
         onRebindFontsClick={() => {
           // Opens the info modal (install → select → re-apply); the modal's
           // own button fires the actual `rebind-original-fonts` action.
@@ -347,6 +358,7 @@ function AppContent() {
       isOpen={isRebindOpen}
       onClose={() => setIsRebindOpen(false)}
       count={rebindableCount}
+      selectionCount={selectionRebindableCount}
       missingFonts={rebindableFamilies}
       onReapply={() => {
         // Sandbox handles `rebind-original-fonts`: walks selection (or page

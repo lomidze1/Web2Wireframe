@@ -254,6 +254,19 @@ function convertFrame(
 
   const layoutMode = isAbsoluteMode ? 'NONE' as const : cssLayoutMode;
   const padding = parsePadding(str(s.paddingTop), str(s.paddingRight), str(s.paddingBottom), str(s.paddingLeft), str(s.padding));
+
+  // Invisible borders still take layout space in CSS (border-box), but a
+  // Figma stroke never does — and parseStrokes drops zero-alpha sides
+  // entirely. Fold their widths into padding so the content inset survives
+  // (nicepage gutter: `.u-layout-cell { border: 10px solid transparent }`
+  // is exactly this — without it, cell content hugs the neighboring cell).
+  {
+    const invisible = invisibleBorderInsets(s);
+    padding.top += invisible.top;
+    padding.right += invisible.right;
+    padding.bottom += invisible.bottom;
+    padding.left += invisible.left;
+  }
   const gapStr = str(s.gap);
   const itemSpacing = isAbsoluteMode ? 0 : (parseFloat(gapStr) || 0);
 
@@ -428,6 +441,21 @@ function convertFrame(
             continue;
           }
           const pseudoFrame = convertFrame(child, node, options);
+          // Invisible layout-hack pseudo (clearfix `content:""; display:table;
+          // height:0` and friends): no children, no paint, and a degenerate
+          // box. The extraction-side visibility filter can't catch these —
+          // getComputedStyle reports the USED width (e.g. 1140px for a
+          // stretched table pseudo), so they arrive as 1140×1 junk frames
+          // that occupy auto-layout flow and shift real content.
+          if (
+            (child.width <= 2 || child.height <= 2) &&
+            !pseudoFrame.fills?.length &&
+            !pseudoFrame.strokes?.length &&
+            !pseudoFrame.effects?.length &&
+            pseudoFrame.children.length === 0
+          ) {
+            continue;
+          }
           if (isAbsolutePseudo) {
             pseudoFrame.position = pseudoPosition as 'absolute' | 'fixed';
           }
@@ -505,6 +533,27 @@ function convertFrame(
         }
       } else {
         pushChildNode(convertFrame(child, node, options));
+      }
+    }
+  }
+
+  // Same-row hack propagation: a large negative margin-top on one child
+  // shifts the FOLLOWING flow siblings too (the browser lays them out
+  // relative to the pulled-up element — nicepage block-4: icon, h5 at
+  // margin-top:-64px, then p at y=35 instead of 64+margin). Auto-layout
+  // can't reproduce any of that, so when such a child exists every static
+  // flow child of this parent keeps its captured coordinates instead.
+  const hasPulledUpChild = effectiveChildren.some((c) => {
+    if (c.type !== 'FRAME') return false;
+    const pos = str(c.styles.position);
+    if (pos === 'absolute' || pos === 'fixed') return false;
+    const mt = parseFloat(str(c.styles.marginTop) || '');
+    return Number.isFinite(mt) && mt <= -8;
+  });
+  if (hasPulledUpChild) {
+    for (const c of children) {
+      if (!c.position || c.position === 'relative' || c.position === 'static') {
+        c.position = 'absolute';
       }
     }
   }
@@ -653,6 +702,28 @@ function convertFrame(
       if (entry.kind === 'text') {
         const tv = mergedValues[entry.index];
         const wn = convertTextNodeFromValue(tv, node, s, options);
+        // Same-row merged runs → styledSegments so each run keeps its own
+        // weight/color/decoration inside the single text node (h2d parity).
+        const rowSegs = (tv as { _rowSegments?: TextChildValue[] })._rowSegments;
+        if (rowSegs && rowSegs.length > 1) {
+          const segTransform = str(s.textTransform);
+          wn.styledSegments = rowSegs.map(seg => {
+            const { family: segFamily, weight: segWeight } = parseFontString(seg.font);
+            const segPlatform = seg.platformFamily
+              ? parseFontString(seg.platformFamily).family
+              : undefined;
+            return {
+              text: applyTextTransform(seg.value, segTransform),
+              color: seg.color || str(s.webkitTextFillColor) || str(s.color) || 'rgb(0, 0, 0)',
+              fontWeight: seg.fontWeight || segWeight || parseFontWeight(str(s.fontWeight)),
+              fontSize: parseFloat(str(s.fontSize)) || 16,
+              fontFamily: segPlatform || segFamily || cleanFontFamily(str(s.fontFamily) || 'Arial'),
+              textDecoration: seg.textDecoration,
+              isLink: seg.tag === 'a' || node.tag === 'a',
+              tag: seg.tag || node.tag,
+            };
+          });
+        }
         // Propagate browserLineCount + per-line widths from merged entries
         const merged = tv as TextChildValue & {
           _mergedLineCount?: number;
@@ -798,7 +869,19 @@ function convertFrame(
     width: node.width,
     height: inkGeometry ? inkGeometry.height : effectiveHeight,
 
-    position: str(s.position) as WireframeNode['position'] || undefined,
+    position: (() => {
+      const pos = str(s.position) as WireframeNode['position'] || undefined;
+      if (pos === 'absolute' || pos === 'fixed' || pos === 'sticky') return pos;
+      // Same-row hack: a static flow element pulled up beside its previous
+      // sibling via a large negative margin-top (nicepage.io header nav
+      // -32px, feature-row headings -64px). Figma auto-layout cannot express
+      // negative flow offsets (margin wrappers clamp padding to 0), which
+      // drops the element a full row down — absolute positioning keeps the
+      // captured geometry instead.
+      const mt = parseFloat(str(s.marginTop) || '');
+      if (parent && Number.isFinite(mt) && mt <= -8) return 'absolute';
+      return pos;
+    })(),
     zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
     cssOrder: s.order != null && String(s.order) !== '0' ? Number(s.order) : undefined,
     // CSS top/left for fixed|sticky elements (used by re-parenting logic)
@@ -835,9 +918,46 @@ function convertFrame(
     // "Amazing Mac. Surprising price." natural 364.73px inside a 351px tile).
     // When node.width <= parent.width the block/stretch FILL is correct.
     layoutSizingHorizontal: (() => {
-      if (type !== 'text' || sizing.horizontal !== 'FILL') return sizing.horizontal;
+      if (type !== 'text' || !parent) return sizing.horizontal;
+
+      const maxTextWidth = textChildValues.reduce(
+        (acc, t) => Math.max(acc, t.width || 0), 0
+      );
+
+      // Gross single-line overflow guard: captured text far wider than its
+      // parent (>1.25×) cannot render without overlapping siblings — the
+      // browser itself couldn't have painted it that way in a settled layout
+      // (nicepage.io block-5 quotes: a display:table <p> captured mid-layout
+      // as one 1095px line inside a 373px card). FILL makes it wrap at the
+      // parent width, which is what the settled page shows.
+      if ((browserLineCount ?? 1) === 1 && maxTextWidth > parent.width * 1.25) {
+        return 'FILL';
+      }
+
+      // Multi-line text WIDER than its parent (width:auto + negative
+      // margin-right, e.g. nicepage.io hero h1 at 514px in a 399px column):
+      // FILL would re-wrap it at the narrower parent and break words
+      // mid-word (Figma wraps by character on overflow). FIXED keeps the
+      // captured width so the browser's line breaks survive.
+      if (
+        (browserLineCount ?? 1) > 1 &&
+        node.width > parent.width + 1 &&
+        str(s.width) !== '100%'
+      ) {
+        return 'FIXED';
+      }
+
+      // Multi-line coalesced text can never HUG: Figma's WIDTH_AND_HEIGHT
+      // auto-resize renders the joined per-line values as one nowrap run
+      // (nicepage.io block-5 quotes: flex-column card gives the display:table
+      // <p> HUG sizing → 4 captured lines paint as a single 1000px+ line).
+      // FIXED keeps the captured element width = the browser's wrap width.
+      if ((browserLineCount ?? 1) > 1 && sizing.horizontal === 'HUG') {
+        return 'FIXED';
+      }
+
+      if (sizing.horizontal !== 'FILL') return sizing.horizontal;
       if ((browserLineCount ?? 1) !== 1) return sizing.horizontal;
-      if (!parent) return sizing.horizontal;
 
       // Single-line coalesced text → prefer HUG when the parent is already
       // content-sized (parent.width matches child text width) or the child
@@ -857,13 +977,10 @@ function convertFrame(
         (typeof s.flexGrow === 'number' && s.flexGrow > 0);
       if (hasExplicitWidth || hasExplicitFillIntent) return sizing.horizontal;
 
-      const maxTextChildWidth = textChildValues.reduce(
-        (acc, t) => Math.max(acc, t.width || 0), 0
-      );
       // 1px tolerance for sub-pixel rounding — HUG when parent.width
       // matches or exceeds text natural width (i.e. parent is already
       // sized to fit the text, no stretch happening).
-      return maxTextChildWidth >= parent.width - 1 ? 'HUG' : sizing.horizontal;
+      return maxTextWidth >= parent.width - 1 ? 'HUG' : sizing.horizontal;
     })(),
     layoutSizingVertical: effectiveVertical,
 
@@ -1110,6 +1227,9 @@ function convertTextNodeFromValue(
  */
 type OrderEntry = { kind: 'text'; index: number } | { kind: 'child'; index: number };
 
+/** TextChildValue carrying per-run segments after a same-row merge. */
+type RowMergedValue = TextChildValue & { _rowSegments?: TextChildValue[] };
+
 function mergeAdjacentTextEntries(
   entries: OrderEntry[],
   textValues: TextChildValue[],
@@ -1126,7 +1246,50 @@ function mergeAdjacentTextEntries(
   const flushRun = (runEnd: number): void => {
     if (runStart < 0) return;
     const runEntries = entries.slice(runStart, runEnd);
-    const tvs = runEntries.map(e => textValues[e.index]);
+    const rawTvs = runEntries.map(e => textValues[e.index]);
+
+    // Pass 1 — same-row merge: horizontally-adjacent runs on the same visual
+    // row joined by a boundary space (inline styling spans: "03.05.2026 " +
+    // bold "Porto, Portugal") become ONE value carrying per-run _rowSegments.
+    // Kept separate, Figma trims the first run's trailing space in auto-width
+    // text and the runs render glued together. Runs WITHOUT a boundary space
+    // are intentionally contiguous — those stay separate nodes (inline-flow
+    // rendering handles them; see css-converter-inline-flow tests).
+    const tvs: RowMergedValue[] = [];
+    for (const raw of rawTvs) {
+      const prev = tvs[tvs.length - 1];
+      const gapX = prev ? raw.x - (prev.x + prev.width) : 0;
+      const hasBoundarySpace = prev
+        ? /\s$/.test(prev.value) || /^\s/.test(raw.value)
+        : false;
+      // A visible geometric gap between contiguous runs means the browser
+      // painted whitespace there even when the captured values lost it
+      // (pre-boundary-space extractors trimmed "03.05.2026 " to
+      // "03.05.2026"). Heal by inserting the space back on merge. Runs that
+      // touch exactly (gap ≈ 0) are intentionally contiguous — leave them.
+      const hasVisibleGap = prev ? gapX >= 2 : false;
+      const sameRow = prev &&
+        Math.abs(raw.y - prev.y) <= Math.max(2, prev.height * 0.2) &&
+        gapX >= -3 &&
+        gapX <= 12 &&
+        (hasBoundarySpace || hasVisibleGap);
+      if (prev && sameRow) {
+        const segs = prev._rowSegments ?? [{ ...prev }];
+        if (!hasBoundarySpace) {
+          // Keep segments in sync with the joined value — text.ts maps
+          // styling ranges from segment lengths.
+          const last = segs[segs.length - 1];
+          segs[segs.length - 1] = { ...last, value: last.value + ' ' };
+          prev.value = prev.value + ' ';
+        }
+        prev._rowSegments = [...segs, { ...raw }];
+        prev.value = prev.value + raw.value;
+        prev.width = (raw.x + raw.width) - prev.x;
+        prev.height = Math.max(prev.height, raw.height);
+      } else {
+        tvs.push({ ...raw });
+      }
+    }
 
     // Group consecutive mergeable TEXT values
     const groups: TextChildValue[][] = [];
@@ -1135,7 +1298,11 @@ function mergeAdjacentTextEntries(
     for (let i = 1; i < tvs.length; i++) {
       const prev = tvs[i - 1];
       const curr = tvs[i];
-      const sameFont = curr.font === prev.font;
+      // Row-merged values keep their segments — never fold them into a
+      // vertical paragraph merge (segment ranges would be lost).
+      const hasSegments = !!(prev as RowMergedValue)._rowSegments ||
+        !!(curr as RowMergedValue)._rowSegments;
+      const sameFont = !hasSegments && curr.font === prev.font;
       const sameX = Math.abs(curr.x - prev.x) <= 2;
       const sameHeight = Math.abs(curr.height - prev.height) <= 1;
       const yGap = curr.y - prev.y;
@@ -1642,6 +1809,35 @@ function figmaColorsEqual(a: FigmaColor, b: FigmaColor): boolean {
   );
 }
 
+/**
+ * Per-side widths of borders that occupy layout space but paint nothing —
+ * positive width, a renderable style (not none/hidden), and a fully
+ * transparent color. These are dropped by parseStrokes (correct visually)
+ * but must become padding so their CSS box-space survives in auto-layout.
+ */
+function invisibleBorderInsets(
+  s: Record<string, string | number | undefined>,
+): { top: number; right: number; bottom: number; left: number } {
+  const inset = { top: 0, right: 0, bottom: 0, left: 0 };
+  const sides = [
+    { key: 'top' as const,    w: s.borderTopWidth,    c: s.borderTopColor,    st: s.borderTopStyle    },
+    { key: 'right' as const,  w: s.borderRightWidth,  c: s.borderRightColor,  st: s.borderRightStyle  },
+    { key: 'bottom' as const, w: s.borderBottomWidth, c: s.borderBottomColor, st: s.borderBottomStyle },
+    { key: 'left' as const,   w: s.borderLeftWidth,   c: s.borderLeftColor,   st: s.borderLeftStyle   },
+  ];
+  for (const side of sides) {
+    const weight = parseFloat(str(side.w) || '0');
+    if (!isFinite(weight) || weight <= 0) continue;
+    const styleStr = str(side.st).toLowerCase();
+    if (!styleStr || styleStr === 'none' || styleStr === 'hidden') continue;
+    const color = parseCSSColor(str(side.c) || '');
+    if (color && color.a === 0) {
+      inset[side.key] = weight;
+    }
+  }
+  return inset;
+}
+
 function parseOneBorderSide(
   key: 'top' | 'right' | 'bottom' | 'left',
   widthRaw: string | number | undefined,
@@ -1655,7 +1851,10 @@ function parseOneBorderSide(
   if (!styleStr || styleStr === 'none' || styleStr === 'hidden') return null;
   const colorStr = str(colorRaw) || currentColorFallback || 'rgb(0,0,0)';
   const color = parseCSSColor(colorStr);
-  if (!color || color.a === 0) return null;
+  // Zero-alpha borders are kept as zero-opacity strokes (h2d parity): the
+  // stroke preserves the website's truth in the inspector while
+  // invisibleBorderInsets() supplies the layout space as padding.
+  if (!color) return null;
   const figmaStyle: 'SOLID' | 'DASHED' | 'DOTTED' =
     styleStr === 'dashed' ? 'DASHED'
     : styleStr === 'dotted' ? 'DOTTED'

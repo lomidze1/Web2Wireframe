@@ -40,6 +40,51 @@ export const SEGMENT_FONT_PLUGIN_KEY = "w2w_original_font_segments";
  *  "All 30 font(s) already re-applied" rather than "0 / 0"). */
 export const REBOUND_DONE_PLUGIN_KEY = "w2w_rebound_done";
 
+/** Result of {@link countRebindableNodes}: how many text nodes still await a
+ *  re-apply, plus the (sorted, de-duped) families they're waiting for. */
+export interface RebindableCount {
+  count: number;
+  families: string[];
+}
+
+/**
+ * Count the text nodes in `nodes` that still carry an original-font marker
+ * (node-level or per-segment), collecting the families they need re-applied.
+ *
+ * Pure over the node list — the sandbox runs it over the whole page (footer
+ * button visibility) and over the current selection (its scoped label) from
+ * one implementation. Only `getPluginData` is read, so callers can pass real
+ * TextNodes or lightweight stand-ins.
+ */
+export function countRebindableNodes(
+  nodes: Array<Pick<TextNode, "getPluginData">>,
+): RebindableCount {
+  const families = new Set<string>();
+  let count = 0;
+  for (const n of nodes) {
+    const fam = n.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
+    const segJson = n.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
+    if (!fam && !segJson) continue;
+    count++;
+    if (fam) families.add(fam);
+    if (segJson) {
+      try {
+        const parsed: unknown = JSON.parse(segJson);
+        if (Array.isArray(parsed)) {
+          for (const s of parsed) {
+            if (s && typeof (s as { family?: unknown }).family === "string") {
+              families.add((s as { family: string }).family);
+            }
+          }
+        }
+      } catch {
+        /* corrupt segment marker — family list stays best-effort */
+      }
+    }
+  }
+  return { count, families: Array.from(families).sort() };
+}
+
 /** Style ladder tried in order when the node's current style isn't available
  *  on the now-installed font (e.g. user installed PSA Regular but the node
  *  was rendered with Medium). Mirrors the conventional cuts most fonts ship

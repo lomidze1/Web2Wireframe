@@ -9,6 +9,9 @@ interface RebindFontsModalProps {
   onClose: () => void;
   /** Text layers on the current page still carrying a substituted font. */
   count: number;
+  /** How many of those layers fall inside the current Figma selection. When
+   *  > 0, Re-apply targets the selection, so the modal says so. */
+  selectionCount?: number;
   /** Families those layers are waiting for (from the sandbox's
    *  `rebindable-count` message). */
   missingFonts: string[];
@@ -26,6 +29,7 @@ export default function RebindFontsModal({
   isOpen,
   onClose,
   count,
+  selectionCount = 0,
   missingFonts,
   onReapply,
 }: RebindFontsModalProps) {
@@ -33,6 +37,7 @@ export default function RebindFontsModal({
   if (!isOpen) return null;
 
   const layerWord = count === 1 ? "text layer" : "text layers";
+  const scopedToSelection = selectionCount > 0;
 
   return (
     <div class={styles.modalOverlay} onClick={onClose}>
@@ -73,6 +78,12 @@ export default function RebindFontsModal({
                   Waiting for: <strong>{missingFonts.join(", ")}</strong>
                 </div>
               )}
+              {scopedToSelection && (
+                <div class={local.rebindFontList}>
+                  Your selection holds <strong>{selectionCount}</strong> of these —
+                  Re-apply will target the selection.
+                </div>
+              )}
             </div>
 
             <ol class={local.rebindSteps}>
@@ -95,7 +106,7 @@ export default function RebindFontsModal({
               onClick={onReapply}
               aria-label="Re-apply original fonts now"
             >
-              Re-apply fonts
+              {scopedToSelection ? "Re-apply to selection" : "Re-apply fonts"}
             </button>
           </div>
         </div>

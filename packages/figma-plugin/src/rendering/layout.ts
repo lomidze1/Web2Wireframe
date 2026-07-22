@@ -276,13 +276,27 @@ export function createMarginWrapper(
       // set by createTextNode. Don't override to FILL+HEIGHT.
       tc.layoutSizingHorizontal = "FIXED";
       tc.layoutSizingVertical = "FIXED";
-    } else if (child.layoutSizingHorizontal === "HUG") {
+    } else if (
+      child.layoutSizingHorizontal === "HUG" &&
+      (child.browserLineCount || 1) <= 1
+    ) {
       // Content-width mode: single-line coalesced text whose natural width
       // exceeds the parent (e.g. Apple.com tile subheads). The css-converter
       // sets HUG to preserve the intrinsic width; if we force FILL here the
       // text would wrap to the narrower wrapper and lose its natural size.
+      // Multi-line text must NEVER take this branch — WIDTH_AND_HEIGHT would
+      // render the joined lines as one nowrap run.
       tc.layoutSizingHorizontal = "HUG";
       tc.textAutoResize = "WIDTH_AND_HEIGHT";
+    } else if (
+      child.layoutSizingHorizontal === "FIXED" &&
+      (child.browserLineCount || 1) > 1
+    ) {
+      // Multi-line text with a FIXED browser width (e.g. a display:table
+      // quote sized by shrink-to-fit): keep the captured wrap width and let
+      // height grow. FILL would stretch it to the wrapper; HUG would nowrap.
+      tc.layoutSizingHorizontal = "FIXED";
+      tc.textAutoResize = "HEIGHT";
     } else {
       tc.layoutSizingHorizontal = "FILL";
       tc.textAutoResize = "HEIGHT";
