@@ -227,6 +227,56 @@
   accent-color: var(--secondary);
 }
 
+/* Segmented Toggle (2-option settings — shares the pill/.checked language) */
+.segmentGroup {
+  display: flex;
+  gap: 6px;
+}
+.segmentItem {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 6px 8px;
+  border-radius: var(--radius-input);
+  border: 1px solid var(--border-light);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    border-color var(--transition-normal),
+    background var(--transition-normal);
+}
+.segmentItem:hover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.04);
+}
+/* Active/selected: solid teal fill so it clearly stands out on the dark panel */
+.segmentItem.segmentActive {
+  border-color: var(--secondary);
+  background: var(--secondary);
+  color: #fff;
+}
+.segmentItem.segmentActive:hover {
+  border-color: var(--secondary);
+  background: var(--secondary);
+}
+.segmentDisabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.segmentDisabled:hover {
+  border-color: var(--border-light);
+  background: rgba(255, 255, 255, 0.02);
+}
+
 /* Collapse Toggle */
 .collapseToggle {
   width: 100%;
