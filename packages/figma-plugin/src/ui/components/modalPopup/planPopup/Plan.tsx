@@ -12,6 +12,24 @@ import { dispatchAuthExpired } from "../../../shared/authEvents";
 import { useConfig } from "../../../shared/ConfigContext";
 import { useLicense } from "../../../shared/LicenseContext";
 import { useModal } from "../../../hooks/useModal";
+import {
+  useNewsletterSubscribe,
+  type SubscribeStatus,
+} from "../../../hooks/useNewsletterSubscribe";
+
+/** Pill label for the one-click Subscribe button, by status. */
+function subscribeLabel(status: SubscribeStatus): string {
+  switch (status) {
+    case "loading":
+      return "Subscribing…";
+    case "success":
+      return "✓ Subscribed!";
+    case "error":
+      return "Try again";
+    default:
+      return "Subscribe";
+  }
+}
 
 /**
  * True when the rendered error message recommends reconnecting — i.e. it came
@@ -107,6 +125,10 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
   const [copiedId, setCopiedId] = useState(false);
 
   const { modalRef } = useModal({ isOpen, onClose });
+
+  // One-click newsletter subscribe — uses the email the backend already holds
+  // (license.email), so the user never types anything.
+  const newsletter = useNewsletterSubscribe(license?.email ?? null);
 
   const pollTimerRef = useRef<number | null>(null);
   const pollStartRef = useRef<number | null>(null);
@@ -557,6 +579,8 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
 
               <p class={styles.planFooterNote}>
                 We ship updates every week. Found a bug or have an idea?
+              </p>
+              <div class={styles.planFooterActions}>
                 <a
                   class={styles.planFooterLink}
                   href="https://mail.google.com/mail/?view=cm&fs=1&to=hey@web2wireframe.design"
@@ -565,7 +589,25 @@ export default function Plan({ isOpen, onClose }: PlanProps) {
                 >
                   Send feedback →
                 </a>
-              </p>
+                <button
+                  type="button"
+                  class={`${styles.planFooterLink} ${styles.subscribeBtn} ${
+                    newsletter.status === "success" ? styles.subscribeSuccess : ""
+                  } ${newsletter.status === "error" ? styles.subscribeError : ""}`}
+                  onClick={newsletter.subscribe}
+                  disabled={
+                    newsletter.disabled || newsletter.status === "loading"
+                  }
+                  title={
+                    newsletter.disabled
+                      ? "Reconnect Figma to subscribe"
+                      : undefined
+                  }
+                  data-testid="subscribe-news"
+                >
+                  {subscribeLabel(newsletter.status)}
+                </button>
+              </div>
             </div>
           )}
         </div>
