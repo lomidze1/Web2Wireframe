@@ -1223,7 +1223,7 @@ describe("capturePseudoStatesForNodes — transition-disable injection", () => {
     const client = createMockCDPClient();
     client.mockMatchedStyles.set("normal", createMockMatchedStyles());
     client.mockMatchedStyles.set("hover", createMockMatchedStyles([
-      { properties: { color: "red" } },
+      { selectorText: ".btn:hover", properties: { color: "red" } },
     ]));
 
     const normalStylesMap = new Map<number, CDPMatchedStyles>();
@@ -1289,7 +1289,7 @@ describe("capturePseudoStatesForNodes — transition-disable injection", () => {
     const client = createMockCDPClient();
     client.mockMatchedStyles.set("normal", createMockMatchedStyles());
     client.mockMatchedStyles.set("hover", createMockMatchedStyles([
-      { properties: { color: "red" } },
+      { selectorText: ".btn:hover", properties: { color: "red" } },
     ]));
 
     // Intercept Runtime.evaluate injection and throw
