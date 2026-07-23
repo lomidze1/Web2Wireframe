@@ -9,15 +9,22 @@ import { useLicense } from "../../../shared/LicenseContext";
 import { authHeader } from "../../../shared/licenseClient";
 import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
+import { downscaleImage, type DownscaledImage } from "../../../shared/imageDownscale";
 import SettingsPanel from "../../../components/settingsPanel";
 
 const TAB_ID = "screenshot";
 const STORAGE_KEY = "w2w_settings_expanded_screenshot";
 const API_URL = API_BASE_URL;
 
+const UNSUPPORTED_FORMAT_MESSAGE =
+  "Unsupported image format. Please use PNG, JPEG, WebP, or GIF.";
+
 export default function Screenshot() {
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  // Downscaled image + its dimensions — the request uses these directly,
+  // so what we report always matches what the AI actually receives.
+  const [image, setImage] = useState<DownscaledImage | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -64,22 +71,72 @@ export default function Screenshot() {
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
+  // Shared entry point for all three input sources (file picker, drag &
+  // drop, clipboard paste): read → downscale → preview.
+  const processFile = useCallback((file: File) => {
+    setError(null);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target?.result;
+      if (typeof dataUrl !== "string") {
+        setError(UNSUPPORTED_FORMAT_MESSAGE);
+        return;
+      }
+      try {
+        setImage(await downscaleImage(dataUrl));
+      } catch {
+        // Browser couldn't decode it (HEIC, corrupted file, …) — surface
+        // the error BEFORE a quota-consuming upload.
+        setError(UNSUPPORTED_FORMAT_MESSAGE);
+      }
+    };
+    reader.onerror = () => setError(UNSUPPORTED_FORMAT_MESSAGE);
+    reader.readAsDataURL(file);
+  }, []);
+
   const handleImageUpload = (e: Event) => {
     const target = e.target as HTMLInputElement;
     const file = target.files?.[0];
-    if (file) {
-      setError(null);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setImagePreview(event.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+    if (file) processFile(file);
   };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => setIsDragOver(false);
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) processFile(file);
+  };
+
+  // Clipboard paste (Cmd/Ctrl+V) — the most natural input for screenshots.
+  useEffect(() => {
+    const onPaste = (e: Event) => {
+      const clipboard = (e as ClipboardEvent).clipboardData;
+      if (!clipboard) return;
+      let file: File | null = clipboard.files?.[0] ?? null;
+      if (!file) {
+        for (const item of Array.from(clipboard.items ?? [])) {
+          if (item.type.startsWith("image/")) {
+            file = item.getAsFile();
+            break;
+          }
+        }
+      }
+      if (file && file.type.startsWith("image/")) processFile(file);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [processFile]);
 
   const handleDelete = (e: Event) => {
     e.stopPropagation();
-    setImagePreview(null);
+    setImage(null);
     setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -87,32 +144,21 @@ export default function Screenshot() {
   };
 
   const handleGenerate = useCallback(async () => {
-    if (!imagePreview) return;
+    if (!image) return;
 
     setIsGenerating(true);
     setError(null);
     settings.collapseSettings();
 
     try {
-      // Get image dimensions
-      const dimensions = await new Promise<{ width: number; height: number }>(
-        (resolve, reject) => {
-          const img = new Image();
-          img.onload = () =>
-            resolve({ width: img.naturalWidth, height: img.naturalHeight });
-          img.onerror = () => reject(new Error("Failed to read image dimensions"));
-          img.src = imagePreview;
-        }
-      );
-
       const response = await fetch(`${API_URL}/api/import-screenshot`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: authHeader() },
         body: JSON.stringify({
           figmaUserId: config.figmaUserId,
-          imageBase64: imagePreview,
-          imageWidth: dimensions.width,
-          imageHeight: dimensions.height,
+          imageBase64: image.dataUrl,
+          imageWidth: image.width,
+          imageHeight: image.height,
           viewports: settings.localViewports.map(Number),
           pluginColors: config.pluginColors,
           pluginFont: config.pluginFont,
@@ -175,16 +221,22 @@ export default function Screenshot() {
     // `settings` is the full hook return value (collapseSettings + local*
     // state) — include it whole; eslint's exhaustive-deps can't track the
     // individual fields we use across the callback body.
-  }, [imagePreview, textMode, config, settings, refreshLicense]);
+  }, [image, textMode, config, settings, refreshLicense]);
 
   return (
     <div class={styles.screenshotContainer}>
       {/* Image Upload Area — label + visually-hidden input keeps keyboard
           and screen-reader access (Tab focuses input, Space/Enter opens
           picker, label click also triggers it). Delete button is rendered
-          outside the label so its click doesn't re-open the picker. */}
-      <div class={styles.uploadWrapper}>
-        {imagePreview && (
+          outside the label so its click doesn't re-open the picker.
+          The wrapper is also the drag & drop target. */}
+      <div
+        class={styles.uploadWrapper}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {image && (
           <button
             type="button"
             class={styles.deleteBtn}
@@ -196,8 +248,8 @@ export default function Screenshot() {
         )}
         <label
           class={`${styles.imageUploadArea} ${
-            imagePreview ? styles.hasImage : ""
-          }`}
+            image ? styles.hasImage : ""
+          } ${isDragOver ? styles.dragOver : ""}`}
         >
           <input
             type="file"
@@ -205,13 +257,13 @@ export default function Screenshot() {
             class={styles.hiddenInput}
             accept="image/*"
             aria-label={
-              imagePreview ? "Replace uploaded image" : "Upload screenshot image"
+              image ? "Replace uploaded image" : "Upload screenshot image"
             }
             onChange={handleImageUpload}
           />
-        {imagePreview ? (
+        {image ? (
           <img
-            src={imagePreview}
+            src={image.dataUrl}
             class={styles.screenshotPreview}
             alt="Screenshot preview"
           />
@@ -222,7 +274,9 @@ export default function Screenshot() {
             </div>
             <div>
               <div class={styles.uploadHeading}>Click to upload screenshot</div>
-              <div class={styles.uploadCaption}>or drag and drop</div>
+              <div class={styles.uploadCaption}>
+                or drag & drop, or paste (Ctrl/Cmd+V)
+              </div>
             </div>
           </div>
         )}
@@ -280,7 +334,7 @@ export default function Screenshot() {
       <button
         class={importStyles.btnPrimary}
         onClick={handleGenerate}
-        disabled={!imagePreview || isGenerating}
+        disabled={!image || isGenerating}
       >
         {isGenerating ? "Importing…" : "Import"}
       </button>

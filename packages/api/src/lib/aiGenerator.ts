@@ -37,7 +37,17 @@ type ElementType =
   | "avatar"
   | "stat"
   | "grid"
-  | "accordion";
+  | "accordion"
+  | "search"
+  | "tabs"
+  | "checkbox"
+  | "toggle"
+  | "breadcrumb"
+  | "select"
+  | "table"
+  | "pagination"
+  | "rating"
+  | "carousel";
 
 type AbsoluteElementType = ElementType | "section-bg";
 
@@ -123,6 +133,7 @@ interface ValidationError extends Error {
 
 interface ApiError extends Error {
   status?: number;
+  code?: string;
 }
 
 // ============================================================================
@@ -146,6 +157,9 @@ export const VALID_ELEMENT_TYPES: readonly string[] = [
   "heading", "subheading", "paragraph", "button", "button-group",
   "image", "icon", "card", "input", "nav-links", "logo", "divider",
   "badge", "list", "avatar", "stat", "grid", "accordion",
+  // Phase 2 additions
+  "search", "tabs", "checkbox", "toggle", "breadcrumb",
+  "select", "table", "pagination", "rating", "carousel",
 ];
 
 // ============================================================================
@@ -597,6 +611,10 @@ OUTPUT SCHEMA:
       "y": <number>,
       "width": <number>,
       "height": <number>,
+      "color": "#XXXXXX",     // optional: actual text color (text elements)
+      "fontSize": <number>,    // optional: actual px size (text elements)
+      "fontWeight": <number>,  // optional: 100-900 (text elements)
+      "fillColor": "#XXXXXX", // optional: actual background (card, section-bg)
       ... type-specific fields ...
     }
   ]
@@ -632,11 +650,30 @@ avatar:      { "type": "avatar", "size": "sm|md|lg", "x": <n>, "y": <n>, "width"
 stat:        { "type": "stat", "value": "99%", "label": "Uptime", "x": <n>, "y": <n>, "width": <n>, "height": <n> }
 grid:        { "type": "grid", "columns": <number>, "elements": [...], "x": <n>, "y": <n>, "width": <n>, "height": <n> }
 accordion:   { "type": "accordion", "items": [{"title":"...","content":"..."}], "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+search:      { "type": "search", "placeholder": "...", "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+tabs:        { "type": "tabs", "tabs": ["Tab 1","Tab 2"], "activeIndex": <0-based>, "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+checkbox:    { "type": "checkbox", "label": "...", "checked": true|false, "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+toggle:      { "type": "toggle", "label": "...", "on": true|false, "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+breadcrumb:  { "type": "breadcrumb", "items": ["Home","Section","Page"], "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+select:      { "type": "select", "label": "...", "placeholder": "...", "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+table:       { "type": "table", "headers": ["Col A","Col B"], "rows": [["a1","b1"],["a2","b2"]], "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+pagination:  { "type": "pagination", "pages": <number>, "activeIndex": <0-based>, "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+rating:      { "type": "rating", "rating": <number filled>, "max": <number, default 5>, "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+carousel:    { "type": "carousel", "x": <n>, "y": <n>, "width": <n>, "height": <n> }
 
-CARD/LIST/ACCORDION CHILDREN:
-- Child elements inside card, list, grid, and accordion do NOT need x/y/width/height
-- They will be auto-laid out vertically inside the parent
-- Only specify type-specific fields for children
+PER-ELEMENT STYLE (optional, improves fidelity — read from what you SEE, omit if unsure):
+- Text elements (heading, subheading, paragraph, button, badge, stat, list, nav-links) may add:
+  "color" (actual text color #XXXXXX), "fontSize" (actual px), "fontWeight" (100-900).
+- Containers (card, section-bg) may add "fillColor" (actual background #XXXXXX) — overrides the background role.
+- Do NOT guess: if a value is not clearly readable, leave the field out and the defaults apply.
+
+CARD/GRID CHILDREN POSITIONS:
+- Card and grid children MAY include x, y, width, height (page coordinates — the SAME space as top-level elements). Provide them whenever the layout inside the container is NOT a simple vertical stack (icon left of text, horizontal rows, trailing arrows).
+- Children without coordinates are auto-stacked vertically inside the parent.
+- List and accordion items never need coordinates.
+
+CONTENT APPEARS EXACTLY ONCE:
+- Every visible item must be output EXACTLY ONCE — either as a container child OR as a top-level element, NEVER both. Do not repeat a card's title/description/badges as separate top-level elements.
 
 POSITIONING RULES:
 - section-bg elements span the full page width (x: 0, width: pageWidth)
@@ -683,8 +720,11 @@ CRITICAL RULES:
 
 /**
  * Build user prompt for absolute screenshot analysis
+ *
+ * `feedback` carries the previous attempt's validation errors on a retry so
+ * the model can fix them instead of repeating the same mistakes.
  */
-export function buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode }: ScreenshotPromptParams): string {
+export function buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode }: ScreenshotPromptParams, feedback?: string): string {
   let textInstruction: string;
   switch (textMode) {
     case "lorem":
@@ -696,6 +736,10 @@ export function buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, i
     default: // "website"
       textInstruction = "Read and preserve the actual text visible in the screenshot as closely as possible.";
   }
+
+  const feedbackSection = feedback
+    ? `\n\nPrevious attempt failed validation with these errors:\n${feedback}\nFix these issues in your output — every top-level element needs numeric x, y, width, height and a valid type.`
+    : "";
 
   return `Analyze this website screenshot and convert it into a wireframe with absolute element positions (bounding boxes).
 
@@ -715,7 +759,7 @@ Follow this process:
 5. COLORS: Extract the 5 color roles (text, background, secondary, surface, accent) into "extractedColors".
 6. SORT: Order all elements by y coordinate (top to bottom).
 
-Return the complete JSON structure.`;
+Return the complete JSON structure.${feedbackSection}`;
 }
 
 /**
@@ -759,6 +803,69 @@ export function validateAbsoluteFormat(json: unknown): ValidationResult {
 }
 
 /**
+ * Dedup container/top-level twins. Despite the prompt's EXACTLY-ONCE rule the
+ * model sometimes emits a card's content both as container children and as
+ * positioned top-level elements. Keep whichever copy carries geometry:
+ * geometry-less child + positioned top-level twin inside the container → drop
+ * the child; positioned child → drop the top-level twin instead.
+ */
+function dedupeContainerTwins(elements: AbsoluteElement[]): void {
+  const normText = (v: unknown): string => (typeof v === "string" ? v.trim().toLowerCase() : "");
+  const hasBox = (o: Record<string, unknown>): boolean =>
+    typeof o.x === "number" && typeof o.y === "number" &&
+    Number(o.width) > 0 && Number(o.height) > 0;
+  const ICONISH = new Set(["icon", "image", "avatar", "logo"]);
+
+  for (const container of elements) {
+    const kids = (container as Record<string, unknown>).elements;
+    if (!Array.isArray(kids) || kids.length === 0) continue;
+    const cx = Number(container.x), cy = Number(container.y);
+    const cw = Number(container.width), ch = Number(container.height);
+    if (!(cw > 0 && ch > 0)) continue;
+
+    // Positioned top-level elements whose center lies inside this container
+    const insiders = elements.filter((el) => {
+      if (el === container || !hasBox(el as unknown as Record<string, unknown>)) return false;
+      const mx = Number(el.x) + Number(el.width) / 2;
+      const my = Number(el.y) + Number(el.height) / 2;
+      return mx >= cx && mx <= cx + cw && my >= cy && my <= cy + ch;
+    });
+    if (insiders.length === 0) continue;
+
+    const topLevelToRemove = new Set<AbsoluteElement>();
+    const keptKids: unknown[] = [];
+    for (const kid of kids) {
+      const k = kid as Record<string, unknown>;
+      const kidText = normText(k.text ?? k.value);
+      const kidIconish = ICONISH.has(String(k.type));
+      const twinIdx = insiders.findIndex((t) => {
+        const tRec = t as unknown as Record<string, unknown>;
+        const tText = normText(tRec.text ?? tRec.value);
+        if (kidText && tText === kidText) return true;
+        if (kidIconish && ICONISH.has(String(t.type))) return true;
+        return false;
+      });
+      if (twinIdx === -1) { keptKids.push(kid); continue; }
+      if (hasBox(k)) {
+        // Positioned child wins — remove the top-level twin.
+        topLevelToRemove.add(insiders[twinIdx]);
+        insiders.splice(twinIdx, 1);
+        keptKids.push(kid);
+      } else {
+        // Geometry-less child loses — drop it, consume the twin.
+        insiders.splice(twinIdx, 1);
+      }
+    }
+    (container as Record<string, unknown>).elements = keptKids;
+    if (topLevelToRemove.size > 0) {
+      for (let i = elements.length - 1; i >= 0; i--) {
+        if (topLevelToRemove.has(elements[i])) elements.splice(i, 1);
+      }
+    }
+  }
+}
+
+/**
  * Post-process absolute AI result: clamp coordinates, sort, recalculate pageHeight
  */
 export function postProcessAbsoluteResult(result: AbsoluteAnalysisResult): AbsoluteAnalysisResult {
@@ -781,7 +888,20 @@ export function postProcessAbsoluteResult(result: AbsoluteAnalysisResult): Absol
     if (el.x + el.width > pageWidth) {
       el.width = Math.max(0, pageWidth - el.x);
     }
+
+    // Sanitize optional per-element fidelity fields (Phase 1). Strip anything
+    // malformed so a hallucinated value never reaches the converter/response.
+    const HEX6 = /^#[0-9A-Fa-f]{6}$/;
+    if (!(typeof el.color === "string" && HEX6.test(el.color))) delete el.color;
+    if (!(typeof el.fillColor === "string" && HEX6.test(el.fillColor))) delete el.fillColor;
+    const fs = Number(el.fontSize);
+    if (Number.isFinite(fs) && fs >= 8 && fs <= 200) el.fontSize = fs; else delete el.fontSize;
+    const fw = Number(el.fontWeight);
+    if (Number.isFinite(fw) && fw >= 100 && fw <= 900) el.fontWeight = fw; else delete el.fontWeight;
   }
+
+  // Remove duplicated container/top-level twins (keep the positioned copy)
+  dedupeContainerTwins(result.elements);
 
   // Sort by y coordinate
   result.elements.sort((a, b) => a.y - b.y);
@@ -800,18 +920,44 @@ export function postProcessAbsoluteResult(result: AbsoluteAnalysisResult): Absol
 }
 
 /**
- * Analyze a screenshot using Claude Vision API (absolute positioning mode)
+ * The Anthropic SDK rejects a non-streaming request whose `max_tokens` could
+ * take longer than 10 minutes (true for our 24000 cap on Sonnet 5). The real
+ * client exposes `.stream()`, so use it and await the final message; test mock
+ * clients only implement `.create()`, so fall back to it there.
  */
-export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, imageHeight, viewportWidth, textMode }: AnalyzeScreenshotParams): Promise<AbsoluteAnalysisResult> {
+async function createMessageStreaming(
+  client: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+): Promise<Anthropic.Message> {
+  const messages = client.messages as unknown as {
+    stream?: (p: Anthropic.MessageCreateParamsNonStreaming) => { finalMessage: () => Promise<Anthropic.Message> };
+    create: (p: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
+  };
+  if (typeof messages.stream === "function") {
+    return messages.stream(params).finalMessage();
+  }
+  return messages.create(params);
+}
+
+/**
+ * Analyze a screenshot using Claude Vision API (absolute positioning mode)
+ *
+ * Model notes (Sonnet 5+): non-default sampling params (`temperature`) are
+ * rejected with a 400, and omitting `thinking` runs adaptive thinking — so we
+ * send no sampling params and pick the first *text* block from the response
+ * (a `thinking` block may precede it).
+ */
+export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, imageHeight, viewportWidth, textMode }: AnalyzeScreenshotParams, feedback?: string): Promise<AbsoluteAnalysisResult> {
   const client = getClient();
-  const model = process.env.AI_MODEL || "claude-sonnet-4-20250514";
+  const model = process.env.AI_MODEL || "claude-sonnet-5";
   const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
   const mediaType = detectMediaType(imageBase64);
 
-  const response = await client.messages.create({
+  const response = await createMessageStreaming(client, {
     model,
-    max_tokens: 12000,
-    temperature: 0.2,
+    // Headroom for dense/tall screenshots plus adaptive-thinking tokens —
+    // max_tokens caps thinking + output combined on Sonnet 5.
+    max_tokens: 24000,
     system: [
       {
         type: "text",
@@ -829,7 +975,7 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
           },
           {
             type: "text",
-            text: buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode }),
+            text: buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode }, feedback),
           },
         ],
       },
@@ -851,23 +997,86 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
       `cache_write=${u.cache_creation_input_tokens ?? 0} output=${u.output_tokens ?? "?"}`
   );
 
-  const firstBlock = response.content[0];
-  if (firstBlock.type !== "text") {
-    throw new Error("Unexpected response content type from Claude API");
+  // A truncated response is unparseable JSON — surface it as a distinct,
+  // non-retryable error instead of a parse crash (the same input would
+  // truncate again on retry).
+  if (response.stop_reason === "max_tokens") {
+    const err: ApiError = new Error("Screenshot analysis output was truncated (max_tokens reached)");
+    err.code = "TRUNCATED";
+    throw err;
   }
-  const parsed = parseJSONFromResponse(firstBlock.text) as AbsoluteAnalysisResult;
+
+  // Adaptive thinking (Sonnet 5 default) may prepend thinking blocks —
+  // locate the first text block rather than assuming content[0].
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("No text block in Claude API response");
+  }
+  const parsed = parseJSONFromResponse(textBlock.text) as AbsoluteAnalysisResult;
   return postProcessAbsoluteResult(parsed);
 }
 
 /**
- * Analyze screenshot (absolute) with retry on validation failure
+ * Linearly scale an absolute analysis result to a target viewport width.
+ *
+ * The AI analyzes the screenshot in its natural coordinate space; per-viewport
+ * frames are then derived mathematically (the prompt only ever asked the
+ * model for the same linear scaling). Returns a deep copy — the source
+ * result is never mutated, so it can be scaled to several viewports.
+ */
+export function scaleAbsoluteResult(result: AbsoluteAnalysisResult, targetWidth: number): AbsoluteAnalysisResult {
+  const clone = structuredClone(result);
+  const sourceWidth = Number(clone.pageWidth) || 0;
+  if (sourceWidth <= 0 || sourceWidth === targetWidth) {
+    clone.pageWidth = targetWidth;
+    return clone;
+  }
+
+  const factor = targetWidth / sourceWidth;
+  // Recursive: child bboxes (card/grid children may carry page coordinates)
+  // and fontSize must scale with the same factor — an unscaled 90px heading
+  // in a 0.7×-scaled box overflows every smaller viewport.
+  const scaleBox = (el: Record<string, unknown>): void => {
+    if (typeof el.x === "number") el.x = Math.round(el.x * factor);
+    if (typeof el.y === "number") el.y = Math.round(el.y * factor);
+    if (typeof el.width === "number") el.width = Math.round(el.width * factor);
+    if (typeof el.height === "number") el.height = Math.round(el.height * factor);
+    if (typeof el.fontSize === "number") {
+      el.fontSize = Math.min(200, Math.max(8, Math.round(el.fontSize * factor)));
+    }
+    for (const key of ["elements", "buttons"] as const) {
+      const kids = el[key];
+      if (Array.isArray(kids)) {
+        for (const kid of kids) {
+          if (kid && typeof kid === "object") scaleBox(kid as Record<string, unknown>);
+        }
+      }
+    }
+  };
+  for (const el of clone.elements || []) {
+    scaleBox(el as unknown as Record<string, unknown>);
+  }
+  clone.pageWidth = targetWidth;
+  if (typeof clone.pageHeight === "number") {
+    clone.pageHeight = Math.round(clone.pageHeight * factor);
+  }
+  return clone;
+}
+
+/**
+ * Analyze screenshot (absolute) with retry on validation failure.
+ *
+ * On a validation failure the retry attempt carries the previous errors back
+ * to the model as feedback. Auth errors (401/403) and truncation (TRUNCATED)
+ * short-circuit — retrying the identical input cannot succeed.
  */
 export async function analyzeScreenshotAbsoluteWithRetry(params: AnalyzeScreenshotParams, maxRetries: number = 1): Promise<AbsoluteAnalysisResult> {
   let lastError: ApiError | ValidationError | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const feedback = (lastError as ValidationError | null)?.validationErrors?.join("\n");
     try {
-      const result = await analyzeScreenshotAbsolute(params);
+      const result = await analyzeScreenshotAbsolute(params, feedback);
       const validation = validateAbsoluteFormat(result);
 
       if (validation.success) {
@@ -883,7 +1092,7 @@ export async function analyzeScreenshotAbsoluteWithRetry(params: AnalyzeScreensh
       console.warn(`[Screenshot Absolute] Attempt ${attempt + 1} error:`, (err as Error).message);
 
       const apiErr = err as ApiError;
-      if (apiErr.status === 401 || apiErr.status === 403) {
+      if (apiErr.status === 401 || apiErr.status === 403 || apiErr.code === "TRUNCATED") {
         throw err;
       }
     }
