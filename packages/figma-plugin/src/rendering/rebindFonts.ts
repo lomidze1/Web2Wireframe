@@ -40,11 +40,40 @@ export const SEGMENT_FONT_PLUGIN_KEY = "w2w_original_font_segments";
  *  "All 30 font(s) already re-applied" rather than "0 / 0"). */
 export const REBOUND_DONE_PLUGIN_KEY = "w2w_rebound_done";
 
+/** Linux server (Render) fallback families. Server-side URL imports used to
+ *  stamp these as rebind markers (CSS.getPlatformFontsForNode on a Linux
+ *  Chromium resolves un-loaded families to them) — but they are never in the
+ *  download ZIP and never what the user wants, so a marker naming them can
+ *  never be satisfied. Conservative list: plain "Noto Sans" (a legitimate
+ *  Google web font) is NOT matched. */
+const SERVER_FALLBACK_PATTERNS = [
+  /^Liberation (Sans|Serif|Mono)/i,
+  /^DejaVu (Sans|Serif)/i,
+  /^Noto (Sans|Serif) CJK/i,
+  /^Noto Color Emoji$/i,
+  /^Free(Sans|Serif|Mono)$/i,
+];
+
+/** True when `family` is a known Linux server fallback (see list above). */
+export function isServerFallbackFamily(family: string): boolean {
+  return SERVER_FALLBACK_PATTERNS.some((p) => p.test(family));
+}
+
+/** One pending text layer in {@link RebindableCount}: enough for the modal
+ *  to render a clickable per-font list ("h1.u-text" → select & zoom). */
+export interface RebindableLayer {
+  id: string;
+  name: string;
+  /** Sorted non-fallback families this layer is still waiting for. */
+  families: string[];
+}
+
 /** Result of {@link countRebindableNodes}: how many text nodes still await a
  *  re-apply, plus the (sorted, de-duped) families they're waiting for. */
 export interface RebindableCount {
   count: number;
   families: string[];
+  layers: RebindableLayer[];
 }
 
 /**
@@ -57,23 +86,28 @@ export interface RebindableCount {
  * TextNodes or lightweight stand-ins.
  */
 export function countRebindableNodes(
-  nodes: Array<Pick<TextNode, "getPluginData">>,
+  nodes: Array<Pick<TextNode, "getPluginData" | "id" | "name">>,
 ): RebindableCount {
   const families = new Set<string>();
+  const layers: RebindableLayer[] = [];
   let count = 0;
   for (const n of nodes) {
     const fam = n.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
     const segJson = n.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
     if (!fam && !segJson) continue;
-    count++;
-    if (fam) families.add(fam);
+    // Server-fallback families (Liberation Sans, Noto * CJK …) are dead
+    // markers — never installable via the ZIP. Exclude them so the footer
+    // badge and modal only advertise families the user can actually act on.
+    const nodeFamilies = new Set<string>();
+    if (fam && !isServerFallbackFamily(fam)) nodeFamilies.add(fam);
     if (segJson) {
       try {
         const parsed: unknown = JSON.parse(segJson);
         if (Array.isArray(parsed)) {
           for (const s of parsed) {
-            if (s && typeof (s as { family?: unknown }).family === "string") {
-              families.add((s as { family: string }).family);
+            const segFam = (s as { family?: unknown } | null)?.family;
+            if (typeof segFam === "string" && !isServerFallbackFamily(segFam)) {
+              nodeFamilies.add(segFam);
             }
           }
         }
@@ -81,8 +115,16 @@ export function countRebindableNodes(
         /* corrupt segment marker — family list stays best-effort */
       }
     }
+    if (nodeFamilies.size === 0) continue; // only dead fallback markers
+    count++;
+    nodeFamilies.forEach((f) => families.add(f));
+    layers.push({
+      id: n.id,
+      name: n.name,
+      families: Array.from(nodeFamilies).sort(),
+    });
   }
-  return { count, families: Array.from(families).sort() };
+  return { count, families: Array.from(families).sort(), layers };
 }
 
 /** Style ladder tried in order when the node's current style isn't available
@@ -267,7 +309,7 @@ export async function rebindOriginalFonts(
     nodeId: string;
     family: string;
     requestedStyle: string;
-    outcome: "rebound" | "stillMissing" | "skippedMixed" | "setFailed";
+    outcome: "rebound" | "stillMissing" | "skippedMixed" | "setFailed" | "healedFallback";
     appliedStyle?: string;
     attemptsTried: number;
     firstError?: string;
@@ -339,6 +381,31 @@ export async function rebindOriginalFonts(
           continue;
         }
 
+        // Dead server-fallback marker (pre-fix server import): if the family
+        // won't load, heal the node instead of reporting it missing forever.
+        if (isServerFallbackFamily(originalFamily)) {
+          const probe = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
+          const probeStyle = await loadFontWithFallback(
+            originalFamily,
+            interRuns[0].fontName.style,
+            probe,
+            installedStyles,
+          );
+          if (probeStyle === null) {
+            node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+            total--;
+            perNode.push({
+              nodeId: node.id,
+              family: originalFamily,
+              requestedStyle: "(mixed:inter-runs)",
+              outcome: "healedFallback",
+              attemptsTried: probe.attempts.length,
+              chars: charsPreview,
+            });
+            continue;
+          }
+        }
+
         const fbTrace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
         let allRunsSet = true;
         for (const r of interRuns) {
@@ -384,6 +451,7 @@ export async function rebindOriginalFonts(
 
       const segTrace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
       let allRunsSet = true;
+      let anyRunSet = false;
       for (const s of segs) {
         if (
           typeof s.start !== "number" ||
@@ -404,16 +472,37 @@ export async function rebindOriginalFonts(
         }
         const loaded = await loadFontWithFallback(s.family, curStyle, segTrace, installedStyles);
         if (loaded === null) {
+          // Dead server-fallback run (pre-fix server import) — heal by
+          // ignoring it; the marker clears below if nothing real failed.
+          if (isServerFallbackFamily(s.family)) continue;
           allRunsSet = false;
           stillMissing.add(s.family);
           continue;
         }
         try {
           node.setRangeFontName(s.start, s.end, { family: s.family, style: loaded });
+          anyRunSet = true;
         } catch {
           allRunsSet = false;
           stillMissing.add(s.family);
         }
+      }
+
+      if (allRunsSet && !anyRunSet) {
+        // Every run was a healed server-fallback — clear the dead markers
+        // without claiming a rebind (nothing was actually swapped).
+        node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+        node.setPluginData(SEGMENT_FONT_PLUGIN_KEY, "");
+        total--;
+        perNode.push({
+          nodeId: node.id,
+          family: originalFamily || segs.map((s) => s.family).join(", "),
+          requestedStyle: "(mixed)",
+          outcome: "healedFallback",
+          attemptsTried: segTrace.attempts.length,
+          chars: charsPreview,
+        });
+        continue;
       }
 
       if (allRunsSet) {
@@ -454,6 +543,22 @@ export async function rebindOriginalFonts(
     const loadedStyle = await loadFontWithFallback(originalFamily, currentStyle, trace, installedStyles);
 
     if (loadedStyle === null) {
+      // Self-heal: a server-fallback family (Liberation Sans, Noto * CJK …)
+      // that fails to load is a dead marker from a pre-fix server import —
+      // clear it silently instead of reporting an un-installable family.
+      if (isServerFallbackFamily(originalFamily)) {
+        node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+        total--;
+        perNode.push({
+          nodeId: node.id,
+          family: originalFamily,
+          requestedStyle: currentStyle,
+          outcome: "healedFallback",
+          attemptsTried: trace.attempts.length,
+          chars: charsPreview,
+        });
+        continue;
+      }
       stillMissing.add(originalFamily);
       perNode.push({
         nodeId: node.id,

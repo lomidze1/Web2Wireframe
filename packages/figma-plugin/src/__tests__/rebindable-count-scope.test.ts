@@ -11,8 +11,10 @@ import {
   SEGMENT_FONT_PLUGIN_KEY,
 } from "../rendering/rebindFonts";
 
-/** Minimal stand-in for a TextNode: only getPluginData is consulted. */
-const node = (data: Record<string, string>) => ({
+/** Minimal stand-in for a TextNode: getPluginData + id/name (for the layer list). */
+const node = (data: Record<string, string>, id = "n1", name = "Text") => ({
+  id,
+  name,
   getPluginData: (key: string) => data[key] ?? "",
 });
 
@@ -42,7 +44,31 @@ describe("countRebindableNodes", () => {
     expect(countRebindableNodes([node({}), node({})])).toEqual({
       count: 0,
       families: [],
+      layers: [],
     });
+  });
+
+  it("collects per-layer info (id, name, waited-for families) for the modal list", () => {
+    const seg = JSON.stringify([{ start: 0, end: 3, family: "Newsreader" }]);
+    const nodes = [
+      node({ [ORIGINAL_FONT_PLUGIN_KEY]: "SF Pro Text" }, "1:1", "h1.u-text"),
+      node({ [ORIGINAL_FONT_PLUGIN_KEY]: "SF Pro Text", [SEGMENT_FONT_PLUGIN_KEY]: seg }, "1:2", "p.description"),
+      node({}, "1:3", "unmarked"),
+    ];
+    const out = countRebindableNodes(nodes);
+    expect(out.layers).toEqual([
+      { id: "1:1", name: "h1.u-text", families: ["SF Pro Text"] },
+      { id: "1:2", name: "p.description", families: ["Newsreader", "SF Pro Text"] },
+    ]);
+  });
+
+  it("omits server-fallback families from layer info", () => {
+    const nodes = [
+      node({ [ORIGINAL_FONT_PLUGIN_KEY]: "Liberation Sans" }, "1:1", "dead"),
+      node({ [ORIGINAL_FONT_PLUGIN_KEY]: "Söhne" }, "1:2", "real"),
+    ];
+    const out = countRebindableNodes(nodes);
+    expect(out.layers).toEqual([{ id: "1:2", name: "real", families: ["Söhne"] }]);
   });
 
   it("dedupes and sorts the family list", () => {

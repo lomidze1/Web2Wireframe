@@ -4,6 +4,13 @@ import styles from "./Modal.css";
 import local from "./RebindFontsModal.css";
 import { useModal } from "../../hooks/useModal";
 
+/** One pending text layer (mirrors `RebindableLayer` from the sandbox). */
+export interface RebindLayerInfo {
+  id: string;
+  name: string;
+  families: string[];
+}
+
 interface RebindFontsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -15,6 +22,11 @@ interface RebindFontsModalProps {
   /** Families those layers are waiting for (from the sandbox's
    *  `rebindable-count` message). */
   missingFonts: string[];
+  /** Per-layer detail for the collapsible per-font list. Optional — without
+   *  it the modal falls back to the plain "Waiting for:" line. */
+  layers?: RebindLayerInfo[];
+  /** Fires when a layer row is clicked — the sandbox selects & zooms to it. */
+  onSelectLayer?: (id: string) => void;
   /** Fires the actual `rebind-original-fonts` action. */
   onReapply: () => void;
 }
@@ -31,6 +43,8 @@ export default function RebindFontsModal({
   count,
   selectionCount = 0,
   missingFonts,
+  layers = [],
+  onSelectLayer,
   onReapply,
 }: RebindFontsModalProps) {
   const { modalRef } = useModal({ isOpen, onClose });
@@ -38,6 +52,7 @@ export default function RebindFontsModal({
 
   const layerWord = count === 1 ? "text layer" : "text layers";
   const scopedToSelection = selectionCount > 0;
+  const showLayerList = missingFonts.length > 0 && layers.length > 0;
 
   return (
     <div class={styles.modalOverlay} onClick={onClose}>
@@ -73,10 +88,44 @@ export default function RebindFontsModal({
               <div class={local.rebindCount}>
                 <em>{count}</em> {layerWord} still showing Inter
               </div>
-              {missingFonts.length > 0 && (
-                <div class={local.rebindFontList}>
-                  Waiting for: <strong>{missingFonts.join(", ")}</strong>
+              {showLayerList ? (
+                <div class={styles.accordionList}>
+                  {missingFonts.map((family) => {
+                    const familyLayers = layers.filter((l) =>
+                      l.families.includes(family),
+                    );
+                    if (familyLayers.length === 0) return null;
+                    return (
+                      <details key={family} class={styles.accordion}>
+                        <summary>
+                          {family}
+                          <span class={local.rebindLayerCount}>
+                            {familyLayers.length}
+                          </span>
+                        </summary>
+                        <div class={styles.accordionContent}>
+                          {familyLayers.map((l) => (
+                            <button
+                              key={l.id}
+                              type="button"
+                              class={local.rebindLayerRow}
+                              onClick={() => onSelectLayer?.(l.id)}
+                              title="Select and zoom to this layer"
+                            >
+                              {l.name}
+                            </button>
+                          ))}
+                        </div>
+                      </details>
+                    );
+                  })}
                 </div>
+              ) : (
+                missingFonts.length > 0 && (
+                  <div class={local.rebindFontList}>
+                    Waiting for: <strong>{missingFonts.join(", ")}</strong>
+                  </div>
+                )
               )}
               {scopedToSelection && (
                 <div class={local.rebindFontList}>

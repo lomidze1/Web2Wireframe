@@ -291,4 +291,23 @@ describe("createTextNode — w2w_original_font pluginData marker", () => {
     expect(textNode).not.toBeNull();
     expect(textNode!.getPluginData("w2w_original_font")).toBe("Font Awesome 6 Brands");
   });
+
+  it("does NOT write the marker for Linux server fallback families", async () => {
+    // Server-side URL imports (Linux Chromium) used to send system fallback
+    // families like "Liberation Sans" as the node's font. They are never in
+    // the download ZIP — a marker would strand Re-apply forever.
+    unavailableFonts.add("Liberation Sans");
+
+    const node = makeNode({ fontFamily: "Liberation Sans", textContent: "Hello" });
+    const context = makeContext({
+      fontMode: "website",
+      fontFamily: "Inter",
+      fontMapping: { "Liberation Sans": "Inter" },
+    });
+
+    const textNode = await createTextNode(node, "Inter", context);
+
+    expect(textNode).not.toBeNull();
+    expect(textNode!.getPluginData("w2w_original_font")).toBe("");
+  });
 });

@@ -108,3 +108,62 @@ describe("RebindFontsModal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("RebindFontsModal — per-font layer list", () => {
+  const layers = [
+    { id: "1:1", name: "h1.u-text", families: ["Liberation Sans"] },
+    { id: "1:2", name: "p.description", families: ["Liberation Sans", "Noto Sans CJK JP"] },
+    { id: "1:3", name: "span.badge", families: ["Noto Sans CJK JP"] },
+  ];
+
+  it("groups layers under a collapsible entry per waiting font", () => {
+    const { getByText, getAllByRole } = render(
+      <RebindFontsModal
+        isOpen={true}
+        onClose={() => {}}
+        count={3}
+        missingFonts={["Liberation Sans", "Noto Sans CJK JP"]}
+        layers={layers}
+        onSelectLayer={() => {}}
+        onReapply={() => {}}
+      />,
+    );
+    // Family headers with per-family counts
+    expect(getByText("Liberation Sans")).toBeTruthy();
+    expect(getByText("Noto Sans CJK JP")).toBeTruthy();
+    // A layer waiting on both families appears under both groups
+    const rows = getAllByRole("button", { name: /p\.description/ });
+    expect(rows.length).toBe(2);
+  });
+
+  it("fires onSelectLayer with the layer id when a row is clicked", () => {
+    const onSelectLayer = vi.fn();
+    const { getAllByRole } = render(
+      <RebindFontsModal
+        isOpen={true}
+        onClose={() => {}}
+        count={3}
+        missingFonts={["Liberation Sans", "Noto Sans CJK JP"]}
+        layers={layers}
+        onSelectLayer={onSelectLayer}
+        onReapply={() => {}}
+      />,
+    );
+    fireEvent.click(getAllByRole("button", { name: /h1\.u-text/ })[0]);
+    expect(onSelectLayer).toHaveBeenCalledWith("1:1");
+  });
+
+  it("falls back to the plain Waiting-for line when no layer data is supplied", () => {
+    const { getByText } = render(
+      <RebindFontsModal
+        isOpen={true}
+        onClose={() => {}}
+        count={5}
+        missingFonts={["SF Pro Text"]}
+        onReapply={() => {}}
+      />,
+    );
+    expect(getByText(/Waiting for:/)).toBeTruthy();
+    expect(getByText("SF Pro Text")).toBeTruthy();
+  });
+});

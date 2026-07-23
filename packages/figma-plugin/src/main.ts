@@ -101,7 +101,14 @@ export default function () {
 
       figma.ui.postMessage({
         type: "rebindable-count",
-        data: { count: page.count, families: page.families, selectionCount },
+        data: {
+          count: page.count,
+          families: page.families,
+          selectionCount,
+          // Per-layer detail so the modal can render a clickable per-font
+          // list ("h1.u-text" → select & zoom).
+          layers: page.layers,
+        },
       });
     } catch {
       // Page scan can fail on unusual/huge docs — non-fatal, just skip.
@@ -141,6 +148,27 @@ export default function () {
     // UI asks how many text nodes still need their original font re-applied.
     if (msg.type === "count-rebindable-fonts") {
       postRebindableCount();
+      return;
+    }
+    // A layer row in the Re-apply modal was clicked — select it on canvas and
+    // bring it into view so the user sees which element the font refers to.
+    if (msg.type === "select-rebind-layer") {
+      const nodeId: unknown = msg.data?.nodeId;
+      if (typeof nodeId !== "string") return;
+      try {
+        const node =
+          typeof figma.getNodeByIdAsync === "function"
+            ? await figma.getNodeByIdAsync(nodeId)
+            : figma.getNodeById(nodeId);
+        if (node && node.type === "TEXT") {
+          figma.currentPage.selection = [node as SceneNode];
+          figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
+        } else {
+          figma.notify("Layer no longer exists");
+        }
+      } catch {
+        figma.notify("Layer no longer exists");
+      }
       return;
     }
     // Handle font fallback choice from popup
@@ -924,6 +952,19 @@ export default function () {
         const fontUsage = collectFontUsage(frames);
         const { missing, missingCuts } = await checkFontsAvailability(allFonts, fontUsage);
         const partialFamilies = Object.keys(missingCuts);
+        // Diagnostic: why does (or doesn't) the font modal appear — which
+        // families/cuts the page wants vs what Figma reports as installed.
+        logger.info("Font availability check", {
+          allFonts: Array.from(allFonts),
+          usage: Object.fromEntries(
+            Array.from(fontUsage.entries()).map(([fam, cuts]) => [
+              fam,
+              cuts.map((c) => `${c.weight}${c.italic ? "i" : ""}`),
+            ]),
+          ),
+          missing,
+          missingCuts,
+        });
 
         if (missing.length > 0 || partialFamilies.length > 0) {
           // Auto-resolve: a "missing" CSS family may already be installed under

@@ -56,6 +56,40 @@
   font-weight: 700;
 }
 
+/* Per-family layer count badge inside the accordion summary. */
+.rebindLayerCount {
+  margin-left: auto;
+  margin-right: 6px;
+  font-size: var(--font-sm);
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Clickable layer row — click selects & zooms to the layer on canvas. */
+.rebindLayerRow {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 6px;
+  margin: 2px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-family: var(--font-mono, monospace);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.rebindLayerRow:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
 /* Steps — readable, not fine print. */
 .rebindSteps {
   margin: 0;

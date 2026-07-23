@@ -163,6 +163,11 @@ function AppContent() {
   // selection. Drives the footer button's scoped "Re-apply to selection" label;
   // the sandbox's rebind action already honours the same selection-or-page scope.
   const [selectionRebindableCount, setSelectionRebindableCount] = useState(0);
+  // Per-layer detail for the modal's collapsible per-font list — each entry
+  // is { id, name, families }; clicking a row selects & zooms to the layer.
+  const [rebindableLayers, setRebindableLayers] = useState<
+    Array<{ id: string; name: string; families: string[] }>
+  >([]);
   const [isRebindOpen, setIsRebindOpen] = useState(false);
   const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
     number | null
@@ -191,6 +196,18 @@ function AppContent() {
       const selectionCount = msg.data?.selectionCount;
       setSelectionRebindableCount(
         typeof selectionCount === "number" ? selectionCount : 0,
+      );
+      const layers = msg.data?.layers;
+      setRebindableLayers(
+        Array.isArray(layers)
+          ? layers.filter(
+              (l): l is { id: string; name: string; families: string[] } =>
+                !!l &&
+                typeof l.id === "string" &&
+                typeof l.name === "string" &&
+                Array.isArray(l.families),
+            )
+          : [],
       );
     };
     window.addEventListener("message", handler);
@@ -360,6 +377,16 @@ function AppContent() {
       count={rebindableCount}
       selectionCount={selectionRebindableCount}
       missingFonts={rebindableFamilies}
+      layers={rebindableLayers}
+      onSelectLayer={(id) => {
+        // Sandbox selects the layer and zooms the viewport to it, so the
+        // user sees exactly which element the pending font refers to. The
+        // modal stays open for browsing several layers in a row.
+        parent.postMessage(
+          { pluginMessage: { type: "select-rebind-layer", data: { nodeId: id } } },
+          "*",
+        );
+      }}
       onReapply={() => {
         // Sandbox handles `rebind-original-fonts`: walks selection (or page
         // if empty), re-applies any text node that carries the

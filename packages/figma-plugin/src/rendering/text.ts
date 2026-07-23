@@ -215,6 +215,7 @@ import {
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
 import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, isItalicStyle, orderStylesByProximity } from "./styles";
 import { isIconFont, stripFontStyleSuffix } from "../utils/fontUtils";
+import { isServerFallbackFamily } from "./rebindFonts";
 
 /** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
 const ICON_FONT_EXTRA_STYLES = ["Solid", "Brands", "Regular", "Bold", "Light", "Thin"];
@@ -824,7 +825,10 @@ export async function createTextNode(
     usedFontFamily !== node.fontFamily
   ) {
     const markerName = context.originalFontNames?.[node.fontFamily] || node.fontFamily;
-    if (markerName && markerName !== usedFontFamily) {
+    // No marker for Linux server fallback families (Liberation Sans,
+    // Noto * CJK …) — they're never in the download ZIP, so a marker naming
+    // them would strand the Re-apply modal on an un-installable font.
+    if (markerName && markerName !== usedFontFamily && !isServerFallbackFamily(markerName)) {
       try {
         textNode.setPluginData("w2w_original_font", markerName);
       } catch {
@@ -1161,7 +1165,14 @@ export async function createTextNode(
         const segMarker = segOriginalCss
           ? context.originalFontNames?.[segOriginalCss] || segOriginalCss
           : undefined;
-        if (segMarker && resolvedSegFont !== segMarker && resolvedSegFont !== segOriginalCss) {
+        if (
+          segMarker &&
+          resolvedSegFont !== segMarker &&
+          resolvedSegFont !== segOriginalCss &&
+          // Same rule as the node-level marker: server fallback families are
+          // never installable — recording them would strand Re-apply.
+          !isServerFallbackFamily(segMarker)
+        ) {
           substitutedSegments.push({ start: startIdx, end: endIdx, family: segMarker });
         }
       }
