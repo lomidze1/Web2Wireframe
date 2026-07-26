@@ -44,7 +44,7 @@ vi.mock("../src/lib/wireframeConverter.js", async (importOriginal) => {
 
 // Bypass quota gate — counter enforcement is covered elsewhere.
 vi.mock("../src/middleware/licenseGate.js", () => ({
-  requireImportAllowance: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireImportAllowance: () => (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 // Fixed authenticated identity.

@@ -1,5 +1,6 @@
 /** @jsx h */
 import { h } from "preact";
+import { useRef, useEffect } from "preact/hooks";
 import { VIEWPORT_OPTIONS } from "../../shared/ConfigContext";
 
 export interface SettingsPanelStyles {
@@ -9,11 +10,16 @@ export interface SettingsPanelStyles {
   checkboxGroup: string;
   checkboxItem: string;
   checked: string;
+  segmentGroup: string;
+  segmentItem: string;
+  segmentActive: string;
+  segmentDisabled: string;
   collapseToggle: string;
   active?: string;
   collapseArrow: string;
   expanded?: string;
   collapsibleContent: string;
+  settingsHint: string;
   dropdown: string;
   settingsFooter: string;
   configureBtn: string;
@@ -107,10 +113,59 @@ export interface SettingsPanelProps {
   hideViewports?: boolean;
 }
 
+interface SegmentOption<T extends string> {
+  value: T;
+  label: string;
+  disabled?: boolean;
+  tooltip?: string;
+}
+
+/**
+ * Inline single-select segmented control for 2-option settings.
+ * Reuses the viewport pill visual language (`styles.checked` = teal highlight).
+ */
+function SegmentedToggle<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+  styles,
+}: {
+  value: T;
+  options: SegmentOption<T>[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+  styles: SettingsPanelStyles;
+}) {
+  return (
+    <div class={styles.segmentGroup} role="radiogroup" aria-label={ariaLabel}>
+      {options.map((opt) => {
+        const isActive = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            disabled={opt.disabled}
+            title={opt.disabled ? opt.tooltip : undefined}
+            class={`${styles.segmentItem} ${
+              isActive ? styles.segmentActive : ""
+            } ${opt.disabled ? styles.segmentDisabled : ""}`}
+            onClick={() => !opt.disabled && onChange(opt.value)}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Shared SettingsPanel component that renders:
  * - Viewports multi-select checkboxes
- * - More Options collapsible section with Colors/Fonts/Text dropdowns
+ * - More Options collapsible section with Colors/Fonts/Text/Assets/etc. settings
  * - Footer with Config and Reset buttons
  *
  * Used by Web.tsx, Screenshot.tsx, HTML.tsx
@@ -155,6 +210,21 @@ export default function SettingsPanel({
   interactionsDisabledTooltip,
   hideViewports,
 }: SettingsPanelProps) {
+  // When the section is opened, bring the whole options block into view so it
+  // isn't left cut off below the fold. Only fires on the collapsed→expanded
+  // transition, never on initial mount.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const prevExpanded = useRef(isExpanded);
+  useEffect(() => {
+    if (isExpanded && !prevExpanded.current) {
+      contentRef.current?.scrollIntoView?.({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+    prevExpanded.current = isExpanded;
+  }, [isExpanded]);
+
   return (
     <div class={containerClassName || styles.settingsBox}>
       {/* Viewports - Multi-select (hidden when hideViewports is true) */}
@@ -201,27 +271,34 @@ export default function SettingsPanel({
         </span>
       </button>
 
+      {/* Advertises the options while collapsed; once expanded the options are
+          visible so the hint is redundant and only adds clutter. */}
+      {!isExpanded && (
+        <p class={styles.settingsHint}>
+          💡 Try different settings — colors, fonts and assets change the result
+          a lot.
+        </p>
+      )}
+
       {/* Collapsible Content */}
       {isExpanded && (
-        <div class={styles.collapsibleContent}>
+        <div class={styles.collapsibleContent} ref={contentRef}>
           {/* Colors */}
           <div class={styles.settingRow}>
             <div class={styles.settingLabel}>
               <span>🎨</span>
               <span>Colors</span>
             </div>
-            <select
-              class={styles.dropdown}
+            <SegmentedToggle
+              ariaLabel="Colors"
+              styles={styles}
               value={localColorMode}
-              onChange={(e) =>
-                setColorMode(
-                  (e.target as HTMLSelectElement).value as "plugin" | "website"
-                )
-              }
-            >
-              <option value="plugin">Plugin Colors</option>
-              <option value="website">{colorWebsiteLabel || "Website Colors"}</option>
-            </select>
+              onChange={setColorMode}
+              options={[
+                { value: "website", label: colorWebsiteLabel || "Website" },
+                { value: "plugin", label: "Plugin" },
+              ]}
+            />
           </div>
 
           {/* Fonts */}
@@ -230,25 +307,22 @@ export default function SettingsPanel({
               <span>🔤</span>
               <span>Fonts</span>
             </div>
-            <select
-              class={styles.dropdown}
+            <SegmentedToggle
+              ariaLabel="Fonts"
+              styles={styles}
               value={localFontMode}
-              onChange={(e) =>
-                setFontMode(
-                  (e.target as HTMLSelectElement).value as "plugin" | "website" | "lines"
-                )
-              }
-            >
-              <option value="plugin">Plugin Fonts</option>
-              <option
-                value="website"
-                disabled={disableFontWebsiteOption}
-                title={disableFontWebsiteOption ? fontDisabledTooltip : undefined}
-              >
-                {fontWebsiteLabel || "Website Fonts"}
-              </option>
-              <option value="lines">Wireframe Lines</option>
-            </select>
+              onChange={setFontMode}
+              options={[
+                {
+                  value: "website",
+                  label: fontWebsiteLabel || "Website",
+                  disabled: disableFontWebsiteOption,
+                  tooltip: fontDisabledTooltip,
+                },
+                { value: "plugin", label: "Plugin" },
+                { value: "lines", label: "Wireframe" },
+              ]}
+            />
           </div>
 
           {/* Text */}
@@ -257,28 +331,22 @@ export default function SettingsPanel({
               <span>📝</span>
               <span>Text</span>
             </div>
-            <select
-              class={styles.dropdown}
+            <SegmentedToggle
+              ariaLabel="Text"
+              styles={styles}
               value={localTextMode}
-              onChange={(e) =>
-                setTextMode(
-                  (e.target as HTMLSelectElement).value as
-                    | "semantic"
-                    | "lorem"
-                    | "website"
-                )
-              }
-            >
-              <option
-                value="semantic"
-                disabled={disableSemanticOption}
-                title={disableSemanticOption ? semanticDisabledTooltip : undefined}
-              >
-                Semantic Placeholders
-              </option>
-              <option value="lorem">Lorem Ipsum</option>
-              <option value="website">{textWebsiteLabel || "Website Text"}</option>
-            </select>
+              onChange={setTextMode}
+              options={[
+                { value: "website", label: textWebsiteLabel || "Website" },
+                {
+                  value: "semantic",
+                  label: "Smart",
+                  disabled: disableSemanticOption,
+                  tooltip: semanticDisabledTooltip,
+                },
+                { value: "lorem", label: "Lorem" },
+              ]}
+            />
           </div>
 
           {/* Assets */}
@@ -288,26 +356,21 @@ export default function SettingsPanel({
                 <span>🖼️</span>
                 <span>Assets</span>
               </div>
-              <select
-                class={styles.dropdown}
+              <SegmentedToggle
+                ariaLabel="Assets"
+                styles={styles}
                 value={localAssetMode || "placeholders"}
-                onChange={(e) =>
-                  setAssetMode(
-                    (e.target as HTMLSelectElement).value as
-                      | "placeholders"
-                      | "realAssets"
-                  )
-                }
-              >
-                <option value="placeholders">Plugin Placeholders</option>
-                <option
-                  value="realAssets"
-                  disabled={disableRealAssetsOption}
-                  title={disableRealAssetsOption ? assetsDisabledTooltip : undefined}
-                >
-                  Real Assets
-                </option>
-              </select>
+                onChange={setAssetMode}
+                options={[
+                  { value: "placeholders", label: "Placeholders" },
+                  {
+                    value: "realAssets",
+                    label: "Real Assets",
+                    disabled: disableRealAssetsOption,
+                    tooltip: assetsDisabledTooltip,
+                  },
+                ]}
+              />
             </div>
           )}
 
@@ -318,18 +381,16 @@ export default function SettingsPanel({
                 <span>🎯</span>
                 <span>CSS Variables</span>
               </div>
-              <select
-                class={styles.dropdown}
+              <SegmentedToggle
+                ariaLabel="CSS Variables"
+                styles={styles}
                 value={localCssVariablesMode || "direct"}
-                onChange={(e) =>
-                  setCssVariablesMode(
-                    (e.target as HTMLSelectElement).value as "styles" | "direct"
-                  )
-                }
-              >
-                <option value="direct">Direct Value</option>
-                <option value="styles">Create Figma Styles</option>
-              </select>
+                onChange={setCssVariablesMode}
+                options={[
+                  { value: "direct", label: "Direct" },
+                  { value: "styles", label: "Figma Styles" },
+                ]}
+              />
             </div>
           )}
 
@@ -340,26 +401,21 @@ export default function SettingsPanel({
                 <span aria-hidden="true">📐</span>
                 <span>Layout Mode</span>
               </div>
-              <select
-                class={styles.dropdown}
+              <SegmentedToggle
+                ariaLabel="Layout Mode"
+                styles={styles}
                 value={localLayoutMode || "autoLayout"}
-                onChange={(e) =>
-                  setLayoutMode(
-                    (e.target as HTMLSelectElement).value as
-                      | "autoLayout"
-                      | "absolute"
-                  )
-                }
-              >
-                <option
-                  value="autoLayout"
-                  disabled={disableAutoLayoutOption}
-                  title={disableAutoLayoutOption ? layoutDisabledTooltip : undefined}
-                >
-                  Auto Layout
-                </option>
-                <option value="absolute">Absolute (Pixel-perfect)</option>
-              </select>
+                onChange={setLayoutMode}
+                options={[
+                  {
+                    value: "autoLayout",
+                    label: "Auto Layout",
+                    disabled: disableAutoLayoutOption,
+                    tooltip: layoutDisabledTooltip,
+                  },
+                  { value: "absolute", label: "Absolute" },
+                ]}
+              />
             </div>
           )}
 

@@ -138,13 +138,21 @@ describe("css-converter parseStrokes — per-side borders", () => {
     expect(node.strokes ?? []).toEqual([]);
   });
 
-  it("skips sides with transparent color", () => {
+  it("keeps transparent sides as zero-opacity strokes (h2d parity, 2026-07-21)", () => {
+    // Transparent borders still occupy CSS layout space (nicepage gutter:
+    // `border: 10px solid transparent`). They render as zero-opacity strokes
+    // so the website's truth stays inspectable; invisibleBorderInsets() adds
+    // the layout space as padding.
     const node = convert({
       borderBottomWidth: "1px",
       borderBottomColor: "rgba(0, 0, 0, 0)",
       borderBottomStyle: "solid",
     });
-    expect(node.strokes ?? []).toEqual([]);
+    expect(node.strokes).toHaveLength(1);
+    expect(node.strokes![0].color.a).toBe(0);
+    expect(node.strokes![0].weight).toBe(1);
+    expect(node.strokes![0].sides?.bottom).toBe(true);
+    expect(node.padding?.bottom).toBe(1);
   });
 
   it("falls back to shorthand borderWidth/borderColor/borderStyle when no per-side", () => {

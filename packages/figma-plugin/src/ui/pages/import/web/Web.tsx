@@ -17,6 +17,7 @@ import { validateUrl } from "../../../../utils/urlValidation";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
+import type { FontCut } from "../../../../utils/fontUtils";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -68,6 +69,9 @@ export default function Web() {
     defaultMapping: Record<string, string>;
     pluginFont: string;
     pluginFontOptions: string[];
+    /** Per family, the cuts the page needs but Figma lacks — narrows the
+     *  download ZIP to just those files. */
+    missingCuts?: Record<string, FontCut[]>;
   } | null>(null);
   const [extractedFonts, setExtractedFonts] = useState<unknown[]>([]);
 
@@ -466,7 +470,7 @@ export default function Web() {
         defaultMapping={fontModalData?.defaultMapping || {}}
         pluginFont={fontModalData?.pluginFont || "Montserrat"}
         pluginFontOptions={fontModalData?.pluginFontOptions || []}
-        fontDownloads={buildFontDownloads(fontModalData?.missingFonts || [], extractedFonts)}
+        fontDownloads={buildFontDownloads(fontModalData?.missingFonts || [], extractedFonts, fontModalData?.missingCuts)}
         extractedFonts={extractedFonts as Array<{ family: string; style?: string; weight?: string; format?: string; src?: string; fontBase64?: string; fontMimeType?: string }>}
         onChoice={handleFontFallbackChoice}
       />

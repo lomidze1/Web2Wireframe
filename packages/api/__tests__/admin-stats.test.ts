@@ -5,8 +5,10 @@ import request from "supertest";
 const mockLicenseCount = vi.fn();
 const mockLicenseFind = vi.fn();
 const mockWebhookCount = vi.fn();
+const mockWebhookAggregate = vi.fn();
 const mockAuditCount = vi.fn();
 const mockImportEventFind = vi.fn();
+const mockImportEventDistinct = vi.fn();
 
 vi.mock("../src/models/License.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/models/License.js")>();
@@ -20,7 +22,10 @@ vi.mock("../src/models/License.js", async (importOriginal) => {
 });
 
 vi.mock("../src/models/WebhookEvent.js", () => ({
-  WebhookEvent: { countDocuments: (...args: unknown[]) => mockWebhookCount(...args) },
+  WebhookEvent: {
+    countDocuments: (...args: unknown[]) => mockWebhookCount(...args),
+    aggregate: (...args: unknown[]) => mockWebhookAggregate(...args),
+  },
 }));
 
 vi.mock("../src/models/LicenseAudit.js", () => ({
@@ -28,7 +33,10 @@ vi.mock("../src/models/LicenseAudit.js", () => ({
 }));
 
 vi.mock("../src/models/ImportEvent.js", () => ({
-  ImportEvent: { find: (...args: unknown[]) => mockImportEventFind(...args) },
+  ImportEvent: {
+    find: (...args: unknown[]) => mockImportEventFind(...args),
+    distinct: (...args: unknown[]) => mockImportEventDistinct(...args),
+  },
 }));
 
 const { default: statsRouter } = await import(
@@ -49,8 +57,13 @@ beforeEach(() => {
   mockLicenseCount.mockReset();
   mockLicenseFind.mockReset();
   mockWebhookCount.mockReset();
+  mockWebhookAggregate.mockReset();
+  // Default: no revenue rows → every amount sum resolves to 0. Tests that
+  // assert revenue override this via primeCounts' *Cents fields.
+  mockWebhookAggregate.mockResolvedValue([]);
   mockAuditCount.mockReset();
   mockImportEventFind.mockReset();
+  mockImportEventDistinct.mockReset();
   // Default: the roster query (License.find(...).sort(...).lean()) resolves to
   // an empty list. Tests that care about the users table override this.
   primeUserList([]);
@@ -79,10 +92,11 @@ function primeRecentImports(rows: unknown[]): void {
 }
 
 /**
- * Helper — primes all 13 countDocuments calls with the supplied values.
+ * Helper — primes all the aggregate queries with the supplied values.
  * Order matters; mirrors the Promise.all in stats.ts.
  *
- * License counts (7):  totalUsers, pro, free, canceled, new7d, new30d, active30d
+ * License counts (6):  totalUsers, pro, free, canceled, new7d, new30d
+ * ImportEvent.distinct (1): active30d — distinct importers in last 30d
  * WebhookEvent counts (4): approved30d, approved7d, declined7d, reversed30d
  * LicenseAudit counts (2): proActivations30d, refunds30d
  */
@@ -100,6 +114,11 @@ function primeCounts(opts: {
   reversed30d?: number;
   proActivations30d?: number;
   refunds30d?: number;
+  // Summed real charge cents (from WebhookEvent.amountCents). Distinct from the
+  // *count* fields above: gross revenue is a sum of dollars, not charges×$16.
+  grossCents30d?: number;
+  refundedCents30d?: number;
+  grossCents7d?: number;
 } = {}): void {
   mockLicenseCount
     .mockResolvedValueOnce(opts.totalUsers ?? 0)
@@ -107,13 +126,23 @@ function primeCounts(opts: {
     .mockResolvedValueOnce(opts.free ?? 0)
     .mockResolvedValueOnce(opts.canceled ?? 0)
     .mockResolvedValueOnce(opts.new7d ?? 0)
-    .mockResolvedValueOnce(opts.new30d ?? 0)
-    .mockResolvedValueOnce(opts.active30d ?? 0);
+    .mockResolvedValueOnce(opts.new30d ?? 0);
+  // active30d comes from ImportEvent.distinct — an array of user ids whose
+  // length is the metric.
+  mockImportEventDistinct.mockResolvedValueOnce(
+    Array.from({ length: opts.active30d ?? 0 }, (_, i) => `user-${i}`),
+  );
   mockWebhookCount
     .mockResolvedValueOnce(opts.approved30d ?? 0)
     .mockResolvedValueOnce(opts.approved7d ?? 0)
     .mockResolvedValueOnce(opts.declined7d ?? 0)
     .mockResolvedValueOnce(opts.reversed30d ?? 0);
+  // Aggregate order mirrors the Promise.all in stats.ts: approved-30d,
+  // reversed-30d, approved-7d. Each resolves to the [{ cents }] shape.
+  mockWebhookAggregate
+    .mockResolvedValueOnce([{ cents: opts.grossCents30d ?? 0 }])
+    .mockResolvedValueOnce([{ cents: opts.refundedCents30d ?? 0 }])
+    .mockResolvedValueOnce([{ cents: opts.grossCents7d ?? 0 }]);
   mockAuditCount
     .mockResolvedValueOnce(opts.proActivations30d ?? 0)
     .mockResolvedValueOnce(opts.refunds30d ?? 0);
@@ -164,15 +193,48 @@ describe("GET /api/admin/stats — response shape", () => {
     expect(res.body).toHaveProperty("generatedAt");
   });
 
-  it("computes net revenue = gross - refunded (30 days)", async () => {
+  it("computes net revenue = gross - refunded from summed charge amounts", async () => {
     primeCounts({
-      approved30d: 10, // 10 × $16 = $160 gross
-      reversed30d: 2, // 2 × $16 = $32 refunded
+      grossCents30d: 16000, // real summed approved cents
+      refundedCents30d: 3200, // real summed reversed cents
     });
     const res = await request(makeApp()).get("/api/admin/stats");
     expect(res.body.revenue.gross30dCents).toBe(16000);
     expect(res.body.revenue.refunded30dCents).toBe(3200);
     expect(res.body.revenue.net30dCents).toBe(12800);
+  });
+
+  it("counts a yearly charge at its real price, not as monthly ($16)", async () => {
+    // The whole point of the fix: one yearly + one monthly charge is
+    // $144 + $16 = $160 gross — the old count×$16 math booked it as $32.
+    primeCounts({
+      approved30d: 2, // two charges (count, for the label)
+      grossCents30d: 16000, // 14400 + 1600 summed real cents
+    });
+    const res = await request(makeApp()).get("/api/admin/stats");
+    expect(res.body.revenue.gross30dCents).toBe(16000);
+    expect(res.body.revenue.approved30d).toBe(2);
+  });
+
+  it("exposes gross7dCents so the 'Last 7 days' card sums real amounts", async () => {
+    primeCounts({ approved7d: 1, grossCents7d: 14400 });
+    const res = await request(makeApp()).get("/api/admin/stats");
+    expect(res.body.revenue.gross7dCents).toBe(14400);
+  });
+
+  it("computes active30d as distinct users with an ImportEvent in the window", async () => {
+    // Regression: this used to count `usage.periodStartedAt >= last30d`, which
+    // only moves on billing-cycle resets — a user importing daily but whose
+    // cycle started 40 days ago read as "inactive". Real signal = ImportEvent.
+    primeCounts({ active30d: 3 });
+    const res = await request(makeApp()).get("/api/admin/stats");
+    expect(res.body.users.active30d).toBe(3);
+    expect(mockImportEventDistinct).toHaveBeenCalledWith(
+      "figmaUserId",
+      expect.objectContaining({
+        createdAt: expect.objectContaining({ $gte: expect.any(Date) }),
+      }),
+    );
   });
 
   it("computes conversion rate as proActivations30d / new30d (rounded 2dp)", async () => {

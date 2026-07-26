@@ -2,6 +2,25 @@
 import { h } from "preact";
 import styles from "./Modal.css";
 import { useModal } from "../../hooks/useModal";
+import { useLicense } from "../../shared/LicenseContext";
+import {
+  useNewsletterSubscribe,
+  type SubscribeStatus,
+} from "../../hooks/useNewsletterSubscribe";
+
+/** Row label for the one-click Subscribe button, by status. */
+function subscribeLabel(status: SubscribeStatus): string {
+  switch (status) {
+    case "loading":
+      return "Subscribing…";
+    case "success":
+      return "✓ Subscribed!";
+    case "error":
+      return "Try again";
+    default:
+      return "Subscribe to updates";
+  }
+}
 
 interface HelpProps {
   isOpen: boolean;
@@ -17,6 +36,9 @@ interface HelpLink {
 
 export default function Help({ isOpen, onClose }: HelpProps) {
   const { modalRef } = useModal({ isOpen, onClose });
+  const { license } = useLicense();
+  // One-click subscribe using the email the backend already holds — no input.
+  const newsletter = useNewsletterSubscribe(license?.email ?? null);
   if (!isOpen) return null;
 
   const helpLinks: HelpLink[] = [
@@ -96,6 +118,26 @@ export default function Help({ isOpen, onClose }: HelpProps) {
                 <span class={styles.helpLinkLabel}>{link.label}</span>
               </button>
             ))}
+
+            <button
+              type="button"
+              class={`${styles.helpLinkItem} ${
+                newsletter.status === "success" ? styles.helpSubscribeSuccess : ""
+              }`}
+              onClick={newsletter.subscribe}
+              disabled={newsletter.disabled || newsletter.status === "loading"}
+              title={
+                newsletter.disabled ? "Reconnect Figma to subscribe" : undefined
+              }
+              data-testid="subscribe-news-help"
+            >
+              <span class={styles.helpLinkIcon} aria-hidden="true">
+                📬
+              </span>
+              <span class={styles.helpLinkLabel}>
+                {subscribeLabel(newsletter.status)}
+              </span>
+            </button>
           </div>
 
           {/* Branding Section */}

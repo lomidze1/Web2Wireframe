@@ -529,6 +529,35 @@ describe("Element: grid", () => {
     }, ctx);
     expect(node.layoutMode).toBe("VERTICAL");
   });
+
+  // The AI prompt schema documents grid children under "elements"
+  // (see SCREENSHOT_ABSOLUTE_PROMPT) — the converter must accept that key.
+  it("creates grid children from 'elements' key (prompt schema)", () => {
+    const ctx = makeCtx();
+    const node = convertElement({
+      type: "grid",
+      columns: 3,
+      elements: [
+        { type: "card", elements: [{ type: "heading", text: "A", level: 3 }], background: "background" },
+        { type: "card", elements: [{ type: "heading", text: "B", level: 3 }], background: "background" },
+        { type: "card", elements: [{ type: "heading", text: "C", level: 3 }], background: "background" },
+      ],
+    }, ctx);
+    expect(node.children.length).toBe(3);
+    expect(node.children[0].children[0].textContent).toBe("A");
+    assertWireframeNode(node);
+  });
+
+  it("'elements' key wins over 'items' when both present", () => {
+    const ctx = makeCtx();
+    const node = convertElement({
+      type: "grid",
+      elements: [{ type: "heading", text: "from-elements", level: 3 }],
+      items: [{ type: "heading", text: "from-items", level: 3 }],
+    }, ctx);
+    expect(node.children.length).toBe(1);
+    expect(node.children[0].textContent).toBe("from-elements");
+  });
 });
 
 describe("Element: accordion", () => {
@@ -547,6 +576,33 @@ describe("Element: accordion", () => {
     expect(node.children[0].children[0].textContent).toBe("Q1?");
     expect(node.children[0].children[1].textContent).toBe("A1");
     assertWireframeNode(node);
+  });
+
+  // The AI prompt schema documents accordion items as {title, content}
+  // (see SCREENSHOT_ABSOLUTE_PROMPT) — the converter must accept those keys.
+  it("creates accordion from {title, content} items (prompt schema)", () => {
+    const ctx = makeCtx();
+    const node = convertElement({
+      type: "accordion",
+      items: [
+        { title: "How does it work?", content: "Very well." },
+        { title: "Is it free?", content: "There is a free tier." },
+      ],
+    }, ctx);
+    expect(node.children.length).toBe(2);
+    expect(node.children[0].children[0].textContent).toBe("How does it work?");
+    expect(node.children[0].children[1].textContent).toBe("Very well.");
+    expect(node.children[1].children[0].textContent).toBe("Is it free?");
+    assertWireframeNode(node);
+  });
+
+  it("accordion item name falls back to title when question absent", () => {
+    const ctx = makeCtx();
+    const node = convertElement({
+      type: "accordion",
+      items: [{ title: "Titled item", content: "Body" }],
+    }, ctx);
+    expect(node.children[0].name).toBe("Titled item");
   });
 });
 

@@ -378,7 +378,8 @@ describe("Screenshot", () => {
       expect(msg.data.sourceUrl).toBe("screenshot://uploaded");
       expect(msg.data.variableMode).toBe("direct");
       expect(msg.data.layoutMode).toBe("absolute");
-      expect(msg.data.colorMode).toBe("plugin");
+      expect(msg.data.colorMode).toBe("website");
+      // Coerced from the "website" default — Screenshot mode has no webfonts.
       expect(msg.data.fontMode).toBe("plugin");
       expect(msg.data.frames).toBeDefined();
     });
@@ -425,12 +426,12 @@ describe("Screenshot", () => {
       }
     }
 
-    it("shows 'Screenshot Colors' label in settings dropdown", () => {
+    it("shows 'Screenshot Colors' label in the Colors toggle", () => {
       const { container } = render(<Screenshot />);
       expandSettings(container);
 
-      const options = container.querySelectorAll("select option");
-      const labels = Array.from(options).map((o) => o.textContent);
+      const toggles = container.querySelectorAll('[role="radio"]');
+      const labels = Array.from(toggles).map((b) => b.textContent);
       expect(labels).toContain("Screenshot Colors");
     });
 
@@ -445,10 +446,12 @@ describe("Screenshot", () => {
       const { container } = render(<Screenshot />);
       expandSettings(container);
 
-      // Font dropdown should show "Plugin Fonts" not "Website Fonts"
-      const selects = container.querySelectorAll("select");
-      const fontSelect = selects[1]; // second dropdown is Fonts
-      expect(fontSelect.value).toBe("plugin");
+      // Fonts toggle should show "Plugin" active, not "Website" (coerced).
+      const fontsGroup = container.querySelector(
+        '[aria-label="Fonts"]'
+      ) as HTMLElement;
+      const activeFont = fontsGroup.querySelector('[aria-checked="true"]');
+      expect(activeFont?.textContent).toBe("Plugin");
 
       // The incompatible value is coerced for display/import only — no session
       // override is written, so the global default and other tabs stay intact.
@@ -468,12 +471,16 @@ describe("Screenshot", () => {
       const { container } = render(<Screenshot />);
       expandSettings(container);
 
-      // After expanding, "Screenshot Colors" should be present (not default "Website Colors")
-      // which confirms Screenshot passes colorWebsiteLabel prop
-      const options = container.querySelectorAll("select option");
-      const labels = Array.from(options).map((o) => o.textContent);
-      expect(labels).not.toContain("Website Colors");
+      // The Colors toggle should use the "Screenshot Colors" override, not the
+      // default "Website", confirming Screenshot passes the colorWebsiteLabel prop.
+      const colorsGroup = container.querySelector(
+        '[aria-label="Colors"]'
+      ) as HTMLElement;
+      const labels = Array.from(
+        colorsGroup.querySelectorAll('[role="radio"]')
+      ).map((b) => b.textContent);
       expect(labels).toContain("Screenshot Colors");
+      expect(labels).not.toContain("Website");
     });
 
     it("includes colorMode in API request body", async () => {
@@ -517,8 +524,8 @@ describe("Screenshot", () => {
 
       const call = postMessageSpy.mock.calls[0];
       const msg = (call[0] as { pluginMessage: { type: string; data: Record<string, unknown> } }).pluginMessage;
-      // colorMode should come from settings, which defaults to "plugin"
-      expect(msg.data.colorMode).toBe("plugin");
+      // colorMode should come from settings, which defaults to "website"
+      expect(msg.data.colorMode).toBe("website");
     });
   });
 

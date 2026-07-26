@@ -134,7 +134,9 @@ describe("Level 2: checkFontsAvailability", () => {
     const fonts = new Set(["PSA", "PSC", "Inter", "Roboto", "Arial"]);
     const result = await checkFontsAvailability(fonts);
 
-    expect(result.available.sort()).toEqual(["Arial", "Inter", "Roboto"]);
+    // Arial is skipped before the check (websafe/OS-bundled — no shippable
+    // web font file), the same way CSS generics are in L2-4 below.
+    expect(result.available.sort()).toEqual(["Inter", "Roboto"]);
     expect(result.missing.sort()).toEqual(["PSA", "PSC"]);
   });
 
@@ -143,7 +145,8 @@ describe("Level 2: checkFontsAvailability", () => {
     const fonts = new Set(["Inter", "Roboto", "Arial"]);
     const result = await checkFontsAvailability(fonts);
 
-    expect(result.available.sort()).toEqual(["Arial", "Inter", "Roboto"]);
+    // Arial is filtered out as websafe (see L2-2) — never missing either.
+    expect(result.available.sort()).toEqual(["Inter", "Roboto"]);
     expect(result.missing).toEqual([]);
   });
 

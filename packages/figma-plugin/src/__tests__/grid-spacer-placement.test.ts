@@ -9,7 +9,7 @@
  * `grid-column: 2`).
  */
 import { describe, it, expect } from "vitest";
-import { planGridSlots } from "../rendering/nodes";
+import { planGridSlots, sortGridChildren } from "../rendering/nodes";
 import type { WireframeNode } from "../types";
 
 function child(id: string, overrides: Partial<WireframeNode> = {}): WireframeNode {
@@ -72,5 +72,36 @@ describe("planGridSlots", () => {
     const b = child("b", { gridColumnStart: 1 });
     const slots = planGridSlots([a, b], 3);
     expect(slots).toEqual([a, null, null, b]);
+  });
+
+  it("keeps DOM order for column-only children when row is unknown", () => {
+    // CSS grid auto-placement without an explicit row should
+    // preserve DOM order; re-sorting by column alone caused the Apple promo
+    // section to become left,left,left,right,right,right.
+    const ipad = child("ipad", { gridColumnStart: 1 });
+    const macbook = child("macbook", { gridColumnStart: 2 });
+    const airpods = child("airpods", { gridColumnStart: 1 });
+    const watch = child("watch", { gridColumnStart: 2 });
+
+    const sorted = sortGridChildren([ipad, macbook, airpods, watch], "row");
+    expect(sorted).toEqual([ipad, macbook, airpods, watch]);
+  });
+
+  it("does not create spacers for row-major column-only grid children", () => {
+    // This is the general failure mode behind Apple promo cards
+    // and any auto-placed grid where only the column is recoverable.
+    const ipad = child("ipad", { gridColumnStart: 1 });
+    const macbook = child("macbook", { gridColumnStart: 2 });
+    const airpods = child("airpods", { gridColumnStart: 1 });
+    const watch = child("watch", { gridColumnStart: 2 });
+    const tradeIn = child("trade-in", { gridColumnStart: 1 });
+    const card = child("card", { gridColumnStart: 2 });
+
+    const sorted = sortGridChildren(
+      [ipad, macbook, airpods, watch, tradeIn, card],
+      "row",
+    );
+    const slots = planGridSlots(sorted, 2, "row");
+    expect(slots).toEqual([ipad, macbook, airpods, watch, tradeIn, card]);
   });
 });

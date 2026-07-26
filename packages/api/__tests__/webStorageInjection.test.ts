@@ -7,7 +7,7 @@ process.env.API_PORT = "0";
 // Bypass the license gate — these tests focus on webStorage round-trip,
 // not on quota enforcement.
 vi.mock("../src/middleware/licenseGate.js", () => ({
-  requireImportAllowance: (
+  requireImportAllowance: () => (
     _req: unknown,
     _res: unknown,
     next: () => void,

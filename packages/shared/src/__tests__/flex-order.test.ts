@@ -71,7 +71,7 @@ function sortByFlexOrder(children: ExtractedElement[], layoutMode: string): Extr
 
 describe("cssOrder extraction", () => {
   it("parses non-zero order from computedStyles", () => {
-    const orderStr = "2";
+    const orderStr: string = "2";
     const cssOrder = orderStr && orderStr !== "0" ? parseInt(orderStr) : undefined;
     expect(cssOrder).toBe(2);
   });
@@ -89,7 +89,7 @@ describe("cssOrder extraction", () => {
   });
 
   it("parses negative order values", () => {
-    const orderStr = "-1";
+    const orderStr: string = "-1";
     const cssOrder = orderStr && orderStr !== "0" ? parseInt(orderStr) : undefined;
     expect(cssOrder).toBe(-1);
   });

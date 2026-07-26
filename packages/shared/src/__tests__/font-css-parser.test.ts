@@ -111,6 +111,42 @@ describe("parseFontFaceRules", () => {
     expect(result[0].isGoogleFont).toBe(true);
   });
 
+  it("reads the LAST src declaration (bulletproof @font-face)", () => {
+    // apple.com declares SF Pro Text Regular — and only Regular — with the
+    // legacy "bulletproof" pattern: an IE-only EOT src first, the real
+    // formats second. CSS applies the last declaration; reading the first
+    // left the face with a dead EOT URL, so Regular never reached the font
+    // download while every single-src cut did.
+    const css = `
+      @font-face {
+        font-family: 'SF Pro Text';
+        font-style: normal;
+        font-weight: 400;
+        src: url('/wss/fonts/SF-Pro-Text/v3/sf-pro-text_regular.eot');
+        src: local('☺'), url("/wss/fonts/SF-Pro-Text/v3/sf-pro-text_regular.woff2") format("woff2"), url("/wss/fonts/SF-Pro-Text/v3/sf-pro-text_regular.ttf") format("truetype");
+      }
+    `;
+    const result = parseFontFaceRules(css, "https://www.apple.com/wss/fonts");
+
+    expect(result).toHaveLength(1);
+    expect(result[0].src).toContain("sf-pro-text_regular.woff2");
+    expect(result[0].src).toContain("sf-pro-text_regular.ttf");
+    expect(result[0].src).not.toContain(".eot");
+    expect(result[0].format).toBe("woff2");
+  });
+
+  it("still reads a single src declaration unchanged", () => {
+    const css = `
+      @font-face {
+        font-family: 'SF Pro Text';
+        font-weight: 300;
+        src: local('☺'), url("/fonts/sf-pro-text_light.woff2") format("woff2");
+      }
+    `;
+    const result = parseFontFaceRules(css, "https://www.apple.com/");
+    expect(result[0].src).toContain("sf-pro-text_light.woff2");
+  });
+
   it("preserves data URI in src", () => {
     const dataUri = "data:font/woff2;base64,d09GRgABAAAA";
     const css = `

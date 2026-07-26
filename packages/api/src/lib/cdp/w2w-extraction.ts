@@ -243,7 +243,7 @@ export async function extractWithContentScript(
     console.log(`[W2W] DOM extracted: ${countNodes(frame)} nodes, ${textHostCount} text hosts`);
 
     // --- 6. Platform fonts via CDP ---
-    const fontsByIdx = new Map<number, { familyName: string; postScriptName: string }>();
+    const fontsByIdx = new Map<number, { familyName: string; postScriptName: string; isCustomFont: boolean }>();
     // Hoist docRoot so it can be reused by both font collection and hover capture
     let docRoot: { root: { nodeId: number } } | null = null;
     if (textHostCount > 0) {
@@ -283,6 +283,7 @@ export async function extractWithContentScript(
               fontsByIdx.set(idx, {
                 familyName: primaryFont.familyName,
                 postScriptName: primaryFont.postScriptName,
+                isCustomFont: primaryFont.isCustomFont,
               });
             }
           }
@@ -742,9 +743,9 @@ function countNodes(node: W2WNode): number {
  * Enrich all TEXT nodes with platform fonts by walking the tree in DFS order.
  * Matches the Browser Extension's w2wEnrichAllTextNodes().
  */
-function enrichAllTextNodes(
+export function enrichAllTextNodes(
   frame: W2WFrameNode,
-  fontsByIdx: Map<number, { familyName: string; postScriptName: string }>,
+  fontsByIdx: Map<number, { familyName: string; postScriptName: string; isCustomFont: boolean }>,
 ): void {
   let idx = 0;
 
@@ -760,7 +761,15 @@ function enrichAllTextNodes(
                 familyName: font.familyName,
                 postScriptName: font.postScriptName,
               };
-              (child as W2WTextNode).font = font.familyName;
+              // Only a real web font (@font-face-loaded) may replace the
+              // CSS-declared family. On the Linux server, system fallbacks
+              // (Liberation Sans, Noto Sans CJK …) come back as platform
+              // fonts for any family without a custom face — stamping them
+              // here would send the plugin an un-installable family and
+              // strand its Re-apply markers forever.
+              if (font.isCustomFont) {
+                (child as W2WTextNode).font = font.familyName;
+              }
             }
           }
         }

@@ -11,14 +11,28 @@ import {
 import { convertAbsoluteToWireframeTree } from "../../lib/wireframeConverter.js";
 import {
   analyzeScreenshotAbsoluteWithRetry,
+  scaleAbsoluteResult,
   validateExtractedColors,
 } from "../../lib/aiGenerator.js";
 import { requireImportAllowance } from "../../middleware/licenseGate.js";
 import { authenticatePlugin } from "../../middleware/auth.js";
 import { importRateLimiter } from "../../middleware/rateLimit.js";
 import { logImportEvent } from "../../models/ImportEvent.js";
+import { licenseService } from "../../services/licenseService.js";
 
 const router = Router();
+
+// Formats the AI vision API accepts. The quota slot is already consumed by
+// the time the route body runs (requireImportAllowance), so rejections here
+// refund it.
+const SUPPORTED_IMAGE_RE = /^data:image\/(png|jpe?g|webp|gif);base64,/;
+
+/** Best-effort quota refund — a refund failure must never break the response. */
+function refundQuotaSlot(figmaUserId: string): void {
+  void licenseService.refundImport(figmaUserId).catch((err) => {
+    console.warn("[Screenshot Import] quota refund failed:", err);
+  });
+}
 
 /**
  * POST /api/import-screenshot
@@ -33,7 +47,7 @@ const router = Router();
  * - pluginFont: string - Plugin font (default: "Inter")
  * - textMode: string - Text handling mode: "website"|"lorem"|"semantic" (default: "website")
  */
-router.post("/import-screenshot", importRateLimiter, authenticatePlugin, requireImportAllowance, async (req: Request, res: Response) => {
+router.post("/import-screenshot", importRateLimiter, authenticatePlugin, requireImportAllowance("screenshot"), async (req: Request, res: Response) => {
   try {
     const {
       imageBase64,
@@ -49,6 +63,26 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
     // Validation
     if (!imageBase64) {
       return res.status(400).json({ success: false, error: "imageBase64 is required" });
+    }
+
+    // Reject formats the AI vision API doesn't accept (AVIF/HEIC/SVG/…) —
+    // previously these defaulted to image/png and failed downstream with a
+    // burned quota slot and an opaque error.
+    if (!SUPPORTED_IMAGE_RE.test(imageBase64 as string)) {
+      refundQuotaSlot(req.userId!);
+      void logImportEvent({
+        figmaUserId: req.userId!,
+        sourceUrl: "screenshot-import",
+        type: "screenshot",
+        viewports: Array.isArray(req.body?.viewports) ? req.body.viewports : [],
+        success: false,
+        errorCode: "UNSUPPORTED_IMAGE_FORMAT",
+      });
+      return res.status(400).json({
+        success: false,
+        error: "Unsupported image format. Please use PNG, JPEG, WebP, or GIF.",
+        errorCode: "UNSUPPORTED_IMAGE_FORMAT",
+      });
     }
 
     // Check base64 size (~5MB limit -- base64 is ~33% larger than binary)
@@ -89,32 +123,40 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
     const clampedImageWidth = clampDim(imageWidth, 1440, 320, 4000);
     const clampedImageHeight = clampDim(imageHeight, 900, 200, 4000);
 
-    // Analyze and generate for each viewport (absolute positioning mode)
-    const frames = [];
-    let renderColors = finalPluginColors;
-    for (const vp of numericViewports) {
-      const absoluteResult = await analyzeScreenshotAbsoluteWithRetry({
-        imageBase64,
-        imageWidth: clampedImageWidth,
-        imageHeight: clampedImageHeight,
-        viewportWidth: vp,
-        textMode,
-      });
-
-      // Use AI-extracted colors when colorMode is "website"
-      if (colorMode === "website") {
-        const { valid, colors } = validateExtractedColors(absoluteResult.extractedColors);
-        renderColors = valid ? colors : finalPluginColors;
-      }
-
-      const tree = convertAbsoluteToWireframeTree(absoluteResult, vp, renderColors, pluginFont);
-
-      frames.push({
-        viewportWidth: vp,
-        viewportHeight: Number(absoluteResult.pageHeight) || 0,
-        tree,
-      });
+    // Analyze ONCE in the image's natural coordinate space (viewportWidth =
+    // imageWidth → the model does no coordinate arithmetic), then derive each
+    // viewport frame by linear scaling server-side. The prompt only ever
+    // asked the model for the same linear scaling, so per-viewport AI calls
+    // were pure cost/latency waste (N viewports = N identical-image calls).
+    const absoluteResult = await analyzeScreenshotAbsoluteWithRetry({
+      imageBase64,
+      imageWidth: clampedImageWidth,
+      imageHeight: clampedImageHeight,
+      viewportWidth: clampedImageWidth,
+      textMode,
+    });
+    // Anchor the scaling source width when the model omitted pageWidth.
+    if (!Number(absoluteResult.pageWidth)) {
+      absoluteResult.pageWidth = clampedImageWidth;
     }
+
+    // Use AI-extracted colors when colorMode is "website" — validated once,
+    // so every frame, localStyles, and the response share one palette.
+    let renderColors = finalPluginColors;
+    if (colorMode === "website") {
+      const { valid, colors } = validateExtractedColors(absoluteResult.extractedColors);
+      renderColors = valid ? colors : finalPluginColors;
+    }
+
+    const frames = numericViewports.map((vp) => {
+      const scaled = scaleAbsoluteResult(absoluteResult, vp);
+      const tree = convertAbsoluteToWireframeTree(scaled, vp, renderColors, pluginFont);
+      return {
+        viewportWidth: vp,
+        viewportHeight: Number(scaled.pageHeight) || 0,
+        tree,
+      };
+    });
 
     // Create local styles structure
     const localStyles = createLocalStylesStructure(renderColors, {
@@ -148,16 +190,21 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
       sourceUrl: "screenshot://uploaded",
     });
   } catch (error) {
-    const err = error as Error & { status?: number };
+    const err = error as Error & { status?: number; code?: string };
     console.error("[Screenshot Import] Error:", err.message || error);
+
+    // The import failed before delivering anything — give the slot back.
+    refundQuotaSlot(req.userId!);
 
     // Log the failed attempt — surfaces screenshots the AI pipeline rejects.
     const failureCode =
-      err.status === 429
-        ? "AI_RATE_LIMITED"
-        : err.status === 401 || err.status === 403
-          ? "AI_AUTH_ERROR"
-          : "SCREENSHOT_ANALYSIS_ERROR";
+      err.code === "TRUNCATED"
+        ? "SCREENSHOT_TRUNCATED"
+        : err.status === 429
+          ? "AI_RATE_LIMITED"
+          : err.status === 401 || err.status === 403
+            ? "AI_AUTH_ERROR"
+            : "SCREENSHOT_ANALYSIS_ERROR";
     void logImportEvent({
       figmaUserId: req.userId!,
       sourceUrl: "screenshot-import",
@@ -176,6 +223,13 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
       errorCode: failureCode,
     });
 
+    if (err.code === "TRUNCATED") {
+      return res.status(422).json({
+        success: false,
+        error: "Screenshot is too complex or tall to analyze fully. Try cropping it into smaller sections and importing them separately.",
+        errorCode: "SCREENSHOT_TRUNCATED",
+      });
+    }
     if (err.status === 429) {
       return res.status(429).json({
         success: false,

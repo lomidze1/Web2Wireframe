@@ -13,6 +13,9 @@ interface FooterProps {
   /** Only show the Re-apply fonts button when there's actually something to
    * re-apply (current page has substituted-font text). */
   showRebindFonts?: boolean;
+  /** Button text — becomes "Re-apply to selection" when the current Figma
+   *  selection holds pending fonts, else "Re-apply fonts". */
+  rebindFontsLabel?: string;
   onRebindFontsClick?: () => void;
 }
 
@@ -53,6 +56,7 @@ export default function Footer({
   showExtension = true,
   onExtensionClick,
   showRebindFonts = false,
+  rebindFontsLabel = "Re-apply fonts",
   onRebindFontsClick,
 }: FooterProps) {
   // License is preloaded + cached by LicenseProvider (mounted in App.tsx).
@@ -136,7 +140,7 @@ export default function Footer({
               <path d="M16 4v4h-4" />
               <path d="M20 12a8 8 0 1 1-2.34-5.66L20 8" />
             </svg>
-            Re-apply fonts
+            {rebindFontsLabel}
           </button>
         )}
       </div>

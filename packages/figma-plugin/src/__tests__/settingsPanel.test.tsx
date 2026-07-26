@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/preact";
+import { render, fireEvent, within } from "@testing-library/preact";
 import SettingsPanel from "../ui/components/settingsPanel/SettingsPanel";
 import type { SettingsPanelStyles } from "../ui/components/settingsPanel/SettingsPanel";
 
@@ -15,6 +15,11 @@ vi.mock("../ui/shared/ConfigContext", async (importOriginal) => {
 const mockStyles = new Proxy({} as SettingsPanelStyles, {
   get: (_target, prop) => (typeof prop === "string" ? prop : ""),
 });
+
+// Scope queries to a single segmented toggle by its radiogroup aria-label
+// (labels like "Website"/"Plugin" appear in more than one toggle).
+const inGroup = (container: HTMLElement, label: string) =>
+  within(container.querySelector(`[aria-label="${label}"]`) as HTMLElement);
 
 describe("SettingsPanel", () => {
   const defaultProps = {
@@ -81,6 +86,55 @@ describe("SettingsPanel", () => {
     );
 
     expect(container.querySelector(".collapsibleContent")).toBeTruthy();
+  });
+
+  it("renders the settings hint under the 'More Options' toggle", () => {
+    const { container } = render(<SettingsPanel {...defaultProps} />);
+    const hint = container.querySelector(".settingsHint");
+    expect(hint).toBeTruthy();
+    expect(hint?.textContent).toContain("Try different settings");
+  });
+
+  it("keeps the hint visible while the section is collapsed", () => {
+    // The hint exists to get users to open the section, so it must not live
+    // inside the content it is advertising.
+    const { container } = render(
+      <SettingsPanel {...defaultProps} isExpanded={false} />
+    );
+    expect(container.querySelector(".collapsibleContent")).toBeNull();
+    expect(container.querySelector(".settingsHint")).toBeTruthy();
+  });
+
+  it("hides the hint once the section is expanded", () => {
+    // Once expanded the options are visible, so the advertising hint is
+    // redundant clutter and should disappear.
+    const { container } = render(
+      <SettingsPanel {...defaultProps} isExpanded={true} />
+    );
+    expect(container.querySelector(".collapsibleContent")).toBeTruthy();
+    expect(container.querySelector(".settingsHint")).toBeNull();
+  });
+
+  it("scrolls the options into view when the section is opened", () => {
+    const scrollSpy = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollSpy;
+
+    const { rerender } = render(
+      <SettingsPanel {...defaultProps} isExpanded={false} />
+    );
+    // No scroll while collapsed (and not on initial mount).
+    expect(scrollSpy).not.toHaveBeenCalled();
+
+    rerender(<SettingsPanel {...defaultProps} isExpanded={true} />);
+    expect(scrollSpy).toHaveBeenCalled();
+  });
+
+  it("does not scroll on initial mount when already expanded", () => {
+    const scrollSpy = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollSpy;
+
+    render(<SettingsPanel {...defaultProps} isExpanded={true} />);
+    expect(scrollSpy).not.toHaveBeenCalled();
   });
 
   describe("when expanded", () => {
@@ -194,45 +248,33 @@ describe("SettingsPanel", () => {
       expect(openSettings).toHaveBeenCalledWith("configuration");
     });
 
-    it("renders custom colorWebsiteLabel in Colors dropdown", () => {
-      const { container } = render(
+    it("renders custom colorWebsiteLabel in Colors toggle", () => {
+      const { getByText } = render(
         <SettingsPanel
           {...expandedProps}
           colorWebsiteLabel="Screenshot Colors"
         />
       );
-      const options = container.querySelectorAll("select option");
-      const labels = Array.from(options).map((o) => o.textContent);
-      expect(labels).toContain("Screenshot Colors");
+      expect(getByText("Screenshot Colors")).toBeTruthy();
     });
 
-    it("renders default 'Website Colors' label when colorWebsiteLabel not passed", () => {
+    it("renders default 'Website' label in the Colors toggle when colorWebsiteLabel not passed", () => {
       const { container } = render(<SettingsPanel {...expandedProps} />);
-      const options = container.querySelectorAll("select option");
-      const labels = Array.from(options).map((o) => o.textContent);
-      expect(labels).toContain("Website Colors");
+      expect(inGroup(container, "Colors").getByText("Website")).toBeTruthy();
     });
 
-    it("disables 'Website Fonts' option when disableFontWebsiteOption is true", () => {
+    it("disables the 'Website' option in Fonts when disableFontWebsiteOption is true", () => {
       const { container } = render(
         <SettingsPanel {...expandedProps} disableFontWebsiteOption={true} />
       );
-      const fontSelect = container.querySelectorAll("select")[1]; // Fonts is the 2nd select
-      const websiteFontOption = fontSelect?.querySelector(
-        'option[value="website"]'
-      ) as HTMLOptionElement;
-      expect(websiteFontOption).toBeTruthy();
-      expect(websiteFontOption.disabled).toBe(true);
+      const websiteFontBtn = inGroup(container, "Fonts").getByText("Website");
+      expect(websiteFontBtn.hasAttribute("disabled")).toBe(true);
     });
 
-    it("keeps 'Website Fonts' enabled when disableFontWebsiteOption is not set", () => {
+    it("keeps the Fonts 'Website' option enabled when disableFontWebsiteOption is not set", () => {
       const { container } = render(<SettingsPanel {...expandedProps} />);
-      const fontSelect = container.querySelectorAll("select")[1];
-      const websiteFontOption = fontSelect?.querySelector(
-        'option[value="website"]'
-      ) as HTMLOptionElement;
-      expect(websiteFontOption).toBeTruthy();
-      expect(websiteFontOption.disabled).toBe(false);
+      const websiteFontBtn = inGroup(container, "Fonts").getByText("Website");
+      expect(websiteFontBtn.hasAttribute("disabled")).toBe(false);
     });
 
     it("renders Assets dropdown when setAssetMode is provided", () => {
@@ -253,9 +295,9 @@ describe("SettingsPanel", () => {
       expect(queryByText("Assets")).toBeNull();
     });
 
-    it("calls setAssetMode when Assets dropdown changes", () => {
+    it("calls setAssetMode when the 'Real Assets' toggle is clicked", () => {
       const setAssetMode = vi.fn();
-      const { container } = render(
+      const { getByText } = render(
         <SettingsPanel
           {...expandedProps}
           localAssetMode="placeholders"
@@ -263,15 +305,123 @@ describe("SettingsPanel", () => {
         />
       );
 
-      // Find the Assets select (last select with realAssets option)
-      const selects = container.querySelectorAll("select");
-      const assetsSelect = Array.from(selects).find((s) =>
-        s.querySelector('option[value="realAssets"]')
-      );
-      expect(assetsSelect).toBeTruthy();
-
-      fireEvent.change(assetsSelect!, { target: { value: "realAssets" } });
+      fireEvent.click(getByText("Real Assets"));
       expect(setAssetMode).toHaveBeenCalledWith("realAssets");
     });
+  });
+
+  describe("segmented toggles", () => {
+    const expandedProps = {
+      ...defaultProps,
+      isExpanded: true,
+      localAssetMode: "placeholders" as const,
+      setAssetMode: vi.fn(),
+    };
+
+    it("renders every setting as a radiogroup — no <select> dropdowns", () => {
+      const { container } = render(<SettingsPanel {...expandedProps} />);
+      // Colors(2) Fonts(3) Text(3) Assets(2) CSS(2) Layout(2) = 6 groups, 14 radios
+      expect(container.querySelectorAll('[role="radiogroup"]').length).toBe(6);
+      expect(container.querySelectorAll('[role="radio"]').length).toBe(14);
+      expect(container.querySelectorAll("select").length).toBe(0);
+    });
+
+    it("renders Fonts and Text as 3-option toggles", () => {
+      const { container } = render(<SettingsPanel {...expandedProps} />);
+      expect(
+        inGroup(container, "Fonts").getAllByRole("radio").length
+      ).toBe(3);
+      expect(
+        inGroup(container, "Text").getAllByRole("radio").length
+      ).toBe(3);
+    });
+
+    it("marks the active option with aria-checked", () => {
+      const { container } = render(
+        <SettingsPanel {...expandedProps} localColorMode="website" />
+      );
+      const colors = inGroup(container, "Colors");
+      expect(colors.getByText("Website").getAttribute("aria-checked")).toBe(
+        "true"
+      );
+      expect(colors.getByText("Plugin").getAttribute("aria-checked")).toBe(
+        "false"
+      );
+    });
+
+    it("calls setColorMode when the inactive Colors option is clicked", () => {
+      const setColorMode = vi.fn();
+      const { container } = render(
+        <SettingsPanel
+          {...expandedProps}
+          localColorMode="plugin"
+          setColorMode={setColorMode}
+        />
+      );
+      fireEvent.click(inGroup(container, "Colors").getByText("Website"));
+      expect(setColorMode).toHaveBeenCalledWith("website");
+    });
+
+    it("calls setFontMode with 'lines' when the 'Wireframe' toggle is clicked", () => {
+      const setFontMode = vi.fn();
+      const { container } = render(
+        <SettingsPanel {...expandedProps} setFontMode={setFontMode} />
+      );
+      fireEvent.click(inGroup(container, "Fonts").getByText("Wireframe"));
+      expect(setFontMode).toHaveBeenCalledWith("lines");
+    });
+
+    it("calls setTextMode with 'semantic' when the 'Smart' toggle is clicked", () => {
+      const setTextMode = vi.fn();
+      const { container } = render(
+        <SettingsPanel {...expandedProps} setTextMode={setTextMode} />
+      );
+      fireEvent.click(inGroup(container, "Text").getByText("Smart"));
+      expect(setTextMode).toHaveBeenCalledWith("semantic");
+    });
+
+    it("calls setLayoutMode when the 'Absolute' toggle is clicked", () => {
+      const setLayoutMode = vi.fn();
+      const { getByText } = render(
+        <SettingsPanel
+          {...expandedProps}
+          localLayoutMode="autoLayout"
+          setLayoutMode={setLayoutMode}
+        />
+      );
+      fireEvent.click(getByText("Absolute"));
+      expect(setLayoutMode).toHaveBeenCalledWith("absolute");
+    });
+
+    it("calls setCssVariablesMode when the 'Figma Styles' toggle is clicked", () => {
+      const setCssVariablesMode = vi.fn();
+      const { getByText } = render(
+        <SettingsPanel
+          {...expandedProps}
+          localCssVariablesMode="direct"
+          setCssVariablesMode={setCssVariablesMode}
+        />
+      );
+      fireEvent.click(getByText("Figma Styles"));
+      expect(setCssVariablesMode).toHaveBeenCalledWith("styles");
+    });
+
+    it("disables a toggle option and does not fire its handler when disabled", () => {
+      const setAssetMode = vi.fn();
+      const { getByText } = render(
+        <SettingsPanel
+          {...expandedProps}
+          localAssetMode="placeholders"
+          setAssetMode={setAssetMode}
+          disableRealAssetsOption={true}
+          assetsDisabledTooltip="Not available here"
+        />
+      );
+      const realBtn = getByText("Real Assets");
+      expect(realBtn.hasAttribute("disabled")).toBe(true);
+      fireEvent.click(realBtn);
+      expect(setAssetMode).not.toHaveBeenCalled();
+    });
+
   });
 });

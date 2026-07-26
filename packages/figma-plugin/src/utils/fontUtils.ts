@@ -8,6 +8,7 @@
  */
 
 import type { WireframeNode, FontMapping } from "../types";
+import { fontCutExactStyles, isItalicStyle } from "../rendering/styles";
 
 // ============================================================================
 // Icon Font Detection
@@ -20,6 +21,7 @@ const ICON_FONT_PATTERNS = [
   "bootstrap-icons", "remixicon", "icomoon", "ionicons",
   "boxicons", "phosphor", "tabler-icons", "lucide",
   "typicons", "linearicons", "simple-line-icons", "feather",
+  "sf pro icons",
 ];
 
 /**
@@ -89,8 +91,70 @@ export const CSS_GENERIC_FONTS: ReadonlySet<string> = new Set([
   "fangsong",
 ]);
 
+/** Linux server (Render) fallback families. Server-side URL imports resolve
+ *  any family without a loaded @font-face to one of these via
+ *  `CSS.getPlatformFontsForNode` — they are render artifacts of the capture
+ *  container, never something the user should install. Conservative list:
+ *  plain "Noto Sans" (a legitimate Google web font) is NOT matched. */
+const SERVER_FALLBACK_PATTERNS = [
+  /^Liberation (Sans|Serif|Mono)/i,
+  /^DejaVu (Sans|Serif)/i,
+  /^Noto (Sans|Serif) CJK/i,
+  /^Noto Color Emoji$/i,
+  /^Free(Sans|Serif|Mono)$/i,
+];
+
+/** True when `family` is a known Linux server fallback (see list above). */
+export function isServerFallbackFamily(family: string): boolean {
+  return SERVER_FALLBACK_PATTERNS.some((p) => p.test(family));
+}
+
+/** Websafe / OS-bundled families. A site references these but never serves
+ *  them as @font-face, so they can never appear in the download ZIP — and
+ *  browsers synthesize the weights a family doesn't ship (Arial has no real
+ *  Semibold). Demanding them keeps the font modal open on something the user
+ *  can never install. */
+const WEBSAFE_SYSTEM_FONTS: ReadonlySet<string> = new Set([
+  "arial",
+  "arial black",
+  "helvetica",
+  "helvetica neue",
+  "times",
+  "times new roman",
+  "georgia",
+  "courier",
+  "courier new",
+  "verdana",
+  "tahoma",
+  "trebuchet ms",
+  "palatino",
+  "palatino linotype",
+  "garamond",
+  "impact",
+  "comic sans ms",
+  "lucida grande",
+  "lucida sans",
+  "lucida sans unicode",
+  "segoe ui",
+  "microsoft sans serif",
+  "ms sans serif",
+]);
+
+/** True when `family` is an OS-bundled websafe family (see set above). */
+export function isWebsafeSystemFont(family: string): boolean {
+  return WEBSAFE_SYSTEM_FONTS.has(family.trim().toLowerCase());
+}
+
+/**
+ * Families that must never drive the font modal or the download ZIP: they
+ * have no shippable web font file, so any demand for them is unsatisfiable.
+ */
+function isUnshippableFamily(family: string): boolean {
+  return isServerFallbackFamily(family) || isWebsafeSystemFont(family);
+}
+
 /** CSS keywords that are not valid font names */
-const CSS_FONT_KEYWORDS: ReadonlySet<string> = new Set([
+export const CSS_FONT_KEYWORDS: ReadonlySet<string> = new Set([
   "inherit",
   "initial",
   "unset",
@@ -154,20 +218,101 @@ export function collectAllFonts(
 }
 
 // ============================================================================
+// collectFontUsage
+// ============================================================================
+
+/**
+ * One concrete file of a family: weight + upright/italic. "SF Pro Text" is a
+ * family; "SF Pro Text Light 300 Italic" is a cut.
+ */
+export interface FontCut {
+  weight: number;
+  italic: boolean;
+}
+
+const cutKey = (c: FontCut): string => `${c.weight}:${c.italic ? 1 : 0}`;
+
+/**
+ * Walk all frames and record which cuts each family is actually used at.
+ * This is the demand side of the font check — only cuts the page really
+ * renders can be "missing", so an unused Black Italic never drags a family
+ * into the download modal.
+ */
+export function collectFontUsage(
+  frames: Array<{ viewport?: { width: number; height: number }; tree: WireframeNode }>
+): Map<string, FontCut[]> {
+  const usage = new Map<string, FontCut[]>();
+  const seen = new Map<string, Set<string>>();
+
+  const add = (family: string | undefined, weight: number | undefined, style?: string | null) => {
+    if (!family || !isValidFontName(family)) return;
+    if (typeof weight !== "number" || !Number.isFinite(weight)) return;
+    const cut: FontCut = { weight, italic: isItalicStyle(style) };
+    let keys = seen.get(family);
+    if (!keys) {
+      keys = new Set<string>();
+      seen.set(family, keys);
+      usage.set(family, []);
+    }
+    const k = cutKey(cut);
+    if (keys.has(k)) return;
+    keys.add(k);
+    usage.get(family)!.push(cut);
+  };
+
+  function walkNode(node: WireframeNode): void {
+    add(node.fontFamily, node.fontWeight, node.fontStyle);
+    if (node.styledSegments) {
+      for (const seg of node.styledSegments) {
+        add(seg.fontFamily || node.fontFamily, seg.fontWeight ?? node.fontWeight, seg.fontStyle ?? node.fontStyle);
+      }
+    }
+    if (node.children) {
+      for (const child of node.children) walkNode(child);
+    }
+  }
+
+  for (const frame of frames) {
+    if (frame.tree) walkNode(frame.tree);
+  }
+
+  return usage;
+}
+
+// ============================================================================
 // checkFontsAvailability
 // ============================================================================
+
+/** Style names that read as the "default"/upright cut across foundries.
+ *  Mirrors rebindFonts.ts REGULARISH_STYLES — kept in sync manually. */
+const REGULARISH_STYLE_TOKENS = ["regular", "book", "buch", "normal", "roman", "text"];
 
 /**
  * Check each font against Figma's loadFontAsync.
  * Filters out CSS generic keywords before checking.
  * For icon fonts, tries extra styles (Solid, Brands, etc.) and suffix stripping.
- * Returns { available, missing } arrays.
+ *
+ * Two granularities, because neither alone is right:
+ *   - `missing`     — families with NO installed cut at all. These lose their
+ *                     identity entirely (→ Inter + rebind marker), so they're
+ *                     the ones the modal must offer to substitute.
+ *   - `missingCuts` — for families that ARE installed, the specific cuts the
+ *                     page uses but Figma can't load. The family still renders
+ *                     under its own name (the renderer's same-family rescue
+ *                     picks the nearest cut), but the download should ship
+ *                     exactly these files — not the family's whole set.
+ *
+ * Pass `usage` (from {@link collectFontUsage}) to get per-cut results; without
+ * it the check stays family-level for back-compat. Icon fonts are always
+ * family-level — their glyphs don't vary by weight.
  */
 export async function checkFontsAvailability(
-  allFonts: Set<string>
-): Promise<{ available: string[]; missing: string[] }> {
+  allFonts: Set<string>,
+  usage?: Map<string, FontCut[]>
+): Promise<{ available: string[]; missing: string[]; missingCuts: Record<string, FontCut[]> }> {
   const available: string[] = [];
   const missing: string[] = [];
+  const missingCuts: Record<string, FontCut[]> = {};
 
   // Try multiple styles — some fonts only have Bold/Medium/Light, not Regular
   const stylesToTry = ["Regular", "Bold", "Medium", "Light", "Normal"];
@@ -179,23 +324,93 @@ export async function checkFontsAvailability(
   // Söhne installs as "Copyright Klim Type Foundry" with the single style
   // "Buch". Without this, such an installed font is wrongly reported missing.
   let installedFamilies = new Set<string>();
+  const installedStyles = new Map<string, string[]>();
   try {
     if (typeof figma.listAvailableFontsAsync === "function") {
       const avail = await figma.listAvailableFontsAsync();
       installedFamilies = new Set(avail.map((f) => f.fontName.family));
+      for (const f of avail) {
+        const list = installedStyles.get(f.fontName.family);
+        if (list) list.push(f.fontName.style);
+        else installedStyles.set(f.fontName.family, [f.fontName.style]);
+      }
     }
   } catch {
     /* font list unavailable — rely on the style-ladder checks below */
   }
+
+  /** True when the family really ships this cut. Uses EXACT weight spellings —
+   *  the renderer's neighbour fallbacks (300 → Regular) would otherwise report
+   *  an absent Light as present and hide it from the download. */
+  const cutLoads = async (families: string[], cut: FontCut): Promise<boolean> => {
+    for (const fam of families) {
+      for (const style of fontCutExactStyles(cut.weight, cut.italic)) {
+        try {
+          await figma.loadFontAsync({ family: fam, style });
+          return true;
+        } catch {
+          /* try next candidate */
+        }
+      }
+    }
+    // Body weights are also covered by a family that only ships a
+    // non-standard default cut name (Söhne "Buch", "55 Roman") — the
+    // renderer's same-family rescue lands on it.
+    if (!cut.italic && cut.weight >= 350 && cut.weight <= 450) {
+      for (const fam of families) {
+        const actual = installedStyles.get(fam) ?? [];
+        if (actual.some((s) => {
+          const sl = s.toLowerCase();
+          return REGULARISH_STYLE_TOKENS.some((t) => sl.includes(t));
+        })) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
 
   for (const font of Array.from(allFonts)) {
     // Skip CSS generic keywords
     if (CSS_GENERIC_FONTS.has(font)) {
       continue;
     }
+    // Skip families the download can never satisfy — Linux capture-container
+    // fallbacks and OS-bundled websafe families. Reporting them as missing (or
+    // as missing a cut) reopens the font modal on every import for something
+    // the user has no way to install, and an unmatchable entry in `missing`
+    // also defeats buildFontDownloads' narrowing, re-bundling the whole ZIP.
+    if (isUnshippableFamily(font)) {
+      continue;
+    }
 
     const isIcon = isIconFont(font);
     const styles = isIcon ? [...stylesToTry, ...iconStylesExtra] : stylesToTry;
+
+    // Per-cut path. Icon fonts stay family-level — one glyph set, no weights.
+    const cuts = !isIcon ? usage?.get(font) : undefined;
+    if (cuts && cuts.length > 0) {
+      const stripped = stripFontStyleSuffix(font);
+      const familiesToTry = stripped ? [font, stripped.family] : [font];
+      const absent: FontCut[] = [];
+      let anyLoaded = false;
+      for (const cut of cuts) {
+        if (await cutLoads(familiesToTry, cut)) anyLoaded = true;
+        else absent.push(cut);
+      }
+
+      if (anyLoaded || familiesToTry.some((f) => installedFamilies.has(f))) {
+        // The family exists in Figma — it keeps its name on every node via the
+        // renderer's same-family rescue. Only the absent cuts are worth shipping.
+        available.push(font);
+        if (absent.length > 0) missingCuts[font] = absent;
+      } else {
+        // Nothing of this family loads — it degrades to Inter, so it's the
+        // modal's business as a whole family.
+        missing.push(font);
+      }
+      continue;
+    }
 
     let isAvailable = false;
     for (const style of styles) {
@@ -257,7 +472,7 @@ export async function checkFontsAvailability(
     }
   }
 
-  return { available, missing };
+  return { available, missing, missingCuts };
 }
 
 // ============================================================================
@@ -297,6 +512,104 @@ export function buildDefaultFontMapping(
 }
 
 // ============================================================================
+// partitionMissingFonts / buildChoiceRenderPlan
+// ============================================================================
+
+/**
+ * Split "missing" CSS families into auto-resolvable vs genuinely missing.
+ * A missing CSS family whose real (SFNT) name is already installed — Söhne's
+ * "Copyright Klim Type Foundry" — renders via the marker + rebind path with
+ * no user interaction. Only the rest belongs in the Download-Fonts modal.
+ */
+export function partitionMissingFonts(
+  missing: string[],
+  realNames: FontMapping,
+  installedFamilies: Set<string>
+): { autoOriginal: FontMapping; stillMissing: string[] } {
+  const autoOriginal: FontMapping = {};
+  const stillMissing: string[] = [];
+
+  for (const css of missing) {
+    const real = realNames[css];
+    if (real && real !== css && installedFamilies.has(real)) {
+      autoOriginal[css] = real;
+    } else {
+      stillMissing.push(css);
+    }
+  }
+
+  return { autoOriginal, stillMissing };
+}
+
+/**
+ * Build the render plan for a font-fallback-choice. The modal only sees the
+ * still-missing fonts; auto-resolvable ones must ALWAYS render Inter with an
+ * original-name marker so the post-render rebind can swap in the installed
+ * real font — regardless of what the user picked for the rest.
+ */
+export function buildChoiceRenderPlan(
+  choice: string,
+  fontMapping: FontMapping,
+  autoOriginal: FontMapping
+): { primaryFont: string; renderMapping: FontMapping; originalFontNames?: FontMapping } {
+  if (choice === "continue") {
+    // "Use original fonts": render with Inter, preserve original names for
+    // Text Styles + rebind markers.
+    const renderMapping: FontMapping = {};
+    for (const original of Object.keys(fontMapping)) renderMapping[original] = "Inter";
+    for (const original of Object.keys(autoOriginal)) renderMapping[original] = "Inter";
+    return {
+      primaryFont: "Inter",
+      renderMapping,
+      originalFontNames: { ...fontMapping, ...autoOriginal },
+    };
+  }
+
+  // "fallback" or "plugin": use the modal's mapping directly; auto-resolved
+  // fonts still take the Inter + marker route.
+  const renderMapping: FontMapping = { ...fontMapping };
+  for (const original of Object.keys(autoOriginal)) renderMapping[original] = "Inter";
+  return {
+    primaryFont: Object.values(fontMapping)[0] || "Inter",
+    renderMapping,
+    originalFontNames: Object.keys(autoOriginal).length > 0 ? { ...autoOriginal } : undefined,
+  };
+}
+
+// ============================================================================
+// buildDownloadCuts
+// ============================================================================
+
+/**
+ * Merge the cuts that should narrow the download ZIP for every family the modal
+ * offers, keyed by CSS family:
+ *
+ *   - Partial families (installed, some cuts absent) keep their `missingCuts`
+ *     entry — only the absent cuts are worth shipping.
+ *   - Fully-missing families (nothing installed → whole family degrades to
+ *     Inter) get their *used* cuts from `fontUsage`, so the ZIP carries only the
+ *     weights the page actually renders instead of every declared @font-face.
+ *
+ * A fully-missing family with no recorded usage is omitted, so the downstream
+ * `filterExtractedFontsToCuts` safety net still ships its full set rather than
+ * an empty one.
+ */
+export function buildDownloadCuts(
+  missing: string[],
+  missingCuts: Record<string, FontCut[]>,
+  fontUsage: Map<string, FontCut[]>,
+): Record<string, FontCut[]> {
+  const result: Record<string, FontCut[]> = { ...missingCuts };
+  for (const family of missing) {
+    // Partial families already carry their (absent) cuts — don't overwrite.
+    if (result[family]) continue;
+    const used = fontUsage.get(family);
+    if (used && used.length > 0) result[family] = used;
+  }
+  return result;
+}
+
+// ============================================================================
 // buildFontsNotAvailableMessage
 // ============================================================================
 
@@ -306,7 +619,8 @@ export function buildDefaultFontMapping(
 export function buildFontsNotAvailableMessage(
   missingFonts: string[],
   pluginFont: string,
-  pluginFontOptions: string[]
+  pluginFontOptions: string[],
+  missingCuts?: Record<string, FontCut[]>
 ): {
   type: "fonts-not-available";
   data: {
@@ -314,6 +628,10 @@ export function buildFontsNotAvailableMessage(
     defaultMapping: FontMapping;
     pluginFont: string;
     pluginFontOptions: string[];
+    /** Per family, the specific cuts the page needs but Figma lacks. The UI
+     *  narrows the download ZIP to these files instead of shipping the whole
+     *  family. Absent/empty for families missing in their entirety. */
+    missingCuts?: Record<string, FontCut[]>;
   };
 } {
   const defaultMapping = buildDefaultFontMapping(missingFonts, pluginFont);
@@ -325,6 +643,7 @@ export function buildFontsNotAvailableMessage(
       defaultMapping,
       pluginFont,
       pluginFontOptions,
+      missingCuts,
     },
   };
 }

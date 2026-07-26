@@ -163,6 +163,59 @@ describe("POST /api/webhooks/flitt — idempotency", () => {
 });
 
 // ============================================================================
+// Revenue capture — the WebhookEvent row records the validated charge amount
+// so admin-stats can sum real dollars instead of assuming every charge is
+// monthly ($16). Before this, a yearly ($144) charge was booked as $16.
+// ============================================================================
+
+describe("POST /api/webhooks/flitt — amount capture", () => {
+  it("persists the validated amount on the WebhookEvent row (monthly)", async () => {
+    mockVerifyCallback.mockReturnValue(true);
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ amount: 1600 }));
+    expect(mockWebhookEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 1600 }),
+    );
+  });
+
+  it("persists the yearly amount so revenue is not understated as monthly", async () => {
+    mockVerifyCallback.mockReturnValue(true);
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(
+        approvedPayload({
+          amount: 14400,
+          merchant_data: JSON.stringify({
+            figmaUserId: "u-1",
+            plan: "pro",
+            duration: "yearly",
+          }),
+        }),
+      );
+    expect(mockWebhookEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 14400 }),
+    );
+  });
+
+  it("omits amountCents when the amount is not a finite number", async () => {
+    // A reversed payload skips the approved-only amount validation, so a
+    // non-numeric amount can reach persistence. The field must stay absent
+    // rather than storing NaN, so the stats fallback ($16) kicks in cleanly.
+    mockVerifyCallback.mockReturnValue(true);
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(approvedPayload({ order_status: "reversed", amount: "not-a-number" }));
+    const arg = mockWebhookEventCreate.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(arg).toBeDefined();
+    expect("amountCents" in arg).toBe(false);
+  });
+});
+
+// ============================================================================
 // merchant_data parsing
 // ============================================================================
 

@@ -9,6 +9,31 @@ import { verifyAdminCredential } from "../../middleware/adminAuth.js";
 const router = Router();
 
 /**
+ * Sum the real charged cents across the webhook rows matching `match`. Rows
+ * written before `amountCents` was captured (and any row whose amount was not
+ * a finite number) fall back to the monthly price — the same assumption the
+ * old `count × $16` math made, but now only for rows that genuinely lack a
+ * recorded amount. New rows, including yearly ($144), contribute their true
+ * value, so a yearly charge is no longer under-booked as monthly.
+ */
+async function sumChargeCents(
+  match: Record<string, unknown>,
+): Promise<number> {
+  const rows = await WebhookEvent.aggregate<{ cents: number }>([
+    { $match: match },
+    {
+      $group: {
+        _id: null,
+        cents: {
+          $sum: { $ifNull: ["$amountCents", PLAN_PRICES.pro.priceCents] },
+        },
+      },
+    },
+  ]);
+  return rows[0]?.cents ?? 0;
+}
+
+/**
  * GET /api/admin/stats
  *
  * Single aggregated "how's the business doing?" view, computed live from
@@ -44,7 +69,7 @@ router.get("/", async (req: Request, res: Response) => {
       canceledUsers,
       newUsers7d,
       newUsers30d,
-      activeUsers30d,
+      activeImporterIds30d,
       approved30d,
       approved7d,
       declined7d,
@@ -53,6 +78,9 @@ router.get("/", async (req: Request, res: Response) => {
       refundsAudit30d,
       userList,
       recentImportEvents,
+      grossCents30d,
+      refundedCents30d,
+      grossCents7d,
     ] = await Promise.all([
       License.countDocuments({}),
       License.countDocuments({ plan: "pro" }),
@@ -60,7 +88,12 @@ router.get("/", async (req: Request, res: Response) => {
       License.countDocuments({ status: "canceled" }),
       License.countDocuments({ createdAt: { $gte: last7d } }),
       License.countDocuments({ createdAt: { $gte: last30d } }),
-      License.countDocuments({ "usage.periodStartedAt": { $gte: last30d } }),
+      // True MAU: distinct users with at least one import attempt in the
+      // window. The old query (`usage.periodStartedAt >= last30d`) only moved
+      // on billing-cycle resets, so it measured "whose cycle rolled over",
+      // not "who used the plugin". ImportEvent TTL is 90d — comfortably
+      // covers the 30d window.
+      ImportEvent.distinct("figmaUserId", { createdAt: { $gte: last30d } }),
       WebhookEvent.countDocuments({
         orderStatus: "approved",
         processedAt: { $gte: last30d },
@@ -122,15 +155,19 @@ router.get("/", async (req: Request, res: Response) => {
         .sort({ createdAt: -1 })
         .limit(50)
         .lean(),
+      // Real summed revenue — replaces the old `count × $16` estimate so a
+      // yearly ($144) charge is booked at its true value. Order here must
+      // match the destructuring above: approved-30d, reversed-30d, approved-7d.
+      sumChargeCents({ orderStatus: "approved", processedAt: { $gte: last30d } }),
+      sumChargeCents({ orderStatus: "reversed", processedAt: { $gte: last30d } }),
+      sumChargeCents({ orderStatus: "approved", processedAt: { $gte: last7d } }),
     ]);
 
-    // Revenue estimate: approved webhooks × Pro price, minus reversals.
-    // Approximate — assumes every approved is at Pro price and every
-    // reversal is a full refund of one Pro payment. Cross-check against
-    // Flitt's settlement report for the source of truth.
-    const grossRevenueCents30d = approved30d * PLAN_PRICES.pro.priceCents;
-    const refundedCents30d = reversed30d * PLAN_PRICES.pro.priceCents;
-    const netRevenueCents30d = grossRevenueCents30d - refundedCents30d;
+    // Revenue: sum of the real charged amounts (see sumChargeCents), so
+    // yearly and monthly are each booked at their true price. Rows predating
+    // amountCents fall back to the monthly price inside the aggregation.
+    // Cross-check against Flitt's settlement report for the source of truth.
+    const netRevenueCents30d = grossCents30d - refundedCents30d;
 
     // Conversion rate: of users created in last 30d, how many ever
     // activated Pro? Note: the audit-based count includes ALL activations,
@@ -169,7 +206,7 @@ router.get("/", async (req: Request, res: Response) => {
         byStatus: { canceled: canceledUsers },
         new7d: newUsers7d,
         new30d: newUsers30d,
-        active30d: activeUsers30d, // imported anything in last 30d
+        active30d: activeImporterIds30d.length, // distinct importers in last 30d
         list: userList.map((u) => ({
           figmaUserId: u.figmaUserId,
           email: u.email ?? null,
@@ -187,7 +224,8 @@ router.get("/", async (req: Request, res: Response) => {
         approved7d,
         approved30d,
         reversed30d,
-        gross30dCents: grossRevenueCents30d,
+        gross30dCents: grossCents30d,
+        gross7dCents: grossCents7d,
         refunded30dCents: refundedCents30d,
         net30dCents: netRevenueCents30d,
       },
@@ -863,7 +901,7 @@ async function load() {
     + card("Gross (last 30d)", fmtUsd(d.revenue.gross30dCents), d.revenue.approved30d + " approved charges")
     + card("Refunded (30d)", fmtUsd(d.revenue.refunded30dCents), d.revenue.reversed30d + " reversed")
     + card("Net (30d)", fmtUsd(d.revenue.net30dCents))
-    + card("Last 7 days", fmtUsd(d.revenue.approved7d * 1600), d.revenue.approved7d + " approved")
+    + card("Last 7 days", fmtUsd(d.revenue.gross7dCents), d.revenue.approved7d + " approved")
     + "</div></section>";
 
   html += '<section><h2>Payments</h2><div class="grid">'

@@ -21,6 +21,14 @@
  *     a no-op for the same node.
  */
 
+import { fontStyleCandidates, orderStylesByProximity, parseStyleName } from "./styles";
+import { isServerFallbackFamily } from "../utils/fontUtils";
+
+// Re-exported so the rebind-side callers (text.ts, tests) keep importing the
+// predicate from here even though it now lives with the other font-family
+// classifiers in fontUtils.
+export { isServerFallbackFamily };
+
 /** Pluginata key written by `createTextNode` and consumed here. */
 export const ORIGINAL_FONT_PLUGIN_KEY = "w2w_original_font";
 
@@ -38,32 +46,102 @@ export const SEGMENT_FONT_PLUGIN_KEY = "w2w_original_font_segments";
  *  "All 30 font(s) already re-applied" rather than "0 / 0"). */
 export const REBOUND_DONE_PLUGIN_KEY = "w2w_rebound_done";
 
+/** One pending text layer in {@link RebindableCount}: enough for the modal
+ *  to render a clickable per-font list ("h1.u-text" → select & zoom). */
+export interface RebindableLayer {
+  id: string;
+  name: string;
+  /** Sorted non-fallback families this layer is still waiting for. */
+  families: string[];
+}
+
+/** Result of {@link countRebindableNodes}: how many text nodes still await a
+ *  re-apply, plus the (sorted, de-duped) families they're waiting for. */
+export interface RebindableCount {
+  count: number;
+  families: string[];
+  layers: RebindableLayer[];
+}
+
+/**
+ * Count the text nodes in `nodes` that still carry an original-font marker
+ * (node-level or per-segment), collecting the families they need re-applied.
+ *
+ * Pure over the node list — the sandbox runs it over the whole page (footer
+ * button visibility) and over the current selection (its scoped label) from
+ * one implementation. Only `getPluginData` is read, so callers can pass real
+ * TextNodes or lightweight stand-ins.
+ */
+export function countRebindableNodes(
+  nodes: Array<Pick<TextNode, "getPluginData" | "id" | "name">>,
+): RebindableCount {
+  const families = new Set<string>();
+  const layers: RebindableLayer[] = [];
+  let count = 0;
+  for (const n of nodes) {
+    const fam = n.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
+    const segJson = n.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
+    if (!fam && !segJson) continue;
+    // Server-fallback families (Liberation Sans, Noto * CJK …) are dead
+    // markers — never installable via the ZIP. Exclude them so the footer
+    // badge and modal only advertise families the user can actually act on.
+    const nodeFamilies = new Set<string>();
+    if (fam && !isServerFallbackFamily(fam)) nodeFamilies.add(fam);
+    if (segJson) {
+      try {
+        const parsed: unknown = JSON.parse(segJson);
+        if (Array.isArray(parsed)) {
+          for (const s of parsed) {
+            const segFam = (s as { family?: unknown } | null)?.family;
+            if (typeof segFam === "string" && !isServerFallbackFamily(segFam)) {
+              nodeFamilies.add(segFam);
+            }
+          }
+        }
+      } catch {
+        /* corrupt segment marker — family list stays best-effort */
+      }
+    }
+    if (nodeFamilies.size === 0) continue; // only dead fallback markers
+    count++;
+    nodeFamilies.forEach((f) => families.add(f));
+    layers.push({
+      id: n.id,
+      name: n.name,
+      families: Array.from(nodeFamilies).sort(),
+    });
+  }
+  return { count, families: Array.from(families).sort(), layers };
+}
+
 /** Style ladder tried in order when the node's current style isn't available
  *  on the now-installed font (e.g. user installed PSA Regular but the node
  *  was rendered with Medium). Mirrors the conventional cuts most fonts ship
  *  with. */
 const STYLE_FALLBACK_LADDER = ["Regular", "Bold", "Medium", "Light", "Normal"];
 
-/** Style names that read as the "default"/upright cut across foundries. Söhne
- *  ships "Buch" (German for Book), other foundries use "Roman"/"Text" — none of
- *  which appear in the conventional ladder above. */
-const REGULARISH_STYLES = ["regular", "book", "buch", "normal", "roman", "text"];
+/** All spelling variants for the requested style's weight bucket ("Semi Bold"
+ *  → Semibold, SemiBold, Semi Bold, DemiBold, …), so a node rendered as Inter
+ *  "Semi Bold" rebinds to the target family's "Semibold" cut instead of
+ *  collapsing to Regular via the generic ladder. */
+function styleSpellingCandidates(preferredStyle: string): string[] {
+  const { weight, italic } = parseStyleName(preferredStyle);
+  return fontStyleCandidates(weight, italic);
+}
 
 /**
- * Orders a font family's ACTUAL installed styles so the most sensible cut is
- * tried first: an exact match to the requested style, then a regular-ish one,
- * then everything else. Used as a last resort when the conventional ladder
- * misses a font that only ships non-standard style names (e.g. "Buch").
+ * Orders a font family's ACTUAL installed styles so the closest cut to the one
+ * we want is tried first. Used as a last resort when the conventional ladder
+ * misses a font that only ships non-standard style names (e.g. Söhne's "Buch").
+ *
+ * Ranking by weight proximity — rather than "exact name, then regular-ish,
+ * then everything else" — is what stops a family without a Regular from
+ * rebinding every 400 run to whatever Figma happens to list first (which is
+ * alphabetical, i.e. "Black Italic").
  */
 function orderActualStyles(preferredStyle: string, styles: string[]): string[] {
-  const wanted = preferredStyle.toLowerCase();
-  const rank = (s: string): number => {
-    const sl = s.toLowerCase();
-    if (sl === wanted) return 0;
-    if (REGULARISH_STYLES.includes(sl)) return 1;
-    return 2;
-  };
-  return [...styles].sort((a, b) => rank(a) - rank(b));
+  const { weight, italic } = parseStyleName(preferredStyle);
+  return orderStylesByProximity(styles, weight, italic);
 }
 
 export interface RebindResult {
@@ -147,7 +225,12 @@ async function loadFontWithFallback(
     preferredStyle,
     installedStyles.get(family) ?? [],
   );
-  const candidates = [preferredStyle, ...STYLE_FALLBACK_LADDER, ...actual];
+  const candidates = [
+    preferredStyle,
+    ...styleSpellingCandidates(preferredStyle),
+    ...STYLE_FALLBACK_LADDER,
+    ...actual,
+  ];
   for (const style of candidates) {
     if (tried.has(style)) continue;
     tried.add(style);
@@ -213,7 +296,7 @@ export async function rebindOriginalFonts(
     nodeId: string;
     family: string;
     requestedStyle: string;
-    outcome: "rebound" | "stillMissing" | "skippedMixed" | "setFailed";
+    outcome: "rebound" | "stillMissing" | "skippedMixed" | "setFailed" | "healedFallback";
     appliedStyle?: string;
     attemptsTried: number;
     firstError?: string;
@@ -224,7 +307,8 @@ export async function rebindOriginalFonts(
 
   for (const node of nodes) {
     const originalFamily = node.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
-    if (!originalFamily) continue;
+    const segJson = node.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
+    if (!originalFamily && !segJson) continue;
     total++;
 
     const charsPreview = (node.characters || "").slice(0, 40).replace(/\s+/g, " ");
@@ -233,11 +317,11 @@ export async function rebindOriginalFonts(
     // paco.me: Söhne body + a Newsreader-italic <em>). The render stamps a
     // per-run marker recording ONLY the substituted ranges + the real family
     // each should become. We rebind exactly those ranges — runs already showing
-    // their correct font (Newsreader) are never touched. Without the per-run
-    // marker we can't tell the runs apart, so we skip (the safe old behavior).
-    if (node.fontName === figma.mixed) {
+    // their correct font (Newsreader) are never touched. Nodes with per-run
+    // markers are handled here even when the node-level marker is absent
+    // (e.g. only one inline icon run was substituted).
+    if (node.fontName === figma.mixed || segJson) {
       let segs: Array<{ start: number; end: number; family: string }> = [];
-      const segJson = node.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
       if (segJson) {
         try {
           const parsed: unknown = JSON.parse(segJson);
@@ -250,20 +334,111 @@ export async function rebindOriginalFonts(
       }
 
       if (segs.length === 0) {
-        skippedMixed++;
-        perNode.push({
-          nodeId: node.id,
-          family: originalFamily,
-          requestedStyle: "(mixed)",
-          outcome: "skippedMixed",
-          attemptsTried: 0,
-          chars: charsPreview,
-        });
+        // No per-run markers (imports predating segment stamping). The render
+        // pipeline's only substitute font is Inter, so every Inter run in a
+        // marked mixed node is OUR substitution artifact — rebinding exactly
+        // those runs to the node's marker family is safe. Runs showing any
+        // other family (their own correct font) are left untouched.
+        let interRuns: Array<{ start: number; end: number; fontName: FontName }> = [];
+        if (originalFamily) {
+          try {
+            const styled = (node as TextNode & {
+              getStyledTextSegments?: (
+                fields: string[],
+              ) => Array<{ start: number; end: number; fontName: FontName }>;
+            }).getStyledTextSegments?.(["fontName"]);
+            if (Array.isArray(styled)) {
+              interRuns = styled.filter((r) => r.fontName && r.fontName.family === "Inter");
+            }
+          } catch {
+            /* runs API unavailable — keep the safe skip behavior */
+          }
+        }
+
+        if (interRuns.length === 0) {
+          skippedMixed++;
+          perNode.push({
+            nodeId: node.id,
+            family: originalFamily,
+            requestedStyle: "(mixed)",
+            outcome: "skippedMixed",
+            attemptsTried: 0,
+            chars: charsPreview,
+          });
+          continue;
+        }
+
+        // Dead server-fallback marker (pre-fix server import): if the family
+        // won't load, heal the node instead of reporting it missing forever.
+        if (isServerFallbackFamily(originalFamily)) {
+          const probe = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
+          const probeStyle = await loadFontWithFallback(
+            originalFamily,
+            interRuns[0].fontName.style,
+            probe,
+            installedStyles,
+          );
+          if (probeStyle === null) {
+            node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+            total--;
+            perNode.push({
+              nodeId: node.id,
+              family: originalFamily,
+              requestedStyle: "(mixed:inter-runs)",
+              outcome: "healedFallback",
+              attemptsTried: probe.attempts.length,
+              chars: charsPreview,
+            });
+            continue;
+          }
+        }
+
+        const fbTrace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
+        let allRunsSet = true;
+        for (const r of interRuns) {
+          const loaded = await loadFontWithFallback(originalFamily, r.fontName.style, fbTrace, installedStyles);
+          if (loaded === null) {
+            allRunsSet = false;
+            stillMissing.add(originalFamily);
+            continue;
+          }
+          try {
+            node.setRangeFontName(r.start, r.end, { family: originalFamily, style: loaded });
+          } catch {
+            allRunsSet = false;
+            stillMissing.add(originalFamily);
+          }
+        }
+
+        if (allRunsSet) {
+          node.setPluginData(REBOUND_DONE_PLUGIN_KEY, originalFamily);
+          node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+          rebound++;
+          perNode.push({
+            nodeId: node.id,
+            family: originalFamily,
+            requestedStyle: "(mixed:inter-runs)",
+            outcome: "rebound",
+            attemptsTried: fbTrace.attempts.length,
+            chars: charsPreview,
+          });
+        } else {
+          perNode.push({
+            nodeId: node.id,
+            family: originalFamily,
+            requestedStyle: "(mixed:inter-runs)",
+            outcome: "stillMissing",
+            attemptsTried: fbTrace.attempts.length,
+            firstError: fbTrace.attempts.find((a) => !a.ok)?.error,
+            chars: charsPreview,
+          });
+        }
         continue;
       }
 
       const segTrace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
       let allRunsSet = true;
+      let anyRunSet = false;
       for (const s of segs) {
         if (
           typeof s.start !== "number" ||
@@ -284,26 +459,53 @@ export async function rebindOriginalFonts(
         }
         const loaded = await loadFontWithFallback(s.family, curStyle, segTrace, installedStyles);
         if (loaded === null) {
+          // Dead server-fallback run (pre-fix server import) — heal by
+          // ignoring it; the marker clears below if nothing real failed.
+          if (isServerFallbackFamily(s.family)) continue;
           allRunsSet = false;
           stillMissing.add(s.family);
           continue;
         }
         try {
           node.setRangeFontName(s.start, s.end, { family: s.family, style: loaded });
+          anyRunSet = true;
         } catch {
           allRunsSet = false;
           stillMissing.add(s.family);
         }
       }
 
+      if (allRunsSet && !anyRunSet) {
+        // Every run was a healed server-fallback — clear the dead markers
+        // without claiming a rebind (nothing was actually swapped).
+        node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+        node.setPluginData(SEGMENT_FONT_PLUGIN_KEY, "");
+        total--;
+        perNode.push({
+          nodeId: node.id,
+          family: originalFamily || segs.map((s) => s.family).join(", "),
+          requestedStyle: "(mixed)",
+          outcome: "healedFallback",
+          attemptsTried: segTrace.attempts.length,
+          chars: charsPreview,
+        });
+        continue;
+      }
+
       if (allRunsSet) {
-        node.setPluginData(REBOUND_DONE_PLUGIN_KEY, originalFamily);
+        // Segment-only nodes have no node-level marker — record the run
+        // families instead so the "done" stamp is never empty (an empty
+        // value would delete the key and break the cumulative count).
+        node.setPluginData(
+          REBOUND_DONE_PLUGIN_KEY,
+          originalFamily || segs.map((s) => s.family).join(", "),
+        );
         node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
         node.setPluginData(SEGMENT_FONT_PLUGIN_KEY, "");
         rebound++;
         perNode.push({
           nodeId: node.id,
-          family: originalFamily,
+          family: originalFamily || segs.map((s) => s.family).join(", "),
           requestedStyle: "(mixed)",
           outcome: "rebound",
           attemptsTried: segTrace.attempts.length,
@@ -328,6 +530,22 @@ export async function rebindOriginalFonts(
     const loadedStyle = await loadFontWithFallback(originalFamily, currentStyle, trace, installedStyles);
 
     if (loadedStyle === null) {
+      // Self-heal: a server-fallback family (Liberation Sans, Noto * CJK …)
+      // that fails to load is a dead marker from a pre-fix server import —
+      // clear it silently instead of reporting an un-installable family.
+      if (isServerFallbackFamily(originalFamily)) {
+        node.setPluginData(ORIGINAL_FONT_PLUGIN_KEY, "");
+        total--;
+        perNode.push({
+          nodeId: node.id,
+          family: originalFamily,
+          requestedStyle: currentStyle,
+          outcome: "healedFallback",
+          attemptsTried: trace.attempts.length,
+          chars: charsPreview,
+        });
+        continue;
+      }
       stillMissing.add(originalFamily);
       perNode.push({
         nodeId: node.id,

@@ -224,6 +224,21 @@ export const licenseService = {
   },
 
   /**
+   * Compensating decrement for an import slot consumed by `useImport` when
+   * the import itself failed before delivering anything (e.g. the screenshot
+   * AI pipeline errored). Atomic and guarded by `$gt: 0` so a concurrent
+   * cycle reset or double-refund can never drive the counter negative.
+   * No-op when the counter is already 0.
+   */
+  async refundImport(figmaUserId: string): Promise<void> {
+    assertString(figmaUserId, "figmaUserId");
+    await License.findOneAndUpdate(
+      { figmaUserId, "usage.imports": { $gt: 0 } },
+      { $inc: { "usage.imports": -1 } },
+    );
+  },
+
+  /**
    * Webhook: subscription approved (initial activation). Upserts so we tolerate
    * a missing license row (rare — getOrCreate is normally called first).
    */

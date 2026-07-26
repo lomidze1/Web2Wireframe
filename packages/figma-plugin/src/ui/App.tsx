@@ -12,6 +12,7 @@ import AreaSelection from "./pages/import/areaSelection";
 import Settings from "./components/modalPopup/Settings";
 import Help from "./components/modalPopup/Help";
 import ExtensionModal from "./components/modalPopup/ExtensionModal";
+import RebindFontsModal from "./components/modalPopup/RebindFontsModal";
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
@@ -155,6 +156,19 @@ function AppContent() {
   // count: it pushes `rebindable-count` on request, after each import, after a
   // rebind, and on Figma page change.
   const [rebindableCount, setRebindableCount] = useState(0);
+  // Families still awaiting re-apply (marker values) — shown in the
+  // RebindFontsModal so the user knows exactly what to install.
+  const [rebindableFamilies, setRebindableFamilies] = useState<string[]>([]);
+  // How many of the page's rebindable text nodes fall inside the current Figma
+  // selection. Drives the footer button's scoped "Re-apply to selection" label;
+  // the sandbox's rebind action already honours the same selection-or-page scope.
+  const [selectionRebindableCount, setSelectionRebindableCount] = useState(0);
+  // Per-layer detail for the modal's collapsible per-font list — each entry
+  // is { id, name, families }; clicking a row selects & zooms to the layer.
+  const [rebindableLayers, setRebindableLayers] = useState<
+    Array<{ id: string; name: string; families: string[] }>
+  >([]);
+  const [isRebindOpen, setIsRebindOpen] = useState(false);
   const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
     number | null
   >(null);
@@ -175,6 +189,26 @@ function AppContent() {
       if (!msg || msg.type !== "rebindable-count") return;
       const count = msg.data?.count;
       if (typeof count === "number") setRebindableCount(count);
+      const families = msg.data?.families;
+      if (Array.isArray(families)) {
+        setRebindableFamilies(families.filter((f): f is string => typeof f === "string"));
+      }
+      const selectionCount = msg.data?.selectionCount;
+      setSelectionRebindableCount(
+        typeof selectionCount === "number" ? selectionCount : 0,
+      );
+      const layers = msg.data?.layers;
+      setRebindableLayers(
+        Array.isArray(layers)
+          ? layers.filter(
+              (l): l is { id: string; name: string; families: string[] } =>
+                !!l &&
+                typeof l.id === "string" &&
+                typeof l.name === "string" &&
+                Array.isArray(l.families),
+            )
+          : [],
+      );
     };
     window.addEventListener("message", handler);
     parent.postMessage(
@@ -313,14 +347,13 @@ function AppContent() {
           setIsExtensionOpen(true);
         }}
         showRebindFonts={rebindableCount > 0}
+        rebindFontsLabel={
+          selectionRebindableCount > 0 ? "Re-apply to selection" : "Re-apply fonts"
+        }
         onRebindFontsClick={() => {
-          // Sandbox handles `rebind-original-fonts`: walks selection (or page
-          // if empty), re-applies any text node that carries the
-          // `w2w_original_font` marker, and reports a toast via figma.notify.
-          parent.postMessage(
-            { pluginMessage: { type: "rebind-original-fonts" } },
-            "*",
-          );
+          // Opens the info modal (install → select → re-apply); the modal's
+          // own button fires the actual `rebind-original-fonts` action.
+          setIsRebindOpen(true);
         }}
       />
     </div>
@@ -337,6 +370,33 @@ function AppContent() {
     <ExtensionModal
       isOpen={isExtensionOpen}
       onClose={() => setIsExtensionOpen(false)}
+    />
+    <RebindFontsModal
+      isOpen={isRebindOpen}
+      onClose={() => setIsRebindOpen(false)}
+      count={rebindableCount}
+      selectionCount={selectionRebindableCount}
+      missingFonts={rebindableFamilies}
+      layers={rebindableLayers}
+      onSelectLayer={(id) => {
+        // Sandbox selects the layer and zooms the viewport to it, so the
+        // user sees exactly which element the pending font refers to. The
+        // modal stays open for browsing several layers in a row.
+        parent.postMessage(
+          { pluginMessage: { type: "select-rebind-layer", data: { nodeId: id } } },
+          "*",
+        );
+      }}
+      onReapply={() => {
+        // Sandbox handles `rebind-original-fonts`: walks selection (or page
+        // if empty), re-applies any text node that carries the
+        // `w2w_original_font` / segment markers, and reports a toast.
+        parent.postMessage(
+          { pluginMessage: { type: "rebind-original-fonts" } },
+          "*",
+        );
+        setIsRebindOpen(false);
+      }}
     />
     <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
     <QuotaExceededModal

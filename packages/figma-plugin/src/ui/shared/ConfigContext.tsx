@@ -18,7 +18,19 @@ export interface PluginColors {
   accent: string;       // #AFC6DC - Buttons, links, CTAs (light blue)
 }
 
+/**
+ * Schema version of a persisted config. Bumped when a default changes in a way
+ * that must reach users who already have a config in clientStorage — the
+ * provider writes a full snapshot on first load, so a bare DEFAULT_CONFIG edit
+ * only ever reaches brand-new installs. See `deepMergeConfig`.
+ *
+ * v2 (2026-07-16): colorMode/fontMode/textMode/assetMode → website-faithful.
+ */
+export const CONFIG_VERSION = 2;
+
 export interface PluginConfig {
+  // Absent on configs written before CONFIG_VERSION existed (treated as v1).
+  configVersion?: number;
   viewports: string[];
   colorMode: "plugin" | "website";
   fontMode: "plugin" | "website" | "lines";
@@ -66,12 +78,16 @@ export const PLUGIN_FONT_OPTIONS = [
 ];
 
 // Default configuration
+// Defaults favour the website's own colors/fonts/text/assets: a first-run
+// import should read as a faithful copy of the source. The plugin-flavoured
+// wireframe look stays one dropdown away (see SettingsPanel).
 export const DEFAULT_CONFIG: PluginConfig = {
+  configVersion: CONFIG_VERSION,
   viewports: ["1440"],
-  colorMode: "plugin",
-  fontMode: "plugin",
-  textMode: "semantic",
-  assetMode: "placeholders",
+  colorMode: "website",
+  fontMode: "website",
+  textMode: "website",
+  assetMode: "realAssets",
   pluginColors: { ...DEFAULT_PLUGIN_COLORS },
   pluginFont: DEFAULT_PLUGIN_FONT,
   // Import options defaults
@@ -113,7 +129,7 @@ interface ConfigContextType {
 const ConfigContext = createContext<ConfigContextType | null>(null);
 
 // Deep merge for nested objects like pluginColors
-function deepMergeConfig(defaults: PluginConfig, saved: Partial<PluginConfig>): PluginConfig {
+export function deepMergeConfig(defaults: PluginConfig, saved: Partial<PluginConfig>): PluginConfig {
   const merged = { ...defaults };
 
   for (const key of Object.keys(saved) as (keyof PluginConfig)[]) {
@@ -135,6 +151,20 @@ function deepMergeConfig(defaults: PluginConfig, saved: Partial<PluginConfig>): 
   // Migration: "wireframe" → "semantic" (renamed back in v3)
   if ((merged.textMode as string) === "wireframe") {
     merged.textMode = "semantic";
+  }
+
+  // Migration → v2: adopt the website-faithful output modes once. Users who
+  // never opened the settings still have the old plugin-flavoured values
+  // frozen in clientStorage (the provider snapshots DEFAULT_CONFIG on first
+  // load), so without this they would never see the new defaults. Scoped to
+  // the four output modes — viewports, fonts and layout prefs are left alone.
+  // Anything saved at v2 or later is a deliberate choice and is preserved.
+  if ((saved.configVersion ?? 1) < CONFIG_VERSION) {
+    merged.colorMode = defaults.colorMode;
+    merged.fontMode = defaults.fontMode;
+    merged.textMode = defaults.textMode;
+    merged.assetMode = defaults.assetMode;
+    merged.configVersion = CONFIG_VERSION;
   }
 
   return merged;

@@ -30,7 +30,7 @@ function makeApp(userId: string | null = "u-1") {
       next();
     });
   }
-  app.post("/test/import", requireImportAllowance, (req, res) => {
+  app.post("/test/import", requireImportAllowance("url"), (req, res) => {
     res.json({ success: true, remaining: req.importRemaining });
   });
   return app;

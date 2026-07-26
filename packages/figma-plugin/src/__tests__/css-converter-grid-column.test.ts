@@ -98,6 +98,38 @@ function gridTree(childOffset: number, childStartStyle?: string): RawNode {
   });
 }
 
+// Apple-like promo grids lose explicit grid-row/grid-column and
+// must be reconstructable from geometry when tracks are fixed pixels.
+function gridTreeWithCell(
+  cell: { colOffset: number; rowOffset: number },
+  childStyles: Record<string, string | number | undefined> = { display: "block" },
+): RawNode {
+  const child = frame(
+    "article",
+    { x: cell.colOffset, y: cell.rowOffset, width: 614.5, height: 580 },
+    childStyles,
+    [],
+    { classList: ["article"] },
+  );
+  const grid = frame(
+    "div",
+    { x: 0, y: 0, width: 1265, height: 1764 },
+    {
+      display: "grid",
+      gridTemplateColumns: "614.5px 614.5px",
+      gridTemplateRows: "580px 580px 580px",
+      columnGap: "12px",
+      rowGap: "12px",
+    },
+    [child],
+    { classList: ["promo-grid"] },
+  );
+  const body = frame("body", { x: 0, y: 0, width: 1440, height: 2200 }, { height: "100%" }, [grid]);
+  return frame("html", { x: 0, y: 0, width: 1440, height: 2200 }, { height: "100%" }, [body], {
+    isScrollingElt: true,
+  });
+}
+
 describe("convertW2WToWireframe — grid-column inference", () => {
   it("infers grid-column 2 from geometry when the start line is missing", () => {
     const root = convertW2WToWireframe(gridTree(216) as never, { layoutMode: "autoLayout" });
@@ -130,5 +162,26 @@ describe("convertW2WToWireframe — grid-column inference", () => {
     });
     const root = convertW2WToWireframe(html as never, { layoutMode: "autoLayout" });
     expect(findByClass(root, "child")!.gridColumnStart).toBeUndefined();
+  });
+
+  it("infers grid-row 2 from geometry when the start line is missing", () => {
+    // Row 2 starts at 592 = 580px track + 12px gap.
+    const root = convertW2WToWireframe(
+      gridTreeWithCell({ colOffset: 626.5, rowOffset: 592 }) as never,
+      { layoutMode: "autoLayout" },
+    );
+    expect(findByClass(root, "article")!.gridRowStart).toBe(2);
+  });
+
+  it("keeps an explicit grid-row-start over the geometric guess", () => {
+    // Geometry says row 1, explicit line says row 3.
+    const root = convertW2WToWireframe(
+      gridTreeWithCell(
+        { colOffset: 0, rowOffset: 0 },
+        { display: "block", gridRowStart: "3" },
+      ) as never,
+      { layoutMode: "autoLayout" },
+    );
+    expect(findByClass(root, "article")!.gridRowStart).toBe(3);
   });
 });
