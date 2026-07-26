@@ -140,6 +140,11 @@ export interface WireframeNode {
   // NEW: Figma-ready arrays (multiple layers support)
   // =========================================================================
   fills?: FigmaFill[]; // Multiple backgrounds: gradients, colors, image placeholders
+  // `background-clip: text` — the background paints the GLYPHS, not the box
+  // (gradient-text headings). These layers are deliberately kept out of `fills`
+  // so nodes.ts doesn't wrap the text in a background frame; text.ts applies
+  // them as the TextNode's own fills.
+  textFills?: FigmaFill[];
   strokes?: FigmaStroke[]; // Borders (with per-side support)
   effects?: FigmaEffect[]; // Multiple shadows, backdrop-blur
 

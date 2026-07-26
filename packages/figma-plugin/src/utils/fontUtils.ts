@@ -91,6 +91,68 @@ export const CSS_GENERIC_FONTS: ReadonlySet<string> = new Set([
   "fangsong",
 ]);
 
+/** Linux server (Render) fallback families. Server-side URL imports resolve
+ *  any family without a loaded @font-face to one of these via
+ *  `CSS.getPlatformFontsForNode` — they are render artifacts of the capture
+ *  container, never something the user should install. Conservative list:
+ *  plain "Noto Sans" (a legitimate Google web font) is NOT matched. */
+const SERVER_FALLBACK_PATTERNS = [
+  /^Liberation (Sans|Serif|Mono)/i,
+  /^DejaVu (Sans|Serif)/i,
+  /^Noto (Sans|Serif) CJK/i,
+  /^Noto Color Emoji$/i,
+  /^Free(Sans|Serif|Mono)$/i,
+];
+
+/** True when `family` is a known Linux server fallback (see list above). */
+export function isServerFallbackFamily(family: string): boolean {
+  return SERVER_FALLBACK_PATTERNS.some((p) => p.test(family));
+}
+
+/** Websafe / OS-bundled families. A site references these but never serves
+ *  them as @font-face, so they can never appear in the download ZIP — and
+ *  browsers synthesize the weights a family doesn't ship (Arial has no real
+ *  Semibold). Demanding them keeps the font modal open on something the user
+ *  can never install. */
+const WEBSAFE_SYSTEM_FONTS: ReadonlySet<string> = new Set([
+  "arial",
+  "arial black",
+  "helvetica",
+  "helvetica neue",
+  "times",
+  "times new roman",
+  "georgia",
+  "courier",
+  "courier new",
+  "verdana",
+  "tahoma",
+  "trebuchet ms",
+  "palatino",
+  "palatino linotype",
+  "garamond",
+  "impact",
+  "comic sans ms",
+  "lucida grande",
+  "lucida sans",
+  "lucida sans unicode",
+  "segoe ui",
+  "microsoft sans serif",
+  "ms sans serif",
+]);
+
+/** True when `family` is an OS-bundled websafe family (see set above). */
+export function isWebsafeSystemFont(family: string): boolean {
+  return WEBSAFE_SYSTEM_FONTS.has(family.trim().toLowerCase());
+}
+
+/**
+ * Families that must never drive the font modal or the download ZIP: they
+ * have no shippable web font file, so any demand for them is unsatisfiable.
+ */
+function isUnshippableFamily(family: string): boolean {
+  return isServerFallbackFamily(family) || isWebsafeSystemFont(family);
+}
+
 /** CSS keywords that are not valid font names */
 export const CSS_FONT_KEYWORDS: ReadonlySet<string> = new Set([
   "inherit",
@@ -311,6 +373,14 @@ export async function checkFontsAvailability(
   for (const font of Array.from(allFonts)) {
     // Skip CSS generic keywords
     if (CSS_GENERIC_FONTS.has(font)) {
+      continue;
+    }
+    // Skip families the download can never satisfy — Linux capture-container
+    // fallbacks and OS-bundled websafe families. Reporting them as missing (or
+    // as missing a cut) reopens the font modal on every import for something
+    // the user has no way to install, and an unmatchable entry in `missing`
+    // also defeats buildFontDownloads' narrowing, re-bundling the whole ZIP.
+    if (isUnshippableFamily(font)) {
       continue;
     }
 

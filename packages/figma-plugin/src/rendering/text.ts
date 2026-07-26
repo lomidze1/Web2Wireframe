@@ -1554,6 +1554,20 @@ export async function createTextNode(
   // Apply all deferred TextStyle links LAST (after sizing, lineHeight, letterSpacing)
   await applyDeferredTextStyles();
 
+  // `background-clip: text` — the CSS background paints the GLYPHS. Figma
+  // TextNodes take gradient/image paints natively, so apply it as the node's
+  // fill. This runs last on purpose: the clipped background spans the whole
+  // element, so it must win over the per-range solid colors set above.
+  // Skipped in plugin colorMode, which deliberately flattens to its own palette
+  // (css-converter already gave it a visible solid fallback color). fontMode
+  // "lines" (FILLR) never reaches here — it returns early above.
+  if (node.textFills?.length && context && context.colorMode !== "plugin") {
+    const clipPaints = convertFillsToPaints(node.textFills, context, node.tag);
+    if (clipPaints.length > 0) {
+      textNode.fills = clipPaints;
+    }
+  }
+
   return textNode;
 }
 

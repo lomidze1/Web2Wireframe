@@ -19,7 +19,7 @@ import type {
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
 import { isItalicStyle } from './styles';
-import { isIconFont, CSS_FONT_KEYWORDS } from '../utils/fontUtils';
+import { isIconFont, CSS_FONT_KEYWORDS, isServerFallbackFamily } from '../utils/fontUtils';
 
 // Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
 interface W2WFrameNode {
@@ -278,6 +278,17 @@ function convertFrame(
   // Fills
   let fills = parseFills(s, node.width, node.height);
 
+  // `background-clip: text` — the background is clipped to the glyph shapes, so
+  // it must NOT paint the box. Move every layer to textFills; text.ts paints the
+  // TextNode with them (Figma TextNodes support gradient paints natively).
+  // Without this the gradient painted the whole box and the transparent text
+  // vanished behind it (web2wireframe.design "Capture/Analyze/Output" headings).
+  let textFills: FigmaFill[] | undefined;
+  if (isBackgroundClipText(s) && fills.length > 0) {
+    textFills = fills;
+    fills = [];
+  }
+
   // Strokes
   const strokes = parseStrokes(s);
 
@@ -288,7 +299,7 @@ function convertFrame(
   const borderRadius = parseBorderRadius(s);
 
   // Text color (from styles, for text children)
-  const textColor = str(s.webkitTextFillColor) || str(s.color) || 'rgb(0, 0, 0)';
+  const textColor = resolveTextColor(s, textFills);
 
   // Opacity — validate to avoid Symbol/NaN reaching Figma API
   const rawOpacity = s.opacity;
@@ -614,8 +625,15 @@ function convertFrame(
     if (hasStyleVariation) {
       styledSegments = segmentSource.map(t => {
         const { family } = parseFontString(t.font);
-        // Strip weight suffix from platform font name (e.g., "Space Grotesk Light" → "Space Grotesk")
-        const cleanPlatformFamily = t.platformFamily ? parseFontString(t.platformFamily).family : undefined;
+        // Strip weight suffix from platform font name (e.g., "Space Grotesk Light" → "Space Grotesk").
+        // A server-capture fallback (Liberation Sans, Noto * CJK) is an
+        // artifact of the Linux container, not the page's font — taking it
+        // here would put an uninstallable family into the wireframe's font
+        // demand and reopen the download modal on every import.
+        const cleanPlatformFamily =
+          t.platformFamily && !isServerFallbackFamily(t.platformFamily)
+            ? parseFontString(t.platformFamily).family
+            : undefined;
         // A PUA-only run inside mixed text is an icon glyph whose measured
         // font is the DOMINANT text font (the extension collapses platform
         // fonts per host element) — recover the icon family from the CSS stack.
@@ -1007,6 +1025,8 @@ function convertFrame(
 
     // Visual
     fills: fills.length > 0 ? fills : undefined,
+    // background-clip:text paint — belongs to the glyphs, never the box
+    textFills,
     strokes: strokes.length > 0 ? strokes : undefined,
     effects: effects.length > 0 ? effects : undefined,
 
@@ -1154,10 +1174,18 @@ function convertTextNodeFromValue(
   const id = `w2w-${_nodeId++}`;
   const { family, weight } = parseFontString(tv.font);
 
+  // Mixed-children counterpart of the coalesced path: a `background-clip: text`
+  // parent keeps its paint off the box, so each TEXT child carries the clipped
+  // background as its own glyph fill (and never inherits a transparent color).
+  const textFills = isBackgroundClipText(parentStyles)
+    ? (() => {
+        const parsed = parseFills(parentStyles, tv.width, tv.height);
+        return parsed.length > 0 ? parsed : undefined;
+      })()
+    : undefined;
+
   const textColor = tv.color
-    || str(parentStyles.webkitTextFillColor)
-    || str(parentStyles.color)
-    || 'rgb(0, 0, 0)';
+    || resolveTextColor(parentStyles, textFills);
 
   const value = applyTextTransform(tv.value, str(parentStyles.textTransform));
 
@@ -1182,6 +1210,7 @@ function convertTextNodeFromValue(
 
     backgroundColor: null,
     backgroundGradient: null,
+    textFills,
     textColor,
     borderColor: null,
     borderWidth: 0,
@@ -1191,7 +1220,10 @@ function convertTextNodeFromValue(
     textContent: value,
     fontSize: parseFloat(str(parentStyles.fontSize)) || 16,
     fontWeight: tv.fontWeight || parseFontWeight(str(parentStyles.fontWeight)) || weight,
-    fontFamily: iconFamily || (tv.platformFamily ? parseFontString(tv.platformFamily).family : undefined) || family,
+    // Server-capture fallbacks are ignored here for the same reason as in the
+    // styled-segment path above: they are Linux container artifacts, not the
+    // page's font, and must not enter the wireframe's font demand.
+    fontFamily: iconFamily || (tv.platformFamily && !isServerFallbackFamily(tv.platformFamily) ? parseFontString(tv.platformFamily).family : undefined) || family,
     fontFamilyList: parentStack.length > 1 ? parentStack : undefined,
     textAlign: str(parentStyles.textAlign) || 'left',
     lineHeight: str(parentStyles.lineHeight) || 'normal',
@@ -2171,6 +2203,46 @@ function parseCSSColor(color: string): FigmaColor | null {
   }
 
   return null;
+}
+
+/**
+ * `background-clip: text` (a.k.a. `-webkit-background-clip: text`) — the classic
+ * gradient-text recipe, always paired with a transparent `color` /
+ * `-webkit-text-fill-color`. getComputedStyle unifies the prefixed and
+ * unprefixed properties, so reading `backgroundClip` alone is sufficient.
+ */
+function isBackgroundClipText(
+  s: Record<string, string | number | undefined>,
+): boolean {
+  return str(s.backgroundClip).trim() === 'text';
+}
+
+/**
+ * Resolve the element's text color.
+ *
+ * Normally `-webkit-text-fill-color` wins over `color`. But gradient text sets
+ * BOTH to transparent and relies on a `background-clip: text` background for the
+ * visible pixels — so a naive read yields invisible text. When the clipped
+ * background is present, fall back to its first color (the gradient's first stop
+ * or a solid layer). website mode then overrides this with the real gradient
+ * paint; `lines`/`plugin` modes keep a visible representative color.
+ */
+function resolveTextColor(
+  s: Record<string, string | number | undefined>,
+  textFills: FigmaFill[] | undefined,
+): string {
+  const cssColor = str(s.webkitTextFillColor) || str(s.color) || 'rgb(0, 0, 0)';
+
+  if (!textFills || textFills.length === 0) return cssColor;
+  const parsed = parseCSSColor(cssColor);
+  // Only substitute when the authored color really is invisible.
+  if (parsed && parsed.a > 0) return cssColor;
+
+  for (const fill of textFills) {
+    const fallback = fill.stops?.[0]?.color ?? fill.color;
+    if (fallback && fallback.a > 0) return figmaColorToCSS(fallback);
+  }
+  return cssColor;
 }
 
 function figmaColorToCSS(color: FigmaColor): string {

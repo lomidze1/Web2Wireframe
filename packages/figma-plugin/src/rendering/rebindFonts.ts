@@ -22,6 +22,12 @@
  */
 
 import { fontStyleCandidates, orderStylesByProximity, parseStyleName } from "./styles";
+import { isServerFallbackFamily } from "../utils/fontUtils";
+
+// Re-exported so the rebind-side callers (text.ts, tests) keep importing the
+// predicate from here even though it now lives with the other font-family
+// classifiers in fontUtils.
+export { isServerFallbackFamily };
 
 /** Pluginata key written by `createTextNode` and consumed here. */
 export const ORIGINAL_FONT_PLUGIN_KEY = "w2w_original_font";
@@ -39,25 +45,6 @@ export const SEGMENT_FONT_PLUGIN_KEY = "w2w_original_font_segments";
  *  cumulative rebinds in scope and produce a non-misleading toast (e.g.
  *  "All 30 font(s) already re-applied" rather than "0 / 0"). */
 export const REBOUND_DONE_PLUGIN_KEY = "w2w_rebound_done";
-
-/** Linux server (Render) fallback families. Server-side URL imports used to
- *  stamp these as rebind markers (CSS.getPlatformFontsForNode on a Linux
- *  Chromium resolves un-loaded families to them) — but they are never in the
- *  download ZIP and never what the user wants, so a marker naming them can
- *  never be satisfied. Conservative list: plain "Noto Sans" (a legitimate
- *  Google web font) is NOT matched. */
-const SERVER_FALLBACK_PATTERNS = [
-  /^Liberation (Sans|Serif|Mono)/i,
-  /^DejaVu (Sans|Serif)/i,
-  /^Noto (Sans|Serif) CJK/i,
-  /^Noto Color Emoji$/i,
-  /^Free(Sans|Serif|Mono)$/i,
-];
-
-/** True when `family` is a known Linux server fallback (see list above). */
-export function isServerFallbackFamily(family: string): boolean {
-  return SERVER_FALLBACK_PATTERNS.some((p) => p.test(family));
-}
 
 /** One pending text layer in {@link RebindableCount}: enough for the modal
  *  to render a clickable per-font list ("h1.u-text" → select & zoom). */
