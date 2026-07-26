@@ -26,6 +26,7 @@ import {
 import { API_BASE_URL } from "./shared/apiConfig";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
+import { onImportTabRequest } from "./shared/importTabEvents";
 import { onAuthExpired } from "./shared/authEvents";
 
 // Components
@@ -177,6 +178,12 @@ function AppContent() {
   // (see shared/quotaEvents.ts → isQuotaExceeded).
   useEffect(() => {
     return onQuotaExceeded(() => setIsQuotaExceededOpen(true));
+  }, []);
+
+  // Listen for tab-switch requests from inside a tab (see
+  // shared/importTabEvents.ts → requestImportTab).
+  useEffect(() => {
+    return onImportTabRequest(setImportTab);
   }, []);
 
   // Track how many text nodes still need their original font re-applied.

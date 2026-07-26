@@ -10,6 +10,7 @@ import { authHeader } from "../../../shared/licenseClient";
 import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
 import { looksLikeBlockPage } from "../../../shared/blockPageDetection";
+import { requestImportTab } from "../../../shared/importTabEvents";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
@@ -32,9 +33,13 @@ const API_URL = API_BASE_URL;
 interface ImportState {
   status: "idle" | "loading" | "success" | "error";
   message: string;
-  /** Set on the bot-protection case so the error renders an inline link to the
-   *  Browser Extension instead of plain text. */
+  /** Set on the bot-protection case so the error renders the extension-handoff
+   *  panel instead of plain text. */
   blocked?: boolean;
+  /** The URL that was blocked. Kept separate from the input's live value so the
+   *  "open in browser" button still targets the right site after the user edits
+   *  the field. */
+  blockedUrl?: string;
 }
 
 const EXTENSION_URL =
@@ -74,6 +79,9 @@ export default function Web() {
     missingCuts?: Record<string, FontCut[]>;
   } | null>(null);
   const [extractedFonts, setExtractedFonts] = useState<unknown[]>([]);
+  // Set when window.open() is refused, so the blocked panel offers a clickable
+  // link the user can open manually.
+  const [popupBlocked, setPopupBlocked] = useState(false);
 
   // Use shared hook for all settings logic
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
@@ -199,7 +207,18 @@ export default function Web() {
     }
     const normalizedUrl = validation.url;
 
+    // A previous import's 10s "reset to idle" timer may still be pending. It
+    // would wipe this import's status message (and the URL field) mid-flight,
+    // so cancel it before starting. Imports that reach sendToFigma clear it
+    // again there; ones that bail out early (bot-protection, API errors) only
+    // get cleared here.
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
+
     setImportState({ status: "loading", message: "Importing the website…" });
+    setPopupBlocked(false);
 
     // Collapse settings panel so user can see loading status
     settings.collapseSettings();
@@ -264,6 +283,7 @@ export default function Web() {
           message:
             "This site blocks automated URL import (bot protection). Try capturing it with the Browser Extension instead.",
           blocked: true,
+          blockedUrl: normalizedUrl,
         });
         return;
       }
@@ -399,27 +419,76 @@ export default function Web() {
               : importState.status === "success"
                 ? importStyles.success
                 : importState.status === "error"
-                  ? importStyles.error
+                  ? `${importStyles.error} ${styles.dismissable}`
                   : ""
           }`}
         >
+          {importState.status === "error" && (
+            <button
+              type="button"
+              class={styles.dismissBtn}
+              aria-label="Dismiss"
+              onClick={() => {
+                setImportState({ status: "idle", message: "" });
+                setPopupBlocked(false);
+              }}
+            >
+              ×
+            </button>
+          )}
           {importState.status === "loading" && (
             <span class={importStyles.spinner} aria-hidden="true"></span>
           )}
           {importState.blocked ? (
-            <span>
-              This site blocks automated URL import (bot protection). Try
-              capturing it with the{" "}
-              <a
-                href={EXTENSION_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ textDecoration: "underline" }}
+            <div class={styles.blockedPanel}>
+              <span>
+                This site blocks automated URL import (bot protection). The
+                Browser Extension captures it from your own browser instead.
+              </span>
+              <button
+                class={styles.blockedBtn}
+                onClick={() => {
+                  if (!importState.blockedUrl) return;
+                  // Direct user gesture, so popup blockers normally allow it —
+                  // but Figma's iframe can still refuse (same fallback as the
+                  // Plan modal's checkout window).
+                  const opened = window.open(importState.blockedUrl, "_blank");
+                  if (!opened) setPopupBlocked(true);
+                }}
               >
-                Browser Extension
-              </a>{" "}
-              instead.
-            </span>
+                Open site in your browser
+              </button>
+              <span class={styles.blockedHint}>
+                Then click the W2W icon in your browser toolbar to capture it.
+              </span>
+              {popupBlocked && importState.blockedUrl && (
+                <a
+                  href={importState.blockedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={styles.blockedLink}
+                >
+                  {importState.blockedUrl}
+                </a>
+              )}
+              <div class={styles.blockedActions}>
+                <a
+                  href={EXTENSION_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class={styles.blockedLink}
+                >
+                  Get the extension
+                </a>
+                <span aria-hidden="true">·</span>
+                <button
+                  class={styles.blockedLink}
+                  onClick={() => requestImportTab("screenshot")}
+                >
+                  Try Screenshot import
+                </button>
+              </div>
+            </div>
           ) : (
             <span>{importState.message}</span>
           )}
