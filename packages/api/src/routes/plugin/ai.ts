@@ -18,21 +18,13 @@ import { requireImportAllowance } from "../../middleware/licenseGate.js";
 import { authenticatePlugin } from "../../middleware/auth.js";
 import { importRateLimiter } from "../../middleware/rateLimit.js";
 import { logImportEvent } from "../../models/ImportEvent.js";
-import { licenseService } from "../../services/licenseService.js";
 
 const router = Router();
 
-// Formats the AI vision API accepts. The quota slot is already consumed by
-// the time the route body runs (requireImportAllowance), so rejections here
-// refund it.
+// Formats the AI vision API accepts. Rejections here return 4xx, and
+// requireImportAllowance refunds the consumed quota slot on any failure
+// response — this route does not refund by hand.
 const SUPPORTED_IMAGE_RE = /^data:image\/(png|jpe?g|webp|gif);base64,/;
-
-/** Best-effort quota refund — a refund failure must never break the response. */
-function refundQuotaSlot(figmaUserId: string): void {
-  void licenseService.refundImport(figmaUserId).catch((err) => {
-    console.warn("[Screenshot Import] quota refund failed:", err);
-  });
-}
 
 /**
  * POST /api/import-screenshot
@@ -69,7 +61,6 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
     // previously these defaulted to image/png and failed downstream with a
     // burned quota slot and an opaque error.
     if (!SUPPORTED_IMAGE_RE.test(imageBase64 as string)) {
-      refundQuotaSlot(req.userId!);
       void logImportEvent({
         figmaUserId: req.userId!,
         sourceUrl: "screenshot-import",
@@ -192,9 +183,6 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
   } catch (error) {
     const err = error as Error & { status?: number; code?: string };
     console.error("[Screenshot Import] Error:", err.message || error);
-
-    // The import failed before delivering anything — give the slot back.
-    refundQuotaSlot(req.userId!);
 
     // Log the failed attempt — surfaces screenshots the AI pipeline rejects.
     const failureCode =

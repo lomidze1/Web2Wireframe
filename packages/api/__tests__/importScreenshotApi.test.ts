@@ -5,7 +5,7 @@ import request from "supertest";
 process.env.API_PORT = "0";
 
 // Mock the AI analysis before importing app — tests focus on route behavior
-// (single call, scaling, refund, error mapping), not on the Anthropic client.
+// (single call, scaling, error mapping), not on the Anthropic client.
 const mockAnalyze = vi.fn();
 vi.mock("../src/lib/aiGenerator.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
@@ -15,22 +15,8 @@ vi.mock("../src/lib/aiGenerator.js", async (importOriginal) => {
   };
 });
 
-// Spy on quota refunds without touching the rest of the license service.
-const mockRefundImport = vi.fn().mockResolvedValue(undefined);
-vi.mock("../src/services/licenseService.js", async (importOriginal) => {
-  const actual = (await importOriginal()) as {
-    licenseService: Record<string, unknown>;
-  } & Record<string, unknown>;
-  return {
-    ...actual,
-    licenseService: {
-      ...actual.licenseService,
-      refundImport: (...args: unknown[]) => mockRefundImport(...args),
-    },
-  };
-});
-
-// Bypass the license gate — quota enforcement is covered separately.
+// Bypass the license gate — quota enforcement and the refund it performs on
+// failure responses are covered by license-gate*.test.ts.
 vi.mock("../src/middleware/licenseGate.js", () => ({
   requireImportAllowance: () => (
     _req: unknown,
@@ -77,12 +63,14 @@ const ANALYSIS_RESULT = {
 
 beforeEach(() => {
   mockAnalyze.mockReset();
-  mockRefundImport.mockClear();
   mockAnalyze.mockResolvedValue(structuredClone(ANALYSIS_RESULT));
 });
 
 describe("POST /api/import-screenshot — media type validation", () => {
-  it("rejects unsupported image formats with 400 and refunds the quota slot", async () => {
+  // The quota slot is refunded by requireImportAllowance (it hooks any 4xx/5xx
+  // response) — see license-gate-refund.test.ts. This app stubs that gate out,
+  // so only the rejection itself is asserted here.
+  it("rejects unsupported image formats with 400", async () => {
     const res = await request(app)
       .post("/api/import-screenshot")
       .send({ imageBase64: "data:image/avif;base64,AAAA", imageWidth: 1000, imageHeight: 2000 });
@@ -90,7 +78,6 @@ describe("POST /api/import-screenshot — media type validation", () => {
     expect(res.status).toBe(400);
     expect(res.body.errorCode).toBe("UNSUPPORTED_IMAGE_FORMAT");
     expect(mockAnalyze).not.toHaveBeenCalled();
-    expect(mockRefundImport).toHaveBeenCalledWith("test-user");
   });
 
   it("accepts png/jpeg/webp/gif data URIs", async () => {
@@ -180,18 +167,10 @@ describe("POST /api/import-screenshot — single AI call + server-side scaling",
     }
   });
 
-  it("does not refund on success", async () => {
-    const res = await request(app)
-      .post("/api/import-screenshot")
-      .send({ imageBase64: PNG_IMAGE, imageWidth: 1000, imageHeight: 2000 });
-
-    expect(res.status).toBe(200);
-    expect(mockRefundImport).not.toHaveBeenCalled();
-  });
 });
 
 describe("POST /api/import-screenshot — failure handling", () => {
-  it("returns 500 and refunds the quota slot on AI failure", async () => {
+  it("returns 500 on AI failure", async () => {
     mockAnalyze.mockRejectedValue(new Error("boom"));
 
     const res = await request(app)
@@ -200,7 +179,6 @@ describe("POST /api/import-screenshot — failure handling", () => {
 
     expect(res.status).toBe(500);
     expect(res.body.errorCode).toBe("SCREENSHOT_ANALYSIS_ERROR");
-    expect(mockRefundImport).toHaveBeenCalledWith("test-user");
   });
 
   it("maps TRUNCATED to 422 with an actionable message", async () => {
@@ -214,7 +192,6 @@ describe("POST /api/import-screenshot — failure handling", () => {
     expect(res.status).toBe(422);
     expect(res.body.errorCode).toBe("SCREENSHOT_TRUNCATED");
     expect(res.body.error).toMatch(/crop/i);
-    expect(mockRefundImport).toHaveBeenCalledWith("test-user");
   });
 
   it("still maps AI rate limiting to 429", async () => {
