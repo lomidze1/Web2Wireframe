@@ -142,7 +142,10 @@ describe("buildFontDownloadEntries — names follow the URL, not the index", () 
     expect(entries[0].url).toBe(`${BASE}/sf-pro-text_regular.ttf`);
   });
 
-  it("a face whose only URL is EOT contributes nothing (uninstallable)", () => {
+  it("an EOT-only face ships derived sibling candidates, never the EOT itself", () => {
+    // telex.ge fix: whole families arrive EOT-only when the capture reads the
+    // IE-first `src:`. They now get same-basename candidates (.ttf first);
+    // the EOT itself remains unshippable.
     const eotOnly = [
       {
         fontFamily: "Ancient",
@@ -155,7 +158,11 @@ describe("buildFontDownloadEntries — names follow the URL, not the index", () 
       { family: "Ancient", urls: ["https://x.test/ancient.eot"], isGoogleFont: false },
     ];
 
-    expect(buildFontDownloadEntries(downloads, eotOnly)).toHaveLength(0);
+    const entries = buildFontDownloadEntries(downloads, eotOnly);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].url).toBe("https://x.test/ancient.ttf");
+    expect(entries[0].url).not.toMatch(/\.eot/i);
+    expect(entries[0].fileName).toBe("Ancient-normal-400-100.ttf");
   });
 
   it("URLs with no matching face still ship, named from the family", () => {

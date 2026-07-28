@@ -19,7 +19,7 @@ import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer"
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import SettingsPanel from "../../../components/settingsPanel";
 import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
-import type { FontCut } from "../../../../utils/fontUtils";
+import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -226,6 +226,10 @@ const STORAGE_KEY = "w2w_settings_expanded_areaSelection";
 
 export default function AreaSelection() {
   const [fileName, setFileName] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  // Mirrors `fileDataRef` for rendering — a rejected file still shows its
+  // name, so the name alone must not decide whether Import is clickable.
+  const [hasFile, setHasFile] = useState(false);
   const [importState, setImportState] = useState<ImportState>({
     status: "idle",
     message: "",
@@ -284,6 +288,7 @@ export default function AreaSelection() {
             setImportState({ status: "idle", message: "" });
             setFileName(null);
             fileDataRef.current = null;
+            setHasFile(false);
 
             if (fileInputRef.current) {
               fileInputRef.current.value = "";
@@ -330,26 +335,59 @@ export default function AreaSelection() {
     };
   }, []);
 
+  const acceptFile = (file: File) => {
+    // Reject implausibly large uploads up front. A legit capture is a few MB;
+    // this caps the plain-JSON parse path and is a first guard before any
+    // decompression (see also the decompressed-size ceiling in the codec).
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setFileName(file.name);
+      fileDataRef.current = null;
+      setHasFile(false);
+      setImportState({
+        status: "error",
+        message: "File is too large to import (over 100 MB).",
+      });
+      return;
+    }
+    // Mirrors the file picker's `accept=".w2w"`. The decoder rejects anything
+    // else by magic bytes anyway, but only once Import is pressed — catching it
+    // on drop tells the user immediately instead of leaving a dead filename.
+    if (!file.name.toLowerCase().endsWith(".w2w")) {
+      setFileName(file.name);
+      fileDataRef.current = null;
+      setHasFile(false);
+      setImportState({
+        status: "error",
+        message:
+          "Only .w2w files exported from the Web2Wireframe extension can be imported here.",
+      });
+      return;
+    }
+    setFileName(file.name);
+    fileDataRef.current = file;
+    setHasFile(true);
+    setImportState({ status: "idle", message: "" });
+  };
+
   const handleFileUpload = (e: Event) => {
     const target = e.target as HTMLInputElement;
     const file = target.files?.[0];
-    if (file) {
-      // Reject implausibly large uploads up front. A legit capture is a few MB;
-      // this caps the plain-JSON parse path and is a first guard before any
-      // decompression (see also the decompressed-size ceiling in the codec).
-      if (file.size > MAX_UPLOAD_BYTES) {
-        setFileName(file.name);
-        fileDataRef.current = null;
-        setImportState({
-          status: "error",
-          message: "File is too large to import (over 100 MB).",
-        });
-        return;
-      }
-      setFileName(file.name);
-      fileDataRef.current = file;
-      setImportState({ status: "idle", message: "" });
-    }
+    if (file) acceptFile(file);
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => setIsDragOver(false);
+
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (importState.status === "loading") return;
+    const file = e.dataTransfer?.files?.[0];
+    if (file) acceptFile(file);
   };
 
   const handleBrowse = () => {
@@ -462,6 +500,7 @@ export default function AreaSelection() {
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
             fontRealNames: buildFontRealNames(captureResult.fonts),
+            fontDeclaredCuts: buildFontDeclaredCuts(captureResult.fonts),
           },
         },
       },
@@ -609,7 +648,7 @@ export default function AreaSelection() {
     window.open("https://chromewebstore.google.com/detail/web2wireframe/fcmicolldgpmpdkcdljkaaimmjmboipl", "_blank");
   };
 
-  const isDisabled = !fileName || importState.status === "loading";
+  const isDisabled = !hasFile || importState.status === "loading";
 
   return (
     <div class={styles.areaSection}>
@@ -632,8 +671,13 @@ export default function AreaSelection() {
         </ul>
       </div>
 
-      {/* Upload Area */}
-      <div class={styles.areaUpload}>
+      {/* Upload Area — also the drag & drop target */}
+      <div
+        class={`${styles.areaUpload} ${isDragOver ? styles.dragOver : ""}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <div class={styles.uploadIcon}>⬚</div>
         <div class={styles.uploadCopy}>
           <div class={styles.uploadText}>
@@ -744,6 +788,7 @@ export default function AreaSelection() {
           setImportState({ status: "idle", message: "" });
           setFileName(null);
           fileDataRef.current = null;
+          setHasFile(false);
           if (fileInputRef.current) {
             fileInputRef.current.value = "";
           }

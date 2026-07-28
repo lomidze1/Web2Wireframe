@@ -43,6 +43,7 @@ import {
   collectAllFonts,
   collectFontUsage,
   checkFontsAvailability,
+  filterMissingCutsToDeclared,
   buildFontsNotAvailableMessage,
   buildDownloadCuts,
   buildPluginModeFontMapping,
@@ -630,6 +631,14 @@ export default function () {
 
       renderContext.componentWrappers = renderContext.componentWrappers ?? [];
 
+      // Orphan sweep baseline: page-root children that existed BEFORE any
+      // render pass. Everything the render leaks onto the page root (frames
+      // auto-parented by figma.createFrame() and never re-parented) is swept
+      // after the Sections are assembled — see collectRenderOrphans.
+      const preexistingPageIds = new Set(
+        figma.currentPage.children.map((c) => c.id),
+      );
+
       // Phase D (h2d-parity, PASS 0): build the shared icon library FIRST so
       // PASS 1 hover masters can reference icons via INSTANCE instead of
       // inlining vector markup. Mirrors h2d's `Component 3` (43 unique SVGs
@@ -877,6 +886,29 @@ export default function () {
           });
         }
 
+        // Sweep render leaks: element-named frames auto-parented to the page
+        // root during rendering that never made it into a Section (hover
+        // master intermediates whose remove() failed, mid-append exceptions).
+        try {
+          const { collectRenderOrphans } = await import("./rendering/orphanSweep");
+          const keepIds = new Set(selectionTarget.map((n) => n.id));
+          const orphans = collectRenderOrphans(
+            figma.currentPage.children,
+            preexistingPageIds,
+            keepIds,
+          );
+          for (const orphan of orphans) {
+            try { orphan.remove(); } catch { /* non-fatal */ }
+          }
+          if (orphans.length > 0) {
+            logger.info("Swept render orphans", { count: orphans.length });
+          }
+        } catch (err) {
+          logger.warn("Orphan sweep failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
         // Send finalizing progress
         figma.ui.postMessage({
           type: "render-progress",
@@ -950,7 +982,14 @@ export default function () {
 
       if (effectiveFontMode === "website") {
         const fontUsage = collectFontUsage(frames);
-        const { missing, missingCuts } = await checkFontsAvailability(allFonts, fontUsage);
+        const { missing, missingCuts: rawMissingCuts } = await checkFontsAvailability(allFonts, fontUsage);
+        // A cut is only worth offering when some @font-face actually declares
+        // a matching face — telex.ge fakes bold from one 400 file, and the
+        // undownloadable 700 "missing cut" reopened this modal on every import.
+        const missingCuts = filterMissingCutsToDeclared(
+          rawMissingCuts,
+          data.fontDeclaredCuts || {},
+        );
         const partialFamilies = Object.keys(missingCuts);
         // Diagnostic: why does (or doesn't) the font modal appear — which
         // families/cuts the page wants vs what Figma reports as installed.
@@ -964,6 +1003,7 @@ export default function () {
           ),
           missing,
           missingCuts,
+          rawMissingCuts,
         });
 
         if (missing.length > 0 || partialFamilies.length > 0) {
@@ -1077,11 +1117,28 @@ export default function () {
 
         if (scope.length === 0) {
           figma.notify("Re-apply fonts: nothing to scan in this scope.");
+          figma.ui.postMessage({
+            type: "rebind-result",
+            data: { rebound: 0, total: 0, stillMissing: [], skippedMixed: 0, previouslyRebound: 0 },
+          });
           return;
         }
 
         const result = await rebindOriginalFonts(scope);
         const cumulative = result.previouslyRebound + result.rebound;
+
+        // Mirror the outcome into the UI — the Re-apply modal stays open and
+        // renders this inline, since the toast alone was easy to miss.
+        figma.ui.postMessage({
+          type: "rebind-result",
+          data: {
+            rebound: result.rebound,
+            total: result.total,
+            stillMissing: result.stillMissing,
+            skippedMixed: result.skippedMixed,
+            previouslyRebound: result.previouslyRebound,
+          },
+        });
 
         if (result.total === 0 && result.previouslyRebound === 0) {
           figma.notify("Re-apply fonts: no marked text found.");
@@ -1115,6 +1172,9 @@ export default function () {
       } catch (err) {
         logger.warn("rebind-original-fonts handler failed", { error: err });
         figma.notify("Couldn't re-apply fonts. Please try again.", { error: true });
+        // Release the modal's busy state — without this the button would
+        // spin forever after a sandbox error.
+        figma.ui.postMessage({ type: "rebind-result", data: { error: true } });
       }
       // Markers are cleared on successful re-apply — refresh so the button
       // hides once everything is re-applied (and stays if fonts still missing).

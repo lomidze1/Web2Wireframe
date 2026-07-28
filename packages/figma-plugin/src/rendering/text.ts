@@ -214,7 +214,7 @@ import {
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
 import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, isItalicStyle, orderStylesByProximity } from "./styles";
-import { isIconFont, stripFontStyleSuffix } from "../utils/fontUtils";
+import { isIconFont, isPuaOnlyText, stripFontStyleSuffix } from "../utils/fontUtils";
 import { isServerFallbackFamily } from "./rebindFonts";
 
 /** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
@@ -570,8 +570,10 @@ export async function createTextNode(
   if (context?.fontMode === "plugin") {
     // Plugin mode: use fontMapping if available, otherwise single plugin font
     const nodeFont = node.fontFamily || fontFamily;
-    if (isIconFont(nodeFont)) {
-      // Preserve icon font — remapping would break glyph rendering
+    if (isIconFont(nodeFont) || isPuaOnlyText(node.textContent ?? "")) {
+      // Preserve icon font — remapping would break glyph rendering.
+      // PUA-only text is an icon glyph even when the family name doesn't
+      // match the known icon-font list (site-specific fonts like "glyphs").
       targetFont = nodeFont;
     } else if (context.fontMapping && context.fontMapping[nodeFont]) {
       targetFont = context.fontMapping[nodeFont];
@@ -613,8 +615,11 @@ export async function createTextNode(
     return null;
   };
 
-  // Build list of styles to try (icon fonts get extra FA-specific styles)
-  const isIcon = isIconFont(targetFont);
+  // Build list of styles to try (icon fonts get extra FA-specific styles).
+  // PUA-only text counts as icon regardless of the family name, so unknown
+  // site icon fonts never walk the CSS fallback chain into a text font
+  // (which would render the glyph as mojibake).
+  const isIcon = isIconFont(targetFont) || isPuaOnlyText(node.textContent ?? "");
   const allStylesToTry = isIcon
     ? Array.from(new Set([...fontStyles, ...ICON_FONT_EXTRA_STYLES]))
     : fontStyles;
@@ -994,7 +999,7 @@ export async function createTextNode(
       let segFontFamily: string;
       if (context?.fontMode === "plugin") {
         const segFont = segment.fontFamily || usedFontFamily;
-        if (isIconFont(segFont)) {
+        if (isIconFont(segFont) || isPuaOnlyText(segment.text ?? "")) {
           // Preserve icon font — remapping would break glyph rendering
           segFontFamily = segFont;
         } else if (context.fontMapping && context.fontMapping[segFont]) {
@@ -1013,7 +1018,7 @@ export async function createTextNode(
         }
       }
 
-      const isSegIcon = isIconFont(segFontFamily);
+      const isSegIcon = isIconFont(segFontFamily) || isPuaOnlyText(segment.text ?? "");
       const segStylesToTry = isSegIcon
         ? Array.from(new Set([...segCandidates, ...ICON_FONT_EXTRA_STYLES]))
         : segCandidates;

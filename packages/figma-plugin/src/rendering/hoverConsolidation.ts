@@ -410,6 +410,21 @@ export function visualStyleSignature(node: WireframeNode): string {
   return `${visualParts.join("|")}::${hoverPart}`;
 }
 
+/**
+ * Variant identity within a category: visual style PLUS subtree structure.
+ *
+ * Visual style alone is not enough — two hoverables with identical top-level
+ * styling but different subtrees (a product card WITH price/rating/ribbon vs
+ * one WITHOUT; a populated block vs its empty AJAX shell) collapsed into one
+ * variant, so every non-representative instance silently LOST the content the
+ * representative didn't have (telex.ge: all card prices/ratings vanished,
+ * whole blocks rendered blank). Instances only override TEXT values, never
+ * structure, so nodes may share a master ONLY when their structure matches.
+ */
+export function variantSignature(node: WireframeNode): string {
+  return `${visualStyleSignature(node)}::st::${structuralSig(node, 0)}`;
+}
+
 // ============================================================================
 // Master ComponentSet construction
 // ============================================================================
@@ -438,6 +453,10 @@ async function buildComponentFromWireframe(
   rep: WireframeNode,
   context: RenderContext,
 ): Promise<ComponentNode> {
+  // Track the intermediate render so the catch path can clean it up —
+  // figma.createFrame() auto-parents to currentPage, so an exception between
+  // render and promotion would otherwise leak the frame as a page orphan.
+  let renderedRef: SceneNode | null = null;
   try {
     // Leaf placeholders (<img>/<svg>/<video> with no children) leak an
     // intermediate FrameNode onto figma.currentPage if we run them through
@@ -462,6 +481,7 @@ async function buildComponentFromWireframe(
     (copy as unknown as { hasDescendantHover?: boolean }).hasDescendantHover = false;
 
     const rendered = await createNodeInFigma(copy, context, 0);
+    renderedRef = rendered;
     if (!rendered) {
       return buildSkeletonComponent(name, rep, collectTextValues(rep));
     }
@@ -503,7 +523,18 @@ async function buildComponentFromWireframe(
       while (frame.children.length > 0) {
         comp.appendChild(frame.children[0]);
       }
-      try { frame.remove(); } catch { /* non-fatal */ }
+      try {
+        frame.remove();
+      } catch {
+        // remove() can silently fail in some sandbox conditions, leaving an
+        // empty element-named frame at (0,0) on the page (telex.ge left a
+        // dozen "div#product_labels_update_*" orphans). Hide + tag it so the
+        // post-render orphan sweep (or the user) can identify it.
+        try {
+          frame.visible = false;
+          frame.name = "__w2w-orphan";
+        } catch { /* non-fatal */ }
+      }
     } else {
       // Non-frame rendered result (text, instance, etc.) — append as single child.
       try { comp.appendChild(rendered); } catch { /* non-fatal */ }
@@ -511,6 +542,11 @@ async function buildComponentFromWireframe(
 
     return comp;
   } catch {
+    // Clean up the intermediate render (auto-parented to currentPage) before
+    // falling back, so failures don't leave element-named orphans at (0,0).
+    if (renderedRef) {
+      try { renderedRef.remove(); } catch { /* non-fatal */ }
+    }
     return buildSkeletonComponent(name, rep, collectTextValues(rep));
   }
 }
@@ -683,7 +719,7 @@ export async function buildHoverMasterRegistry(
     const variantByVisualSig = new Map<string, number>();
     const representatives: Array<{ variant: number; rep: WireframeNode }> = [];
     for (const node of members) {
-      const vSig = visualStyleSignature(node);
+      const vSig = variantSignature(node);
       if (!variantByVisualSig.has(vSig)) {
         variantByVisualSig.set(vSig, variantByVisualSig.size + 1);
         representatives.push({
@@ -877,7 +913,7 @@ export function lookupHoverMaster(
   const categoryKey = childrenStructureSignature(node);
   const entry = registry.get(categoryKey);
   if (!entry) return null;
-  const vSig = visualStyleSignature(node);
+  const vSig = variantSignature(node);
   const variantIndex = entry.variantByVisualSig.get(vSig);
   if (variantIndex === undefined) return null;
   const textValues = collectTextValues(node);

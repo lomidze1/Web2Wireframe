@@ -12,7 +12,9 @@ import AreaSelection from "./pages/import/areaSelection";
 import Settings from "./components/modalPopup/Settings";
 import Help from "./components/modalPopup/Help";
 import ExtensionModal from "./components/modalPopup/ExtensionModal";
-import RebindFontsModal from "./components/modalPopup/RebindFontsModal";
+import RebindFontsModal, {
+  type RebindResultInfo,
+} from "./components/modalPopup/RebindFontsModal";
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
@@ -170,6 +172,11 @@ function AppContent() {
     Array<{ id: string; name: string; families: string[] }>
   >([]);
   const [isRebindOpen, setIsRebindOpen] = useState(false);
+  // Re-apply run state: the modal stays open across the run, its button shows
+  // a busy label while the sandbox walks nodes, and the outcome renders as an
+  // inline banner (the toast alone was easy to miss once the modal closed).
+  const [isReapplying, setIsReapplying] = useState(false);
+  const [rebindResult, setRebindResult] = useState<RebindResultInfo | null>(null);
   const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
     number | null
   >(null);
@@ -193,6 +200,13 @@ function AppContent() {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
+      if (msg?.type === "rebind-result") {
+        // Sandbox finished (or failed) a re-apply run — release the modal's
+        // busy button and surface the outcome inline.
+        setIsReapplying(false);
+        setRebindResult((msg.data as RebindResultInfo) ?? { error: true });
+        return;
+      }
       if (!msg || msg.type !== "rebindable-count") return;
       const count = msg.data?.count;
       if (typeof count === "number") setRebindableCount(count);
@@ -380,7 +394,11 @@ function AppContent() {
     />
     <RebindFontsModal
       isOpen={isRebindOpen}
-      onClose={() => setIsRebindOpen(false)}
+      onClose={() => {
+        setIsRebindOpen(false);
+        // Stale outcome shouldn't greet the next open — each run reports fresh.
+        setRebindResult(null);
+      }}
       count={rebindableCount}
       selectionCount={selectionRebindableCount}
       missingFonts={rebindableFamilies}
@@ -397,13 +415,18 @@ function AppContent() {
       onReapply={() => {
         // Sandbox handles `rebind-original-fonts`: walks selection (or page
         // if empty), re-applies any text node that carries the
-        // `w2w_original_font` / segment markers, and reports a toast.
+        // `w2w_original_font` / segment markers, and posts `rebind-result`
+        // back. The modal STAYS OPEN — the button goes busy and the outcome
+        // renders inline, so the user actually sees what happened.
+        setIsReapplying(true);
+        setRebindResult(null);
         parent.postMessage(
           { pluginMessage: { type: "rebind-original-fonts" } },
           "*",
         );
-        setIsRebindOpen(false);
       }}
+      isReapplying={isReapplying}
+      result={rebindResult}
     />
     <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
     <QuotaExceededModal

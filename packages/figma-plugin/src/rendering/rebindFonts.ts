@@ -23,6 +23,7 @@
 
 import { fontStyleCandidates, orderStylesByProximity, parseStyleName } from "./styles";
 import { isServerFallbackFamily } from "../utils/fontUtils";
+import { logger } from "../utils/logger";
 
 // Re-exported so the rebind-side callers (text.ts, tests) keep importing the
 // predicate from here even though it now lives with the other font-family
@@ -404,9 +405,15 @@ export async function rebindOriginalFonts(
           }
           try {
             node.setRangeFontName(r.start, r.end, { family: originalFamily, style: loaded });
-          } catch {
+          } catch (err) {
             allRunsSet = false;
             stillMissing.add(originalFamily);
+            fbTrace.attempts.push({
+              family: originalFamily,
+              style: loaded,
+              ok: false,
+              error: `setRangeFontName(${r.start},${r.end}): ${err instanceof Error ? err.message : String(err)}`,
+            });
           }
         }
 
@@ -469,9 +476,18 @@ export async function rebindOriginalFonts(
         try {
           node.setRangeFontName(s.start, s.end, { family: s.family, style: loaded });
           anyRunSet = true;
-        } catch {
+        } catch (err) {
           allRunsSet = false;
           stillMissing.add(s.family);
+          // Record WHY the set failed (e.g. "Range outside the bounds of the
+          // node" when instance text was overridden after the marker was
+          // stamped) — a font-load failure it is not, and the trace must say so.
+          segTrace.attempts.push({
+            family: s.family,
+            style: loaded,
+            ok: false,
+            error: `setRangeFontName(${s.start},${s.end}): ${err instanceof Error ? err.message : String(err)}`,
+          });
         }
       }
 
@@ -594,9 +610,23 @@ export async function rebindOriginalFonts(
     }
   }
 
-  // Per-node breakdown is collected for future diagnostics but not logged in
-  // normal runs (Figma's sandbox lacks console.table; plain logs are noisy).
-  void perNode;
+  // Surface every non-success in the dev log (logger is a no-op in prod).
+  // "149/181 rebound" alone can't say WHY 32 nodes stayed behind — the
+  // per-node firstError distinguishes a font that won't load from a
+  // setRangeFontName that throws on stale segment offsets.
+  const failures = perNode.filter(
+    (p) => p.outcome !== "rebound" && p.outcome !== "healedFallback",
+  );
+  if (failures.length > 0) {
+    logger.info("Re-apply failures", {
+      count: failures.length,
+      installedStylesForMissing: Array.from(stillMissing).map((f) => ({
+        family: f,
+        styles: installedStyles.get(f) ?? "(absent from listAvailableFontsAsync)",
+      })),
+      failures: failures.slice(0, 40),
+    });
+  }
 
   return {
     rebound,

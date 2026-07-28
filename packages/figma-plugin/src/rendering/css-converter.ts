@@ -19,7 +19,7 @@ import type {
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
 import { isItalicStyle } from './styles';
-import { isIconFont, CSS_FONT_KEYWORDS, isServerFallbackFamily } from '../utils/fontUtils';
+import { isIconFont, isPuaOnlyText, CSS_FONT_KEYWORDS, isServerFallbackFamily } from '../utils/fontUtils';
 
 // Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
 interface W2WFrameNode {
@@ -277,6 +277,18 @@ function convertFrame(
 
   // Fills
   let fills = parseFills(s, node.width, node.height);
+
+  // CSS `filter: grayscale(N)` — Figma has no subtree filter, but IMAGE
+  // paints support per-paint color adjustments (saturation −1…1), which is
+  // exactly what grayscale needs (telex.ge brand logos: `filter: grayscale(1)`
+  // directly on the <img>). Parsed here, applied to background IMAGE fills
+  // below and to the <img>/<video> IMAGE paint in realImages.ts.
+  const filterGrayscale = parseGrayscaleAmount(str(s.filter) || str(s.webkitFilter));
+  if (filterGrayscale != null) {
+    for (const f of fills) {
+      if (f.type === 'IMAGE_PLACEHOLDER') f.imageSaturation = -filterGrayscale;
+    }
+  }
 
   // `background-clip: text` — the background is clipped to the glyph shapes, so
   // it must NOT paint the box. Move every layer to textFills; text.ts paints the
@@ -637,8 +649,11 @@ function convertFrame(
         // A PUA-only run inside mixed text is an icon glyph whose measured
         // font is the DOMINANT text font (the extension collapses platform
         // fonts per host element) — recover the icon family from the CSS stack.
+        // Site-specific icon fonts (telex.ge "glyphs"/"uni2-icons") don't match
+        // the known-name list, but for PUA content the FIRST stack entry is the
+        // author's icon font by construction (icon classes set it first).
         const segIconFamily = isPuaOnlyText(t.value)
-          ? fontFamilyStack.find(isIconFont)
+          ? fontFamilyStack.find(isIconFont) ?? fontFamilyStack[0]
           : undefined;
         // Infer italic for this run. The W2W TEXT node is minimal (no
         // font-style), so for an inline <em> we read it from the actually-
@@ -687,7 +702,9 @@ function convertFrame(
     // coalesced content is purely PUA codepoints and the CSS stack names an
     // icon family, that family wins over both.
     if (isPuaOnlyText(textContent)) {
-      const iconFamily = fontFamilyStack.find(isIconFont);
+      // Unknown site icon fonts (no name match) fall back to the first CSS
+      // family — never a text font, so the glyph keeps its icon identity.
+      const iconFamily = fontFamilyStack.find(isIconFont) ?? fontFamilyStack[0];
       if (iconFamily) {
         effectiveFontFamily = iconFamily;
       }
@@ -902,6 +919,7 @@ function convertFrame(
     })(),
     zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
     cssOrder: s.order != null && String(s.order) !== '0' ? Number(s.order) : undefined,
+    filterGrayscale,
     // CSS top/left for fixed|sticky elements (used by re-parenting logic)
     cssTop: (() => {
       const v = s.top;
@@ -1192,7 +1210,9 @@ function convertTextNodeFromValue(
   const parentStack = parseFontFamilyStack(str(parentStyles.fontFamily));
   // PUA icon glyph rescue — same rule as the coalesced path: the platform
   // font pass mislabels icon glyphs with the dominant text font.
-  const iconFamily = isPuaOnlyText(tv.value) ? parentStack.find(isIconFont) : undefined;
+  const iconFamily = isPuaOnlyText(tv.value)
+    ? parentStack.find(isIconFont) ?? parentStack[0]
+    : undefined;
 
   return {
     id,
@@ -1504,6 +1524,16 @@ function inferLayoutFromChildren(
     const f = str(cs.cssFloat);
     const d = str(cs.display);
 
+    // Float is EXPLICIT horizontal intent and must win over the inline-text
+    // classification below. telex.ge navbar: <a class="ac-title"> holds a
+    // float:left <i> icon whose subtree is all text (glyph + badge) — counting
+    // it as an inline-text frame hid the float, the all-inline rule is gated
+    // off for <a> parents, and the icon/label stacked vertically out of the bar.
+    if (f === 'left' || f === 'right' || f === 'inline-start' || f === 'inline-end') {
+      floatCount++;
+      continue;
+    }
+
     // Inline-text frames (span, a, strong, etc. with only text inside).
     // These stay as separate nodes inside a block parent (see Apple footer
     // case) but count as inline signal for layout inference.
@@ -1514,10 +1544,6 @@ function inferLayoutFromChildren(
 
     if (d === 'inline' || d === 'inline-block') {
       inlineBlockCount++;
-      continue;
-    }
-    if (f === 'left' || f === 'right' || f === 'inline-start' || f === 'inline-end') {
-      floatCount++;
       continue;
     }
     blockFrameCount++;
@@ -1782,6 +1808,22 @@ function parseFills(
   }
 
   return fills;
+}
+
+/**
+ * Extract the grayscale amount (0…1) from a CSS `filter` value.
+ * `grayscale(1)` / `grayscale(100%)` → 1; `grayscale(0.4)` / `grayscale(40%)`
+ * → 0.4. Returns undefined when the filter has no grayscale() function.
+ * Amounts are clamped to [0, 1] (CSS clamps values over 100% the same way).
+ */
+function parseGrayscaleAmount(filter: string): number | undefined {
+  if (!filter || filter === 'none') return undefined;
+  const m = filter.match(/grayscale\(\s*([\d.]+)(%?)\s*\)/);
+  if (!m) return undefined;
+  const raw = parseFloat(m[1]);
+  if (isNaN(raw)) return undefined;
+  const amount = m[2] === '%' ? raw / 100 : raw;
+  return Math.max(0, Math.min(1, amount));
 }
 
 /**
@@ -2678,19 +2720,7 @@ function parseFontFamilyStack(fontFamily: string): string[] {
     .filter((f) => f.length > 0 && !f.startsWith('var(') && !CSS_FONT_KEYWORDS.has(f.toLowerCase()));
 }
 
-/**
- * True when the text is nothing but Private Use Area codepoints (plus
- * whitespace) — the signature of an icon-font glyph ( globe,  chevron).
- */
-function isPuaOnlyText(text: string): boolean {
-  const chars = text.replace(/\s+/g, '');
-  if (!chars) return false;
-  for (const ch of chars) {
-    const cp = ch.codePointAt(0);
-    if (cp === undefined || cp < 0xe000 || cp > 0xf8ff) return false;
-  }
-  return true;
-}
+// isPuaOnlyText moved to ../utils/fontUtils so text.ts can share it.
 
 /**
  * Decide whether a FRAME child should be skipped as invisible, applying the

@@ -35,6 +35,24 @@ export function isIconFont(fontFamily: string): boolean {
   return ICON_FONT_PATTERNS.some(pattern => lower.includes(pattern));
 }
 
+/**
+ * True when the text is nothing but Private Use Area codepoints (plus
+ * whitespace) — the signature of an icon-font glyph rendered as text.
+ * Site-specific icon fonts (e.g. CS-Cart's "glyphs" / "uni2-icons") never
+ * match ICON_FONT_PATTERNS by name, so PUA-only content is the reliable
+ * signal that a text run is an icon and must never fall back to a text font
+ * (Arial/Inter render PUA codepoints as mojibake like "Ï").
+ */
+export function isPuaOnlyText(text: string): boolean {
+  const chars = text.replace(/\s+/g, "");
+  if (!chars) return false;
+  for (const ch of chars) {
+    const cp = ch.codePointAt(0);
+    if (cp === undefined || cp < 0xe000 || cp > 0xf8ff) return false;
+  }
+  return true;
+}
+
 // ============================================================================
 // Font Style Suffix Stripping
 // ============================================================================
@@ -605,6 +623,94 @@ export function buildDownloadCuts(
     if (result[family]) continue;
     const used = fontUsage.get(family);
     if (used && used.length > 0) result[family] = used;
+  }
+  return result;
+}
+
+// ============================================================================
+// buildFontDeclaredCuts / filterMissingCutsToDeclared
+// ============================================================================
+
+/** CSS weight value(s) → numeric weights. Handles keywords, plain numbers and
+ *  variable-font ranges ("100 900" → both endpoints). Unparseable → [400]. */
+function parseCssWeights(value: string): number[] {
+  const weights: number[] = [];
+  for (const token of value.trim().split(/\s+/)) {
+    const lower = token.toLowerCase();
+    if (lower === "normal") weights.push(400);
+    else if (lower === "bold") weights.push(700);
+    else {
+      const n = Number.parseInt(lower, 10);
+      if (Number.isFinite(n) && n >= 1 && n <= 1000) weights.push(n);
+    }
+  }
+  return weights.length > 0 ? weights : [400];
+}
+
+/**
+ * Map each CSS family to the cuts its @font-face entries actually DECLARE —
+ * the supply side of the font check. Accepts both metadata shapes
+ * (extension `{family, weight, style}` / API `{fontFamily, fontWeight,
+ * fontStyle}`). Variable-font ranges contribute their endpoints.
+ */
+export function buildFontDeclaredCuts(
+  extractedFonts?: unknown[],
+): Record<string, FontCut[]> {
+  const map: Record<string, FontCut[]> = {};
+  if (!extractedFonts) return map;
+  for (const ef of extractedFonts) {
+    const font = ef as {
+      family?: string;
+      fontFamily?: string;
+      weight?: string | number;
+      fontWeight?: string | number;
+      style?: string;
+      fontStyle?: string;
+    };
+    const family = font.fontFamily || font.family;
+    if (!family) continue;
+    const italic = /italic|oblique/i.test(String(font.fontStyle ?? font.style ?? ""));
+    for (const weight of parseCssWeights(String(font.fontWeight ?? font.weight ?? "400"))) {
+      const list = map[family] ?? (map[family] = []);
+      if (!list.some((c) => c.weight === weight && c.italic === italic)) {
+        list.push({ weight, italic });
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * Drop missing cuts that no declared @font-face can actually provide.
+ *
+ * telex.ge's BPG Nino Mtavruli ships ONE 400 file and the page fakes bold —
+ * the used-but-uninstallable 700 cut reopened the download modal on every
+ * import, offering a file that exists nowhere. A missing cut stays only when
+ * the site declares a same-slant face at that weight (or a range/pair of
+ * declared weights brackets it). Families absent from `declaredCuts` pass
+ * through untouched — no declaration info is not evidence of absence.
+ */
+export function filterMissingCutsToDeclared(
+  missingCuts: Record<string, FontCut[]>,
+  declaredCuts: Record<string, FontCut[]>,
+): Record<string, FontCut[]> {
+  const result: Record<string, FontCut[]> = {};
+  for (const [family, cuts] of Object.entries(missingCuts)) {
+    const declared = declaredCuts[family];
+    if (!declared || declared.length === 0) {
+      result[family] = cuts;
+      continue;
+    }
+    const kept = cuts.filter((cut) => {
+      const sameSlant = declared.filter((d) => d.italic === cut.italic);
+      if (sameSlant.length === 0) return false;
+      const weights = sameSlant.map((d) => d.weight);
+      return (
+        weights.includes(cut.weight) ||
+        (cut.weight > Math.min(...weights) && cut.weight < Math.max(...weights))
+      );
+    });
+    if (kept.length > 0) result[family] = kept;
   }
   return result;
 }

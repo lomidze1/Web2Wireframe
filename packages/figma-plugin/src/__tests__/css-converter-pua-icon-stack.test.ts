@@ -101,13 +101,17 @@ describe("PUA glyph + icon family in CSS stack", () => {
     expect(node!.fontFamily).toBe('SF Pro Text');
   });
 
-  it("PUA run without any icon family in the stack keeps existing behavior", () => {
+  it("PUA run without any KNOWN icon family falls back to the first CSS family", () => {
     const host = glyphHost(GLOBE, 'SomeFont, Arial', 'FakePlatform');
     const root = convertW2WToWireframe(page([host]) as never, { layoutMode: "autoLayout" });
     const node = findByClass(root, 'glyph-host');
     expect(node).not.toBeNull();
-    // run-coalesce guard: all runs agree on a family ≠ CSS family → run wins
-    expect(node!.fontFamily).toBe('FakePlatform');
+    // telex.ge fix: for PUA-only content the platform-measured run font is the
+    // mojibake source (the extension labels minority icon runs with the
+    // element's dominant TEXT font). The author's FIRST CSS family is the icon
+    // font by construction — site-specific names ("glyphs", "uni2-icons",
+    // "SomeFont") never match ICON_FONT_PATTERNS, so they must win here.
+    expect(node!.fontFamily).toBe('SomeFont');
   });
 
   it("PUA glyph with surrounding whitespace still counts as icon-only", () => {

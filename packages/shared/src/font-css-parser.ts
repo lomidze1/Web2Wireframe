@@ -51,6 +51,34 @@ function lastSrcDeclIndex(block: string): number {
 }
 
 /**
+ * The full value of the first `src:` declaration in `scope` — everything up
+ * to the semicolon that TERMINATES the declaration, tracked with a paren
+ * counter so semicolons inside url(...) (data URIs: `data:font/woff2;base64,…`)
+ * don't cut the value short.
+ *
+ * Replaces a regex whose lazy `[^;]*?` never expanded once the first url()
+ * satisfied the match: a last-src that STARTS with url() (telex.ge's
+ * bulletproof icon fonts) lost every format after the first — leaving the
+ * face holding only the dead EOT#iefix URL, so the binding loop had one
+ * candidate and the fonts ZIP shipped uninstallable bytes. Values starting
+ * with local() took the loose fallback branch and kept the full list, which
+ * is why apple.com never surfaced the bug.
+ */
+function extractSrcValue(scope: string): string {
+  const start = scope.match(/src\s*:/i);
+  if (!start || start.index === undefined) return "";
+  let depth = 0;
+  const from = start.index + start[0].length;
+  for (let i = from; i < scope.length; i++) {
+    const c = scope[i];
+    if (c === "(") depth++;
+    else if (c === ")") depth = Math.max(0, depth - 1);
+    else if (c === ";" && depth === 0) return scope.slice(from, i).trim();
+  }
+  return scope.slice(from).trim();
+}
+
+/**
  * Parse all @font-face blocks from raw CSS text.
  * Returns one entry per @font-face block (preserves all weight/style variants).
  */
@@ -85,13 +113,7 @@ export function parseFontFaceRules(cssText: string, sourceURL: string): Extracte
     // this way, which is why that one cut never reached the font download
     // while every single-src cut did.
     const srcScope = block.slice(lastSrcDeclIndex(block));
-
-    // Greedy match up to the last closing paren before a semicolon or end of
-    // block. Needs the url()-aware pattern first because data URIs contain
-    // semicolons; the loose pattern covers `src: local(...)`-style values.
-    const srcMatch = srcScope.match(/src\s*:\s*((?:url\([^)]*\)[^;]*?)+);?/i)
-      || srcScope.match(/src\s*:\s*([^;]+);?/i);
-    const rawSrc = srcMatch ? srcMatch[1].trim() : "";
+    const rawSrc = extractSrcValue(srcScope);
 
     // Resolve relative URLs in src
     // url() can contain quotes or not; data URIs use base64 with special chars

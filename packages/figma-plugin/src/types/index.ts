@@ -50,6 +50,9 @@ export interface FigmaFill {
   elementHeight?: number;
   isImagePlaceholder?: boolean;
   imageUrl?: string; // URL for background-image (resolved from assets map)
+  // CSS filter: grayscale(N) mapped to Figma ImagePaint color adjustment —
+  // saturation in −1…0 (grayscale(1) → −1). Applied in fills.ts.
+  imageSaturation?: number;
   // Figma scale mode derived from CSS background-size/background-repeat
   // (contain → FIT, cover → FILL, tiling patterns → TILE). Default: FILL.
   scaleMode?: "FILL" | "FIT" | "CROP" | "TILE";
@@ -245,6 +248,9 @@ export interface WireframeNode {
   // CSS object-fit from the captured <img>/<video> — maps to the IMAGE fill's
   // scaleMode (cover → FILL, contain/none/scale-down → FIT). Default fill → FILL.
   objectFit?: string;
+  // CSS filter: grayscale(N) on this element (0…1). Applied as a saturation
+  // color adjustment on the element's IMAGE paints (realImages.ts / fills.ts).
+  filterGrayscale?: number;
 
   // Static CSS rotation in degrees (clockwise, from the computed transform
   // matrix). width/height/x/y remain the captured AABB; nodes.ts recovers the
@@ -305,6 +311,11 @@ export interface RenderWireframeData {
    *  registered under an anti-piracy-aliased name (e.g. CSS "Söhne" → installed
    *  "Copyright Klim Type Foundry") without the fallback modal. */
   fontRealNames?: Record<string, string>;
+  /** Per CSS family, the cuts its @font-face entries actually declare (the
+   *  download's supply side). The sandbox drops "missing" cuts no face can
+   *  provide — telex.ge fakes bold from a single 400 file, and offering the
+   *  nonexistent 700 reopened the font modal on every import. */
+  fontDeclaredCuts?: Record<string, Array<{ weight: number; italic: boolean }>>;
 }
 
 /** Map from missing/website font name → replacement font name */

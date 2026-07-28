@@ -199,6 +199,11 @@ export async function createRealImage(
         type: "IMAGE",
         imageHash: image.hash,
         scaleMode: objectFitToScaleMode(node.objectFit),
+        // CSS filter: grayscale(N) on the <img> → Figma saturation adjustment
+        // (telex.ge brand logos render grayscale until hover).
+        ...(typeof node.filterGrayscale === "number" && node.filterGrayscale > 0
+          ? { filters: { saturation: -Math.min(1, node.filterGrayscale) } }
+          : {}),
         visible: true,
         opacity: 1,
       } as ImagePaint,

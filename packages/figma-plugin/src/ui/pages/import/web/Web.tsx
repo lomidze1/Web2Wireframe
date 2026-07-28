@@ -18,7 +18,7 @@ import { validateUrl } from "../../../../utils/urlValidation";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
-import type { FontCut } from "../../../../utils/fontUtils";
+import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -56,6 +56,7 @@ interface RenderData {
   textMode: "website" | "lorem" | "semantic";
   layoutMode: "autoLayout" | "absolute";
   fontRealNames?: Record<string, string>;
+  fontDeclaredCuts?: Record<string, FontCut[]>;
 }
 
 export default function Web() {
@@ -170,6 +171,7 @@ export default function Web() {
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
             fontRealNames: data.fontRealNames,
+            fontDeclaredCuts: data.fontDeclaredCuts,
           },
         },
       },
@@ -347,6 +349,7 @@ export default function Web() {
         textMode: settings.localTextMode,
         layoutMode: settings.localLayoutMode,
         fontRealNames: buildFontRealNames(data.fonts),
+        fontDeclaredCuts: buildFontDeclaredCuts(data.fonts),
       };
 
       // Always use the user's configured CSS variables mode from settings

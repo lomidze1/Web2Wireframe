@@ -227,6 +227,11 @@ export function convertFillsToPaints(
                 // TILE renders the image at natural size × scalingFactor;
                 // natural size is unknown here, so tile 1:1.
                 ...(scaleMode === "TILE" ? { scalingFactor: 1 } : {}),
+                // CSS filter: grayscale(N) → Figma per-paint saturation
+                // adjustment (−1 = fully desaturated).
+                ...(typeof fill.imageSaturation === "number"
+                  ? { filters: { saturation: Math.max(-1, Math.min(1, fill.imageSaturation)) } }
+                  : {}),
                 visible: true,
                 opacity: 1,
               } as Paint);
