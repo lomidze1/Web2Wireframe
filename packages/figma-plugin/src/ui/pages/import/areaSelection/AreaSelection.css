@@ -63,13 +63,19 @@
 .areaUpload {
   border: 1px dashed var(--border-accent);
   border-radius: 10px;
-  padding: var(--space-4);
-  min-height: 140px;
+  padding: var(--space-3);
+  min-height: 96px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
   background: rgba(255, 255, 255, 0.02);
+}
+
+/* Active drag & drop target */
+.areaUpload.dragOver {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.1);
 }
 
 .uploadIcon {

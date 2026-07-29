@@ -53,8 +53,8 @@
   font-size: var(--font-sm);
   font-family: var(--font-mono);
   resize: none;
-  min-height: 80px;
-  max-height: 100px;
+  min-height: 56px;
+  max-height: 64px;
 }
 
 .codeTextarea::placeholder {

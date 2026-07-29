@@ -322,6 +322,13 @@
   line-height: 1.45;
 }
 
+/* Lit bulb — warm yellow glow so the tip's 💡 reads as switched on */
+.hintBulb {
+  filter: saturate(1.6) brightness(1.2)
+    drop-shadow(0 0 3px rgba(255, 205, 60, 0.95))
+    drop-shadow(0 0 7px rgba(255, 190, 40, 0.55));
+}
+
 /* Collapsible Content */
 .collapsibleContent {
   margin-top: 10px;

@@ -20,6 +20,7 @@ export interface SettingsPanelStyles {
   expanded?: string;
   collapsibleContent: string;
   settingsHint: string;
+  hintBulb?: string;
   dropdown: string;
   settingsFooter: string;
   configureBtn: string;
@@ -275,8 +276,8 @@ export default function SettingsPanel({
           visible so the hint is redundant and only adds clutter. */}
       {!isExpanded && (
         <p class={styles.settingsHint}>
-          💡 Try different settings — colors, fonts and assets change the result
-          a lot.
+          <span class={styles.hintBulb}>💡</span> Try different settings —
+          colors, fonts and assets change the result a lot.
         </p>
       )}
 
