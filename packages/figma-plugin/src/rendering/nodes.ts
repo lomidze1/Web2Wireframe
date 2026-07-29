@@ -326,8 +326,18 @@ export async function createNodeInFigma(
   frame.name = node.name || "Container";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
+  // Figma auto-layout cannot express column-wrap — `layoutWrap: WRAP` is
+  // HORIZONTAL-only — so a `flex-direction: column; flex-wrap: wrap` container
+  // would collapse its 2-D layout into a single column (telex.ge blog grid:
+  // one tall post beside a 3×2 grid of small ones). Fall back to absolute
+  // placement, where the captured x/y already carry the exact 2-D positions.
+  const isColumnWrap =
+    (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") &&
+    node.layoutMode === "VERTICAL";
+
   // Apply Auto Layout: global autoLayout mode OR node has its own layout (e.g. card with VERTICAL)
-  const useAutoLayout = shouldUseAutoLayout(context.layoutMode, node.layoutMode);
+  const useAutoLayout =
+    shouldUseAutoLayout(context.layoutMode, node.layoutMode) && !isColumnWrap;
   const isGrid = node.layoutMode === "GRID" && context.layoutMode !== "absolute";
 
   let gridApplied = false;
@@ -390,8 +400,17 @@ export async function createNodeInFigma(
     // text-align fallback for non-flex block containers
     applyTextAlignFallback(frame, node.textAlign, node.justifyContent, node.alignItems);
 
-    // Apply flex-wrap
-    if (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") {
+    // Apply flex-wrap. Figma allows WRAP only on HORIZONTAL auto-layout, and
+    // setting it elsewhere THROWS — an exception the parent's per-child
+    // try/catch swallows, deleting the whole subtree. A block container can
+    // still report `flex-wrap: wrap` when JS overrides its display inline
+    // (telex.ge `.ab-fn-first-level`: `display:flex` in CSS, `display:block`
+    // set by owl-carousel), and that combination lost eleven subtrees per
+    // import — including the entire category-circles block.
+    if (
+      (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") &&
+      frame.layoutMode === "HORIZONTAL"
+    ) {
       frame.layoutWrap = "WRAP";
     }
 
