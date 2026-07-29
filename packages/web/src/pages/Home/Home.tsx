@@ -1,8 +1,30 @@
 import type { ReactElement } from "react";
 import { installLinks } from "../../data/links";
 import { useAuth } from "../../contexts/AuthContext";
-import BeforeAfterSlider from "../../components/BeforeAfterSlider";
+import CompareSlider, {
+  type ComparePanel,
+} from "../../components/CompareSlider";
 import styles from "./Home.module.scss";
+
+// Left to right: the live site, then the same page imported twice — once
+// keeping the site's own styles, once in the plugin's wireframe styles.
+const heroPanels: ComparePanel[] = [
+  {
+    src: "/home/hero-1-website.webp",
+    alt: "The Stripe homepage as it appears in a browser",
+    label: "Website",
+  },
+  {
+    src: "/home/hero-2-site-styles.webp",
+    alt: "The same page imported into Figma with the site's own colors and fonts",
+    label: "Site styles",
+  },
+  {
+    src: "/home/hero-3-wireframe.webp",
+    alt: "The same page imported into Figma as a plain wireframe",
+    label: "Wireframe",
+  },
+];
 
 type ComparisonRow = {
   feature: string;
@@ -104,18 +126,11 @@ const Home = (): ReactElement => {
               The Figma Plugin That Converts Any Website Into Editable
               Wireframes — Instantly.
             </h1>
-            <p>Stop rebuilding layouts from scratch.</p>
+            <p>Stop rebuilding layouts from scratch. Just import.</p>
           </div>
 
           <div className={styles.heroVisual}>
-            <BeforeAfterSlider
-              beforeSrc="/home/before-1.png"
-              afterSrc="/home/after-1.png"
-              beforeAlt="Website before conversion"
-              afterAlt="Figma wireframe result"
-              beforeLabel="Website"
-              afterLabel="Figma wireframe"
-            />
+            <CompareSlider panels={heroPanels} />
             <h2 className={styles.visualNote}>
               Built specifically for Figma workflows
             </h2>
