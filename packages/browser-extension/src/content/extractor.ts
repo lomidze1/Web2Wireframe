@@ -42,7 +42,7 @@ import {
   extractRightmostCompound,
 } from './hover-parser';
 
-import { SKIP_TAGS, isHidden, isOffscreen } from './visibility';
+import { SKIP_TAGS, isHidden, isOffscreen, isHorizontalScrollContainer } from './visibility';
 import {
   CSS_PROPERTIES,
   NUMERIC_PROPERTIES,
@@ -360,11 +360,16 @@ function extractDocMeta(): W2WDocMeta {
 /**
  * Recursively traverse an element and its children.
  * Returns W2WFrameNode or null if element should be skipped.
+ *
+ * `inScroller` marks that an ancestor is a horizontal scroller (carousel
+ * viewport), which exempts this whole subtree from viewport culling — slides
+ * parked left or right of the viewport are real content, not dead nodes.
  */
 function traverseElement(
   el: HTMLElement,
   depth: number,
-  viewportWidth: number
+  viewportWidth: number,
+  inScroller = false
 ): W2WFrameNode | null {
   // Depth limit
   if (depth > MAX_DEPTH) return null;
@@ -391,8 +396,11 @@ function traverseElement(
   // when they contain visible child elements.
   const isZeroSize = rect.width < 1 && rect.height < 1 && tag !== 'html' && tag !== 'body';
 
-  // Skip offscreen elements
-  if (isOffscreen(rect, viewportWidth, window.innerHeight * 10, el)) return null;
+  // Skip offscreen elements. The scroller itself is still culled when it sits
+  // entirely off-page (off-canvas menus), so this test uses the INHERITED flag;
+  // only its descendants get the exemption.
+  if (!inScroller && isOffscreen(rect, viewportWidth)) return null;
+  const insideScroller = inScroller || isHorizontalScrollContainer(el, computed);
 
   // Extract geometry (round to 2 decimals)
   const x = round(rect.left);
@@ -432,7 +440,7 @@ function traverseElement(
   if (computed.display === 'contents') {
     for (const child of Array.from(el.children)) {
       if (child instanceof HTMLElement) {
-        const childNode = traverseElement(child, depth, viewportWidth);
+        const childNode = traverseElement(child, depth, viewportWidth, insideScroller);
         if (childNode) children.push(childNode);
       }
     }
@@ -465,7 +473,7 @@ function traverseElement(
           const svgNode = createSVGNode(childEl);
           if (svgNode) children.push(svgNode);
         } else if (childEl instanceof HTMLElement) {
-          const childNode = traverseElement(childEl, depth + 1, viewportWidth);
+          const childNode = traverseElement(childEl, depth + 1, viewportWidth, insideScroller);
           if (childNode) children.push(childNode);
         }
       }
@@ -1362,7 +1370,17 @@ function createEmptyFrame(el: HTMLElement): W2WFrameNode {
 export function extractSubtree(selector: string): W2WFrameNode | null {
   const el = document.querySelector(selector) as HTMLElement | null;
   if (!el) return null;
-  return traverseElement(el, 0, window.innerWidth);
+  // A subtree root has no traversal history, so recover the scroller flag from
+  // its ancestors once (a hovered card inside a carousel must not have its
+  // off-viewport parts culled). Full walk — it runs once per re-capture.
+  let inScroller = false;
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (isHorizontalScrollContainer(p, getComputedStyle(p))) {
+      inScroller = true;
+      break;
+    }
+  }
+  return traverseElement(el, 0, window.innerWidth, inScroller);
 }
 
 /**
