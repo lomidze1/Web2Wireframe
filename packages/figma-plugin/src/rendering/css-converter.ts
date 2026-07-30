@@ -1496,6 +1496,36 @@ function getLayoutMode(
 }
 
 /**
+ * How many distinct horizontal bands (visual lines) do these children occupy?
+ *
+ * Children whose vertical extents overlap belong to the same band; a child
+ * starting at or below the running bottom edge opens a new one. A single band
+ * means the parent really is a row — several bands mean it is a column of
+ * rows, whatever the CSS hints say. Zero-area children are ignored: they carry
+ * no visual line of their own.
+ */
+function countLineBands(children: W2WNode[]): number {
+  const boxes = children
+    .filter((c) => c.width > 0.5 && c.height > 0.5)
+    .map((c) => ({ top: c.y, bottom: c.y + c.height }))
+    .sort((a, b) => a.top - b.top);
+
+  if (boxes.length === 0) return 0;
+
+  let bands = 1;
+  let bottom = boxes[0].bottom;
+  for (let i = 1; i < boxes.length; i++) {
+    if (boxes[i].top >= bottom) {
+      bands++;
+      bottom = boxes[i].bottom;
+    } else {
+      bottom = Math.max(bottom, boxes[i].bottom);
+    }
+  }
+  return bands;
+}
+
+/**
  * When parent has display:block (getLayoutMode returns NONE),
  * check if children's CSS indicates horizontal layout:
  * - float: left/right/inline-start/inline-end → children are side-by-side
@@ -1549,9 +1579,15 @@ function inferLayoutFromChildren(
     blockFrameCount++;
   }
 
-  // Any float → HORIZONTAL (float is explicit horizontal intent, even without
-  // sibling block children)
-  if (floatCount > 0) {
+  // Float → HORIZONTAL, but only while the children really do sit on ONE line.
+  // A float pulls its *inline* neighbours alongside it; it does not stop later
+  // block siblings from stacking below. telex.ge product cards are exactly
+  // that: a 14×14 float:left video badge between the cover image and the
+  // rating row, with name and price stacked underneath. Treating that as a row
+  // laid 841px of content across a 241px card, pushing the stars, title and
+  // price outside the clipped frame — present in the layer list, invisible on
+  // canvas. Measured geometry is the arbiter: multiple bands → not a row.
+  if (floatCount > 0 && countLineBands(children) <= 1) {
     return 'HORIZONTAL';
   }
 
