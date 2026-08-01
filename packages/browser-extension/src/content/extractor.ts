@@ -41,6 +41,7 @@ import {
   splitHoverSelector,
   extractRightmostCompound,
 } from './hover-parser';
+import { bakeSvgPresentation } from './svg-style-baker';
 
 import { SKIP_TAGS, isHidden, isOffscreen, isHorizontalScrollContainer } from './visibility';
 import {
@@ -737,6 +738,11 @@ function createSVGNode(svgEl: SVGElement): W2WSVGNode | null {
   const clone = svgEl.cloneNode(true) as SVGElement;
   // Remove any W2W markers from clone
   clone.removeAttribute('data-w2w-idx');
+
+  // Bake computed fill/stroke into the clone: icons painted purely by page
+  // CSS (`.icon svg { stroke: … }`) otherwise reach Figma as attribute-less
+  // markup and render with the SVG defaults — black fill, no stroke.
+  bakeSvgPresentation(svgEl, clone);
 
   return {
     type: 'SVG',
