@@ -6,6 +6,7 @@ import {
   createDefaultNode,
   createIdGenerator,
   convertElement,
+  convertAbsoluteElement,
 } from "../src/lib/wireframeConverter.js";
 
 // ============================================================================
@@ -603,6 +604,148 @@ describe("Element: accordion", () => {
       items: [{ title: "Titled item", content: "Body" }],
     }, ctx);
     expect(node.children[0].name).toBe("Titled item");
+  });
+});
+
+describe("Element: table", () => {
+  const TABLE = {
+    type: "table",
+    headers: ["Feature", "Free", "Pro"],
+    rows: [
+      ["Imports per month", "10", "Unlimited"],
+      ["Colors", "Full access", "Full access"],
+      ["Support", "Community", "Priority"],
+    ],
+  };
+
+  it("header row uses headerFill / headerTextColor when provided", () => {
+    const ctx = makeCtx();
+    const node = convertElement({ ...TABLE, headerFill: "#2F80F5", headerTextColor: "#FFFFFF" }, ctx);
+    const header = node.children[0];
+    expect(header.name).toBe("Header Row");
+    expect(header.backgroundColor).toBe("#2F80F5");
+    expect(header.fills).toEqual([solidFill("#2F80F5")]);
+    expect(header.children.every((c: any) => c.textColor === "#FFFFFF")).toBe(true);
+    assertWireframeNode(node);
+  });
+
+  it("falls back to surface / text colors when header colors are absent", () => {
+    const ctx = makeCtx();
+    const header = convertElement(TABLE, ctx).children[0];
+    expect(header.backgroundColor).toBe(TEST_COLORS.surface);
+    expect(header.children.every((c: any) => c.textColor === TEST_COLORS.text)).toBe(true);
+  });
+
+  it("ignores a malformed headerFill and keeps the surface fallback", () => {
+    const ctx = makeCtx();
+    const header = convertElement({ ...TABLE, headerFill: "blue" }, ctx).children[0];
+    expect(header.backgroundColor).toBe(TEST_COLORS.surface);
+  });
+
+  it("gives every row but the last a bottom-only separator stroke", () => {
+    const ctx = makeCtx();
+    const rows = convertElement(TABLE, ctx).children;
+    expect(rows.length).toBe(4); // header + 3 body rows
+    for (const row of rows.slice(0, -1)) {
+      expect(row.strokes).toEqual([{
+        color: hexToFigmaColor(TEST_COLORS.secondary),
+        weight: 1,
+        position: "INSIDE",
+        style: "SOLID",
+        sides: { top: false, right: false, bottom: true, left: false },
+      }]);
+    }
+    expect(rows[rows.length - 1].strokes).toEqual([]);
+  });
+
+  it("marks header cells th/700 and body cells td/normal", () => {
+    const ctx = makeCtx();
+    const [header, firstRow] = convertElement(TABLE, ctx).children;
+    expect(header.children.map((c: any) => c.tag)).toEqual(["th", "th", "th"]);
+    expect(header.children.every((c: any) => c.fontWeight === 700)).toBe(true);
+    expect(firstRow.children.map((c: any) => c.tag)).toEqual(["td", "td", "td"]);
+    expect(firstRow.children.every((c: any) => c.fontWeight !== 700)).toBe(true);
+  });
+
+  // The AI reports the table's real on-screen box. Without distribution the rows
+  // stack at their natural ~42px and leave the rest of the bordered box empty.
+  it("distributes a declared height across the rows", () => {
+    const ctx = makeCtx();
+    const node = convertAbsoluteElement({ ...TABLE, x: 40, y: 30, width: 1360, height: 400 }, ctx);
+    const heights = node.children.map((c: any) => c.height);
+    expect(heights).toEqual([100, 100, 100, 100]);
+    expect(heights.reduce((a: number, b: number) => a + b, 0)).toBe(400);
+    // Rows tile the box with no gap and no trailing slack.
+    expect(node.children.map((c: any) => c.y)).toEqual([0, 100, 200, 300]);
+  });
+
+  it("gives the rounding remainder to the last row", () => {
+    const ctx = makeCtx();
+    const node = convertAbsoluteElement({ ...TABLE, x: 0, y: 0, width: 600, height: 402 }, ctx);
+    const heights = node.children.map((c: any) => c.height);
+    expect(heights).toEqual([100, 100, 100, 102]);
+    expect(heights.reduce((a: number, b: number) => a + b, 0)).toBe(402);
+  });
+
+  it("centers cells vertically inside a stretched row", () => {
+    const ctx = makeCtx();
+    const node = convertAbsoluteElement({ ...TABLE, x: 0, y: 0, width: 600, height: 400 }, ctx);
+    const cell = node.children[0].children[0];
+    expect(cell.y).toBeGreaterThan(node.children[0].padding.top);
+    expect(cell.y + cell.height / 2).toBeCloseTo(50, 0); // row centre
+  });
+
+  it("keeps natural row heights when the declared height would squash them", () => {
+    const ctx = makeCtx();
+    const node = convertAbsoluteElement({ ...TABLE, x: 0, y: 0, width: 600, height: 60 }, ctx);
+    for (const row of node.children) expect(row.height).toBeGreaterThanOrEqual(32);
+  });
+
+  it("keeps natural row heights when no height is declared", () => {
+    const ctx = makeCtx();
+    const withHeight = convertAbsoluteElement({ ...TABLE, x: 0, y: 0, width: 600, height: 400 }, ctx);
+    const without = convertAbsoluteElement({ ...TABLE, x: 0, y: 0, width: 600 }, makeCtx());
+    expect(without.children[0].height).toBeLessThan(withHeight.children[0].height);
+    expect(new Set(without.children.map((c: any) => c.height)).size).toBe(1);
+  });
+
+  it("clips the outer frame so a filled header respects the corner radius", () => {
+    const ctx = makeCtx();
+    expect(convertElement(TABLE, ctx).overflow).toBe("hidden");
+  });
+
+  // Without an opaque body the page background shows through every row, so a
+  // white table on a tinted page loses its outline entirely.
+  it("fills the outer frame with surface so the body is opaque", () => {
+    const ctx = makeCtx();
+    const node = convertElement(TABLE, ctx);
+    expect(node.backgroundColor).toBe(TEST_COLORS.surface);
+    expect(node.fills).toEqual([solidFill(TEST_COLORS.surface)]);
+  });
+
+  it("uses an AI-reported fillColor for the table body", () => {
+    const ctx = makeCtx();
+    const node = convertElement({ ...TABLE, fillColor: "#FFFFFF" }, ctx);
+    expect(node.backgroundColor).toBe("#FFFFFF");
+    expect(node.fills).toEqual([solidFill("#FFFFFF")]);
+  });
+
+  it("ignores a malformed fillColor and keeps the surface fallback", () => {
+    const ctx = makeCtx();
+    const node = convertElement({ ...TABLE, fillColor: "white" }, ctx);
+    expect(node.backgroundColor).toBe(TEST_COLORS.surface);
+  });
+
+  it("rounds the table corners enough to read at page scale", () => {
+    const ctx = makeCtx();
+    expect(convertElement(TABLE, ctx).borderRadius).toBe(10);
+  });
+
+  it("renders a header-less table without a separator on the only row", () => {
+    const ctx = makeCtx();
+    const node = convertElement({ type: "table", rows: [["only", "row"]] }, ctx);
+    expect(node.children.length).toBe(1);
+    expect(node.children[0].strokes).toEqual([]);
   });
 });
 

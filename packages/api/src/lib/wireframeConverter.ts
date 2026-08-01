@@ -106,6 +106,8 @@ export interface WireframeNode {
   layoutGrow?: number;
   flexWrap?: "wrap";
   listStyleType?: string;
+  // Maps to the frame's clipsContent in the plugin renderer.
+  overflow?: "visible" | "hidden" | "scroll" | "auto";
 }
 
 export interface PluginColors {
@@ -222,6 +224,8 @@ export interface SimplifiedElement {
   on?: boolean;          // toggle
   headers?: string[];    // table column headers
   rows?: string[][];     // table body rows
+  headerFill?: string;      // table header row background, #RRGGBB
+  headerTextColor?: string; // table header row text, #RRGGBB
   pages?: number;        // pagination page count
   rating?: number;       // rating filled count
   max?: number;          // rating max
@@ -1442,9 +1446,20 @@ function convertSelect(element: SimplifiedElement, ctx: ConvertContext): Wirefra
   });
 }
 
+/** Below this, stretching rows to a declared table height would squash them. */
+const MIN_TABLE_ROW_HEIGHT = 32;
+
 function convertTable(element: SimplifiedElement, ctx: ConvertContext): WireframeNode {
   const headers = (element.headers as string[]) || [];
   const rows = (element.rows as string[][]) || [];
+  const headerFill = isHexColor(element.headerFill) ? element.headerFill : ctx.colors.surface;
+  const headerTextColor = isHexColor(element.headerTextColor)
+    ? element.headerTextColor
+    : ctx.colors.text;
+  // Body rows are transparent, so without an opaque outer frame the page
+  // background shows through and a light table on a tinted page loses its
+  // outline entirely.
+  const bodyFill = resolveFillColor(element, ctx.colors.surface);
 
   const outer = createDefaultNode(ctx.nextId, {
     name: "Table",
@@ -1454,9 +1469,13 @@ function convertTable(element: SimplifiedElement, ctx: ConvertContext): Wirefram
     itemSpacing: 0,
     layoutSizingHorizontal: "FILL",
     layoutSizingVertical: "HUG",
+    backgroundColor: bodyFill,
+    fills: bodyFill ? [solidFill(bodyFill)] : [],
     borderColor: ctx.colors.secondary,
     borderWidth: 1,
-    borderRadius: 6,
+    borderRadius: 10,
+    // Clip so a filled header row does not paint over the rounded corners.
+    overflow: "hidden",
     textColor: ctx.colors.text,
     fontFamily: ctx.font,
   });
@@ -1471,13 +1490,14 @@ function convertTable(element: SimplifiedElement, ctx: ConvertContext): Wirefram
       padding: { top: 10, right: 12, bottom: 10, left: 12 },
       layoutSizingHorizontal: "FILL",
       layoutSizingVertical: "HUG",
-      backgroundColor: header ? ctx.colors.surface : null,
-      fills: header ? [solidFill(ctx.colors.surface)] : [],
-      textColor: ctx.colors.text,
+      alignItems: "center",
+      backgroundColor: header ? headerFill : null,
+      fills: header ? [solidFill(headerFill)] : [],
+      textColor: header ? headerTextColor : ctx.colors.text,
       fontFamily: ctx.font,
     });
     cells.forEach((cell) => {
-      const cellNode = textNode(ctx, String(cell), ctx.colors.text, "FILL");
+      const cellNode = textNode(ctx, String(cell), header ? headerTextColor : ctx.colors.text, "FILL");
       cellNode.tag = header ? "th" : "td";
       if (header) cellNode.fontWeight = 700;
       row.children.push(cellNode);
@@ -1485,8 +1505,42 @@ function convertTable(element: SimplifiedElement, ctx: ConvertContext): Wirefram
     return row;
   };
 
-  if (headers.length) outer.children.push(makeRow(headers, true));
-  rows.forEach((r) => outer.children.push(makeRow(r, false)));
+  const rowNodes: WireframeNode[] = [];
+  if (headers.length) rowNodes.push(makeRow(headers, true));
+  rows.forEach((r) => rowNodes.push(makeRow(r, false)));
+
+  // Separator lines between rows — bottom-only stroke, same shape convertAccordion
+  // uses. The outer frame already draws the surrounding box, so the last row is
+  // left bare to avoid doubling up on it.
+  rowNodes.forEach((row, i) => {
+    if (i === rowNodes.length - 1) return;
+    row.strokes = [{
+      color: hexToFigmaColor(ctx.colors.secondary),
+      weight: 1,
+      position: "INSIDE",
+      style: "SOLID",
+      sides: { top: false, right: false, bottom: true, left: false },
+    }];
+  });
+
+  // The AI reports the table's real on-screen box; rows stack at their natural
+  // ~42px, which would leave the rest of that box as empty bordered space. Tile
+  // the declared height across the rows instead — unless doing so squashes them.
+  const declaredHeight = Number(element.height);
+  if (rowNodes.length > 0 && Number.isFinite(declaredHeight) && declaredHeight > 0) {
+    const per = Math.floor(declaredHeight / rowNodes.length);
+    if (per >= MIN_TABLE_ROW_HEIGHT) {
+      rowNodes.forEach((row, i) => {
+        // Last row absorbs the rounding remainder so the rows sum to the box.
+        row.height = i === rowNodes.length - 1
+          ? declaredHeight - per * (rowNodes.length - 1)
+          : per;
+        row.layoutSizingVertical = "FIXED";
+      });
+    }
+  }
+
+  outer.children.push(...rowNodes);
   return outer;
 }
 

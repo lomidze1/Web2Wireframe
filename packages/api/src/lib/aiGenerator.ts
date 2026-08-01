@@ -656,7 +656,8 @@ checkbox:    { "type": "checkbox", "label": "...", "checked": true|false, "x": <
 toggle:      { "type": "toggle", "label": "...", "on": true|false, "x": <n>, "y": <n>, "width": <n>, "height": <n> }
 breadcrumb:  { "type": "breadcrumb", "items": ["Home","Section","Page"], "x": <n>, "y": <n>, "width": <n>, "height": <n> }
 select:      { "type": "select", "label": "...", "placeholder": "...", "x": <n>, "y": <n>, "width": <n>, "height": <n> }
-table:       { "type": "table", "headers": ["Col A","Col B"], "rows": [["a1","b1"],["a2","b2"]], "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+table:       { "type": "table", "headers": ["Col A","Col B"], "rows": [["a1","b1"],["a2","b2"]], "fillColor": "#XXXXXX", "headerFill": "#XXXXXX", "headerTextColor": "#XXXXXX", "x": <n>, "y": <n>, "width": <n>, "height": <n> }
+  The table "height" must cover the WHOLE table as seen (header + every row) — the rows are stretched to fill it.
 pagination:  { "type": "pagination", "pages": <number>, "activeIndex": <0-based>, "x": <n>, "y": <n>, "width": <n>, "height": <n> }
 rating:      { "type": "rating", "rating": <number filled>, "max": <number, default 5>, "x": <n>, "y": <n>, "width": <n>, "height": <n> }
 carousel:    { "type": "carousel", "x": <n>, "y": <n>, "width": <n>, "height": <n> }
@@ -664,7 +665,8 @@ carousel:    { "type": "carousel", "x": <n>, "y": <n>, "width": <n>, "height": <
 PER-ELEMENT STYLE (optional, improves fidelity — read from what you SEE, omit if unsure):
 - Text elements (heading, subheading, paragraph, button, badge, stat, list, nav-links) may add:
   "color" (actual text color #XXXXXX), "fontSize" (actual px), "fontWeight" (100-900).
-- Containers (card, section-bg) may add "fillColor" (actual background #XXXXXX) — overrides the background role.
+- Containers (card, section-bg, table) may add "fillColor" (actual background #XXXXXX) — overrides the background role. For a table this is the BODY rows' background, which is often white on a tinted page; set it whenever it differs from the page background.
+- Table may add "headerFill" (actual header row background #XXXXXX) and "headerTextColor" (actual header text #XXXXXX). Set them whenever the header band is tinted differently from the body rows; for a gradient header pick its dominant colour.
 - Do NOT guess: if a value is not clearly readable, leave the field out and the defaults apply.
 
 CARD/GRID CHILDREN POSITIONS:
