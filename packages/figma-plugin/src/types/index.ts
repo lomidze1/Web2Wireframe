@@ -321,6 +321,9 @@ export interface RenderWireframeData {
    *  provide — telex.ge fakes bold from a single 400 file, and offering the
    *  nonexistent 700 reopened the font modal on every import. */
   fontDeclaredCuts?: Record<string, Array<{ weight: number; italic: boolean }>>;
+  /** Screenshot import: export the rendered frame back to the UI so it can be
+   *  scored against the uploaded image. */
+  compareToSource?: boolean;
 }
 
 /** Map from missing/website font name → replacement font name */

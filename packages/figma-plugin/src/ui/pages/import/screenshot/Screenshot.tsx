@@ -9,7 +9,12 @@ import { useLicense } from "../../../shared/LicenseContext";
 import { authHeader } from "../../../shared/licenseClient";
 import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
-import { downscaleImage, type DownscaledImage } from "../../../shared/imageDownscale";
+import {
+  downscaleImage,
+  loadImageElement,
+  type DownscaledImage,
+} from "../../../shared/imageDownscale";
+import type { CropSource } from "../../../shared/screenshotCrop";
 import SettingsPanel from "../../../components/settingsPanel";
 
 const TAB_ID = "screenshot";
@@ -23,30 +28,39 @@ export default function Screenshot() {
   // Downscaled image + its dimensions — the request uses these directly,
   // so what we report always matches what the AI actually receives.
   const [image, setImage] = useState<DownscaledImage | null>(null);
+  // The pre-downscale file, kept only for Real Assets cropping — icons cut
+  // from the 1568px-capped JPEG would be blurry. The AI still receives the
+  // downscaled copy, so tokens and payload size are unchanged.
+  const cropSourceRef = useRef<CropSource | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // How closely the rendered frame matches the uploaded image (see visualDiff).
+  const [match, setMatch] = useState<{
+    score: number;
+    heatmapUrl: string | null;
+  } | null>(null);
+  const [showHeatmap, setShowHeatmap] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { config } = useConfig();
   const { refresh: refreshLicense } = useLicense();
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
 
-  // Screenshot mode can't use website fonts, auto-layout, real assets, hover
-  // variants, or semantic text. Coerce to the supported value for display and
-  // import — derived, never written back, so the user's settings on other
-  // tabs (and the global defaults) stay untouched. The SettingsPanel disables
-  // these options with a tooltip; this only handles an incompatible default.
+  // Screenshot mode can't use website fonts, auto-layout, hover variants, or
+  // semantic text. Coerce to the supported value for display and import —
+  // derived, never written back, so the user's settings on other tabs (and
+  // the global defaults) stay untouched. The SettingsPanel disables these
+  // options with a tooltip; this only handles an incompatible default.
+  // assetMode is NOT coerced: Real Assets works here by cropping the
+  // uploaded screenshot (see screenshotCrop.ts).
   const fontMode =
     settings.localFontMode === "website" ? "plugin" : settings.localFontMode;
   const layoutMode =
     settings.localLayoutMode === "autoLayout"
       ? "absolute"
       : settings.localLayoutMode;
-  const assetMode =
-    settings.localAssetMode === "realAssets"
-      ? "placeholders"
-      : settings.localAssetMode;
+  const assetMode = settings.localAssetMode;
   const interactionMode =
     settings.localInteractionMode === "variants"
       ? "none"
@@ -66,6 +80,15 @@ export default function Screenshot() {
         setIsGenerating(false);
         setError(msg.data.error || "Failed to create wireframe");
       }
+      if (msg.type === "wireframe-exported" && cropSourceRef.current) {
+        const source = cropSourceRef.current;
+        void (async () => {
+          const { compareRenderToSource } = await import(
+            "../../../shared/visualDiff"
+          );
+          setMatch(await compareRenderToSource(msg.data, source));
+        })();
+      }
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
@@ -83,6 +106,12 @@ export default function Screenshot() {
         return;
       }
       try {
+        const original = await loadImageElement(dataUrl);
+        cropSourceRef.current = {
+          dataUrl,
+          width: original.naturalWidth,
+          height: original.naturalHeight,
+        };
         setImage(await downscaleImage(dataUrl));
       } catch {
         // Browser couldn't decode it (HEIC, corrupted file, …) — surface
@@ -137,7 +166,9 @@ export default function Screenshot() {
   const handleDelete = (e: Event) => {
     e.stopPropagation();
     setImage(null);
+    cropSourceRef.current = null;
     setError(null);
+    setMatch(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -148,6 +179,8 @@ export default function Screenshot() {
 
     setIsGenerating(true);
     setError(null);
+    setMatch(null);
+    setShowHeatmap(false);
     settings.collapseSettings();
 
     try {
@@ -165,8 +198,8 @@ export default function Screenshot() {
           textMode,
           colorMode: settings.localColorMode,
           // Screenshot mode coerces incompatible settings (website fonts →
-          // plugin, auto-layout → absolute, real assets → placeholders); log
-          // the coerced values that the import actually used, not the raw ones.
+          // plugin, auto-layout → absolute); log the coerced values that the
+          // import actually used, not the raw ones.
           typographyMode: fontMode,
           assetMode: assetMode,
           cssVariablesMode: settings.localCssVariablesMode,
@@ -191,13 +224,29 @@ export default function Screenshot() {
       const data = await response.json();
       if (!data.success) throw new Error(data.error || "Screenshot analysis failed");
 
+      const frames = data.wireframeData.frames;
+
+      // Real Assets: the screenshot itself is the only pixel source, so cut
+      // each observed placeholder out of the original file. Best-effort —
+      // any failure just leaves the wireframe placeholders in place.
+      if (assetMode === "realAssets" && cropSourceRef.current) {
+        try {
+          const { applyScreenshotCrops } = await import(
+            "../../../shared/screenshotCrop"
+          );
+          await applyScreenshotCrops(frames, cropSourceRef.current);
+        } catch {
+          /* keep placeholders */
+        }
+      }
+
       // Send to Figma sandbox for rendering
       parent.postMessage(
         {
           pluginMessage: {
             type: "render-wireframe",
             data: {
-              frames: data.wireframeData.frames,
+              frames,
               sourceUrl: data.sourceUrl,
               pluginColors: data.pluginColors,
               pluginFont: config.pluginFont,
@@ -206,6 +255,8 @@ export default function Screenshot() {
               colorMode: settings.localColorMode,
               fontMode: "plugin",
               textMode,
+              assetMode,
+              compareToSource: true,
             },
           },
         },
@@ -315,8 +366,6 @@ export default function Screenshot() {
         fontDisabledTooltip="Not available in Screenshot mode"
         disableAutoLayoutOption={true}
         layoutDisabledTooltip="Not available in Screenshot mode"
-        disableRealAssetsOption={true}
-        assetsDisabledTooltip="Not available in Screenshot mode"
         localInteractionMode={interactionMode}
         setInteractionMode={settings.setInteractionMode}
         disableInteractionsVariants={true}
@@ -338,6 +387,31 @@ export default function Screenshot() {
       >
         {isGenerating ? "Importing…" : "Import"}
       </button>
+
+      {/* Visual match — how close the rendered frame is to the uploaded image.
+          A signal, not a verdict: the wireframe uses the plugin font, so a
+          perfect layout still lands well short of 100%. */}
+      {match && (
+        <div class={styles.matchCard}>
+          <button
+            type="button"
+            class={styles.matchHeader}
+            onClick={() => setShowHeatmap((v) => !v)}
+            disabled={!match.heatmapUrl}
+            aria-expanded={showHeatmap}
+          >
+            <span>Visual match</span>
+            <span class={styles.matchScore}>{match.score}%</span>
+          </button>
+          {showHeatmap && match.heatmapUrl && (
+            <img
+              src={match.heatmapUrl}
+              class={styles.matchHeatmap}
+              alt="Difference heatmap — red marks where the import diverges from the screenshot"
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

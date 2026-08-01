@@ -483,6 +483,72 @@ describe("Screenshot", () => {
       expect(labels).not.toContain("Website");
     });
 
+    it("offers Real Assets — screenshot crops make it a supported mode", () => {
+      const { container } = render(<Screenshot />);
+      expandSettings(container);
+
+      const assetsGroup = container.querySelector(
+        '[aria-label="Assets"]'
+      ) as HTMLElement;
+      const realAssets = Array.from(
+        assetsGroup.querySelectorAll('[role="radio"]')
+      ).find((b) => b.textContent === "Real Assets") as HTMLButtonElement;
+
+      expect(realAssets).toBeDefined();
+      expect(realAssets.disabled).toBe(false);
+    });
+
+    it("sends assetMode in postMessage so the sandbox builds the assets map", async () => {
+      mockSuccessResponse();
+
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+
+      await vi.waitFor(() => {
+        const button = findImportButton(container);
+        expect(button.disabled).toBe(false);
+      });
+
+      fireEvent.click(findImportButton(container));
+
+      await vi.waitFor(() => {
+        expect(postMessageSpy).toHaveBeenCalled();
+      });
+
+      const call = postMessageSpy.mock.calls[0];
+      const msg = (call[0] as { pluginMessage: { data: Record<string, unknown> } })
+        .pluginMessage;
+      expect(msg.data.assetMode).toBe("realAssets");
+    });
+
+    it("asks the sandbox to export the render for visual comparison", async () => {
+      mockSuccessResponse();
+
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+
+      await vi.waitFor(() => {
+        const button = findImportButton(container);
+        expect(button.disabled).toBe(false);
+      });
+
+      fireEvent.click(findImportButton(container));
+
+      await vi.waitFor(() => {
+        expect(postMessageSpy).toHaveBeenCalled();
+      });
+
+      const call = postMessageSpy.mock.calls[0];
+      const msg = (call[0] as { pluginMessage: { data: Record<string, unknown> } })
+        .pluginMessage;
+      expect(msg.data.compareToSource).toBe(true);
+    });
+
+    it("shows no visual-match card until the export arrives", () => {
+      const { container } = render(<Screenshot />);
+      expect(container.textContent).not.toContain("Visual match");
+    });
+
     it("includes colorMode in API request body", async () => {
       mockSuccessResponse();
 

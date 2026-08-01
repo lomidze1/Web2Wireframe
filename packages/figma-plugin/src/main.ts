@@ -952,6 +952,29 @@ export default function () {
           },
         });
 
+        // Screenshot import only: hand the rendered pixels back so the UI can
+        // score them against the image the user uploaded. Best-effort — a
+        // failed export must never taint a successful import.
+        if (data.compareToSource && createdFrames.length > 0) {
+          try {
+            // createdFrames was sorted widest-first above; the widest frame
+            // carries the most detail to compare against.
+            const target = createdFrames[0];
+            const bytes = await target.exportAsync({
+              format: "PNG",
+              constraint: { type: "WIDTH", value: 512 },
+            });
+            figma.ui.postMessage({
+              type: "wireframe-exported",
+              data: { bytes, width: target.width, height: target.height },
+            });
+          } catch (err) {
+            logger.warn("Frame export for visual comparison failed", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
         // The fresh import may have introduced substituted-font text — refresh
         // the count so the "Re-apply fonts" button surfaces if needed.
         postRebindableCount();
