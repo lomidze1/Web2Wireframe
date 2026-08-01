@@ -268,7 +268,21 @@ function convertFrame(
     padding.left += invisible.left;
   }
   const gapStr = str(s.gap);
-  const itemSpacing = isAbsoluteMode ? 0 : (parseFloat(gapStr) || 0);
+  // Each axis reads its own longhand. `gap` is a shorthand whose computed form
+  // is "<row> <column>", so parseFloat() on it yields the ROW gap — handing a
+  // horizontal row the wrong number whenever the two differ. The shorthand
+  // stays as the fallback for captures without the longhands.
+  const axisGap = (longhand: string | number | undefined): number =>
+    parseFloat(str(longhand) || gapStr) || 0;
+  const mainAxisGap = cssLayoutMode === 'VERTICAL' ? axisGap(s.rowGap) : axisGap(s.columnGap);
+  const itemSpacing = isAbsoluteMode ? 0 : mainAxisGap;
+  // Cross-axis gap only exists for wrapped rows — the distance between the
+  // lines a flex container breaks onto (web2wireframe.design's hero CTA sat
+  // flush against the feature list because Figma defaults this to 0).
+  const counterAxisSpacing =
+    !isAbsoluteMode && cssLayoutMode === 'HORIZONTAL' && axisGap(s.rowGap) > 0
+      ? axisGap(s.rowGap)
+      : undefined;
 
   // Sizing
   const sizing = isAbsoluteMode
@@ -936,6 +950,7 @@ function convertFrame(
 
     layoutMode,
     itemSpacing,
+    counterAxisSpacing,
     padding,
     // Pass justifyContent/alignItems through even in absolute mode: they are
     // the source-of-truth signal for centering text-with-background buttons

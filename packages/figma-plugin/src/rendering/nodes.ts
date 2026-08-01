@@ -412,6 +412,13 @@ export async function createNodeInFigma(
       frame.layoutMode === "HORIZONTAL"
     ) {
       frame.layoutWrap = "WRAP";
+      // CSS `gap` covers both axes; Figma splits them and defaults the
+      // cross-axis one to 0. Without this, every wrapped row rendered its
+      // lines flush against each other (web2wireframe.design's hero: the CTA
+      // button sat 13.6px too high, touching the feature list above it).
+      if (node.counterAxisSpacing && node.counterAxisSpacing > 0) {
+        frame.counterAxisSpacing = node.counterAxisSpacing;
+      }
     }
 
     if (node.itemSpacing > 0) {

@@ -115,6 +115,11 @@ export interface WireframeNode {
   // Layout
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
   itemSpacing: number;
+  // Distance between WRAPPED tracks (CSS row-gap on a horizontal flex row).
+  // Figma keeps this separate from itemSpacing and defaults it to 0, so a
+  // wrapped row whose CSS `gap` covered both axes collapsed its lines
+  // together. Only meaningful with flexWrap: "wrap".
+  counterAxisSpacing?: number;
   padding: { top: number; right: number; bottom: number; left: number };
   // Layout Alignment (for Auto Layout)
   justifyContent?: string; // CSS justify-content value
