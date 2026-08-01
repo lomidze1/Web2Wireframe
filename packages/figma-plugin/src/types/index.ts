@@ -359,6 +359,17 @@ export interface RenderContext {
   // pluginData write so a later rebind can swap Inter → original family
   // once the user installs the .zip-downloaded fonts.
   originalFontNames?: FontMapping;
+  // CSS family → real (SFNT) family, straight from the page's @font-face
+  // entries. Unlike `originalFontNames` this is set on EVERY website import,
+  // modal or not: a downloaded file often registers in Figma under the real
+  // name ("Space Grotesk" 600 installs as "Space Grotesk Light" / SemiBold),
+  // and without it the renderer collapses that weight to a nearest cut.
+  fontRealNames?: FontMapping;
+  // Per CSS family, the cuts its @font-face entries actually declare. Gates
+  // the `w2w_original_cut` marker: a weight no face can supply (telex.ge's
+  // faked bold) is nothing the download can fix, so it must not advertise a
+  // Re-apply.
+  fontDeclaredCuts?: Record<string, Array<{ weight: number; italic: boolean }>>;
   // Asset extraction mode
   assetMode?: "placeholders" | "realAssets";
   // Map from image URL → base64 data URI (for real asset rendering)

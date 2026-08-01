@@ -547,6 +547,8 @@ export default function () {
         variableStyleMap,
         fontMapping,
         originalFontNames,
+        fontRealNames: data.fontRealNames,
+        fontDeclaredCuts: data.fontDeclaredCuts,
         assetMode: assetMode || "placeholders",
         assetsMap,
         interactionMode: interactionMode || "none",
@@ -982,7 +984,13 @@ export default function () {
 
       if (effectiveFontMode === "website") {
         const fontUsage = collectFontUsage(frames);
-        const { missing, missingCuts: rawMissingCuts } = await checkFontsAvailability(allFonts, fontUsage);
+        // The real-name map goes in too: a cut is only truly missing when
+        // neither the CSS family nor its real (SFNT) family ships it.
+        const { missing, missingCuts: rawMissingCuts } = await checkFontsAvailability(
+          allFonts,
+          fontUsage,
+          data.fontRealNames || {},
+        );
         // A cut is only worth offering when some @font-face actually declares
         // a matching face — telex.ge fakes bold from one 400 file, and the
         // undownloadable 700 "missing cut" reopened this modal on every import.

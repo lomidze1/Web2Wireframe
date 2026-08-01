@@ -326,7 +326,8 @@ const REGULARISH_STYLE_TOKENS = ["regular", "book", "buch", "normal", "roman", "
  */
 export async function checkFontsAvailability(
   allFonts: Set<string>,
-  usage?: Map<string, FontCut[]>
+  usage?: Map<string, FontCut[]>,
+  realNames?: FontMapping
 ): Promise<{ available: string[]; missing: string[]; missingCuts: Record<string, FontCut[]> }> {
   const available: string[] = [];
   const missing: string[] = [];
@@ -409,7 +410,17 @@ export async function checkFontsAvailability(
     const cuts = !isIcon ? usage?.get(font) : undefined;
     if (cuts && cuts.length > 0) {
       const stripped = stripFontStyleSuffix(font);
-      const familiesToTry = stripped ? [font, stripped.family] : [font];
+      // The CSS name first, then its suffix-stripped form, then the family's
+      // real (SFNT) name. A downloaded cut frequently registers under the real
+      // name only — web2wireframe.design's Space Grotesk 600 installs as
+      // "Space Grotesk Light" / SemiBold — and without this the demand can
+      // never be satisfied, so the download modal reopens on every import.
+      const real = realNames?.[font];
+      const familiesToTry = [
+        font,
+        ...(stripped ? [stripped.family] : []),
+        ...(real && real !== font ? [real] : []),
+      ];
       const absent: FontCut[] = [];
       let anyLoaded = false;
       for (const cut of cuts) {
@@ -681,6 +692,26 @@ export function buildFontDeclaredCuts(
 }
 
 /**
+ * True when the site's @font-face entries can actually supply `cut` — the
+ * weight is declared outright, or sits inside a declared range/pair at the
+ * same slant. Absent or empty declaration data answers `false`: callers that
+ * want the benefit of the doubt must check for that case themselves.
+ */
+export function declaresCut(
+  declared: FontCut[] | undefined,
+  cut: FontCut,
+): boolean {
+  if (!declared || declared.length === 0) return false;
+  const sameSlant = declared.filter((d) => d.italic === cut.italic);
+  if (sameSlant.length === 0) return false;
+  const weights = sameSlant.map((d) => d.weight);
+  return (
+    weights.includes(cut.weight) ||
+    (cut.weight > Math.min(...weights) && cut.weight < Math.max(...weights))
+  );
+}
+
+/**
  * Drop missing cuts that no declared @font-face can actually provide.
  *
  * telex.ge's BPG Nino Mtavruli ships ONE 400 file and the page fakes bold —
@@ -701,15 +732,7 @@ export function filterMissingCutsToDeclared(
       result[family] = cuts;
       continue;
     }
-    const kept = cuts.filter((cut) => {
-      const sameSlant = declared.filter((d) => d.italic === cut.italic);
-      if (sameSlant.length === 0) return false;
-      const weights = sameSlant.map((d) => d.weight);
-      return (
-        weights.includes(cut.weight) ||
-        (cut.weight > Math.min(...weights) && cut.weight < Math.max(...weights))
-      );
-    });
+    const kept = cuts.filter((cut) => declaresCut(declared, cut));
     if (kept.length > 0) result[family] = kept;
   }
   return result;
