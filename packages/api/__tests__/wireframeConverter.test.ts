@@ -7,6 +7,7 @@ import {
   createIdGenerator,
   convertElement,
   convertAbsoluteElement,
+  convertAbsoluteToWireframeTree,
 } from "../src/lib/wireframeConverter.js";
 
 // ============================================================================
@@ -793,5 +794,101 @@ describe("Edge cases", () => {
     const ctx = makeCtx();
     const node = convertElement({ type: "image", width: 400, aspectRatio: "unknown" }, ctx);
     expect(node.height).toBe(Math.round(400 * 0.5625));
+  });
+});
+
+// ============================================================================
+// Section nesting
+// ============================================================================
+
+describe("Section nesting", () => {
+  // Factories, not constants: nestBySections appends children to the section
+  // object it is given, so a shared literal would accumulate across tests.
+  const FOOTER = () => ({
+    type: "section-bg",
+    name: "Footer",
+    x: 0,
+    y: 3600,
+    width: 1440,
+    height: 400,
+    background: "surface",
+  });
+  const HERO = () => ({
+    type: "section-bg",
+    name: "Hero",
+    x: 0,
+    y: 0,
+    width: 1440,
+    height: 900,
+    background: "background",
+  });
+
+  function tree(elements: unknown[], pageHeight = 4000) {
+    return convertAbsoluteToWireframeTree(
+      { pageWidth: 1440, pageHeight, elements } as never,
+      1440,
+      TEST_COLORS,
+      TEST_FONT,
+    );
+  }
+
+  it("renders section children inside the section frame", () => {
+    const root = tree([
+      FOOTER(),
+      { type: "logo", x: 100, y: 3650, width: 160, height: 48 },
+      { type: "nav-links", links: ["Docs"], x: 400, y: 3660, width: 200, height: 24 },
+    ]);
+
+    expect(root.children).toHaveLength(1);
+    const footer = root.children[0];
+    expect(footer.name).toBe("Footer");
+    expect(footer.children).toHaveLength(2);
+  });
+
+  it("rebases child coordinates onto the section origin", () => {
+    const root = tree([
+      FOOTER(),
+      { type: "logo", x: 100, y: 3650, width: 160, height: 48 },
+    ]);
+
+    const logo = root.children[0].children[0];
+    expect(logo.x).toBe(100);
+    expect(logo.y).toBe(50); // 3650 - 3600
+    expect(logo.absolutePositioned).toBe(true);
+  });
+
+  it("keeps each section's own content separate", () => {
+    const root = tree([
+      HERO(),
+      FOOTER(),
+      { type: "heading", text: "Hi", level: 1, x: 100, y: 200, width: 600, height: 60 },
+      { type: "paragraph", text: "legal", x: 100, y: 3700, width: 600, height: 40 },
+    ]);
+
+    expect(root.children).toHaveLength(2);
+    const [hero, footer] = root.children;
+    expect(hero.children).toHaveLength(1);
+    expect(footer.children).toHaveLength(1);
+    expect(hero.children[0].type).toBe("text");
+  });
+
+  it("leaves content outside every section at the top level", () => {
+    const root = tree([
+      FOOTER(),
+      { type: "badge", text: "New", x: 100, y: 2000, width: 80, height: 24 },
+    ]);
+
+    expect(root.children).toHaveLength(2);
+    expect(root.children.find((c: any) => c.name === "Footer").children).toHaveLength(0);
+  });
+
+  it("does not clip section content", () => {
+    const root = tree([
+      FOOTER(),
+      { type: "logo", x: 100, y: 3650, width: 160, height: 48 },
+    ]);
+
+    // No overflow set → the plugin leaves clipsContent false.
+    expect(root.children[0].overflow).toBeUndefined();
   });
 });

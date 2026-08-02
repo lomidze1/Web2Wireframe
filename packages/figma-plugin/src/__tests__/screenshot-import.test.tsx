@@ -21,12 +21,15 @@ vi.mock("../ui/shared/ConfigContext", async (importOriginal) => {
 });
 
 // Mock Image for dimension detection
+/** Dimensions MockImage reports — tests override for tall-image scenarios. */
+const mockImageSize = { width: 1440, height: 900 };
+
 class MockImage {
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
   _src = "";
-  naturalWidth = 1440;
-  naturalHeight = 900;
+  naturalWidth = mockImageSize.width;
+  naturalHeight = mockImageSize.height;
 
   get src() {
     return this._src;
@@ -519,6 +522,166 @@ describe("Screenshot", () => {
       const msg = (call[0] as { pluginMessage: { data: Record<string, unknown> } })
         .pluginMessage;
       expect(msg.data.assetMode).toBe("realAssets");
+    });
+
+    it("sends full-width tiles for a tall image", async () => {
+      // Original file is 1425×4178 — far past the tiling trigger.
+      mockImageSize.width = 1425;
+      mockImageSize.height = 4178;
+      // Tiling needs a working canvas: happy-dom's getContext returns null,
+      // which would silently degrade to the legacy path.
+      const ctxMock = {
+        drawImage: () => {},
+        fillRect: () => {},
+        set fillStyle(_v: string) {},
+        getImageData: (_x: number, _y: number, w: number, h: number) => ({
+          data: new Uint8ClampedArray(w * h * 4),
+        }),
+      } as unknown as CanvasRenderingContext2D;
+      const gcSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, "getContext")
+        .mockImplementation(() => ctxMock);
+      const tduSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, "toDataURL")
+        .mockImplementation(() => "data:image/jpeg;base64,TILE");
+      mockSuccessResponse();
+
+      try {
+        const { container } = render(<Screenshot />);
+        simulateImageUpload(container);
+
+        await vi.waitFor(() => {
+          expect(findImportButton(container).disabled).toBe(false);
+        });
+        fireEvent.click(findImportButton(container));
+
+        await vi.waitFor(() => {
+          expect(globalThis.fetch).toHaveBeenCalled();
+        });
+
+        const body = JSON.parse(
+          (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body,
+        );
+        expect(body.tiledWidth).toBe(1425);
+        expect(body.tiledHeight).toBe(4178);
+        expect(Array.isArray(body.tiles)).toBe(true);
+        expect(body.tiles.length).toBeGreaterThanOrEqual(2);
+        expect(body.tiles[0]).toMatchObject({ offsetY: 0, width: 1425 });
+        // The legacy image still rides along for old-server degradation.
+        expect(body.imageBase64).toBeTruthy();
+      } finally {
+        gcSpy.mockRestore();
+        tduSpy.mockRestore();
+        mockImageSize.width = 1440;
+        mockImageSize.height = 900;
+      }
+    });
+
+    it("degrades to a legacy-only body when slicing fails", async () => {
+      mockImageSize.width = 1425;
+      mockImageSize.height = 4178;
+      // Canvas unavailable (happy-dom default) → computeRowActivity goes
+      // quiet, sliceTiles throws → the import must still go out, tiles-less.
+      mockSuccessResponse();
+
+      try {
+        const { container } = render(<Screenshot />);
+        simulateImageUpload(container);
+
+        await vi.waitFor(() => {
+          expect(findImportButton(container).disabled).toBe(false);
+        });
+        fireEvent.click(findImportButton(container));
+
+        await vi.waitFor(() => {
+          expect(globalThis.fetch).toHaveBeenCalled();
+        });
+
+        const body = JSON.parse(
+          (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body,
+        );
+        expect(body.tiles).toBeUndefined();
+        expect(body.imageBase64).toBeTruthy();
+      } finally {
+        mockImageSize.width = 1440;
+        mockImageSize.height = 900;
+      }
+    });
+
+    it("sends no tiles for a small image", async () => {
+      mockSuccessResponse();
+
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+
+      await vi.waitFor(() => {
+        expect(findImportButton(container).disabled).toBe(false);
+      });
+      fireEvent.click(findImportButton(container));
+
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body,
+      );
+      expect(body.tiles).toBeUndefined();
+      expect(body.tiledWidth).toBeUndefined();
+    });
+
+    // A full-page screenshot spends a minute or more inside the AI call, which
+    // emits no progress of its own — without an overlay the plugin looks dead.
+    it("shows the rendering overlay while the analysis request is in flight", async () => {
+      // Never resolves: holds the component in its in-flight state.
+      globalThis.fetch = vi.fn(
+        () => new Promise(() => {}),
+      ) as unknown as typeof fetch;
+
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+
+      await vi.waitFor(() => {
+        expect(findImportButton(container).disabled).toBe(false);
+      });
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+
+      fireEvent.click(findImportButton(container));
+
+      await vi.waitFor(() => {
+        const dialog = container.querySelector('[role="dialog"]');
+        expect(dialog).not.toBeNull();
+        expect(dialog?.textContent).toContain("Analyzing screenshot");
+      });
+    });
+
+    it("hides the overlay when the render fails", async () => {
+      mockSuccessResponse();
+
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+
+      await vi.waitFor(() => {
+        expect(findImportButton(container).disabled).toBe(false);
+      });
+      fireEvent.click(findImportButton(container));
+
+      // Wait until the request has returned and the sandbox has been handed
+      // the render — wireframe-error can only follow that point.
+      await vi.waitFor(() => {
+        const dialog = container.querySelector('[role="dialog"]');
+        expect(dialog?.textContent).toContain("Cutting assets");
+      });
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { pluginMessage: { type: "wireframe-error", data: { error: "boom" } } },
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('[role="dialog"]')).toBeNull();
+      });
     });
 
     it("asks the sandbox to export the render for visual comparison", async () => {

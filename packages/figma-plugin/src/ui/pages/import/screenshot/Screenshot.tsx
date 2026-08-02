@@ -16,6 +16,9 @@ import {
 } from "../../../shared/imageDownscale";
 import type { CropSource } from "../../../shared/screenshotCrop";
 import SettingsPanel from "../../../components/settingsPanel";
+import RenderingLoader, {
+  type RenderingProgress,
+} from "../../../components/renderingLoader/RenderingLoader";
 
 const TAB_ID = "screenshot";
 const STORAGE_KEY = "w2w_settings_expanded_screenshot";
@@ -23,6 +26,25 @@ const API_URL = API_BASE_URL;
 
 const UNSUPPORTED_FORMAT_MESSAGE =
   "Unsupported image format. Please use PNG, JPEG, WebP, or GIF.";
+
+/**
+ * What to say while the analysis request is in flight, by seconds elapsed.
+ *
+ * The AI call reports nothing until it returns — and on a full-page screenshot
+ * that is a minute or more of silence. The sandbox's own progress starts at
+ * 25%, so this phase owns 0–20%: an estimate, deliberately never reaching the
+ * handover point, with the message doing the honest work of saying what is
+ * happening and that a long wait is expected rather than broken.
+ */
+const ANALYSIS_STAGES: ReadonlyArray<{ after: number; step: string; percent: number }> = [
+  { after: 0, step: "Analyzing screenshot…", percent: 4 },
+  { after: 12, step: "Reading layout and text…", percent: 9 },
+  { after: 30, step: "Measuring elements…", percent: 14 },
+  { after: 55, step: "Still analyzing — tall pages take longer…", percent: 18 },
+  { after: 100, step: "Almost there — this is a large page…", percent: 20 },
+];
+
+const ANALYSIS_TICK_MS = 1000;
 
 export default function Screenshot() {
   // Downscaled image + its dimensions — the request uses these directly,
@@ -41,7 +63,16 @@ export default function Screenshot() {
     heatmapUrl: string | null;
   } | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [progress, setProgress] = useState<RenderingProgress | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const analysisTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopAnalysisTicker = useCallback(() => {
+    if (analysisTimerRef.current !== null) {
+      clearInterval(analysisTimerRef.current);
+      analysisTimerRef.current = null;
+    }
+  }, []);
 
   const { config } = useConfig();
   const { refresh: refreshLicense } = useLicense();
@@ -73,11 +104,20 @@ export default function Screenshot() {
     const handleMessage = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
       if (!msg) return;
+      if (msg.type === "render-progress") {
+        // The sandbox owns everything from 25% on; its first message ends the
+        // estimated analysis phase.
+        stopAnalysisTicker();
+        const { step, percent, isComplete } = msg.data;
+        setProgress({ step, percent, isComplete });
+      }
       if (msg.type === "wireframe-created") {
         setIsGenerating(false);
       }
       if (msg.type === "wireframe-error") {
+        stopAnalysisTicker();
         setIsGenerating(false);
+        setProgress(undefined);
         setError(msg.data.error || "Failed to create wireframe");
       }
       if (msg.type === "wireframe-exported" && cropSourceRef.current) {
@@ -91,8 +131,11 @@ export default function Screenshot() {
       }
     };
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      stopAnalysisTicker();
+    };
+  }, [stopAnalysisTicker]);
 
   // Shared entry point for all three input sources (file picker, drag &
   // drop, clipboard paste): read → downscale → preview.
@@ -183,6 +226,50 @@ export default function Screenshot() {
     setShowHeatmap(false);
     settings.collapseSettings();
 
+    // Estimated progress for the analysis phase — the request itself reports
+    // nothing until it returns.
+    setProgress({ step: ANALYSIS_STAGES[0].step, percent: ANALYSIS_STAGES[0].percent });
+    stopAnalysisTicker();
+
+    // Tall pages: additionally cut the ORIGINAL file into overlapping
+    // full-width tiles so the server can analyse every strip at full
+    // resolution instead of one image crushed to the 1568px ceiling.
+    // Best-effort — any failure means the request simply goes legacy-only.
+    let tiling: {
+      tiles: Array<{ imageBase64: string; offsetY: number; width: number; height: number }>;
+      tiledWidth: number;
+      tiledHeight: number;
+    } | null = null;
+    if (cropSourceRef.current) {
+      try {
+        const { buildTilesFromDataUrl } = await import("../../../shared/imageTiling");
+        const source = cropSourceRef.current;
+        tiling = await buildTilesFromDataUrl(source.dataUrl, source.width, source.height);
+      } catch {
+        tiling = null;
+      }
+    }
+
+    const stages: typeof ANALYSIS_STAGES = tiling
+      ? [
+          { after: 0, step: `Analyzing ${tiling.tiles.length} page sections in parallel…`, percent: 5 },
+          { after: 20, step: "Reading layout and text…", percent: 10 },
+          { after: 45, step: "Measuring elements…", percent: 15 },
+          { after: 90, step: "Still analyzing — tall pages take longer…", percent: 18 },
+          { after: 150, step: "Almost there — this is a large page…", percent: 20 },
+        ]
+      : ANALYSIS_STAGES;
+    setProgress({ step: stages[0].step, percent: stages[0].percent });
+    const startedAt = Date.now();
+    analysisTimerRef.current = setInterval(() => {
+      const elapsed = (Date.now() - startedAt) / 1000;
+      let stage = stages[0];
+      for (const candidate of stages) {
+        if (elapsed >= candidate.after) stage = candidate;
+      }
+      setProgress({ step: stage.step, percent: stage.percent });
+    }, ANALYSIS_TICK_MS);
+
     try {
       const response = await fetch(`${API_URL}/api/import-screenshot`, {
         method: "POST",
@@ -204,14 +291,27 @@ export default function Screenshot() {
           assetMode: assetMode,
           cssVariablesMode: settings.localCssVariablesMode,
           layoutMode: layoutMode,
+          ...(tiling
+            ? {
+                tiles: tiling.tiles,
+                tiledWidth: tiling.tiledWidth,
+                tiledHeight: tiling.tiledHeight,
+              }
+            : {}),
         }),
       });
 
       const { isAuthExpired } = await import("../../../shared/authEvents");
-      if (isAuthExpired(response)) return;
+      if (isAuthExpired(response)) {
+        stopAnalysisTicker();
+        setProgress(undefined);
+        return;
+      }
 
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
+        stopAnalysisTicker();
+        setProgress(undefined);
         setIsGenerating(false);
         return;
       }
@@ -225,6 +325,10 @@ export default function Screenshot() {
       if (!data.success) throw new Error(data.error || "Screenshot analysis failed");
 
       const frames = data.wireframeData.frames;
+
+      // Analysis is done; the sandbox takes over reporting from 25%.
+      stopAnalysisTicker();
+      setProgress({ step: "Cutting assets from the screenshot…", percent: 22 });
 
       // Real Assets: the screenshot itself is the only pixel source, so cut
       // each observed placeholder out of the original file. Best-effort —
@@ -266,13 +370,15 @@ export default function Screenshot() {
       // Import consumed a quota slot server-side — refresh the footer badge.
       void refreshLicense();
     } catch (err: unknown) {
+      stopAnalysisTicker();
+      setProgress(undefined);
       setIsGenerating(false);
       setError(toUserMessage(err, "Screenshot analysis failed"));
     }
     // `settings` is the full hook return value (collapseSettings + local*
     // state) — include it whole; eslint's exhaustive-deps can't track the
     // individual fields we use across the callback body.
-  }, [image, textMode, config, settings, refreshLicense]);
+  }, [image, textMode, config, settings, refreshLicense, stopAnalysisTicker]);
 
   return (
     <div class={styles.screenshotContainer}>
@@ -412,6 +518,12 @@ export default function Screenshot() {
           )}
         </div>
       )}
+
+      <RenderingLoader
+        isVisible={progress !== undefined}
+        progress={progress}
+        onClose={() => setProgress(undefined)}
+      />
     </div>
   );
 }

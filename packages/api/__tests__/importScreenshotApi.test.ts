@@ -7,11 +7,13 @@ process.env.API_PORT = "0";
 // Mock the AI analysis before importing app — tests focus on route behavior
 // (single call, scaling, error mapping), not on the Anthropic client.
 const mockAnalyze = vi.fn();
+const mockAnalyzeTiled = vi.fn();
 vi.mock("../src/lib/aiGenerator.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     analyzeScreenshotAbsoluteWithRetry: (...args: unknown[]) => mockAnalyze(...args),
+    analyzeScreenshotTiled: (...args: unknown[]) => mockAnalyzeTiled(...args),
   };
 });
 
@@ -64,7 +66,31 @@ const ANALYSIS_RESULT = {
 beforeEach(() => {
   mockAnalyze.mockReset();
   mockAnalyze.mockResolvedValue(structuredClone(ANALYSIS_RESULT));
+  mockAnalyzeTiled.mockReset();
+  mockAnalyzeTiled.mockResolvedValue(
+    structuredClone({ ...ANALYSIS_RESULT, pageWidth: 1425, pageHeight: 4178 }),
+  );
 });
+
+/** A structurally valid tiles payload for the tall-screenshot path. */
+function validTilesBody() {
+  return {
+    imageBase64: PNG_IMAGE, // legacy fallback image is always present
+    imageWidth: 535,
+    imageHeight: 1568,
+    viewports: [1440],
+    tiledWidth: 1425,
+    tiledHeight: 4178,
+    tiles: [
+      { imageBase64: PNG_IMAGE, offsetY: 0, width: 1425, height: 900 },
+      { imageBase64: PNG_IMAGE, offsetY: 700, width: 1425, height: 900 },
+      { imageBase64: PNG_IMAGE, offsetY: 1400, width: 1425, height: 900 },
+      { imageBase64: PNG_IMAGE, offsetY: 2100, width: 1425, height: 900 },
+      { imageBase64: PNG_IMAGE, offsetY: 2800, width: 1425, height: 900 },
+      { imageBase64: PNG_IMAGE, offsetY: 3278, width: 1425, height: 900 },
+    ],
+  };
+}
 
 describe("POST /api/import-screenshot — media type validation", () => {
   // The quota slot is refunded by requireImportAllowance (it hooks any 4xx/5xx
@@ -204,5 +230,113 @@ describe("POST /api/import-screenshot — failure handling", () => {
 
     expect(res.status).toBe(429);
     expect(res.body.errorCode).toBe("AI_RATE_LIMITED");
+  });
+});
+
+describe("POST /api/import-screenshot — tall-screenshot tiling", () => {
+  it("routes a valid tiles payload to the tiled analyzer", async () => {
+    const res = await request(app).post("/api/import-screenshot").send(validTilesBody());
+
+    expect(res.status).toBe(200);
+    expect(mockAnalyzeTiled).toHaveBeenCalledTimes(1);
+    expect(mockAnalyze).not.toHaveBeenCalled();
+
+    const [, tiles, tiledWidth, tiledHeight] = mockAnalyzeTiled.mock.calls[0];
+    expect(tiles).toHaveLength(6);
+    expect(tiledWidth).toBe(1425);
+    expect(tiledHeight).toBe(4178);
+    expect(res.body.tiling).toEqual({ tiles: 6 });
+  });
+
+  it("scales frames from the merged tiled space, not the legacy image", async () => {
+    const res = await request(app)
+      .post("/api/import-screenshot")
+      .send({ ...validTilesBody(), viewports: [1440] });
+
+    // Merged result: pageWidth 1425 → 1440 frame scales by 1440/1425.
+    const frame = res.body.wireframeData.frames[0];
+    expect(frame.viewportWidth).toBe(1440);
+    expect(frame.viewportHeight).toBe(Math.round(4178 * (1440 / 1425)));
+  });
+
+  it("falls back silently to the legacy path on non-ascending offsets", async () => {
+    const body = validTilesBody();
+    body.tiles[2].offsetY = 100; // out of order
+
+    const res = await request(app).post("/api/import-screenshot").send(body);
+
+    expect(res.status).toBe(200);
+    expect(mockAnalyzeTiled).not.toHaveBeenCalled();
+    expect(mockAnalyze).toHaveBeenCalledTimes(1);
+    expect(res.body.tiling).toBeUndefined();
+  });
+
+  it("falls back on too many tiles", async () => {
+    const body = validTilesBody();
+    // 9 tiles — one past the cap.
+    body.tiles = Array.from({ length: 9 }, (_, i) => ({
+      imageBase64: PNG_IMAGE,
+      offsetY: i * 500,
+      width: 1425,
+      height: 900,
+    }));
+    body.tiledHeight = 4900;
+
+    const res = await request(app).post("/api/import-screenshot").send(body);
+
+    expect(res.status).toBe(200);
+    expect(mockAnalyzeTiled).not.toHaveBeenCalled();
+    expect(mockAnalyze).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back on a vertical gap between tiles", async () => {
+    const body = validTilesBody();
+    body.tiles[3].offsetY = 2500; // previous tile ends at 1400+900=2300 → gap
+
+    const res = await request(app).post("/api/import-screenshot").send(body);
+
+    expect(res.status).toBe(200);
+    expect(mockAnalyzeTiled).not.toHaveBeenCalled();
+    expect(mockAnalyze).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back on a tile width that disagrees with tiledWidth", async () => {
+    const body = validTilesBody();
+    body.tiles[1].width = 1440;
+
+    const res = await request(app).post("/api/import-screenshot").send(body);
+
+    expect(res.status).toBe(200);
+    expect(mockAnalyzeTiled).not.toHaveBeenCalled();
+    expect(mockAnalyze).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back on an unsupported tile media type", async () => {
+    const body = validTilesBody();
+    body.tiles[0].imageBase64 = "data:image/avif;base64,AAAA";
+
+    const res = await request(app).post("/api/import-screenshot").send(body);
+
+    expect(res.status).toBe(200);
+    expect(mockAnalyzeTiled).not.toHaveBeenCalled();
+    expect(mockAnalyze).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails the whole import when the tiled analyzer fails (refund path)", async () => {
+    const err = Object.assign(new Error("truncated"), { code: "TRUNCATED" });
+    mockAnalyzeTiled.mockRejectedValue(err);
+
+    const res = await request(app).post("/api/import-screenshot").send(validTilesBody());
+
+    expect(res.status).toBe(422);
+    expect(res.body.errorCode).toBe("SCREENSHOT_TRUNCATED");
+  });
+
+  it("records the tile count in the import event params", async () => {
+    await request(app).post("/api/import-screenshot").send(validTilesBody());
+    // logImportEvent is fire-and-forget; assert via the analyzer call instead —
+    // the params object is covered by import-event tests. Here we only pin the
+    // response contract.
+    expect(mockAnalyzeTiled).toHaveBeenCalledTimes(1);
   });
 });

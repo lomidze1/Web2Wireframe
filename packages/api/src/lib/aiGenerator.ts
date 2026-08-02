@@ -99,6 +99,8 @@ export interface AnalyzeScreenshotParams {
   imageHeight: number;
   viewportWidth: number;
   textMode: TextMode | string;
+  /** Present when this image is one horizontal slice of a taller page. */
+  slice?: SliceContext;
 }
 
 export interface AbsoluteElement {
@@ -389,6 +391,17 @@ interface ScreenshotPromptParams {
   imageWidth: number;
   imageHeight: number;
   textMode: TextMode | string;
+  /** Set when the image is one horizontal slice of a taller page. */
+  slice?: SliceContext;
+}
+
+/** Tall pages are analysed as overlapping horizontal slices — this tells the
+ *  model which slice it is looking at so it doesn't invent a page top/bottom. */
+export interface SliceContext {
+  index: number; // 0-based
+  count: number;
+  offsetY: number; // slice's top edge in full-page pixels
+  fullHeight: number;
 }
 
 /**
@@ -726,7 +739,7 @@ CRITICAL RULES:
  * `feedback` carries the previous attempt's validation errors on a retry so
  * the model can fix them instead of repeating the same mistakes.
  */
-export function buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode }: ScreenshotPromptParams, feedback?: string): string {
+export function buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode, slice }: ScreenshotPromptParams, feedback?: string): string {
   let textInstruction: string;
   switch (textMode) {
     case "lorem":
@@ -743,7 +756,15 @@ export function buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, i
     ? `\n\nPrevious attempt failed validation with these errors:\n${feedback}\nFix these issues in your output — every top-level element needs numeric x, y, width, height and a valid type.`
     : "";
 
-  return `Analyze this website screenshot and convert it into a wireframe with absolute element positions (bounding boxes).
+  const sliceSection = slice
+    ? `\n\nIMPORTANT — this image is a HORIZONTAL SLICE of a taller page (slice ${slice.index + 1} of ${slice.count}, covering page rows ${slice.offsetY}–${slice.offsetY + imageHeight} of ${slice.fullHeight} total):
+- All coordinates must be in THIS SLICE's own space (y=0 is the top of this slice, not of the page).
+- Elements cut off at the slice's top or bottom edge are expected: report the visible part exactly as seen, clipped at the edge. Do NOT invent the hidden part.
+- Do NOT invent a page header/navigation or footer that is not visible in this slice.
+- section-bg elements still span the full width and are clipped to the slice like everything else.`
+    : "";
+
+  return `Analyze this website screenshot and convert it into a wireframe with absolute element positions (bounding boxes).${sliceSection}
 
 Screenshot dimensions: ${imageWidth}x${imageHeight}px (imageHeight=${imageHeight} — use this for proportional calculation)
 Target viewport width: ${viewportWidth}px
@@ -949,7 +970,7 @@ async function createMessageStreaming(
  * send no sampling params and pick the first *text* block from the response
  * (a `thinking` block may precede it).
  */
-export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, imageHeight, viewportWidth, textMode }: AnalyzeScreenshotParams, feedback?: string): Promise<AbsoluteAnalysisResult> {
+export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, imageHeight, viewportWidth, textMode, slice }: AnalyzeScreenshotParams, feedback?: string): Promise<AbsoluteAnalysisResult> {
   const client = getClient();
   const model = process.env.AI_MODEL || "claude-sonnet-5";
   const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
@@ -977,7 +998,7 @@ export async function analyzeScreenshotAbsolute({ imageBase64, imageWidth, image
           },
           {
             type: "text",
-            text: buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode }, feedback),
+            text: buildScreenshotAbsoluteUserPrompt({ viewportWidth, imageWidth, imageHeight, textMode, slice }, feedback),
           },
         ],
       },
@@ -1101,6 +1122,62 @@ export async function analyzeScreenshotAbsoluteWithRetry(params: AnalyzeScreensh
   }
 
   throw lastError ?? new Error("Generation failed with no error details");
+}
+
+/** One client-sliced tile of a tall screenshot, in tiled-space pixels. */
+export interface ScreenshotTile {
+  imageBase64: string;
+  offsetY: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Analyze a tall screenshot as overlapping horizontal tiles.
+ *
+ * Every tile goes through the same analyse-with-retry path a whole screenshot
+ * does, in parallel — wall time is the slowest tile, not the sum. The merged
+ * result lives in the tiled coordinate space (tiledWidth × tiledHeight), which
+ * the route then scales per viewport exactly like a single-image analysis.
+ *
+ * One tile failing fails the whole import: a wireframe with a silent
+ * missing band is worse than an error, and the quota gate auto-refunds
+ * failed imports.
+ */
+export async function analyzeScreenshotTiled(
+  params: Pick<AnalyzeScreenshotParams, "textMode">,
+  tiles: ScreenshotTile[],
+  tiledWidth: number,
+  tiledHeight: number,
+): Promise<AbsoluteAnalysisResult> {
+  const { mergeTileAnalyses } = await import("./tileAnalysis.js");
+
+  const results = await Promise.all(
+    tiles.map((tile, index) =>
+      analyzeScreenshotAbsoluteWithRetry({
+        imageBase64: tile.imageBase64,
+        imageWidth: tile.width,
+        imageHeight: tile.height,
+        // Same convention as the single-image path: analyse in the image's
+        // own space so the model does no coordinate arithmetic.
+        viewportWidth: tile.width,
+        textMode: params.textMode,
+        slice: {
+          index,
+          count: tiles.length,
+          offsetY: tile.offsetY,
+          fullHeight: tiledHeight,
+        },
+      }),
+    ),
+  );
+
+  return mergeTileAnalyses(
+    results,
+    tiles.map(({ offsetY, width, height }) => ({ offsetY, width, height })),
+    tiledWidth,
+    tiledHeight,
+  );
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@
 // Output must match Plugin_Frontend/src/types/index.ts WireframeNode interface
 
 import { DESIGN_TOKENS, getBreakpoint, getToken } from "./designTokens.js";
+import { nestBySections } from "./nestElements.js";
 
 // ============================================================================
 // Type definitions
@@ -1884,7 +1885,14 @@ export function convertAbsoluteToWireframeTree(
     fontFamily: pluginFont,
   });
 
-  for (const element of absoluteJSON.elements || []) {
+  // Give the flat AI list a containment hierarchy first, so section bands
+  // become real parents instead of empty rectangles beside their content.
+  const topLevel = nestBySections(
+    absoluteJSON.elements || [],
+    Number(absoluteJSON.pageHeight) || 0,
+  );
+
+  for (const element of topLevel) {
     const childNode = convertAbsoluteElement(element, ctx);
     if (childNode) rootNode.children.push(childNode);
   }
@@ -1931,7 +1939,7 @@ export function convertAbsoluteElement(element: SimplifiedElement, ctx: ConvertC
 export function convertSectionBackground(element: SimplifiedElement, ctx: ConvertContext): WireframeNode {
   const bgColor = resolveFillColor(element, resolveBackgroundColor(element.background, ctx.colors));
 
-  return createDefaultNode(ctx.nextId, {
+  const sectionNode = createDefaultNode(ctx.nextId, {
     name: element.name || "Section Background",
     type: "frame",
     tag: "section",
@@ -1947,4 +1955,22 @@ export function convertSectionBackground(element: SimplifiedElement, ctx: Conver
     textColor: ctx.colors.text,
     fontFamily: ctx.font,
   });
+
+  // Content nested into this band by nestBySections (page-space boxes).
+  // Run each child through the same absolute conversion a top-level element
+  // gets — that applies its bbox and lays out its own subtree — then rebase
+  // onto the section's origin. The section's own box is left alone, and it
+  // sets no overflow, so a child that pokes out is not clipped.
+  const sectionX = Number(element.x) || 0;
+  const sectionY = Number(element.y) || 0;
+  for (const child of element.elements || []) {
+    const childNode = convertAbsoluteElement(child, ctx);
+    if (!childNode) continue;
+    childNode.x -= sectionX;
+    childNode.y -= sectionY;
+    childNode.absolutePositioned = true;
+    sectionNode.children.push(childNode);
+  }
+
+  return sectionNode;
 }
