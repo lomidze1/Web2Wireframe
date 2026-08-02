@@ -331,10 +331,19 @@ describe("connectFigma", () => {
           { status: 200 },
         ),
       )
-      // fetchMyLicense() inside connectFigma — third fetch.
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(license), { status: 200 }),
-      );
+      // fetchMyLicense() inside connectFigma — third fetch. Stamped: this is
+      // the moment connectFigma has everything it needs and *could* close the
+      // tab, so the reading pause is measured from here.
+      .mockImplementationOnce(async () => {
+        readyAt = Date.now();
+        return new Response(JSON.stringify(license), { status: 200 });
+      });
+
+    let readyAt = 0;
+    let removedAt = 0;
+    tabs.remove.mockImplementation(async () => {
+      removedAt = Date.now();
+    });
 
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
@@ -347,10 +356,16 @@ describe("connectFigma", () => {
       expect(persisted?.cachedLicense?.figmaUserId).toBe("u-7");
       // The OAuth tab is ours to clean up — the page can't close itself.
       expect(tabs.remove).toHaveBeenCalledWith(42);
+      // …but not instantly. The user gets a beat to read "Connected to Figma"
+      // before the tab disappears, otherwise it reads as a glitch. Slack on the
+      // bound so a slow CI timer tick can't flake this.
+      expect(removedAt - readyAt).toBeGreaterThanOrEqual(2_000);
     } finally {
       vi.useRealTimers();
     }
-  });
+    // Two 2s poll intervals plus the 2.5s reading pause run in real time under
+    // `shouldAdvanceTime`, so the 5s default is not enough.
+  }, 15_000);
 
   it("still resolves when the user already closed the OAuth tab", async () => {
     tabs.remove.mockRejectedValue(new Error("No tab with id: 42."));
@@ -380,7 +395,7 @@ describe("connectFigma", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+  }, 15_000);
 
   it("throws and persists no session when cancelled via AbortSignal", async () => {
     // Backend stays "pending" indefinitely; the AbortController short-

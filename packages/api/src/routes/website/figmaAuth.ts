@@ -78,7 +78,8 @@ const isValidReturnTo = (value: unknown): value is string => {
  * via `chrome.tabs.create`; both refuse script-driven close, so the call is a
  * silent no-op and the hint is what the user sees. Hence the ordering: we only
  * promise once the promise has already been kept. (The extension doesn't rely
- * on this at all — it closes its own tab via `chrome.tabs.remove`.)
+ * on this at all — it closes its own tab via `chrome.tabs.remove`, on a delay
+ * that lands before the 3s reveal, so its users never see the hint.)
  *
  * Never set on error pages, so the user can read the failure.
  */
@@ -106,7 +107,7 @@ const renderResultPage = (
   autoClose
     ? `<script>setTimeout(function(){window.close();},1000);` +
       `setTimeout(function(){var h=document.getElementById("w2w-hint");` +
-      `if(h)h.hidden=false;},2200);</script>`
+      `if(h)h.hidden=false;},3000);</script>`
     : ""
 }</body></html>`;
 

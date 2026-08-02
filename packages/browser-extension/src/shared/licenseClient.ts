@@ -37,6 +37,10 @@ import {
 /** OAuth polling cadence — mirrors plugin licenseClient.ts:125-128. */
 const OAUTH_POLL_INTERVAL_MS = 2_000;
 const OAUTH_TIMEOUT_MS = 3 * 60 * 1000;
+/** Reading time on the "Connected to Figma" page before we close its tab.
+ *  Without it the tab vanishes the instant the poll returns, which reads as a
+ *  glitch rather than a confirmation. */
+const TAB_CLOSE_DELAY_MS = 2_500;
 
 /**
  * Thrown when an authenticated request comes back 401. Callers should catch
@@ -366,7 +370,14 @@ export async function connectFigma(signal?: AbortSignal): Promise<License> {
     // Success only. On timeout or cancellation the tab is left alone — it may
     // be showing the OAuth error page, and closing it would take away the only
     // explanation the user gets. Swallow failures: the user may have closed it.
+    //
+    // The pause is deliberate and NOT signal-aware: we already have the
+    // license, so letting an abort reject here would fail a connection that
+    // actually succeeded. Awaiting (rather than a bare setTimeout) also keeps
+    // the service worker alive through it — the START_FIGMA_OAUTH message
+    // channel stays open until this promise settles.
     if (tab.id != null) {
+      await delay(TAB_CLOSE_DELAY_MS);
       await chrome.tabs.remove(tab.id).catch(() => undefined);
     }
     return license;
