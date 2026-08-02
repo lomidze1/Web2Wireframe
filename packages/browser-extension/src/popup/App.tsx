@@ -4,6 +4,7 @@ import type { CaptureStats } from "@w2w/shared";
 import type { SessionState } from "@/shared/types";
 import { STORAGE_KEYS } from "@/shared/constants";
 import { getSession } from "@/shared/session";
+import { fetchMyLicense } from "@/shared/licenseClient";
 import {
   VisualFlow,
   ViewportsSection,
@@ -119,8 +120,16 @@ export function App() {
     // Live-update the "Browser" width when the user resizes the window.
     chrome.windows.onBoundsChanged.addListener(loadActiveTab);
 
-    // Initial session read.
-    void getSession().then(setSession);
+    // Initial session read — the cached license paints the footer pill
+    // instantly. Then refresh it, so the count reflects imports the Figma
+    // plugin has spent since this popup last ran instead of a stale snapshot.
+    // fetchMyLicense writes through `updateCachedLicense`, which trips the
+    // storage listener below and repaints the pill on its own. Failures stay
+    // silent: the cached value simply stands.
+    void getSession().then((s) => {
+      setSession(s);
+      if (s) void fetchMyLicense().catch(() => undefined);
+    });
 
     // Restore the capture lifecycle: Chrome closes the action popup once the
     // debugger infobar takes focus, so on reopen we paint the persisted

@@ -23,7 +23,8 @@ interface FooterProps {
  *   └──────┴─────────┴──────┘
  *
  * Left = identity action (Sign in with Figma OR Sign out).
- * Middle = usage pill, opens Plan modal.
+ * Middle = usage pill, opens Plan modal. Absent until a license is loaded, so
+ *          a signed-out footer is just the two icons at either edge.
  * Right = help, opens Help modal (Contact us lives inside Help).
  */
 export function Footer({
@@ -35,6 +36,9 @@ export function Footer({
 }: FooterProps) {
   const isPro = license?.plan === "pro";
   const isSignedIn = session !== null;
+  // null until a license is actually loaded — no placeholder count for a
+  // surface that can't spend quota. The slot is simply absent.
+  const pillText = usagePillText(license);
   const identityTitle = isSignedIn
     ? `Sign out${session?.email ? ` (${session.email})` : ""}`
     : "Sign in with Figma";
@@ -50,15 +54,17 @@ export function Footer({
       >
         {isSignedIn ? <LogoutIcon /> : <SignInIcon />}
       </button>
-      <button
-        class={`usage-pill ${isPro ? "usage-pill-pro" : ""}`}
-        onClick={onPlanClick}
-        type="button"
-        aria-label={isPro ? "Pro plan — open Your Plan" : "Imports used — open Your Plan"}
-        title={isPro ? "Pro plan" : "Imports used this month"}
-      >
-        {usagePillText(license)}
-      </button>
+      {pillText !== null && (
+        <button
+          class={`usage-pill ${isPro ? "usage-pill-pro" : ""}`}
+          onClick={onPlanClick}
+          type="button"
+          aria-label={isPro ? "Pro plan — open Your Plan" : "Imports used — open Your Plan"}
+          title={isPro ? "Pro plan" : "Imports used this month"}
+        >
+          {pillText}
+        </button>
+      )}
       <button
         class="footer-btn"
         onClick={onHelpClick}

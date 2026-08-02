@@ -175,8 +175,10 @@ describe("limitText", () => {
 // ---------------------------------------------------------------------------
 
 describe("usagePillText", () => {
-  it("returns '0/10 imports per month' when no license is loaded (unpaired)", () => {
-    expect(usagePillText(null)).toBe("0/10 imports per month");
+  it("returns null when no license is loaded — the footer hides the slot", () => {
+    // Capture needs no sign-in and the extension can't spend quota, so an
+    // unpaired user gets no pill rather than a placeholder count.
+    expect(usagePillText(null)).toBeNull();
   });
 
   it("returns 'N/10 imports per month' for a free license with N imports used", () => {
