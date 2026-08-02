@@ -763,9 +763,26 @@ export async function createTextNode(
   // weight (browsers synthesize within the first available family), so the
   // closest installed cut of the CORRECT family beats fallback families and
   // Inter. The proper cut arrives later via the download + re-apply flow.
+  //
+  // The family's real (SFNT) name belongs in this list: an installed file
+  // registers under the name in its `name` table, not under the CSS name that
+  // asked for it — telex.ge declares `glyphs`, the file installs as "icomoon".
+  // Unlike Step 0.5 this runs for ICON fonts too: `isIcon` decides which
+  // STYLES we try, never which family NAMES.
+  let rescuedViaRealFamily = false;
   if (!loaded) {
     const stripped = stripFontStyleSuffix(targetFont);
-    const rescueFamilies = stripped ? [targetFont, stripped.family] : [targetFont];
+    const realName =
+      context?.fontMode === "website" && node.fontFamily
+        ? context.fontRealNames?.[node.fontFamily]
+        : undefined;
+    const rescueFamilies = Array.from(
+      new Set([
+        targetFont,
+        ...(stripped ? [stripped.family] : []),
+        ...(realName ? [realName] : []),
+      ]),
+    );
     for (const fam of rescueFamilies) {
       const installedStyles = await getInstalledStylesFor(fam);
       if (installedStyles.length === 0) continue;
@@ -779,6 +796,7 @@ export async function createTextNode(
         usedFontFamily = fam;
         mainFontStyle = rFoundStyle;
         loaded = true;
+        rescuedViaRealFamily = fam === realName;
         break;
       }
     }
@@ -861,17 +879,24 @@ export async function createTextNode(
   // them installable, so a tofu glyph becomes recoverable via Re-apply.
   // No marker when the rendered family already IS the marker target
   // (Step 0 applied the real SFNT name directly).
-  // Step 0.5 resolutions are excluded: the node already shows the exact cut the
-  // page asked for, just registered under the real family name. A marker there
-  // would advertise a Re-apply with nothing to do.
+  // Step 0.5 / Step 3.5 real-family resolutions are excluded: the node already
+  // shows the family the page asked for, just registered under its real name.
+  // A marker there would advertise a Re-apply with nothing to do.
   let stampedFamilyMarker = false;
   if (
     context?.fontMode === "website" &&
     node.fontFamily &&
     usedFontFamily !== node.fontFamily &&
-    !resolvedViaRealFamily
+    !resolvedViaRealFamily &&
+    !rescuedViaRealFamily
   ) {
-    const markerName = context.originalFontNames?.[node.fontFamily] || node.fontFamily;
+    // The real (SFNT) name backs up the modal's map: on a no-modal import
+    // `originalFontNames` is empty, and a marker naming the CSS-only family
+    // ("glyphs") can never be satisfied — no installed font carries that name.
+    const markerName =
+      context.originalFontNames?.[node.fontFamily] ||
+      context.fontRealNames?.[node.fontFamily] ||
+      node.fontFamily;
     // No marker for Linux server fallback families (Liberation Sans,
     // Noto * CJK …) — they're never in the download ZIP, so a marker naming
     // them would strand the Re-apply modal on an un-installable font.
@@ -1182,6 +1207,29 @@ export async function createTextNode(
           }
         }
 
+        // Step 2.5: the run's real (SFNT) family — the node-level Step 3.5 for
+        // runs. Step 0 above can't cover this: it reads `originalFontNames`
+        // (modal-only) and requires the run to have been mapped away, which is
+        // false on a no-modal import. Without it an inline icon run whose CSS
+        // family only exists in the stylesheet ("glyphs" → "icomoon") falls to
+        // the node font and strands a marker Re-apply can never satisfy.
+        if (!segLoaded && context?.fontMode === "website") {
+          const segCssFamily = segment.fontFamily || node.fontFamily;
+          const segRealFamily = segCssFamily
+            ? context.fontRealNames?.[segCssFamily]
+            : undefined;
+          if (segRealFamily && segRealFamily !== segFontFamily) {
+            for (const sty of segStylesToTry) {
+              if (await tryLoad(segRealFamily, sty)) {
+                resolvedSegFont = segRealFamily;
+                resolvedSegStyle = sty;
+                segLoaded = true;
+                break;
+              }
+            }
+          }
+        }
+
         // Step 3: Icon fonts — try version variants
         if (!segLoaded && isSegIcon) {
           const vMatch = segFontFamily.match(/^(.+?)(\d+)(.+)$/);
@@ -1256,7 +1304,9 @@ export async function createTextNode(
       if (context?.fontMode === "website") {
         const segOriginalCss = segment.fontFamily || node.fontFamily;
         const segMarker = segOriginalCss
-          ? context.originalFontNames?.[segOriginalCss] || segOriginalCss
+          ? context.originalFontNames?.[segOriginalCss] ||
+            context.fontRealNames?.[segOriginalCss] ||
+            segOriginalCss
           : undefined;
         if (
           segMarker &&
