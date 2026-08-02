@@ -9,6 +9,7 @@
 import JSZip from "jszip";
 import { convertEotToSfnt, isEot } from "./eotToSfnt";
 import { convertWoffToSfnt, isWoff } from "./woffToSfnt";
+import { readSfntNames } from "./sfntNames";
 import type { FontDownloadInfo } from "../ui/components/modalPopup/FontFallbackModal";
 import { parseFontSrcUrls, type FontCut } from "./fontUtils";
 
@@ -701,6 +702,88 @@ export function buildFontDownloads(
   }
 
   return downloads.length > 0 ? downloads : undefined;
+}
+
+/** One entry of a capture's URL-keyed asset map. */
+interface CapturedAsset {
+  base64Encoded?: boolean;
+  content?: string;
+  mimeType?: string;
+}
+
+/**
+ * Attach each @font-face's cached binary — and the real family name inside it —
+ * from the capture's URL-keyed asset map.
+ *
+ * The browser extension fetches every font file into `assets` but never links
+ * it back to the face that declared it. Without that link the plugin has:
+ *   - no bytes → the ZIP falls back to fetching font URLs from the Figma
+ *     iframe, which cross-origin rules block → an EMPTY fonts.zip;
+ *   - no real name → "glyphs" never resolves to its installed identity
+ *     "icomoon" → the download modal opens for a font already installed.
+ *
+ * Both are fixed from data that was in the `.w2w` file all along. Faces the
+ * server already described (API imports) are returned untouched.
+ */
+export function enrichFontsFromAssets(
+  fonts: unknown[] | undefined,
+  assets: Record<string, CapturedAsset> | undefined,
+): unknown[] {
+  if (!fonts || !assets) return fonts ?? [];
+
+  return fonts.map((entry) => {
+    const font = entry as FontMetadata;
+    if (!font || typeof font !== "object") return entry;
+    if (font.fontBase64 && font.realFamily) return entry;
+
+    let fontBase64 = font.fontBase64;
+    let fontMimeType = font.fontMimeType;
+
+    if (!fontBase64 && font.src) {
+      // Most-installable candidate first: the bulletproof @font-face pattern
+      // declares the IE-only .eot URL first, and its bytes carry neither an
+      // installable font nor a readable name table.
+      const urls = [...parseFontSrcUrls(font.src)].sort(
+        (a, b) => installabilityRank(a) - installabilityRank(b),
+      );
+      for (const url of urls) {
+        const asset = assets[url];
+        if (asset?.base64Encoded && asset.content) {
+          fontBase64 = asset.content;
+          fontMimeType = asset.mimeType ?? fontMimeType;
+          break;
+        }
+      }
+    }
+
+    if (!fontBase64) return entry;
+
+    const enriched: FontMetadata = { ...font, fontBase64 };
+    if (fontMimeType) enriched.fontMimeType = fontMimeType;
+
+    if (!enriched.realFamily) {
+      const names = readSfntNames(base64ToBytes(fontBase64));
+      if (names.family) enriched.realFamily = names.family;
+      if (names.subfamily && !enriched.realSubfamily) {
+        enriched.realSubfamily = names.subfamily;
+      }
+    }
+
+    return enriched;
+  });
+}
+
+/** base64 → bytes. Returns an empty array for malformed input so callers can
+ *  treat it as "no readable font" rather than crashing an import. */
+function base64ToBytes(base64: string): Uint8Array {
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  } catch {
+    return new Uint8Array(0);
+  }
 }
 
 /**

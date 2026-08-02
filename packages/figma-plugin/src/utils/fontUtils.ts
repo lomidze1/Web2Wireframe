@@ -120,9 +120,15 @@ const SERVER_FALLBACK_PATTERNS = [
   /^Noto (Sans|Serif) CJK/i,
   /^Noto Color Emoji$/i,
   /^Free(Sans|Serif|Mono)$/i,
+  // macOS hides its system faces behind a leading dot (".New York", ".SF NS",
+  // ".AppleSystemUIFont"). The browser extension captures on the user's own
+  // machine, so CDP's platform-font lookup reports these verbatim — and Figma
+  // never lists them, no @font-face ships them, no ZIP can carry them.
+  /^\./,
 ];
 
-/** True when `family` is a known Linux server fallback (see list above). */
+/** True when `family` is a fallback no download can ever supply — a Linux
+ *  capture-container face or a hidden OS system face (see patterns above). */
 export function isServerFallbackFamily(family: string): boolean {
   return SERVER_FALLBACK_PATTERNS.some((p) => p.test(family));
 }
