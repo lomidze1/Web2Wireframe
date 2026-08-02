@@ -11,27 +11,81 @@ import {
 import { convertAbsoluteToWireframeTree } from "../../lib/wireframeConverter.js";
 import {
   analyzeScreenshotAbsoluteWithRetry,
+  analyzeScreenshotTiled,
   scaleAbsoluteResult,
   validateExtractedColors,
+  type ScreenshotTile,
 } from "../../lib/aiGenerator.js";
 import { requireImportAllowance } from "../../middleware/licenseGate.js";
 import { authenticatePlugin } from "../../middleware/auth.js";
 import { importRateLimiter } from "../../middleware/rateLimit.js";
 import { logImportEvent } from "../../models/ImportEvent.js";
-import { licenseService } from "../../services/licenseService.js";
 
 const router = Router();
 
-// Formats the AI vision API accepts. The quota slot is already consumed by
-// the time the route body runs (requireImportAllowance), so rejections here
-// refund it.
+// Formats the AI vision API accepts. Rejections here return 4xx, and
+// requireImportAllowance refunds the consumed quota slot on any failure
+// response — this route does not refund by hand.
 const SUPPORTED_IMAGE_RE = /^data:image\/(png|jpe?g|webp|gif);base64,/;
 
-/** Best-effort quota refund — a refund failure must never break the response. */
-function refundQuotaSlot(figmaUserId: string): void {
-  void licenseService.refundImport(figmaUserId).catch((err) => {
-    console.warn("[Screenshot Import] quota refund failed:", err);
-  });
+interface ParsedTiles {
+  tiles: ScreenshotTile[];
+  tiledWidth: number;
+  tiledHeight: number;
+}
+
+/**
+ * Validate the optional tall-screenshot tiling fields.
+ *
+ * Anything malformed returns null and the request silently takes the legacy
+ * single-image path — a degraded import beats a failed one, and the legacy
+ * image is always present in the body. Bounds mirror clampDim's philosophy:
+ * hostile numbers must not reach prompts or the AI client.
+ */
+function parseTiles(body: Record<string, unknown>): ParsedTiles | null {
+  const { tiles, tiledWidth, tiledHeight } = body as {
+    tiles?: unknown;
+    tiledWidth?: unknown;
+    tiledHeight?: unknown;
+  };
+  if (!Array.isArray(tiles) || tiles.length < 2 || tiles.length > 8) return null;
+
+  const width = Number(tiledWidth);
+  const height = Number(tiledHeight);
+  if (!(width >= 320 && width <= 1600)) return null;
+  if (!(height >= 1960 && height <= 30000)) return null;
+
+  const parsed: ScreenshotTile[] = [];
+  let totalBase64 = 0;
+  for (const raw of tiles) {
+    const t = raw as Record<string, unknown>;
+    const imageBase64 = t.imageBase64;
+    const tw = Number(t.width);
+    const th = Number(t.height);
+    const offsetY = Number(t.offsetY);
+    if (typeof imageBase64 !== "string" || !SUPPORTED_IMAGE_RE.test(imageBase64)) return null;
+    // All tiles share the tiled coordinate space's width.
+    if (tw !== width) return null;
+    if (!(th >= 320 && th <= 1600)) return null;
+    if (!(offsetY >= 0 && offsetY <= 30000)) return null;
+    totalBase64 += imageBase64.length;
+    parsed.push({ imageBase64, width: tw, height: th, offsetY });
+  }
+
+  // ~20MB decoded across all tiles.
+  if ((totalBase64 * 3) / 4 > 20 * 1024 * 1024) return null;
+
+  // Tiles must start at the top, ascend, and cover the full height.
+  if (parsed[0].offsetY !== 0) return null;
+  for (let i = 1; i < parsed.length; i++) {
+    if (parsed[i].offsetY <= parsed[i - 1].offsetY) return null;
+    // No vertical gaps between consecutive tiles.
+    if (parsed[i].offsetY > parsed[i - 1].offsetY + parsed[i - 1].height) return null;
+  }
+  const last = parsed[parsed.length - 1];
+  if (last.offsetY + last.height < height - 8) return null;
+
+  return { tiles: parsed, tiledWidth: width, tiledHeight: height };
 }
 
 /**
@@ -69,7 +123,6 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
     // previously these defaulted to image/png and failed downstream with a
     // burned quota slot and an opaque error.
     if (!SUPPORTED_IMAGE_RE.test(imageBase64 as string)) {
-      refundQuotaSlot(req.userId!);
       void logImportEvent({
         figmaUserId: req.userId!,
         sourceUrl: "screenshot-import",
@@ -123,18 +176,26 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
     const clampedImageWidth = clampDim(imageWidth, 1440, 320, 4000);
     const clampedImageHeight = clampDim(imageHeight, 900, 200, 4000);
 
+    // Tall screenshots arrive additionally as overlapping full-width tiles so
+    // the model sees every strip at full resolution instead of one image
+    // crushed to the 1568px long-edge ceiling. Invalid/absent tiles → legacy
+    // single-image path below, unchanged.
+    const tiled = parseTiles(req.body);
+
     // Analyze ONCE in the image's natural coordinate space (viewportWidth =
     // imageWidth → the model does no coordinate arithmetic), then derive each
     // viewport frame by linear scaling server-side. The prompt only ever
     // asked the model for the same linear scaling, so per-viewport AI calls
     // were pure cost/latency waste (N viewports = N identical-image calls).
-    const absoluteResult = await analyzeScreenshotAbsoluteWithRetry({
-      imageBase64,
-      imageWidth: clampedImageWidth,
-      imageHeight: clampedImageHeight,
-      viewportWidth: clampedImageWidth,
-      textMode,
-    });
+    const absoluteResult = tiled
+      ? await analyzeScreenshotTiled({ textMode }, tiled.tiles, tiled.tiledWidth, tiled.tiledHeight)
+      : await analyzeScreenshotAbsoluteWithRetry({
+          imageBase64,
+          imageWidth: clampedImageWidth,
+          imageHeight: clampedImageHeight,
+          viewportWidth: clampedImageWidth,
+          textMode,
+        });
     // Anchor the scaling source width when the model omitted pageWidth.
     if (!Number(absoluteResult.pageWidth)) {
       absoluteResult.pageWidth = clampedImageWidth;
@@ -178,6 +239,7 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
         assetMode: req.body?.assetMode,
         cssVariablesMode: req.body?.cssVariablesMode,
         layoutMode: req.body?.layoutMode,
+        tiles: tiled ? tiled.tiles.length : undefined,
       },
       success: true,
     });
@@ -188,13 +250,11 @@ router.post("/import-screenshot", importRateLimiter, authenticatePlugin, require
       localStyles,
       pluginColors: renderColors,
       sourceUrl: "screenshot://uploaded",
+      ...(tiled ? { tiling: { tiles: tiled.tiles.length } } : {}),
     });
   } catch (error) {
     const err = error as Error & { status?: number; code?: string };
     console.error("[Screenshot Import] Error:", err.message || error);
-
-    // The import failed before delivering anything — give the slot back.
-    refundQuotaSlot(req.userId!);
 
     // Log the failed attempt — surfaces screenshots the AI pipeline rejects.
     const failureCode =

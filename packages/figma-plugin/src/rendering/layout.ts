@@ -267,8 +267,15 @@ export function createMarginWrapper(
     childNode.type === "INSTANCE"
   ) {
     const fc = childNode as FrameNode;
-    fc.layoutSizingHorizontal = "FILL";
-    fc.layoutSizingVertical = "FILL";
+    // FIXED children must KEEP their browser-measured size: forcing FILL
+    // inside this HUG wrapper resolves to content size, shrinking the child.
+    // telex.ge footer: float columns (FIXED 281px) collapsed to their text
+    // width and the four columns jammed together. Non-FIXED children keep
+    // the original FILL-the-wrapper behavior (wrapper may later FILL/STRETCH).
+    fc.layoutSizingHorizontal =
+      child.layoutSizingHorizontal === "FIXED" ? "FIXED" : "FILL";
+    fc.layoutSizingVertical =
+      child.layoutSizingVertical === "FIXED" ? "FIXED" : "FILL";
   } else if (childNode.type === "TEXT") {
     const tc = childNode as TextNode;
     if (textMode === "semantic") {

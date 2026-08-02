@@ -49,14 +49,19 @@ export function limitText(license: License): string {
 }
 
 /**
- * Footer pill text. Mirrors the plugin's Footer.tsx `deriveLabel`
- * (packages/figma-plugin/src/ui/components/footer/Footer.tsx:23-44):
+ * Footer pill text, or `null` when there is nothing truthful to say — the
+ * footer hides the slot entirely in that case.
+ *
+ * Deliberately diverges from the plugin's Footer.tsx `deriveLabel`, which
+ * falls back to a "0/10" placeholder: the plugin is where imports are actually
+ * spent, so a count belongs there. Capture needs no sign-in and never touches
+ * the quota, so an unpaired extension user would only ever see a frozen zero.
  *   - "Pro" for paid users
- *   - "N/10" for free
- *   - "0/10" placeholder when unpaired (no license loaded yet)
+ *   - "N/10 imports per month" for free
+ *   - null when no license is loaded (signed out, or not fetched yet)
  */
-export function usagePillText(license: License | null): string {
-  if (!license) return "0/10 imports per month";
+export function usagePillText(license: License | null): string | null {
+  if (!license) return null;
   if (license.plan === "pro") return "Pro";
   const limit = license.limits.imports ?? 10;
   return `${license.usage.imports}/${limit} imports per month`;

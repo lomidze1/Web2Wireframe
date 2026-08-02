@@ -1,361 +1,158 @@
+/* How it works — Classical layout. */
+
 .page {
-  display: flex;
-  flex-direction: column;
-  gap: 2.5rem;
+  padding-top: 76px;
 }
 
-.hero {
-  padding-top: 2rem;
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+  margin-bottom: 18px;
 }
 
-.heroCard {
-  background: linear-gradient(
-    140deg,
-    var(--glass-bg),
-    rgba(255, 255, 255, 0.7)
-  );
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  padding: 2rem;
-  box-shadow: 0 18px 60px rgba(12, 13, 18, 0.08);
-  backdrop-filter: blur(12px);
+.head {
+  max-width: 62ch;
+  margin-bottom: 56px;
 }
 
-.section {
-  padding: 0.5rem 0;
-  position: relative;
+.title {
+  font-weight: 400;
+  font-size: 54px;
+  line-height: 1.06;
+  margin: 0 0 20px;
+  text-wrap: pretty;
+  color: var(--color-text);
 }
 
-.sectionHead {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2rem;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
-
-  h2 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.8rem;
-  }
-
-  p {
-    margin: 0;
-    color: var(--muted);
-  }
-}
-
-.section-label {
-  border: 1px solid rgba(59, 130, 246, 0.25);
-}
-
-// Alias for camelCase use in TSX
-.sectionLabel {
-  @extend .section-label;
-}
-
-.sectionNumber {
-  font-size: 2.5rem;
-  font-weight: 700;
-  color: rgba(59, 130, 246, 0.2);
-  white-space: nowrap;
-  line-height: 1;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.card {
-  all: unset;
-  background: linear-gradient(
-    135deg,
-    var(--glass-bg),
-    rgba(255, 255, 255, 0.68)
-  );
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
-  padding: 1.4rem;
-  box-shadow: 0 16px 50px rgba(12, 13, 18, 0.08);
-  backdrop-filter: blur(10px);
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-  cursor: pointer;
-  transition: all 200ms ease;
-  text-align: left;
-
-  h3 {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--text);
-  }
-
-  p {
-    margin: 0;
-    font-size: 0.95rem;
-    color: var(--muted);
-    line-height: 1.4;
-  }
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 20px 60px rgba(12, 13, 18, 0.12);
-    border-color: rgba(59, 130, 246, 0.15);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-
-  &.active {
-    background: linear-gradient(
-      135deg,
-      rgba(59, 130, 246, 0.08),
-      rgba(36, 109, 255, 0.06)
-    );
-    border-color: rgba(59, 130, 246, 0.35);
-    box-shadow: 0 24px 60px rgba(59, 130, 246, 0.2);
-  }
-}
-
-.cardIcon {
-  width: 40px;
-  height: 40px;
-  object-fit: cover;
-}
-
-// Inline SVG icons (Viewports, Assets, CSS Variables) — sized and tinted to
-// sit alongside the 40x40 PNG icons used by the other cards.
-.cardIconSvg {
-  display: inline-flex;
-  width: 40px;
-  height: 40px;
-  color: var(--accent);
-
-  svg {
-    width: 100%;
-    height: 100%;
-  }
-}
-
-.cardList {
-  margin: 0.35rem 0 0 0;
-  padding-left: 1.2rem;
-  display: grid;
-  gap: 0.3rem;
-  color: var(--muted);
-  line-height: 1.45;
-}
-
-// Expand panel
-.expandPanel {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.08),
-    rgba(36, 109, 255, 0.04)
-  );
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  border-radius: var(--radius-md);
-  padding: 2rem;
-  margin-top: 1rem;
-  box-shadow: 0 16px 60px rgba(59, 130, 246, 0.1);
-  backdrop-filter: blur(10px);
-  animation: slideDown 250ms ease;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-    max-height: 0;
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-    max-height: 1000px;
-  }
-}
-
-.panelHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.2rem;
-
-  h3 {
-    margin: 0;
-    font-size: 1.3rem;
-    color: var(--text);
-  }
-}
-
-.closeBtn {
-  all: unset;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 1.5rem;
-  color: var(--muted);
-  border-radius: 8px;
-  transition: all 150ms ease;
-
-  &:hover {
-    background: rgba(12, 13, 18, 0.08);
-    color: var(--text);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-}
-
-.panelDescription {
-  margin: 0 0 1.5rem 0;
-  color: var(--text);
-  line-height: 1.6;
-  font-size: 0.95rem;
-}
-
-.panelList {
-  padding-left: 1.2rem;
-  margin: 0 0 1.5rem 0;
-  line-height: 1.6;
-  color: var(--text);
-  display: grid;
-  gap: 0.35rem;
-}
-
-.panelScreenshots {
-  display: grid;
-  // Fixed-width tracks + centering so panels with 1 or 2 screenshots both
-  // render identically sized boxes (no full-width blow-up on single images).
-  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
-  justify-content: center;
-  gap: 1.2rem;
-}
-
-// Uniform screenshot box — fixed aspect ratio + object-fit: cover means every
-// image fills the box edge-to-edge (no empty bands), cropping any overflow so
-// all rows stay exactly the same size regardless of source dimensions.
-.screenshotContainer {
-  aspect-ratio: 3 / 4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f4f6fb;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  box-shadow: 0 8px 32px rgba(12, 13, 18, 0.06);
-
-  img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-}
-
-// CTA Box
-.ctaBox {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.12),
-    rgba(59, 130, 246, 0.06)
-  );
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  border-radius: var(--radius-md);
-  padding: 2.5rem;
-  text-align: center;
-  box-shadow: 0 18px 60px rgba(12, 13, 18, 0.08);
-  backdrop-filter: blur(8px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-
-  h2 {
-    margin: 0;
-    font-size: 1.6rem;
-    color: var(--text);
-  }
-
-  > p {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.95rem;
-  }
-
-  .btn {
-    margin-bottom: 1rem;
-  }
-}
-
-.ctaEmail {
+.lead {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--color-neutral-800);
   margin: 0;
-  font-size: 0.9rem;
-  color: var(--muted);
+}
 
-  a {
-    color: var(--accent);
-    text-decoration: none;
-    transition: color 150ms ease;
+/* — five steps — */
+.stepList {
+  display: flex;
+  flex-direction: column;
+}
 
-    &:hover {
-      color: var(--accent-strong);
-      text-decoration: underline;
-    }
+.step {
+  display: grid;
+  grid-template-columns: 80px 1fr 1fr;
+  gap: 40px;
+  padding: 30px 0;
+  border-top: 1px solid var(--color-divider);
+  align-items: start;
+}
 
-    &:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
+.stepNumeral {
+  font-family: var(--font-heading);
+  font-size: 40px;
+  color: var(--color-accent);
+  font-feature-settings: "tnum";
+  line-height: 0.9;
+}
+
+.stepTitle {
+  font-size: 27px;
+  font-weight: 400;
+  line-height: 1.2;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.stepBody {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--color-neutral-700);
+  margin: 0;
+  text-align: justify;
+  hyphens: auto;
+}
+
+/* — option glossary — */
+.glossary {
+  padding-top: 84px;
+}
+
+.glossaryTitle {
+  font-weight: 400;
+  font-size: 38px;
+  margin: 0 0 8px;
+  color: var(--color-text);
+}
+
+.glossarySub {
+  font-size: 15px;
+  color: var(--color-neutral-700);
+  margin: 0 0 30px;
+}
+
+.glossaryGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+
+/* — closing panel — */
+.closing {
+  padding-top: 76px;
+}
+
+.closingPanel {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 40px 44px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+  background: var(--color-neutral-100);
+}
+
+.closingLine {
+  font-family: var(--font-heading);
+  font-size: 27px;
+  font-weight: 400;
+  margin: 0;
+  flex: 1;
+  min-width: 260px;
+  color: var(--color-text);
+}
+
+/* — responsive — */
+@media (max-width: 1000px) {
+  .title {
+    font-size: 42px;
+  }
+
+  .step {
+    grid-template-columns: 56px 1fr;
+    gap: 20px 24px;
+  }
+
+  .stepBody {
+    grid-column: 2;
+  }
+
+  .glossaryGrid {
+    grid-template-columns: 1fr;
   }
 }
 
-// Responsive
-@media (max-width: 768px) {
-  .sectionHead {
-    grid-template-columns: 1fr;
-    gap: 1rem;
+@media (max-width: 640px) {
+  .page {
+    padding-top: 48px;
   }
 
-  .sectionNumber {
-    font-size: 2rem;
+  .title {
+    font-size: 34px;
   }
 
-  .grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  }
-
-  .expandPanel {
-    padding: 1.5rem;
-  }
-
-  .ctaBox {
-    padding: 1.8rem;
-
-    h2 {
-      font-size: 1.4rem;
-    }
-  }
-}
-
-@media (max-width: 480px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-
-  .panelScreenshots {
-    grid-template-columns: 1fr;
+  .closingPanel {
+    padding: 28px 24px;
   }
 }

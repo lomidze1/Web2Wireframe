@@ -4,6 +4,7 @@ import type { CaptureStats } from "@w2w/shared";
 import type { SessionState } from "@/shared/types";
 import { STORAGE_KEYS } from "@/shared/constants";
 import { getSession } from "@/shared/session";
+import { fetchMyLicense } from "@/shared/licenseClient";
 import {
   VisualFlow,
   ViewportsSection,
@@ -41,6 +42,24 @@ const DEFAULT_VIEWPORTS = [1440];
 function summarizeStats(stats: CaptureStats): string | undefined {
   if (stats.skippedImageCount <= 0) return undefined;
   return `${stats.skippedImageCount} image(s) skipped`;
+}
+
+/**
+ * True when a persisted capture screen has already had its moment and should
+ * not be restored again.
+ *
+ * The lifecycle is persisted because the debugger infobar force-closes the
+ * popup mid-capture — without it, reopening would lose live progress. But a
+ * *finished* capture has no such claim: once a popup has rendered it (and
+ * stamped `seen`), any later open should start on the capture form rather than
+ * the old "Page captured successfully" screen, which hides the Capture button
+ * entirely. An in-flight `capturing` state is never stale.
+ */
+export function isStaleCapture(
+  persisted: PersistedCaptureState | undefined,
+): boolean {
+  if (!persisted) return false;
+  return persisted.status !== "capturing" && persisted.seen === true;
 }
 
 /**
@@ -101,18 +120,32 @@ export function App() {
     // Live-update the "Browser" width when the user resizes the window.
     chrome.windows.onBoundsChanged.addListener(loadActiveTab);
 
-    // Initial session read.
-    void getSession().then(setSession);
+    // Initial session read — the cached license paints the footer pill
+    // instantly. Then refresh it, so the count reflects imports the Figma
+    // plugin has spent since this popup last ran instead of a stale snapshot.
+    // fetchMyLicense writes through `updateCachedLicense`, which trips the
+    // storage listener below and repaints the pill on its own. Failures stay
+    // silent: the cached value simply stands.
+    void getSession().then((s) => {
+      setSession(s);
+      if (s) void fetchMyLicense().catch(() => undefined);
+    });
 
     // Restore the capture lifecycle: Chrome closes the action popup once the
     // debugger infobar takes focus, so on reopen we paint the persisted
-    // progress/success/error instead of resetting to idle.
+    // progress/success/error instead of resetting to idle. A finished screen
+    // an earlier popup already showed is dropped here instead — see
+    // `isStaleCapture`.
     void chrome.storage.session
       .get(STORAGE_KEYS.LAST_CAPTURE)
       .then((res) => {
         const persisted = res[STORAGE_KEYS.LAST_CAPTURE] as
           | PersistedCaptureState
           | undefined;
+        if (isStaleCapture(persisted)) {
+          void chrome.storage.session.remove(STORAGE_KEYS.LAST_CAPTURE);
+          return;
+        }
         if (persisted) setState(persisted);
       });
 
@@ -163,6 +196,28 @@ export function App() {
       chrome.windows.onBoundsChanged.removeListener(loadActiveTab);
     };
   }, []);
+
+  // Stamp a finished screen as seen the moment it goes on screen, so the next
+  // open retires it (see `isStaleCapture`). This has to happen here rather
+  // than on popup close: the popup's teardown is abrupt — Chrome gives it no
+  // chance to finish an async storage write — whereas a render is a moment we
+  // are guaranteed to be alive for. Covers both paths into a terminal state:
+  // this popup ran the capture, or it picked the result up from storage.
+  useEffect(() => {
+    const { status } = state;
+    if (status !== "success" && status !== "error") return;
+    const persisted: PersistedCaptureState = {
+      status,
+      progress: state.progress,
+      message: state.message,
+      error: state.error,
+      stats: state.stats,
+      seen: true,
+    };
+    void chrome.storage.session.set({ [STORAGE_KEYS.LAST_CAPTURE]: persisted });
+    // Only on the transition — the field values are read fresh each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status]);
 
   // Final widths sent to capture: selected presets + the browser width (when
   // its row is on), de-duplicated so a width is never captured twice.

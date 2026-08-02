@@ -256,6 +256,10 @@ export interface PersistedCaptureState {
   message: string;
   error?: string;
   stats?: CaptureStats;
+  /** Set by the popup once it has actually rendered a finished (success /
+   *  error) screen. The next open retires that screen instead of restoring
+   *  it — see `isStaleCapture` in popup/App.tsx. */
+  seen?: boolean;
 }
 
 // Full page capture result (multi-viewport support)

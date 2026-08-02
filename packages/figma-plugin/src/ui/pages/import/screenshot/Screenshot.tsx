@@ -9,8 +9,16 @@ import { useLicense } from "../../../shared/LicenseContext";
 import { authHeader } from "../../../shared/licenseClient";
 import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
-import { downscaleImage, type DownscaledImage } from "../../../shared/imageDownscale";
+import {
+  downscaleImage,
+  loadImageElement,
+  type DownscaledImage,
+} from "../../../shared/imageDownscale";
+import type { CropSource } from "../../../shared/screenshotCrop";
 import SettingsPanel from "../../../components/settingsPanel";
+import RenderingLoader, {
+  type RenderingProgress,
+} from "../../../components/renderingLoader/RenderingLoader";
 
 const TAB_ID = "screenshot";
 const STORAGE_KEY = "w2w_settings_expanded_screenshot";
@@ -19,34 +27,71 @@ const API_URL = API_BASE_URL;
 const UNSUPPORTED_FORMAT_MESSAGE =
   "Unsupported image format. Please use PNG, JPEG, WebP, or GIF.";
 
+/**
+ * What to say while the analysis request is in flight, by seconds elapsed.
+ *
+ * The AI call reports nothing until it returns — and on a full-page screenshot
+ * that is a minute or more of silence. The sandbox's own progress starts at
+ * 25%, so this phase owns 0–20%: an estimate, deliberately never reaching the
+ * handover point, with the message doing the honest work of saying what is
+ * happening and that a long wait is expected rather than broken.
+ */
+const ANALYSIS_STAGES: ReadonlyArray<{ after: number; step: string; percent: number }> = [
+  { after: 0, step: "Analyzing screenshot…", percent: 4 },
+  { after: 12, step: "Reading layout and text…", percent: 9 },
+  { after: 30, step: "Measuring elements…", percent: 14 },
+  { after: 55, step: "Still analyzing — tall pages take longer…", percent: 18 },
+  { after: 100, step: "Almost there — this is a large page…", percent: 20 },
+];
+
+const ANALYSIS_TICK_MS = 1000;
+
 export default function Screenshot() {
   // Downscaled image + its dimensions — the request uses these directly,
   // so what we report always matches what the AI actually receives.
   const [image, setImage] = useState<DownscaledImage | null>(null);
+  // The pre-downscale file, kept only for Real Assets cropping — icons cut
+  // from the 1568px-capped JPEG would be blurry. The AI still receives the
+  // downscaled copy, so tokens and payload size are unchanged.
+  const cropSourceRef = useRef<CropSource | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // How closely the rendered frame matches the uploaded image (see visualDiff).
+  const [match, setMatch] = useState<{
+    score: number;
+    heatmapUrl: string | null;
+  } | null>(null);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [progress, setProgress] = useState<RenderingProgress | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const analysisTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopAnalysisTicker = useCallback(() => {
+    if (analysisTimerRef.current !== null) {
+      clearInterval(analysisTimerRef.current);
+      analysisTimerRef.current = null;
+    }
+  }, []);
 
   const { config } = useConfig();
   const { refresh: refreshLicense } = useLicense();
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
 
-  // Screenshot mode can't use website fonts, auto-layout, real assets, hover
-  // variants, or semantic text. Coerce to the supported value for display and
-  // import — derived, never written back, so the user's settings on other
-  // tabs (and the global defaults) stay untouched. The SettingsPanel disables
-  // these options with a tooltip; this only handles an incompatible default.
+  // Screenshot mode can't use website fonts, auto-layout, hover variants, or
+  // semantic text. Coerce to the supported value for display and import —
+  // derived, never written back, so the user's settings on other tabs (and
+  // the global defaults) stay untouched. The SettingsPanel disables these
+  // options with a tooltip; this only handles an incompatible default.
+  // assetMode is NOT coerced: Real Assets works here by cropping the
+  // uploaded screenshot (see screenshotCrop.ts).
   const fontMode =
     settings.localFontMode === "website" ? "plugin" : settings.localFontMode;
   const layoutMode =
     settings.localLayoutMode === "autoLayout"
       ? "absolute"
       : settings.localLayoutMode;
-  const assetMode =
-    settings.localAssetMode === "realAssets"
-      ? "placeholders"
-      : settings.localAssetMode;
+  const assetMode = settings.localAssetMode;
   const interactionMode =
     settings.localInteractionMode === "variants"
       ? "none"
@@ -59,17 +104,38 @@ export default function Screenshot() {
     const handleMessage = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
       if (!msg) return;
+      if (msg.type === "render-progress") {
+        // The sandbox owns everything from 25% on; its first message ends the
+        // estimated analysis phase.
+        stopAnalysisTicker();
+        const { step, percent, isComplete } = msg.data;
+        setProgress({ step, percent, isComplete });
+      }
       if (msg.type === "wireframe-created") {
         setIsGenerating(false);
       }
       if (msg.type === "wireframe-error") {
+        stopAnalysisTicker();
         setIsGenerating(false);
+        setProgress(undefined);
         setError(msg.data.error || "Failed to create wireframe");
+      }
+      if (msg.type === "wireframe-exported" && cropSourceRef.current) {
+        const source = cropSourceRef.current;
+        void (async () => {
+          const { compareRenderToSource } = await import(
+            "../../../shared/visualDiff"
+          );
+          setMatch(await compareRenderToSource(msg.data, source));
+        })();
       }
     };
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      stopAnalysisTicker();
+    };
+  }, [stopAnalysisTicker]);
 
   // Shared entry point for all three input sources (file picker, drag &
   // drop, clipboard paste): read → downscale → preview.
@@ -83,6 +149,12 @@ export default function Screenshot() {
         return;
       }
       try {
+        const original = await loadImageElement(dataUrl);
+        cropSourceRef.current = {
+          dataUrl,
+          width: original.naturalWidth,
+          height: original.naturalHeight,
+        };
         setImage(await downscaleImage(dataUrl));
       } catch {
         // Browser couldn't decode it (HEIC, corrupted file, …) — surface
@@ -137,7 +209,9 @@ export default function Screenshot() {
   const handleDelete = (e: Event) => {
     e.stopPropagation();
     setImage(null);
+    cropSourceRef.current = null;
     setError(null);
+    setMatch(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -148,7 +222,53 @@ export default function Screenshot() {
 
     setIsGenerating(true);
     setError(null);
+    setMatch(null);
+    setShowHeatmap(false);
     settings.collapseSettings();
+
+    // Estimated progress for the analysis phase — the request itself reports
+    // nothing until it returns.
+    setProgress({ step: ANALYSIS_STAGES[0].step, percent: ANALYSIS_STAGES[0].percent });
+    stopAnalysisTicker();
+
+    // Tall pages: additionally cut the ORIGINAL file into overlapping
+    // full-width tiles so the server can analyse every strip at full
+    // resolution instead of one image crushed to the 1568px ceiling.
+    // Best-effort — any failure means the request simply goes legacy-only.
+    let tiling: {
+      tiles: Array<{ imageBase64: string; offsetY: number; width: number; height: number }>;
+      tiledWidth: number;
+      tiledHeight: number;
+    } | null = null;
+    if (cropSourceRef.current) {
+      try {
+        const { buildTilesFromDataUrl } = await import("../../../shared/imageTiling");
+        const source = cropSourceRef.current;
+        tiling = await buildTilesFromDataUrl(source.dataUrl, source.width, source.height);
+      } catch {
+        tiling = null;
+      }
+    }
+
+    const stages: typeof ANALYSIS_STAGES = tiling
+      ? [
+          { after: 0, step: `Analyzing ${tiling.tiles.length} page sections in parallel…`, percent: 5 },
+          { after: 20, step: "Reading layout and text…", percent: 10 },
+          { after: 45, step: "Measuring elements…", percent: 15 },
+          { after: 90, step: "Still analyzing — tall pages take longer…", percent: 18 },
+          { after: 150, step: "Almost there — this is a large page…", percent: 20 },
+        ]
+      : ANALYSIS_STAGES;
+    setProgress({ step: stages[0].step, percent: stages[0].percent });
+    const startedAt = Date.now();
+    analysisTimerRef.current = setInterval(() => {
+      const elapsed = (Date.now() - startedAt) / 1000;
+      let stage = stages[0];
+      for (const candidate of stages) {
+        if (elapsed >= candidate.after) stage = candidate;
+      }
+      setProgress({ step: stage.step, percent: stage.percent });
+    }, ANALYSIS_TICK_MS);
 
     try {
       const response = await fetch(`${API_URL}/api/import-screenshot`, {
@@ -165,20 +285,33 @@ export default function Screenshot() {
           textMode,
           colorMode: settings.localColorMode,
           // Screenshot mode coerces incompatible settings (website fonts →
-          // plugin, auto-layout → absolute, real assets → placeholders); log
-          // the coerced values that the import actually used, not the raw ones.
+          // plugin, auto-layout → absolute); log the coerced values that the
+          // import actually used, not the raw ones.
           typographyMode: fontMode,
           assetMode: assetMode,
           cssVariablesMode: settings.localCssVariablesMode,
           layoutMode: layoutMode,
+          ...(tiling
+            ? {
+                tiles: tiling.tiles,
+                tiledWidth: tiling.tiledWidth,
+                tiledHeight: tiling.tiledHeight,
+              }
+            : {}),
         }),
       });
 
       const { isAuthExpired } = await import("../../../shared/authEvents");
-      if (isAuthExpired(response)) return;
+      if (isAuthExpired(response)) {
+        stopAnalysisTicker();
+        setProgress(undefined);
+        return;
+      }
 
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
+        stopAnalysisTicker();
+        setProgress(undefined);
         setIsGenerating(false);
         return;
       }
@@ -191,13 +324,33 @@ export default function Screenshot() {
       const data = await response.json();
       if (!data.success) throw new Error(data.error || "Screenshot analysis failed");
 
+      const frames = data.wireframeData.frames;
+
+      // Analysis is done; the sandbox takes over reporting from 25%.
+      stopAnalysisTicker();
+      setProgress({ step: "Cutting assets from the screenshot…", percent: 22 });
+
+      // Real Assets: the screenshot itself is the only pixel source, so cut
+      // each observed placeholder out of the original file. Best-effort —
+      // any failure just leaves the wireframe placeholders in place.
+      if (assetMode === "realAssets" && cropSourceRef.current) {
+        try {
+          const { applyScreenshotCrops } = await import(
+            "../../../shared/screenshotCrop"
+          );
+          await applyScreenshotCrops(frames, cropSourceRef.current);
+        } catch {
+          /* keep placeholders */
+        }
+      }
+
       // Send to Figma sandbox for rendering
       parent.postMessage(
         {
           pluginMessage: {
             type: "render-wireframe",
             data: {
-              frames: data.wireframeData.frames,
+              frames,
               sourceUrl: data.sourceUrl,
               pluginColors: data.pluginColors,
               pluginFont: config.pluginFont,
@@ -206,6 +359,8 @@ export default function Screenshot() {
               colorMode: settings.localColorMode,
               fontMode: "plugin",
               textMode,
+              assetMode,
+              compareToSource: true,
             },
           },
         },
@@ -215,13 +370,15 @@ export default function Screenshot() {
       // Import consumed a quota slot server-side — refresh the footer badge.
       void refreshLicense();
     } catch (err: unknown) {
+      stopAnalysisTicker();
+      setProgress(undefined);
       setIsGenerating(false);
       setError(toUserMessage(err, "Screenshot analysis failed"));
     }
     // `settings` is the full hook return value (collapseSettings + local*
     // state) — include it whole; eslint's exhaustive-deps can't track the
     // individual fields we use across the callback body.
-  }, [image, textMode, config, settings, refreshLicense]);
+  }, [image, textMode, config, settings, refreshLicense, stopAnalysisTicker]);
 
   return (
     <div class={styles.screenshotContainer}>
@@ -315,8 +472,6 @@ export default function Screenshot() {
         fontDisabledTooltip="Not available in Screenshot mode"
         disableAutoLayoutOption={true}
         layoutDisabledTooltip="Not available in Screenshot mode"
-        disableRealAssetsOption={true}
-        assetsDisabledTooltip="Not available in Screenshot mode"
         localInteractionMode={interactionMode}
         setInteractionMode={settings.setInteractionMode}
         disableInteractionsVariants={true}
@@ -338,6 +493,37 @@ export default function Screenshot() {
       >
         {isGenerating ? "Importing…" : "Import"}
       </button>
+
+      {/* Visual match — how close the rendered frame is to the uploaded image.
+          A signal, not a verdict: the wireframe uses the plugin font, so a
+          perfect layout still lands well short of 100%. */}
+      {match && (
+        <div class={styles.matchCard}>
+          <button
+            type="button"
+            class={styles.matchHeader}
+            onClick={() => setShowHeatmap((v) => !v)}
+            disabled={!match.heatmapUrl}
+            aria-expanded={showHeatmap}
+          >
+            <span>Visual match</span>
+            <span class={styles.matchScore}>{match.score}%</span>
+          </button>
+          {showHeatmap && match.heatmapUrl && (
+            <img
+              src={match.heatmapUrl}
+              class={styles.matchHeatmap}
+              alt="Difference heatmap — red marks where the import diverges from the screenshot"
+            />
+          )}
+        </div>
+      )}
+
+      <RenderingLoader
+        isVisible={progress !== undefined}
+        progress={progress}
+        onClose={() => setProgress(undefined)}
+      />
     </div>
   );
 }

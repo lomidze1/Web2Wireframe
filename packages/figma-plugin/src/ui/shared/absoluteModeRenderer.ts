@@ -176,6 +176,7 @@ export interface WireframeNode {
   width: number;
   height: number;
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
+  zIndex?: number; // CSS z-index — drives child paint order in Figma
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
   itemSpacing: number;
   padding: { top: number; right: number; bottom: number; left: number };
@@ -279,6 +280,18 @@ const TEXT_TAGS = [
 // ============================================================================
 
 /**
+ * Read a CSS z-index into a number. Only `computedStyles` carries it, so
+ * without this the renderer's stacking sort has nothing to sort by and
+ * negative-z background layers end up painted on top of the content they
+ * belong behind (stripe.com header).
+ */
+function parseZIndex(raw: string | undefined): number | undefined {
+  if (raw == null || raw === "auto") return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+/**
  * Convert ExtractedElement to WireframeNode format
  *
  * This is the UNIFIED conversion function used by ALL import methods.
@@ -346,6 +359,7 @@ export function convertToWireframeNode(
     height: element.height,
     // CSS Positioning (for absolute elements like ::before/::after)
     position: element.position,
+    zIndex: parseZIndex(element.computedStyles?.["z-index"]),
     layoutMode: element.layoutMode,
     itemSpacing: element.itemSpacing || 0,
     padding: element.padding || { top: 0, right: 0, bottom: 0, left: 0 },

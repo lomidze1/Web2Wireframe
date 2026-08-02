@@ -408,7 +408,7 @@ describe("buildFontDownloadEntries — drops EOT entries (P3 #7)", () => {
     expect(entries[0].url).toBe("https://example.com/LegacyFont.woff2");
   });
 
-  it("returns empty list when only EOT URLs are available", async () => {
+  it("derives sibling-format candidates when only EOT URLs are available", async () => {
     const { buildFontDownloadEntries } = await import("../utils/fontDownload");
 
     const downloads = [
@@ -419,7 +419,18 @@ describe("buildFontDownloadEntries — drops EOT entries (P3 #7)", () => {
       },
     ];
 
-    expect(buildFontDownloadEntries(downloads)).toEqual([]);
+    // telex.ge fix: the capture side reads only the IE-first `src:` of
+    // "bulletproof" @font-face blocks, so whole families arrive EOT-only.
+    // Instead of silently dropping them, derive same-basename candidates
+    // (.ttf first) and let the ZIP fetch keep whichever exists.
+    const entries = buildFontDownloadEntries(downloads);
+    expect(entries.length).toBe(1);
+    expect(entries[0].url).toBe("https://example.com/Legacy.ttf");
+    expect(entries[0].fallbackUrls).toEqual([
+      "https://example.com/Legacy.otf",
+      "https://example.com/Legacy.woff",
+      "https://example.com/Legacy.woff2",
+    ]);
   });
 
   it("excludes URLs flagged as eot via ?format=eot query", async () => {

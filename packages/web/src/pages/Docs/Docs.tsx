@@ -1,115 +1,75 @@
 import type { ReactElement } from "react";
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import DocsLayout from "./DocsLayout";
-import { getTopics } from "./data/docsStructure";
+import DocsArticlePage from "./DocsArticlePage";
+import { docsNavigation } from "./data/docsStructure";
 import styles from "./Docs.module.scss";
 
-import IntroductionWhatIs from "./pages/IntroductionWhatIs";
-import IntroductionWhy from "./pages/IntroductionWhy";
-import StartGettingStarted from "./pages/StartGettingStarted";
-import StartSetSettings from "./pages/StartSetSettings";
-import StartFastFirstImport from "./pages/StartFastFirstImport";
-import InstallHowTo from "./pages/InstallHowTo";
-import ImportWeb from "./pages/ImportWeb";
-import ImportScreenshot from "./pages/ImportScreenshot";
-import ImportHTML from "./pages/ImportHTML";
-import ImportAreaCapture from "./pages/ImportAreaCapture";
-import BrowserExtensionOverview from "./pages/BrowserExtensionOverview";
-import BrowserExtensionImport from "./pages/BrowserExtensionImport";
-import PricingOverview from "./pages/PricingOverview";
-import PricingPurchase from "./pages/PricingPurchase";
-import PricingAdditional from "./pages/PricingAdditional";
+const DocsHub = (): ReactElement => (
+  <DocsLayout>
+    {/* S-H1: the hub opens with <h1> so search engines treat /docs as a
+        proper top-level document; topic titles are <h2>. */}
+    <h1 className={styles.hubTitle}>
+      Everything the plugin can do, in the order you'll need it.
+    </h1>
+    <p className={styles.hubLead}>
+      Fifteen pages. If you read one, read{" "}
+      <Link to="/docs/start/set-settings">Set your settings</Link> — it is the
+      difference between an import you keep and an import you redo.
+    </p>
 
-const DocsHub = (): ReactElement => {
-  const topics = getTopics();
-
-  return (
-    <DocsLayout>
-      {/* S-H1: hub now opens with <h1> (was <h2>) so search engines treat
-          /docs as a proper top-level document. Topic card titles shift to
-          <h2> to keep the heading hierarchy single-rooted. */}
-      <h1>Documentation Hub</h1>
-      <p>Everything you need to get W2W running smoothly.</p>
-
-      <div className={styles.docsGrid}>
-        {topics.map((topic) => (
-          <Link key={topic.id} to={topic.path} className={styles.docsCard}>
-            <div className={styles.cardIcon}>{topic.icon}</div>
-            <h2>{topic.title}</h2>
-            <span className={styles.cardArrow}>→</span>
-          </Link>
-        ))}
+    <div className={styles.startHere}>
+      <div className={styles.startHereText}>
+        <div className={styles.startHereKicker}>Start here</div>
+        <p className={styles.startHereTitle}>
+          Your first import, in about four minutes.
+        </p>
+        <p className={styles.startHereBody}>
+          Install, point it at a page, set four options, import.
+        </p>
       </div>
-    </DocsLayout>
-  );
-};
+      <Link className="btn btn-primary" to="/docs/start/fast-first-import">
+        Read the walkthrough
+      </Link>
+    </div>
 
-const Docs = (): ReactElement => {
-  return (
-    <>
-      <Routes>
-        <Route path="/" element={<DocsHub />} />
-        <Route
-          path="/introduction"
-          element={<Navigate to="/docs/introduction/what-is" replace />}
-        />
-        <Route path="/introduction/what-is" element={<IntroductionWhatIs />} />
-        <Route
-          path="/introduction/why-web2wireframe"
-          element={<IntroductionWhy />}
-        />
-        <Route
-          path="/start"
-          element={<Navigate to="/docs/start/getting-started" replace />}
-        />
-        <Route
-          path="/start/getting-started"
-          element={<StartGettingStarted />}
-        />
-        <Route path="/start/how-to-install" element={<InstallHowTo />} />
-        <Route path="/start/set-settings" element={<StartSetSettings />} />
-        <Route
-          path="/start/fast-first-import"
-          element={<StartFastFirstImport />}
-        />
-        <Route
-          path="/import-methods"
-          element={<Navigate to="/docs/import-methods/web-import" replace />}
-        />
-        <Route path="/import-methods/web-import" element={<ImportWeb />} />
-        <Route
-          path="/import-methods/screenshot-import"
-          element={<ImportScreenshot />}
-        />
-        <Route path="/import-methods/html-import" element={<ImportHTML />} />
-        <Route
-          path="/import-methods/area-capture"
-          element={<ImportAreaCapture />}
-        />
-        <Route
-          path="/browser-extension"
-          element={
-            <Navigate to="/docs/browser-extension/extension-overview" replace />
-          }
-        />
-        <Route
-          path="/browser-extension/extension-overview"
-          element={<BrowserExtensionOverview />}
-        />
-        <Route
-          path="/browser-extension/import-with-extension"
-          element={<BrowserExtensionImport />}
-        />
-        <Route
-          path="/pricing"
-          element={<Navigate to="/docs/pricing/overview" replace />}
-        />
-        <Route path="/pricing/overview" element={<PricingOverview />} />
-        <Route path="/pricing/purchase" element={<PricingPurchase />} />
-        <Route path="/pricing/additional" element={<PricingAdditional />} />
-      </Routes>
-    </>
-  );
-};
+    {docsNavigation.map((topic) => (
+      <div key={topic.id} className={styles.hubTopic}>
+        <div>
+          <h2 className={styles.hubTopicTitle}>{topic.title}</h2>
+          <p className={styles.hubTopicBlurb}>{topic.blurb}</p>
+        </div>
+        <div className={styles.hubPages}>
+          {topic.pages.map((page) => (
+            <Link
+              key={page.id}
+              to={`/docs/${topic.id}/${page.path}`}
+              className={styles.hubPageRow}
+            >
+              <span className={styles.hubPageTitle}>{page.title}</span>
+              <span className={styles.hubPageBlurb}>{page.blurb}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+    ))}
+  </DocsLayout>
+);
+
+const Docs = (): ReactElement => (
+  <Routes>
+    <Route index element={<DocsHub />} />
+    {/* Topic-only URLs redirect to the topic's first page. */}
+    {docsNavigation.map((topic) => (
+      <Route
+        key={topic.id}
+        path={topic.id}
+        element={<Navigate to={topic.path} replace />}
+      />
+    ))}
+    <Route path=":topicId/:pagePath" element={<DocsArticlePage />} />
+    <Route path="*" element={<Navigate to="/docs" replace />} />
+  </Routes>
+);
 
 export default Docs;

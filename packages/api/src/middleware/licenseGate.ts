@@ -7,6 +7,12 @@ declare global {
     interface Request {
       /** Remaining imports in current cycle (set by requireImportAllowance). null = unlimited (Pro). */
       importRemaining?: number | null;
+      /**
+       * Set by a route that answers 200 while knowing the user got nothing
+       * usable (bot-protection block page). Makes requireImportAllowance
+       * refund the slot the same way a 4xx/5xx would.
+       */
+      importUndelivered?: boolean;
     }
   }
 }
@@ -36,11 +42,13 @@ function blockedSourceUrl(req: Request, type: ImportType): string {
  * user was trying. It cannot be sniffed from the path without coupling the
  * gate to route strings.
  *
- * Trade-off: increments BEFORE the import is processed. A crash mid-import
- * "consumes" an import without delivering one — acceptable for MVP given
- * Free users still have 9 retries available, and Pro is unlimited. If we
- * later want stricter accounting, switch to a check/consume pair with
- * compensating decrement on failure.
+ * Increments BEFORE the import is processed (the atomic conditional update is
+ * what makes concurrent imports race-free), so a failure would otherwise
+ * "consume" an import without delivering one. A `res.on("finish")` hook
+ * compensates: any 4xx/5xx response refunds the slot. The hook is attached
+ * only after a successful increment, so the paths that never consumed
+ * anything — 401, 403 limit_exceeded, the 503/fail-open branch — cannot
+ * hand out free quota.
  */
 export function requireImportAllowance(type: ImportType) {
   return async function importAllowanceGate(
@@ -89,6 +97,21 @@ export function requireImportAllowance(type: ImportType) {
     req.importRemaining = Number.isFinite(result.remaining)
       ? result.remaining
       : null;
+
+    // The slot is spent above; give it back when the request ends in a
+    // failure — validation 400s, extraction 500s, AI 422/429 — or when the
+    // handler delivered a 200 it knows is worthless (`importUndelivered`,
+    // e.g. a bot-protection block page). One hook here covers every import
+    // route instead of a refund call at each of the ~22 error exits in the
+    // handlers, and fires at most once so the two cases cannot double-refund.
+    // A refund failure must never turn an already-sent response into a crash.
+    res.on("finish", () => {
+      if (res.statusCode < 400 && !req.importUndelivered) return;
+      void licenseService.refundImport(figmaUserId).catch((err) => {
+        console.warn("[licenseGate] quota refund failed:", err);
+      });
+    });
+
     next();
   } catch (err) {
     console.error("[licenseGate] useImport failed:", err);

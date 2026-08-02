@@ -103,19 +103,18 @@ function isHiddenByClipPath(clipPath: string): boolean {
 /**
  * Check if an element is outside the viewport bounds.
  * Elements completely off-screen are skipped.
+ *
+ * Purely geometric. Content parked outside the viewport by a horizontal
+ * scroller (carousel slides) is exempt from culling, but that exemption is
+ * NOT decided here — the traversal carries it down from the scroll container
+ * itself (see `isHorizontalScrollContainer`). Deciding it per element, by
+ * walking ancestors, made survival depend on how deeply a node happened to be
+ * nested: a slide's `<div class="price">` was kept while the `<span>` holding
+ * the actual number, one level deeper, was culled — leaving empty price boxes.
  */
-export function isOffscreen(
-  rect: DOMRect,
-  viewportWidth: number,
-  _viewportHeight: number,
-  el?: Element,
-): boolean {
-  // Completely to the right of viewport — EXCEPT content inside a horizontal
-  // scroll container (carousel/slider slides parked off to the right). Those
-  // are reachable by scrolling and must be captured, not dropped.
-  if (rect.left >= viewportWidth) {
-    return !isInsideHorizontalScroller(el);
-  }
+export function isOffscreen(rect: DOMRect, viewportWidth: number): boolean {
+  // Completely to the right of the viewport
+  if (rect.left >= viewportWidth) return true;
   // Completely below viewport (but we capture full scroll height, so don't filter by Y)
   // Completely to the left (strict: zero-width elements at x=0 are NOT offscreen)
   if (rect.right < 0) return true;
@@ -124,21 +123,27 @@ export function isOffscreen(
 }
 
 /**
- * Walk up to 4 ancestor levels looking for a horizontally scrollable
- * container (overflow-x auto/scroll/hidden with real overflow). Covers the
- * common carousel structure `scroller > track > slide` without paying an
- * unbounded ancestor walk on every off-viewport element.
+ * Is this element a horizontally scrollable/clipping container — i.e. a
+ * carousel or slider viewport whose content extends past its own box?
+ *
+ * Everything inside such a container is real page content reachable by
+ * scrolling (or by the slider's own transform), so the traversal stops
+ * viewport-culling once it enters one.
+ *
+ * `<html>`/`<body>` are excluded: `body { overflow-x: hidden }` is a
+ * near-universal "kill horizontal scroll" guard, and treating it as a scroller
+ * would disable culling for the entire page and drag every off-canvas menu
+ * into the capture.
  */
-function isInsideHorizontalScroller(el: Element | undefined): boolean {
-  let p: Element | null = el?.parentElement ?? null;
-  for (let i = 0; i < 4 && p; i++, p = p.parentElement) {
-    const ox = getComputedStyle(p).overflowX;
-    if (
-      (ox === 'auto' || ox === 'scroll' || ox === 'hidden') &&
-      p.scrollWidth > p.clientWidth + 1
-    ) {
-      return true;
-    }
-  }
-  return false;
+export function isHorizontalScrollContainer(
+  el: Element,
+  computed: CSSStyleDeclaration,
+): boolean {
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'html' || tag === 'body') return false;
+
+  const ox = computed.overflowX;
+  if (ox !== 'auto' && ox !== 'scroll' && ox !== 'hidden') return false;
+
+  return el.scrollWidth > el.clientWidth + 1;
 }

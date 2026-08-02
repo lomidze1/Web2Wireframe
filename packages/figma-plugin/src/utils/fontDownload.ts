@@ -7,6 +7,8 @@
  */
 
 import JSZip from "jszip";
+import { convertEotToSfnt, isEot } from "./eotToSfnt";
+import { convertWoffToSfnt, isWoff } from "./woffToSfnt";
 import type { FontDownloadInfo } from "../ui/components/modalPopup/FontFallbackModal";
 import { parseFontSrcUrls, type FontCut } from "./fontUtils";
 
@@ -22,6 +24,10 @@ export interface FontDownloadEntry {
   fontBase64?: string;
   /** MIME type of the font binary */
   fontMimeType?: string;
+  /** Alternate URLs to try (in order) when fetching `url` fails — used for
+   *  faces whose declared src was EOT-only, where every candidate is a
+   *  derived sibling-format guess that may or may not exist on the server. */
+  fallbackUrls?: string[];
 }
 
 // ============================================================================
@@ -75,7 +81,9 @@ export function buildFontFileName(
         ? ".woff"
         : format === "opentype"
           ? ".otf"
-          : ".ttf";
+          : format === "embedded-opentype"
+            ? ".eot"
+            : ".ttf";
   return `${sanitizeFontFileName(family)}-${style}-${weight}-100${ext}`;
 }
 
@@ -85,6 +93,7 @@ export function buildFontFileName(
 
 /** Infer font format from URL extension */
 export function guessFormatFromUrl(url: string): string {
+  if (url.includes(".eot")) return "embedded-opentype";
   if (url.includes(".woff2")) return "woff2";
   if (url.includes(".woff")) return "woff";
   if (url.includes(".otf")) return "opentype";
@@ -126,6 +135,39 @@ function installabilityRank(url: string): number {
 function pickInstallableUrl(urls: string[]): string {
   return urls.reduce((best, url) =>
     installabilityRank(url) < installabilityRank(best) ? url : best,
+  );
+}
+
+// ============================================================================
+// deriveSiblingUrlsFromEot
+// ============================================================================
+
+/**
+ * Sibling-format candidates derived from an EOT URL, in installability order.
+ * TTF/OTF install directly; WOFF converts losslessly (see woffToSfnt); WOFF2
+ * needs Brotli so it comes last.
+ */
+const EOT_SIBLING_EXTENSIONS = [".ttf", ".otf", ".woff", ".woff2"];
+
+/**
+ * Derive same-basename sibling-format URLs from an `.eot` URL.
+ *
+ * The "bulletproof" @font-face pattern declares an IE-only `src: url(*.eot)`
+ * FIRST and the real formats in a second `src:` — and the capture side's
+ * first-`src:` parser leaves such faces holding nothing but the dead EOT URL
+ * (telex.ge: "glyphs", "uni2-icons", "BPG Nino Mtavruli" all ship this way,
+ * so the fonts ZIP silently lost them). By that same convention every format
+ * lives at the same path with only the extension changed
+ * (glyphs.eot?q → glyphs.ttf?q / glyphs.woff?q …), so we can reconstruct the
+ * candidates and let the fetch step keep the first one that actually exists.
+ *
+ * Returns [] when the URL has no rewritable `.eot` (e.g. `format=eot` query
+ * flavors) — callers then skip the face as before.
+ */
+export function deriveSiblingUrlsFromEot(eotUrl: string): string[] {
+  if (!/\.eot(?=[?#]|$)/i.test(eotUrl)) return [];
+  return EOT_SIBLING_EXTENSIONS.map((ext) =>
+    eotUrl.replace(/\.eot(?=[?#]|$)/i, ext),
   );
 }
 
@@ -199,20 +241,49 @@ export function buildFontDownloadEntries(
 
     // Group this family's URLs by their owning face. URLs with no known face
     // keep their own group so they still ship, named from the family.
+    // EOT URLs participate in grouping (they still identify the face) but are
+    // never shipped themselves — see the per-face selection below.
     const urlsByFace = new Map<FontMetadata | string, string[]>();
     for (const url of dl.urls) {
-      // Drop EOT entries — Figma & macOS Font Book can't use them, so packaging
-      // them would only ship the user a file they can't install.
-      if (isEotUrl(url)) continue;
       const key = faceByUrl.get(url) ?? `__orphan:${url}`;
       const group = urlsByFace.get(key);
       if (group) group.push(url);
       else urlsByFace.set(key, [url]);
     }
 
+    // Whether ANY face of this family declared a real (non-EOT) URL. Sibling
+    // derivation below only kicks in for families that are EOT-only in their
+    // entirety — when a real URL exists elsewhere in the family, deriving
+    // more candidates would just duplicate the same files under new names.
+    const familyHasRealUrl = dl.urls.some((u) => !isEotUrl(u));
+
     for (const key of Array.from(urlsByFace.keys())) {
       const meta = typeof key === "string" ? undefined : key;
-      const url = pickInstallableUrl(urlsByFace.get(key)!);
+      const faceUrls = urlsByFace.get(key)!;
+
+      // Figma & macOS Font Book can't use EOT — never ship it. A face left
+      // with ONLY an EOT URL (capture read the IE-only first `src:`) gets
+      // derived sibling-format candidates instead of being dropped silently;
+      // the ZIP fetch keeps the first candidate that actually exists.
+      const realUrls = faceUrls.filter((u) => !isEotUrl(u));
+      let candidates: string[];
+      if (realUrls.length > 0) {
+        candidates = [...realUrls].sort(
+          (a, b) => installabilityRank(a) - installabilityRank(b),
+        );
+      } else if (meta?.fontBase64) {
+        // EOT-only URL but a cached binary exists — the binary is what ships,
+        // keep the URL only as a label source.
+        candidates = [faceUrls[0]];
+      } else if (!familyHasRealUrl) {
+        candidates = deriveSiblingUrlsFromEot(faceUrls[0]);
+        if (candidates.length === 0) continue; // nothing shippable for this face
+      } else {
+        continue; // EOT-only face, but the family ships real files already
+      }
+
+      const url = pickInstallableUrl(candidates);
+      const fallbackUrls = candidates.filter((c) => c !== url);
 
       const style = meta?.style || meta?.fontStyle || "normal";
       const weight = meta?.weight || meta?.fontWeight || "400";
@@ -243,6 +314,7 @@ export function buildFontDownloadEntries(
         family: dl.family,
         fontBase64: meta?.fontBase64,
         fontMimeType: meta?.fontMimeType,
+        ...(fallbackUrls.length > 0 ? { fallbackUrls } : {}),
       });
     }
   }
@@ -262,6 +334,81 @@ export interface FontsZipResult {
   blob: Blob;
   /** File names of entries that failed to package; safe to display to the user. */
   skippedEntries: string[];
+}
+
+/**
+ * Swap a ZIP entry's extension to match the URL the bytes actually came from
+ * (a fallback candidate can be a different format than the primary URL).
+ */
+function renameByUrlFormat(fileName: string, url: string): string {
+  const format = guessFormatFromUrl(url);
+  const ext =
+    format === "woff2" ? ".woff2"
+      : format === "woff" ? ".woff"
+        : format === "opentype" ? ".otf"
+          : format === "embedded-opentype" ? ".eot"
+            : ".ttf";
+  const dot = fileName.lastIndexOf(".");
+  return dot === -1 ? fileName + ext : fileName.slice(0, dot) + ext;
+}
+
+/** Replace a file name's extension (appending when there is none). */
+function withExtension(fileName: string, ext: "ttf" | "otf"): string {
+  const dot = fileName.lastIndexOf(".");
+  return (dot === -1 ? fileName : fileName.slice(0, dot)) + "." + ext;
+}
+
+/**
+ * Make the packaged bytes installable where possible — decided by the BYTES,
+ * never the file name (cached binaries arrive mislabeled: telex.ge's ZIP
+ * shipped EOT bytes under .ttf names, which macOS refused to install).
+ *
+ * - WOFF v1  → unwrapped to its original SFNT, renamed .ttf/.otf.
+ * - EOT      → unwrapped when uncompressed; MTX-compressed EOT can't be
+ *              converted and returns null so the caller skips it honestly
+ *              instead of shipping a file no OS can install.
+ * - SFNT     → shipped as-is, extension corrected to match the flavor.
+ * - Anything else (WOFF2/Brotli, unparseable) ships unchanged.
+ * Exported for tests.
+ */
+export function repackageForInstall(
+  fileName: string,
+  bytes: Uint8Array
+): { fileName: string; bytes: Uint8Array } | null {
+  if (isWoff(bytes)) {
+    const converted = convertWoffToSfnt(bytes);
+    if (!converted) return { fileName, bytes };
+    return {
+      fileName: withExtension(fileName, converted.extension),
+      bytes: converted.bytes,
+    };
+  }
+
+  if (isEot(bytes)) {
+    const converted = convertEotToSfnt(bytes);
+    if (!converted) return null; // MTX-compressed / malformed — nothing installable
+    return {
+      fileName: withExtension(fileName, converted.extension),
+      bytes: converted.bytes,
+    };
+  }
+
+  // Raw SFNT: keep the bytes, but make sure the extension tells the truth.
+  if (bytes.length >= 4) {
+    const flavor = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0);
+    const lower = fileName.toLowerCase();
+    if (flavor === 0x4f54544f && !lower.endsWith(".otf")) {
+      return { fileName: withExtension(fileName, "otf"), bytes };
+    }
+    if (
+      (flavor === 0x00010000 || flavor === 0x74727565) &&
+      !lower.endsWith(".ttf") && !lower.endsWith(".ttc")
+    ) {
+      return { fileName: withExtension(fileName, "ttf"), bytes };
+    }
+  }
+
+  return { fileName, bytes };
 }
 
 /**
@@ -285,24 +432,45 @@ export async function createFontsZipBlob(
 
   for (const entry of entries) {
     try {
+      let bytes: Uint8Array | null = null;
+      let fileName = entry.fileName;
       if (entry.fontBase64) {
         // Use pre-extracted binary from browser cache (no network!)
         const binaryString = atob(entry.fontBase64);
-        const bytes = new Uint8Array(binaryString.length);
+        bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
-        zip.file(entry.fileName, bytes);
       } else {
-        // Fallback: try network fetch (may fail in Figma sandbox)
-        const resp = await fetch(entry.url);
-        if (!resp.ok) {
+        // Network fetch, walking the fallback candidates (derived
+        // sibling-format URLs may 404 individually) until one succeeds.
+        for (const candidate of [entry.url, ...(entry.fallbackUrls ?? [])]) {
+          try {
+            const resp = await fetch(candidate);
+            if (!resp.ok) continue;
+            bytes = new Uint8Array(await resp.arrayBuffer());
+            // The entry was named after `entry.url`'s format; a fallback may
+            // be a different one — keep the extension truthful to the bytes.
+            if (candidate !== entry.url) {
+              fileName = renameByUrlFormat(fileName, candidate);
+            }
+            break;
+          } catch {
+            // Try the next candidate.
+          }
+        }
+        if (!bytes) {
           skippedEntries.push(entry.fileName);
           continue;
         }
-        const data = await resp.arrayBuffer();
-        zip.file(entry.fileName, data);
       }
+      const packaged = repackageForInstall(fileName, bytes);
+      if (!packaged) {
+        // Bytes no OS can install (e.g. MTX-compressed EOT) — skip honestly.
+        skippedEntries.push(entry.fileName);
+        continue;
+      }
+      zip.file(packaged.fileName, packaged.bytes);
     } catch {
       skippedEntries.push(entry.fileName);
     }

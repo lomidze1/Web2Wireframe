@@ -3,7 +3,9 @@ Allow: /
 
 # Dynamic pages with query params — not useful in index
 Disallow: /account
+Disallow: /checkout
 Disallow: /checkout/
 Disallow: /renew
+Disallow: /signin
 
 Sitemap: https://web2wireframe.design/sitemap.xml

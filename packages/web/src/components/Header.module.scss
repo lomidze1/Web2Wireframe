@@ -1,11 +1,10 @@
 .header {
   position: sticky;
   top: 0;
-  z-index: 10;
-  backdrop-filter: blur(14px) saturate(1.05);
-  background: linear-gradient(120deg, var(--glass-bg), var(--glass-tint));
-  border-bottom: 1px solid var(--glass-border);
-  box-shadow: 0 12px 30px rgba(12, 13, 18, 0.06);
+  z-index: 20;
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--color-divider);
 }
 
 .headerStatic {
@@ -15,87 +14,125 @@
 .inner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1.5rem;
-  padding: 1.25rem 0;
+  gap: 32px;
+  padding: 16px 0;
 }
 
 .brand {
   display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  color: var(--text);
+  align-items: baseline;
+  gap: 10px;
+  margin-right: auto;
+  color: var(--color-text);
 }
 
-.logoMark {
-  width: 42px;
-  height: 42px;
-  display: block;
-  object-fit: contain;
+.brandName {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 23px;
+  letter-spacing: 0.01em;
+  line-height: 1;
 }
 
-.brandText {
-  color: var(--color-logo);
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
+.brandTag {
+  font-family: var(--font-body);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  font-feature-settings: "tnum";
 }
 
 .nav {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 28px;
 }
 
 .link {
-  padding: 0.65rem 0.85rem;
-  border-radius: 10px;
-  color: var(--muted);
-  font-weight: 600;
-  transition: color 150ms ease, background 150ms ease;
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 4px 0;
+  color: var(--color-neutral-700);
+  border-bottom: 1px solid transparent;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 
 .link:hover {
-  color: var(--text);
-  background: rgba(12, 13, 18, 0.05);
+  color: var(--color-text);
 }
 
 .active {
-  color: var(--text);
-  background: rgba(59, 130, 246, 0.12);
+  color: var(--color-accent-700);
+  border-bottom-color: var(--color-accent);
+}
+
+.active:hover {
+  color: var(--color-accent-700);
 }
 
 .actions {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 14px;
 }
 
-// Avatar trigger for logged-in users. Compact circle with initials so the
-// header height stays stable regardless of email length; full email is one
-// click away inside the modal.
-.avatarButton {
-  width: 38px;
-  height: 38px;
+.installBtn {
+  font-size: 13px;
+}
+
+.signInLink {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 4px 0;
+  color: var(--color-neutral-700);
+  transition: color 120ms ease;
+}
+
+.signInLink:hover {
+  color: var(--color-text);
+}
+
+// Signed-in account chip: initials circle + quota label (`7/10` on Free,
+// `PRO` on Pro) — the quota stays visible on every page.
+.accountChip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 4px 4px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-divider);
+  transition: border-color 120ms ease;
+}
+
+.accountChip:hover {
+  border-color: var(--color-accent);
+}
+
+.accountChipActive {
+  border-color: var(--color-accent);
+}
+
+.chipInitials {
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  border: 1px solid var(--border);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.85rem;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  display: inline-flex;
+  border: 1px solid var(--color-accent);
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
-  font-family: inherit;
-  transition: transform 160ms ease, box-shadow 160ms ease;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  color: var(--color-accent-700);
 }
 
-.avatarButton:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.28);
+.chipLabel {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+  padding-right: 4px;
+  font-feature-settings: "tnum";
 }
 
 /* S-H6: hamburger button — hidden on desktop, shown on narrow viewports.
@@ -104,17 +141,17 @@
 .hamburger {
   display: none;
   background: transparent;
-  border: 1px solid rgba(12, 13, 18, 0.16);
-  border-radius: 8px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
   padding: 0.45rem 0.65rem;
   font-size: 1.25rem;
   line-height: 1;
   cursor: pointer;
-  color: #0c0d12;
+  color: var(--color-text);
 }
 
 .hamburger:hover {
-  background: rgba(12, 13, 18, 0.04);
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
 }
 
 @media (max-width: 900px) {
@@ -129,9 +166,9 @@
     align-items: stretch;
     gap: 0;
     padding: 0.5rem 1rem 1rem;
-    background: #ffffff;
-    border-top: 1px solid rgba(12, 13, 18, 0.08);
-    box-shadow: 0 12px 24px rgba(12, 13, 18, 0.08);
+    background: var(--color-bg);
+    border-top: 1px solid var(--color-divider);
+    box-shadow: var(--shadow-md);
     display: none;
   }
 
@@ -141,11 +178,15 @@
 
   .nav .link {
     padding: 0.85rem 0.5rem;
-    border-bottom: 1px solid rgba(12, 13, 18, 0.06);
+    border-bottom: 1px solid var(--color-divider);
   }
 
   .nav .link:last-child {
     border-bottom: 0;
+  }
+
+  .nav .active {
+    border-bottom-color: var(--color-accent);
   }
 
   .hamburger {
@@ -155,5 +196,9 @@
   .inner {
     padding: 1rem 0;
     position: relative;
+  }
+
+  .installBtn {
+    display: none;
   }
 }

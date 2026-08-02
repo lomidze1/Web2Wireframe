@@ -189,3 +189,55 @@ describe("checkFontsAvailability — per-cut", () => {
     expect(Object.keys(res.missingCuts)).toHaveLength(0);
   });
 });
+
+/**
+ * The cut a page needs can be installed under the family's REAL (SFNT) name.
+ * web2wireframe.design: the downloaded Space Grotesk 600 file carries
+ * typographic family "Space Grotesk Light", so Figma registers it there. The
+ * page still demands "Space Grotesk" 600 — without consulting the real-name
+ * map the cut reads as missing forever and the modal reopens on every import.
+ */
+describe("checkFontsAvailability — real-family cuts", () => {
+  const usage = (entries: Array<[string, Array<{ weight: number; italic: boolean }>]>) =>
+    new Map(entries);
+  const realNames = { "Space Grotesk": "Space Grotesk Light" };
+
+  it("counts a cut the real family ships as present", async () => {
+    installedFonts.set("Space Grotesk", ["Regular", "Bold"]);
+    installedFonts.set("Space Grotesk Light", ["SemiBold"]);
+
+    const res = await checkFontsAvailability(
+      new Set(["Space Grotesk"]),
+      usage([["Space Grotesk", [{ weight: 400, italic: false }, { weight: 600, italic: false }]]]),
+      realNames,
+    );
+
+    expect(res.available).toContain("Space Grotesk");
+    expect(res.missingCuts["Space Grotesk"]).toBeUndefined();
+  });
+
+  it("still reports the cut missing when no real name is supplied", async () => {
+    installedFonts.set("Space Grotesk", ["Regular", "Bold"]);
+    installedFonts.set("Space Grotesk Light", ["SemiBold"]);
+
+    const res = await checkFontsAvailability(
+      new Set(["Space Grotesk"]),
+      usage([["Space Grotesk", [{ weight: 600, italic: false }]]]),
+    );
+
+    expect(res.missingCuts["Space Grotesk"].map(key)).toEqual(["600"]);
+  });
+
+  it("a real name that lacks the cut doesn't mask it", async () => {
+    installedFonts.set("Space Grotesk", ["Regular", "Bold"]);
+    installedFonts.set("Space Grotesk Light", ["Light"]);
+
+    const res = await checkFontsAvailability(
+      new Set(["Space Grotesk"]),
+      usage([["Space Grotesk", [{ weight: 600, italic: false }]]]),
+      realNames,
+    );
+
+    expect(res.missingCuts["Space Grotesk"].map(key)).toEqual(["600"]);
+  });
+});

@@ -55,6 +55,49 @@ function guessFontMimeType(url: string): string {
 }
 
 // ============================================================================
+// URL candidate ordering
+// ============================================================================
+
+/**
+ * Rank a font URL by how useful its bytes are downstream. The plugin's fonts
+ * ZIP exists so users can INSTALL the font — macOS Font Book and Windows take
+ * TTF/OTF and reject WOFF/WOFF2 (web wrappers) and EOT (IE-only legacy).
+ * Lower rank = tried first.
+ */
+function installabilityRank(url: string): number {
+  const lower = url.toLowerCase();
+  // SVG fonts are dead everywhere (no OS install, no modern browser) and an
+  // uncompressed EOT at least unwraps to its SFNT — rank SVG very last.
+  if (lower.includes(".svg")) return 5;
+  if (lower.includes(".eot") || lower.includes("format=eot")) return 4;
+  if (lower.includes(".ttf") || lower.includes(".otf") || lower.includes(".ttc")) return 0;
+  if (lower.includes(".woff2")) return 1;
+  if (lower.includes(".woff")) return 2;
+  return 3;
+}
+
+/**
+ * Order candidate URLs by installability, keeping declaration order within a
+ * rank. The "bulletproof" @font-face pattern declares the IE-only .eot FIRST,
+ * so declaration-order trying embedded EOT bytes even when the same face
+ * declared a real .ttf (telex.ge shipped exactly this). EOT stays as a last
+ * resort — if it is the only URL, bad bytes beat no bytes.
+ *
+ * Exported for every font-binding site (the API's W2W pipeline has its own
+ * binding loop in w2w-extraction.ts that must apply the same ordering).
+ */
+export function orderUrlsByInstallability(urls: string[]): string[] {
+  return urls
+    .map((url, index) => ({ url, index }))
+    .sort(
+      (a, b) =>
+        installabilityRank(a.url) - installabilityRank(b.url) ||
+        a.index - b.index
+    )
+    .map((entry) => entry.url);
+}
+
+// ============================================================================
 // Font Binary Extraction
 // ============================================================================
 
@@ -91,8 +134,9 @@ export async function extractFontBinaries(
   const enrichedFonts: ExtractedFont[] = [];
 
   for (const font of fonts) {
-    // Extract actual URLs from CSS src property
-    const urls = extractUrlsFromSrc(font.src);
+    // Extract actual URLs from CSS src property, best-installable first
+    // (see orderUrlsByInstallability — never let a first-declared EOT win).
+    const urls = orderUrlsByInstallability(extractUrlsFromSrc(font.src));
     let fontBase64: string | undefined;
     let fontMimeType: string | undefined;
 

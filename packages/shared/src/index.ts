@@ -351,6 +351,7 @@ export {
 export {
   extractFontBinaries,
   extractUrlsFromSrc,
+  orderUrlsByInstallability,
 } from "./font-binary-extraction";
 
 // ============================================================================

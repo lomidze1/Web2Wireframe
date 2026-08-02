@@ -1,0 +1,398 @@
+/* The interactive import console — the page's centerpiece. Layout constants
+   come from the design handoff; the two `minmax(0, 1fr)` tracks are required
+   (a plain 1fr lets the canvas column collapse on narrow viewports). */
+
+.console {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-100);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+/* — title bar — */
+.titleBar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-bg);
+}
+
+.titleDots {
+  display: flex;
+  gap: 6px;
+
+  span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: 1px solid var(--color-neutral-400);
+  }
+}
+
+.titleLabel {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+
+.titleSummary {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-neutral-700);
+  font-feature-settings: "tnum";
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+}
+
+/* — settings panel — */
+.settings {
+  border-right: 1px solid var(--color-divider);
+  padding: 22px 22px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: var(--color-bg);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.groupLabel {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+
+.rule {
+  height: 1px;
+  background: var(--color-divider);
+}
+
+.optGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.optRow {
+  display: flex;
+  gap: 6px;
+}
+
+.opt {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+  flex: 1;
+  padding: 7px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 120ms;
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  color: var(--color-neutral-700);
+}
+
+.optLeft {
+  text-align: left;
+  padding: 8px 10px;
+}
+
+.optTnum {
+  font-feature-settings: "tnum";
+  padding: 7px 4px;
+}
+
+.optActive {
+  background: #fdfcfb;
+  border-color: var(--color-accent);
+  color: var(--color-accent-700);
+  font-weight: 600;
+}
+
+.sourceHint {
+  border: 1px dashed var(--color-neutral-400);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-neutral-700);
+  background: var(--color-neutral-100);
+}
+
+.swatchRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 2px;
+}
+
+.swatch {
+  width: 15px;
+  height: 15px;
+  border-radius: 2px;
+  border: 1px solid var(--color-neutral-400);
+}
+
+.swatchLabel {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  margin-left: 4px;
+}
+
+.settingsFootnote {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-neutral-700);
+  margin: 4px 0 0;
+  font-style: italic;
+}
+
+/* — canvas + layers — */
+.output {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+}
+
+.canvas {
+  padding: 22px 24px 26px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: var(--color-neutral-200);
+  overflow: auto;
+}
+
+.frameHolder {
+  width: 100%;
+  transition: max-width 220ms;
+}
+
+.frameCaption {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--color-neutral-700);
+  margin-bottom: 6px;
+  font-feature-settings: "tnum";
+}
+
+/* The mock Figma frame. All palette + metric values arrive as --mf-*
+   custom properties from the component, so switching an option only
+   swaps variables. */
+.frame {
+  border: 1px solid var(--color-neutral-400);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  background: var(--mf-bg);
+  transition: background 200ms;
+}
+
+.mfNav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--mf-pad-sm);
+  border-bottom: 1px solid var(--mf-secondary);
+}
+
+.mfLogo {
+  width: 44px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--mf-text);
+}
+
+.mfNavLinks {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  font-size: var(--mf-fs-micro);
+  color: var(--mf-text);
+  opacity: 0.75;
+}
+
+.mfNavCta {
+  width: 40px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--mf-accent);
+}
+
+.mfHero {
+  padding: var(--mf-pad-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--mf-gap);
+}
+
+.mfH1 {
+  font-size: var(--mf-fs-h1);
+  line-height: 1.15;
+  font-weight: 600;
+  color: var(--mf-text);
+  text-wrap: pretty;
+}
+
+.mfP {
+  font-size: var(--mf-fs-body);
+  line-height: 1.55;
+  color: var(--mf-text);
+  opacity: 0.72;
+  max-width: 34ch;
+}
+
+.mfCta {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: var(--mf-btn-pad);
+  border-radius: 3px;
+  background: var(--mf-accent);
+  color: var(--mf-bg);
+  font-size: var(--mf-fs-micro);
+}
+
+.mfMedia {
+  padding: 0 var(--mf-pad-x) var(--mf-pad-x);
+}
+
+.mfPlate {
+  width: 100%;
+}
+
+.mfPlateImg {
+  display: block;
+  width: 100%;
+  height: var(--mf-media-h);
+  object-fit: cover;
+}
+
+.mfMediaPlaceholder {
+  width: 100%;
+  height: var(--mf-media-h);
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--mf-fs-micro);
+  color: var(--mf-text);
+  opacity: 0.55;
+}
+
+.mfCards {
+  padding: 0 var(--mf-pad-x) var(--mf-pad-x);
+  display: grid;
+  grid-template-columns: var(--mf-card-cols);
+  gap: var(--mf-gap);
+}
+
+.mfCard {
+  border: 1px solid var(--mf-secondary);
+  background: var(--mf-surface);
+  padding: var(--mf-pad-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* Required — without these the third card clips at narrow widths. */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mfCardIcon {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--mf-accent);
+  border-radius: 2px;
+}
+
+.mfCardTitle {
+  font-size: var(--mf-fs-body);
+  font-weight: 600;
+  color: var(--mf-text);
+}
+
+.mfCardBody {
+  font-size: var(--mf-fs-micro);
+  line-height: 1.5;
+  color: var(--mf-text);
+  opacity: 0.7;
+}
+
+/* — layers panel — */
+.layers {
+  border-left: 1px solid var(--color-divider);
+  background: var(--color-bg);
+  padding: 16px 0;
+}
+
+.layersHeader {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  padding: 0 14px 10px;
+}
+
+.layerRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  padding-right: 12px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.layerName {
+  font-size: 12px;
+  color: var(--color-neutral-900);
+}
+
+.layerTag {
+  margin-left: auto;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--color-accent-700);
+  text-align: right;
+  font-feature-settings: "tnum";
+}
+
+.layerNote {
+  padding: 14px 14px 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-neutral-700);
+}
+
+/* — responsive (≤1000px, developer decision per handoff): settings stack
+   above the canvas, layers drop below it. Option buttons keep their ≥40px
+   touch height from the 13px/8px padding. — */
+@media (max-width: 1000px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+
+  .settings {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .output {
+    grid-template-columns: 1fr;
+  }
+
+  .layers {
+    border-left: 0;
+    border-top: 1px solid var(--color-divider);
+  }
+}

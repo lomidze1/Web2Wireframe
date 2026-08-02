@@ -135,6 +135,35 @@ describe("parseFontFaceRules", () => {
     expect(result[0].format).toBe("woff2");
   });
 
+  it("keeps EVERY url of a url-first last src declaration (telex.ge bulletproof)", () => {
+    // telex.ge's icon fonts use the bulletproof pattern with the last src
+    // STARTING with url(...) — no local() prefix. The old regex extraction
+    // stopped after the first url() in that shape (lazy [^;]*? never expanded),
+    // so the face was left holding ONLY the dead EOT#iefix URL: the binding
+    // loop had a single candidate, shipped EOT bytes mislabeled .ttf, and
+    // macOS refused to install them. Every declared format must survive.
+    const css = `
+      @font-face {
+        font-family: glyphs;
+        src: url('../fonts/glyphs.eot?176');
+        src: url('../fonts/glyphs.eot?176#iefix') format('embedded-opentype'), url('../fonts/glyphs.woff?176') format('woff'), url('../fonts/glyphs.ttf?176') format('truetype'), url('../fonts/glyphs.svg?176#glyphs') format('svg');
+        font-weight: normal;
+        font-style: normal;
+      }
+    `;
+    const result = parseFontFaceRules(css, "https://telex.ge/css/standalone.css");
+
+    expect(result).toHaveLength(1);
+    expect(result[0].src).toContain("glyphs.woff");
+    expect(result[0].src).toContain("glyphs.ttf");
+    expect(result[0].src).toContain("glyphs.svg");
+    // The #iefix EOT legitimately belongs to the last src: — downstream
+    // installability ordering handles ranking it dead last.
+    expect(result[0].src).toContain("glyphs.eot?176#iefix");
+    // But the IE-only first declaration must not leak in.
+    expect(result[0].src).not.toContain("glyphs.eot?176'),");
+  });
+
   it("still reads a single src declaration unchanged", () => {
     const css = `
       @font-face {

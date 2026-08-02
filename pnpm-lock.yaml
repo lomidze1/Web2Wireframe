@@ -180,6 +180,9 @@ importers:
       '@w2w/shared':
         specifier: workspace:*
         version: link:../shared
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
@@ -230,9 +233,15 @@ importers:
 
   packages/web:
     dependencies:
+      '@fontsource/cormorant-garamond':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource/inter':
         specifier: ^5.2.8
         version: 5.2.8
+      '@fontsource/lora':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource/space-grotesk':
         specifier: ^5.2.10
         version: 5.2.10
@@ -830,8 +839,14 @@ packages:
   '@figma/plugin-typings@1.109.0':
     resolution: {integrity: sha512-6l628rOQGNd5ZD3Bru36/NK+PSKmHpsrWz0NMwUYZ8AIyfIl6sCJRc8+OhAy9+WkDXq/Dx3BYiBStjmCJ8O3Lw==}
 
+  '@fontsource/cormorant-garamond@5.3.0':
+    resolution: {integrity: sha512-weuGsCirGVWBWqpt6YUp0yLThTe4G8YO45noq8wxeJCRvEpq5lFrxNMFSTxcyOyV5k5otzJ8guDzYegdYlcLMQ==}
+
   '@fontsource/inter@5.2.8':
     resolution: {integrity: sha512-P6r5WnJoKiNVV+zvW2xM13gNdFhAEpQ9dQJHt3naLvfg+LkF2ldgSLiF4T41lf1SQCM9QmkqPTn4TH568IRagg==}
+
+  '@fontsource/lora@5.3.0':
+    resolution: {integrity: sha512-OK1g1z01rHVPqO5aw/FOIoDqc46KKYZdgL3NOLkxLWDk6QhDHhdr/h2BV1cke6gTvR1tzpDfdKyUkGsC+sQLeQ==}
 
   '@fontsource/space-grotesk@5.2.10':
     resolution: {integrity: sha512-XNXEbT74OIITPqw2H6HXwPDp85fy43uxfBwFR5PU+9sLnjuLj12KlhVM9nZVN6q6dlKjkuN8JisW/OBxwxgUew==}
@@ -5024,7 +5039,11 @@ snapshots:
 
   '@figma/plugin-typings@1.109.0': {}
 
+  '@fontsource/cormorant-garamond@5.3.0': {}
+
   '@fontsource/inter@5.2.8': {}
+
+  '@fontsource/lora@5.3.0': {}
 
   '@fontsource/space-grotesk@5.2.10': {}
 

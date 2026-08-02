@@ -77,6 +77,8 @@ const mockDownscale = vi.fn();
 vi.mock("../ui/shared/imageDownscale", () => ({
   MAX_IMAGE_DIMENSION: 1568,
   downscaleImage: (...args: unknown[]) => mockDownscale(...args),
+  // Used to measure the original file for Real Assets cropping.
+  loadImageElement: async () => ({ naturalWidth: 2000, naturalHeight: 1000 }),
 }));
 
 const DOWNSCALED = {

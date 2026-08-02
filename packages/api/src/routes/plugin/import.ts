@@ -16,6 +16,7 @@ import {
   createLocalStylesStructure,
 } from "../../utils/styleUtils.js";
 import { validateUrl } from "../../utils/urlValidation.js";
+import { looksLikeBlockPage } from "../../utils/blockPageDetection.js";
 import { mongoConnected } from "../../state.js";
 import { requireImportAllowance } from "../../middleware/licenseGate.js";
 import { authenticatePlugin } from "../../middleware/auth.js";
@@ -118,6 +119,17 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
       });
     }
 
+    // Bot-protected sites (tesla.com behind Akamai, …) serve an "Access
+    // Denied" page to our headless browser. We still return it — the plugin
+    // recognises it client-side and offers the Browser Extension handoff —
+    // but the user got no wireframe, so the quota slot must not be spent.
+    // requireImportAllowance refunds it when this marker is set.
+    const botBlocked = looksLikeBlockPage(frames);
+    if (botBlocked) {
+      req.importUndelivered = true;
+      console.log(`[W2W] /import-url: bot-protection block page detected for ${normalizedSourceUrl} — refunding quota slot`);
+    }
+
     // Create local styles structure
     const localStyles = createLocalStylesStructure(finalPluginColors, {
       primary: pluginFont,
@@ -155,7 +167,8 @@ router.post("/import-url", importRateLimiter, authenticatePlugin, requireImportA
       type: "url",
       viewports,
       params: { colorMode, typographyMode, textMode, pluginFont, assetMode, cssVariablesMode, layoutMode },
-      success: true,
+      success: !botBlocked,
+      errorCode: botBlocked ? "BOT_BLOCKED" : undefined,
     });
 
     res.json({

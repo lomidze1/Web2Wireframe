@@ -1,203 +1,263 @@
+/* Pricing — Classical layout. */
+
 .page {
+  padding-top: 76px;
+}
+
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+  margin-bottom: 18px;
+}
+
+/* — head row + billing toggle — */
+.head {
   display: flex;
-  flex-direction: column;
-  gap: 2.2rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+  flex-wrap: wrap;
+  margin-bottom: 44px;
 }
 
-.hero {
-  padding-top: 2rem;
+.headText {
+  max-width: 54ch;
 }
 
-.heroCard {
-  background: linear-gradient(
-    140deg,
-    var(--glass-bg),
-    rgba(255, 255, 255, 0.72)
-  );
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  padding: 2rem;
-  box-shadow: 0 18px 60px rgba(12, 13, 18, 0.08);
-  backdrop-filter: blur(12px);
+.title {
+  font-weight: 400;
+  font-size: 54px;
+  line-height: 1.06;
+  margin: 0 0 18px;
+  color: var(--color-text);
 }
 
-.section-label {
-  border: 1px solid rgba(59, 130, 246, 0.25);
-}
-
-// Alias for camelCase access in TSX
-.sectionLabel {
-  @extend .section-label;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1rem;
-}
-
-.card {
-  background: linear-gradient(
-    135deg,
-    var(--glass-bg),
-    rgba(255, 255, 255, 0.7)
-  );
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
-  padding: 1.3rem;
-  box-shadow: 0 18px 60px rgba(12, 13, 18, 0.08);
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  backdrop-filter: blur(10px);
-}
-
-.highlight {
-  border-color: rgba(59, 130, 246, 0.35);
-  box-shadow: 0 24px 60px rgba(59, 130, 246, 0.2);
-  background: linear-gradient(
-    145deg,
-    rgba(36, 109, 255, 0.14),
-    var(--glass-bg)
-  );
-}
-
-.cardHead h2 {
-  margin: 0.5rem 0 0.25rem;
-}
-
-.cardHead span {
-  font-size: 1rem;
-  color: var(--muted);
-}
-
-.list {
-  list-style: none;
-  padding: 0;
+.lead {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--color-neutral-800);
   margin: 0;
+}
+
+.billingToggle {
+  display: flex;
+  gap: 6px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+}
+
+.billingBtn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 120ms;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-neutral-700);
+}
+
+.billingBtnActive {
+  background: #fdfcfb;
+  border-color: var(--color-accent);
+  color: var(--color-accent-700);
+  font-weight: 600;
+}
+
+/* — plan cards — */
+.plans {
   display: grid;
-  gap: 0.4rem;
-  color: var(--muted);
-  flex-grow: 1;
+  grid-template-columns: 1fr 1fr;
+  gap: 26px;
 }
 
-.list li {
-  position: relative;
-  padding-left: 1rem;
+.planCard {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 34px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.list li::before {
-  content: "•";
-  position: absolute;
-  left: 0;
-  color: var(--accent);
+.planCardPro {
+  border-color: var(--color-accent);
+  background: var(--color-neutral-100);
+  box-shadow: var(--shadow-sm);
 }
 
-.contactBanner {
-  justify-content: center;
+.planKicker {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+
+.planKickerPro {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+}
+
+.proHead {
+  display: flex;
   align-items: center;
-  text-align: center;
+  justify-content: space-between;
 }
 
-.contactEmail {
-  text-decoration: underline;
-  text-underline-offset: 6px;
-  color: var(--accent-strong);
+.planPrice {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 52px;
+  line-height: 1;
+  font-feature-settings: "tnum";
+  color: var(--color-text);
 }
 
-.trustNote {
-  margin: 0.8rem 0 0;
-  font-size: 0.78rem;
-  line-height: 1.5;
-  color: var(--muted);
-  text-align: center;
+.proPriceRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
 
-  a {
-    color: var(--accent-strong);
-    text-decoration: underline;
-    text-underline-offset: 2px;
+.priceUnit {
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+
+.planNote {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+.rule {
+  height: 1px;
+  background: var(--color-divider);
+}
+
+.featureList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+
+  li {
+    font-size: 14px;
+    color: var(--color-neutral-800);
   }
 }
 
-// Monthly / Yearly toggle inside the Pro card. Full-width tab bar — the
-// container fills the card so it reads as the cardHead's footer control,
-// not a floating chip. `position: relative` anchors the floating savings
-// callout that points down at the Yearly tab.
-.tierToggle {
-  position: relative;
-  display: flex;
-  width: 100%;
-  gap: 0;
-  margin: 0.9rem 0 0.2rem;
-  padding: 4px;
-  border: 1px solid var(--glass-border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.6);
+.featureListPro li {
+  color: var(--color-neutral-900);
 }
 
-.tierBtn {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  flex: 1; // equal halves so each tab fills exactly 50% of the toggle
-  padding: 8px 14px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--muted);
-  border-radius: 999px;
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    color 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+.planCta {
+  margin-top: auto;
 }
 
-.tierBtn:hover:not(.tierBtnActive) {
-  color: var(--text);
+.trustNote {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-neutral-600);
+  margin: 0;
+
+  a {
+    color: var(--color-accent-700);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
 }
 
-.tierBtnActive {
-  background: var(--accent-strong);
-  color: #fff;
+/* — comparison table + FAQ — */
+.compare {
+  padding-top: 68px;
 }
 
-// Floating "Save 25%" callout — sits above the toggle, smaller + shifted
-// toward the right edge of the Yearly tab so it doesn't visually cover
-// the "Yearly" label below. Permanent (not state-gated) because its job
-// is to *invite* the user toward Yearly regardless of which tab is
-// currently active. Anchored from the right side of the toggle so the
-// position stays stable when the toggle width changes responsively.
-.saveFloatingTag {
-  position: absolute;
-  top: -11px;
-  right: 6%;
-  font-size: 0.55rem;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: #16a34a;
-  color: #fff;
-  text-transform: uppercase;
-  white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(22, 163, 74, 0.32);
-  pointer-events: none; // never blocks clicks on the tab beneath
+.sectionTitle {
+  font-weight: 400;
+  font-size: 32px;
+  margin: 0 0 20px;
+  color: var(--color-text);
 }
 
-// Caret pointing down toward the Yearly tab. Anchored to the LEFT of the
-// tag (not centered) so it sits closer to the "Yearly" text instead of
-// pointing at empty space at the very right edge of the toggle.
-.saveFloatingTag::after {
-  content: "";
-  position: absolute;
-  bottom: -3px;
-  left: 18%;
-  width: 0;
-  height: 0;
-  border-left: 3px solid transparent;
-  border-right: 3px solid transparent;
-  border-top: 3px solid #16a34a;
+.faq {
+  padding-top: 68px;
+}
+
+.faqGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px 48px;
+}
+
+.faqItem {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 16px;
+}
+
+.faqQ {
+  font-size: 21px;
+  font-weight: 500;
+  margin: 0 0 8px;
+  color: var(--color-text);
+}
+
+.faqA {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+.billingContact {
+  margin: 40px 0 0;
+  font-size: 13px;
+  color: var(--color-neutral-600);
+
+  a {
+    color: var(--color-accent-700);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+}
+
+/* — responsive — */
+@media (max-width: 1000px) {
+  .title {
+    font-size: 42px;
+  }
+
+  .plans {
+    grid-template-columns: 1fr;
+  }
+
+  .faqGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding-top: 48px;
+  }
+
+  .title {
+    font-size: 34px;
+  }
+
+  .planCard {
+    padding: 26px 22px;
+  }
 }

@@ -1,31 +1,24 @@
 import type { ReactElement } from "react";
+import { Link } from "react-router-dom";
 import styles from "./Checkout.module.scss";
 
 const CheckoutCancel = (): ReactElement => (
-  <div className={styles.page}>
-    <div className="container">
-      <div className={styles.card}>
-        <div className={styles.icon}>↩</div>
-        <h1>Checkout canceled</h1>
-        <p>
-          No charge was made. You can return to the Figma plugin and try
-          again whenever you're ready.
-        </p>
-        {/*
-          window.close() is blocked by browsers unless the tab was opened
-          by script — Flitt redirects here, so it never works (same issue
-          as CheckoutSuccess). A direct link to figma.com works in every
-          context: the real flow (Flitt-redirected tab) AND manual visits.
-        */}
-        <a
-          href="https://www.figma.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn btn-primary"
-        >
-          Open Figma
-        </a>
-      </div>
+  <div className={`container ${styles.page}`}>
+    <div className={styles.head}>
+      <div className={styles.kicker}>Checkout canceled</div>
+      <h1 className={styles.title}>No charge was made.</h1>
+      <p className={styles.lead}>
+        Your plan is unchanged. Come back whenever you're ready — the price
+        and the options will be exactly where you left them.
+      </p>
+    </div>
+    <div className={styles.actions}>
+      <Link className="btn btn-primary" to="/checkout">
+        Back to checkout
+      </Link>
+      <Link className="btn btn-secondary" to="/pricing">
+        Compare plans
+      </Link>
     </div>
   </div>
 );

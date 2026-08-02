@@ -34,6 +34,7 @@ import {
   getResourceText,
   w2wFindHoverCandidates,
   attachHoverToDescendants,
+  orderUrlsByInstallability,
 } from "@w2w/shared";
 import { normalizeFontPayload } from "../fonts/decompressFont.js";
 
@@ -570,7 +571,13 @@ export async function extractWithContentScript(
 
       for (const font of w2wFonts) {
         if (!font.src || font.fontBase64) continue;
-        const urls = font.src.match(bareUrlRegex) || [];
+        // Best-installable candidates first (TTF/OTF → woff2 → woff → EOT
+        // last). The bulletproof @font-face pattern declares the IE-only
+        // .eot URL first; binding in declaration order stamped EOT bytes —
+        // whose name table normalizeFontPayload can't read → no realFamily,
+        // and macOS/Windows can't install them (telex.ge shipped exactly
+        // this). Same ordering as shared's extractFontBinaries.
+        const urls = orderUrlsByInstallability(font.src.match(bareUrlRegex) || []);
 
         for (const url of urls) {
           // Strategy 0: live network capture (primary path).

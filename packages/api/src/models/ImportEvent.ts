@@ -38,6 +38,7 @@ export interface IImportParams {
   cssVariablesMode?: string; // "styles" | "direct"           (More Options: CSS Variables)
   layoutMode?: string; // "autoLayout" | "absolute"           (More Options: Layout Mode)
   pluginFont?: string; // chosen typeface (not a More Options dropdown)
+  tiles?: number; // tall-screenshot imports: how many slices the page was analysed in
 }
 
 export interface IImportEvent extends Document {

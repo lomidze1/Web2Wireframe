@@ -19,7 +19,7 @@ import type {
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
 import { isItalicStyle } from './styles';
-import { isIconFont, CSS_FONT_KEYWORDS, isServerFallbackFamily } from '../utils/fontUtils';
+import { isIconFont, isPuaOnlyText, CSS_FONT_KEYWORDS, isServerFallbackFamily } from '../utils/fontUtils';
 
 // Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
 interface W2WFrameNode {
@@ -268,7 +268,21 @@ function convertFrame(
     padding.left += invisible.left;
   }
   const gapStr = str(s.gap);
-  const itemSpacing = isAbsoluteMode ? 0 : (parseFloat(gapStr) || 0);
+  // Each axis reads its own longhand. `gap` is a shorthand whose computed form
+  // is "<row> <column>", so parseFloat() on it yields the ROW gap — handing a
+  // horizontal row the wrong number whenever the two differ. The shorthand
+  // stays as the fallback for captures without the longhands.
+  const axisGap = (longhand: string | number | undefined): number =>
+    parseFloat(str(longhand) || gapStr) || 0;
+  const mainAxisGap = cssLayoutMode === 'VERTICAL' ? axisGap(s.rowGap) : axisGap(s.columnGap);
+  const itemSpacing = isAbsoluteMode ? 0 : mainAxisGap;
+  // Cross-axis gap only exists for wrapped rows — the distance between the
+  // lines a flex container breaks onto (web2wireframe.design's hero CTA sat
+  // flush against the feature list because Figma defaults this to 0).
+  const counterAxisSpacing =
+    !isAbsoluteMode && cssLayoutMode === 'HORIZONTAL' && axisGap(s.rowGap) > 0
+      ? axisGap(s.rowGap)
+      : undefined;
 
   // Sizing
   const sizing = isAbsoluteMode
@@ -277,6 +291,18 @@ function convertFrame(
 
   // Fills
   let fills = parseFills(s, node.width, node.height);
+
+  // CSS `filter: grayscale(N)` — Figma has no subtree filter, but IMAGE
+  // paints support per-paint color adjustments (saturation −1…1), which is
+  // exactly what grayscale needs (telex.ge brand logos: `filter: grayscale(1)`
+  // directly on the <img>). Parsed here, applied to background IMAGE fills
+  // below and to the <img>/<video> IMAGE paint in realImages.ts.
+  const filterGrayscale = parseGrayscaleAmount(str(s.filter) || str(s.webkitFilter));
+  if (filterGrayscale != null) {
+    for (const f of fills) {
+      if (f.type === 'IMAGE_PLACEHOLDER') f.imageSaturation = -filterGrayscale;
+    }
+  }
 
   // `background-clip: text` — the background is clipped to the glyph shapes, so
   // it must NOT paint the box. Move every layer to textFills; text.ts paints the
@@ -637,8 +663,11 @@ function convertFrame(
         // A PUA-only run inside mixed text is an icon glyph whose measured
         // font is the DOMINANT text font (the extension collapses platform
         // fonts per host element) — recover the icon family from the CSS stack.
+        // Site-specific icon fonts (telex.ge "glyphs"/"uni2-icons") don't match
+        // the known-name list, but for PUA content the FIRST stack entry is the
+        // author's icon font by construction (icon classes set it first).
         const segIconFamily = isPuaOnlyText(t.value)
-          ? fontFamilyStack.find(isIconFont)
+          ? fontFamilyStack.find(isIconFont) ?? fontFamilyStack[0]
           : undefined;
         // Infer italic for this run. The W2W TEXT node is minimal (no
         // font-style), so for an inline <em> we read it from the actually-
@@ -687,7 +716,9 @@ function convertFrame(
     // coalesced content is purely PUA codepoints and the CSS stack names an
     // icon family, that family wins over both.
     if (isPuaOnlyText(textContent)) {
-      const iconFamily = fontFamilyStack.find(isIconFont);
+      // Unknown site icon fonts (no name match) fall back to the first CSS
+      // family — never a text font, so the glyph keeps its icon identity.
+      const iconFamily = fontFamilyStack.find(isIconFont) ?? fontFamilyStack[0];
       if (iconFamily) {
         effectiveFontFamily = iconFamily;
       }
@@ -902,6 +933,7 @@ function convertFrame(
     })(),
     zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
     cssOrder: s.order != null && String(s.order) !== '0' ? Number(s.order) : undefined,
+    filterGrayscale,
     // CSS top/left for fixed|sticky elements (used by re-parenting logic)
     cssTop: (() => {
       const v = s.top;
@@ -918,6 +950,7 @@ function convertFrame(
 
     layoutMode,
     itemSpacing,
+    counterAxisSpacing,
     padding,
     // Pass justifyContent/alignItems through even in absolute mode: they are
     // the source-of-truth signal for centering text-with-background buttons
@@ -1192,7 +1225,9 @@ function convertTextNodeFromValue(
   const parentStack = parseFontFamilyStack(str(parentStyles.fontFamily));
   // PUA icon glyph rescue — same rule as the coalesced path: the platform
   // font pass mislabels icon glyphs with the dominant text font.
-  const iconFamily = isPuaOnlyText(tv.value) ? parentStack.find(isIconFont) : undefined;
+  const iconFamily = isPuaOnlyText(tv.value)
+    ? parentStack.find(isIconFont) ?? parentStack[0]
+    : undefined;
 
   return {
     id,
@@ -1476,6 +1511,36 @@ function getLayoutMode(
 }
 
 /**
+ * How many distinct horizontal bands (visual lines) do these children occupy?
+ *
+ * Children whose vertical extents overlap belong to the same band; a child
+ * starting at or below the running bottom edge opens a new one. A single band
+ * means the parent really is a row — several bands mean it is a column of
+ * rows, whatever the CSS hints say. Zero-area children are ignored: they carry
+ * no visual line of their own.
+ */
+function countLineBands(children: W2WNode[]): number {
+  const boxes = children
+    .filter((c) => c.width > 0.5 && c.height > 0.5)
+    .map((c) => ({ top: c.y, bottom: c.y + c.height }))
+    .sort((a, b) => a.top - b.top);
+
+  if (boxes.length === 0) return 0;
+
+  let bands = 1;
+  let bottom = boxes[0].bottom;
+  for (let i = 1; i < boxes.length; i++) {
+    if (boxes[i].top >= bottom) {
+      bands++;
+      bottom = boxes[i].bottom;
+    } else {
+      bottom = Math.max(bottom, boxes[i].bottom);
+    }
+  }
+  return bands;
+}
+
+/**
  * When parent has display:block (getLayoutMode returns NONE),
  * check if children's CSS indicates horizontal layout:
  * - float: left/right/inline-start/inline-end → children are side-by-side
@@ -1504,6 +1569,16 @@ function inferLayoutFromChildren(
     const f = str(cs.cssFloat);
     const d = str(cs.display);
 
+    // Float is EXPLICIT horizontal intent and must win over the inline-text
+    // classification below. telex.ge navbar: <a class="ac-title"> holds a
+    // float:left <i> icon whose subtree is all text (glyph + badge) — counting
+    // it as an inline-text frame hid the float, the all-inline rule is gated
+    // off for <a> parents, and the icon/label stacked vertically out of the bar.
+    if (f === 'left' || f === 'right' || f === 'inline-start' || f === 'inline-end') {
+      floatCount++;
+      continue;
+    }
+
     // Inline-text frames (span, a, strong, etc. with only text inside).
     // These stay as separate nodes inside a block parent (see Apple footer
     // case) but count as inline signal for layout inference.
@@ -1516,16 +1591,18 @@ function inferLayoutFromChildren(
       inlineBlockCount++;
       continue;
     }
-    if (f === 'left' || f === 'right' || f === 'inline-start' || f === 'inline-end') {
-      floatCount++;
-      continue;
-    }
     blockFrameCount++;
   }
 
-  // Any float → HORIZONTAL (float is explicit horizontal intent, even without
-  // sibling block children)
-  if (floatCount > 0) {
+  // Float → HORIZONTAL, but only while the children really do sit on ONE line.
+  // A float pulls its *inline* neighbours alongside it; it does not stop later
+  // block siblings from stacking below. telex.ge product cards are exactly
+  // that: a 14×14 float:left video badge between the cover image and the
+  // rating row, with name and price stacked underneath. Treating that as a row
+  // laid 841px of content across a 241px card, pushing the stars, title and
+  // price outside the clipped frame — present in the layer list, invisible on
+  // canvas. Measured geometry is the arbiter: multiple bands → not a row.
+  if (floatCount > 0 && countLineBands(children) <= 1) {
     return 'HORIZONTAL';
   }
 
@@ -1782,6 +1859,22 @@ function parseFills(
   }
 
   return fills;
+}
+
+/**
+ * Extract the grayscale amount (0…1) from a CSS `filter` value.
+ * `grayscale(1)` / `grayscale(100%)` → 1; `grayscale(0.4)` / `grayscale(40%)`
+ * → 0.4. Returns undefined when the filter has no grayscale() function.
+ * Amounts are clamped to [0, 1] (CSS clamps values over 100% the same way).
+ */
+function parseGrayscaleAmount(filter: string): number | undefined {
+  if (!filter || filter === 'none') return undefined;
+  const m = filter.match(/grayscale\(\s*([\d.]+)(%?)\s*\)/);
+  if (!m) return undefined;
+  const raw = parseFloat(m[1]);
+  if (isNaN(raw)) return undefined;
+  const amount = m[2] === '%' ? raw / 100 : raw;
+  return Math.max(0, Math.min(1, amount));
 }
 
 /**
@@ -2678,19 +2771,7 @@ function parseFontFamilyStack(fontFamily: string): string[] {
     .filter((f) => f.length > 0 && !f.startsWith('var(') && !CSS_FONT_KEYWORDS.has(f.toLowerCase()));
 }
 
-/**
- * True when the text is nothing but Private Use Area codepoints (plus
- * whitespace) — the signature of an icon-font glyph ( globe,  chevron).
- */
-function isPuaOnlyText(text: string): boolean {
-  const chars = text.replace(/\s+/g, '');
-  if (!chars) return false;
-  for (const ch of chars) {
-    const cp = ch.codePointAt(0);
-    if (cp === undefined || cp < 0xe000 || cp > 0xf8ff) return false;
-  }
-  return true;
-}
+// isPuaOnlyText moved to ../utils/fontUtils so text.ts can share it.
 
 /**
  * Decide whether a FRAME child should be skipped as invisible, applying the

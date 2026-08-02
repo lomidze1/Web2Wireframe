@@ -61,3 +61,89 @@
   border-color: var(--accent);
 }
 
+/* Error messages carry a dismiss button in the top-right corner, so the user
+   can clear them without switching tabs. */
+.dismissable {
+  position: relative;
+  padding-right: 28px;
+}
+
+.dismissBtn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity var(--transition-normal), background var(--transition-normal);
+}
+
+.dismissBtn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Bot-protection fallback — sits inside .statusMessage (a centered flex row),
+   so it re-establishes a left-aligned column of its own. */
+.blockedPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  line-height: 1.4;
+}
+
+.blockedBtn {
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-input);
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: background var(--transition-normal);
+}
+
+.blockedBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.blockedHint {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.blockedActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Shared by the anchors and the tab-switch button so they read alike. */
+.blockedLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+  text-decoration: underline;
+  cursor: pointer;
+  word-break: break-all;
+  text-align: left;
+}
+

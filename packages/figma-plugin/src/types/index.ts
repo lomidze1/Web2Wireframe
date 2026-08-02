@@ -50,6 +50,9 @@ export interface FigmaFill {
   elementHeight?: number;
   isImagePlaceholder?: boolean;
   imageUrl?: string; // URL for background-image (resolved from assets map)
+  // CSS filter: grayscale(N) mapped to Figma ImagePaint color adjustment —
+  // saturation in −1…0 (grayscale(1) → −1). Applied in fills.ts.
+  imageSaturation?: number;
   // Figma scale mode derived from CSS background-size/background-repeat
   // (contain → FIT, cover → FILL, tiling patterns → TILE). Default: FILL.
   scaleMode?: "FILL" | "FIT" | "CROP" | "TILE";
@@ -112,6 +115,11 @@ export interface WireframeNode {
   // Layout
   layoutMode: "HORIZONTAL" | "VERTICAL" | "NONE" | "GRID";
   itemSpacing: number;
+  // Distance between WRAPPED tracks (CSS row-gap on a horizontal flex row).
+  // Figma keeps this separate from itemSpacing and defaults it to 0, so a
+  // wrapped row whose CSS `gap` covered both axes collapsed its lines
+  // together. Only meaningful with flexWrap: "wrap".
+  counterAxisSpacing?: number;
   padding: { top: number; right: number; bottom: number; left: number };
   // Layout Alignment (for Auto Layout)
   justifyContent?: string; // CSS justify-content value
@@ -245,6 +253,9 @@ export interface WireframeNode {
   // CSS object-fit from the captured <img>/<video> — maps to the IMAGE fill's
   // scaleMode (cover → FILL, contain/none/scale-down → FIT). Default fill → FILL.
   objectFit?: string;
+  // CSS filter: grayscale(N) on this element (0…1). Applied as a saturation
+  // color adjustment on the element's IMAGE paints (realImages.ts / fills.ts).
+  filterGrayscale?: number;
 
   // Static CSS rotation in degrees (clockwise, from the computed transform
   // matrix). width/height/x/y remain the captured AABB; nodes.ts recovers the
@@ -305,6 +316,14 @@ export interface RenderWireframeData {
    *  registered under an anti-piracy-aliased name (e.g. CSS "Söhne" → installed
    *  "Copyright Klim Type Foundry") without the fallback modal. */
   fontRealNames?: Record<string, string>;
+  /** Per CSS family, the cuts its @font-face entries actually declare (the
+   *  download's supply side). The sandbox drops "missing" cuts no face can
+   *  provide — telex.ge fakes bold from a single 400 file, and offering the
+   *  nonexistent 700 reopened the font modal on every import. */
+  fontDeclaredCuts?: Record<string, Array<{ weight: number; italic: boolean }>>;
+  /** Screenshot import: export the rendered frame back to the UI so it can be
+   *  scored against the uploaded image. */
+  compareToSource?: boolean;
 }
 
 /** Map from missing/website font name → replacement font name */
@@ -348,6 +367,17 @@ export interface RenderContext {
   // pluginData write so a later rebind can swap Inter → original family
   // once the user installs the .zip-downloaded fonts.
   originalFontNames?: FontMapping;
+  // CSS family → real (SFNT) family, straight from the page's @font-face
+  // entries. Unlike `originalFontNames` this is set on EVERY website import,
+  // modal or not: a downloaded file often registers in Figma under the real
+  // name ("Space Grotesk" 600 installs as "Space Grotesk Light" / SemiBold),
+  // and without it the renderer collapses that weight to a nearest cut.
+  fontRealNames?: FontMapping;
+  // Per CSS family, the cuts its @font-face entries actually declare. Gates
+  // the `w2w_original_cut` marker: a weight no face can supply (telex.ge's
+  // faked bold) is nothing the download can fix, so it must not advertise a
+  // Re-apply.
+  fontDeclaredCuts?: Record<string, Array<{ weight: number; italic: boolean }>>;
   // Asset extraction mode
   assetMode?: "placeholders" | "realAssets";
   // Map from image URL → base64 data URI (for real asset rendering)

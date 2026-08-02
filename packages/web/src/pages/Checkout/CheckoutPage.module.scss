@@ -1,0 +1,215 @@
+/* Checkout — Classical layout, Flitt hosted-payment adaptation. */
+
+.page {
+  padding-top: 76px;
+}
+
+.head {
+  margin-bottom: 40px;
+}
+
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+  margin-bottom: 16px;
+}
+
+.title {
+  font-weight: 400;
+  font-size: 48px;
+  line-height: 1.06;
+  margin: 0 0 10px;
+  color: var(--color-text);
+}
+
+.lead {
+  font-size: 15px;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 44px;
+  align-items: start;
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.groupLabel {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  margin-bottom: 14px;
+}
+
+.periodGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Same active language as the import console's option buttons. */
+.periodCard {
+  font-family: var(--font-body);
+  text-align: left;
+  padding: 16px 18px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 120ms;
+}
+
+.periodCardActive {
+  background: #fdfcfb;
+  border-color: var(--color-accent);
+}
+
+.periodTitle {
+  font-family: var(--font-heading);
+  font-size: 21px;
+  color: var(--color-text);
+}
+
+.periodCardActive .periodTitle {
+  color: var(--color-accent-700);
+}
+
+.periodSub {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  font-feature-settings: "tnum";
+}
+
+.rule {
+  height: 1px;
+  background: var(--color-divider);
+}
+
+.points {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.point {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-neutral-700);
+}
+
+/* — order summary — */
+.orderCard {
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: 30px 32px;
+  background: var(--color-neutral-100);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.orderKicker {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+}
+
+.orderRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.orderLine {
+  font-size: 14px;
+  color: var(--color-neutral-800);
+}
+
+.orderAmount {
+  font-size: 14px;
+  font-feature-settings: "tnum";
+  color: var(--color-text);
+}
+
+.orderMuted {
+  font-size: 14px;
+  color: var(--color-neutral-700);
+}
+
+.dueLabel {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  color: var(--color-text);
+}
+
+.dueAmount {
+  font-family: var(--font-heading);
+  font-size: 34px;
+  line-height: 1;
+  font-feature-settings: "tnum";
+  color: var(--color-text);
+}
+
+.orderNote {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+/* Errors in the system's language — a hairline and text, no colored box. */
+.error {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--color-accent-800);
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-divider);
+}
+
+.finePrint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-neutral-600);
+  margin: 0;
+}
+
+/* — responsive — */
+@media (max-width: 1000px) {
+  .page {
+    padding-top: 48px;
+  }
+
+  .title {
+    font-size: 36px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+}
+
+@media (max-width: 640px) {
+  .periodGrid {
+    grid-template-columns: 1fr;
+  }
+}

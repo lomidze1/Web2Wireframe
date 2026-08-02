@@ -18,7 +18,7 @@ export interface DownscaledImage {
 /** Longest-side ceiling the AI vision API operates at. */
 export const MAX_IMAGE_DIMENSION = 1568;
 
-function loadImageElement(dataUrl: string): Promise<HTMLImageElement> {
+export function loadImageElement(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);

@@ -1104,6 +1104,16 @@ body {
   word-break: break-all;
 }
 
+/* Explanatory aside under the Usage row — smaller and lighter than
+   .plan-meta-row so it reads as a footnote, not another data row. The
+   negative top margin pulls it against the row it explains. */
+.plan-meta-note {
+  margin: -4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
 .plan-notice {
   /* Phase 4: was `display: flex` — that made <strong>/<span> children
      break inline text flow into separate flex items. Plain block lets

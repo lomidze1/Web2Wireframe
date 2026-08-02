@@ -213,9 +213,9 @@ import {
   getSmartTextColor,
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
-import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, isItalicStyle, orderStylesByProximity } from "./styles";
-import { isIconFont, stripFontStyleSuffix } from "../utils/fontUtils";
-import { isServerFallbackFamily } from "./rebindFonts";
+import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, fontCutExactStyles, isItalicStyle, orderStylesByProximity, parseStyleName } from "./styles";
+import { declaresCut, isIconFont, isPuaOnlyText, stripFontStyleSuffix } from "../utils/fontUtils";
+import { isServerFallbackFamily, ORIGINAL_CUT_PLUGIN_KEY } from "./rebindFonts";
 
 /** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
 const ICON_FONT_EXTRA_STYLES = ["Solid", "Brands", "Regular", "Bold", "Light", "Thin"];
@@ -570,8 +570,10 @@ export async function createTextNode(
   if (context?.fontMode === "plugin") {
     // Plugin mode: use fontMapping if available, otherwise single plugin font
     const nodeFont = node.fontFamily || fontFamily;
-    if (isIconFont(nodeFont)) {
-      // Preserve icon font — remapping would break glyph rendering
+    if (isIconFont(nodeFont) || isPuaOnlyText(node.textContent ?? "")) {
+      // Preserve icon font — remapping would break glyph rendering.
+      // PUA-only text is an icon glyph even when the family name doesn't
+      // match the known icon-font list (site-specific fonts like "glyphs").
       targetFont = nodeFont;
     } else if (context.fontMapping && context.fontMapping[nodeFont]) {
       targetFont = context.fontMapping[nodeFont];
@@ -613,8 +615,11 @@ export async function createTextNode(
     return null;
   };
 
-  // Build list of styles to try (icon fonts get extra FA-specific styles)
-  const isIcon = isIconFont(targetFont);
+  // Build list of styles to try (icon fonts get extra FA-specific styles).
+  // PUA-only text counts as icon regardless of the family name, so unknown
+  // site icon fonts never walk the CSS fallback chain into a text font
+  // (which would render the glyph as mojibake).
+  const isIcon = isIconFont(targetFont) || isPuaOnlyText(node.textContent ?? "");
   const allStylesToTry = isIcon
     ? Array.from(new Set([...fontStyles, ...ICON_FONT_EXTRA_STYLES]))
     : fontStyles;
@@ -667,6 +672,43 @@ export async function createTextNode(
             loaded = true;
             break;
           }
+        }
+      }
+    }
+  }
+
+  // Step 0.5: Real-family exact cut. The no-modal counterpart of Step 0 — it
+  // runs when the family was NOT mapped away, i.e. the availability check
+  // considered this family fine. A downloaded cut often registers under the
+  // family's real (SFNT) name rather than its CSS name: web2wireframe.design's
+  // Space Grotesk 600 installs as "Space Grotesk Light" / SemiBold. Without
+  // this, Step 1's candidate ladder would silently settle for Bold.
+  //
+  // Only the EXACT cut justifies switching families, and only when the CSS
+  // family can't supply it — otherwise a page whose 400 and 700 render fine
+  // would have every node renamed to the real family.
+  let resolvedViaRealFamily = false;
+  if (
+    !loaded &&
+    !isIcon &&
+    context?.fontMode === "website" &&
+    node.fontFamily &&
+    targetFont === node.fontFamily
+  ) {
+    const realName = context.fontRealNames?.[node.fontFamily];
+    if (realName && realName !== node.fontFamily) {
+      const exact = fontCutExactStyles(node.fontWeight, isItalicStyle(node.fontStyle));
+      const ownStyle = await tryLoadWithStyles(targetFont, exact);
+      if (ownStyle) {
+        mainFontStyle = ownStyle;
+        loaded = true;
+      } else {
+        const realStyle = await tryLoadWithStyles(realName, exact);
+        if (realStyle) {
+          usedFontFamily = realName;
+          mainFontStyle = realStyle;
+          loaded = true;
+          resolvedViaRealFamily = true;
         }
       }
     }
@@ -819,10 +861,15 @@ export async function createTextNode(
   // them installable, so a tofu glyph becomes recoverable via Re-apply.
   // No marker when the rendered family already IS the marker target
   // (Step 0 applied the real SFNT name directly).
+  // Step 0.5 resolutions are excluded: the node already shows the exact cut the
+  // page asked for, just registered under the real family name. A marker there
+  // would advertise a Re-apply with nothing to do.
+  let stampedFamilyMarker = false;
   if (
     context?.fontMode === "website" &&
     node.fontFamily &&
-    usedFontFamily !== node.fontFamily
+    usedFontFamily !== node.fontFamily &&
+    !resolvedViaRealFamily
   ) {
     const markerName = context.originalFontNames?.[node.fontFamily] || node.fontFamily;
     // No marker for Linux server fallback families (Liberation Sans,
@@ -831,6 +878,52 @@ export async function createTextNode(
     if (markerName && markerName !== usedFontFamily && !isServerFallbackFamily(markerName)) {
       try {
         textNode.setPluginData("w2w_original_font", markerName);
+        stampedFamilyMarker = true;
+      } catch {
+        // setPluginData unavailable in some test environments; non-fatal.
+      }
+    }
+  }
+
+  // Cut-level marker: the family landed correctly but the WEIGHT didn't — a
+  // 600 heading rendered with the family's Bold because no 600 file is
+  // installed. The family marker above never fires here (same family in and
+  // out), so before this the download was a dead end: install the file and
+  // nothing could apply it. Recording the wanted cut lets "Re-apply fonts"
+  // pick it up. Gated on a declared @font-face at that weight — telex.ge fakes
+  // bold from a single 400 file, and offering a Re-apply for a cut that exists
+  // nowhere is the same noise the download modal was taught to avoid.
+  if (
+    context?.fontMode === "website" &&
+    !stampedFamilyMarker &&
+    !resolvedViaRealFamily &&
+    !isIcon &&
+    node.fontFamily &&
+    !isServerFallbackFamily(node.fontFamily)
+  ) {
+    const realName = context.fontRealNames?.[node.fontFamily];
+    const familyIsRight =
+      usedFontFamily === node.fontFamily || usedFontFamily === realName;
+    const wantItalic = isItalicStyle(node.fontStyle);
+    const applied = parseStyleName(mainFontStyle);
+    if (
+      familyIsRight &&
+      (applied.weight !== node.fontWeight || applied.italic !== wantItalic) &&
+      declaresCut(context.fontDeclaredCuts?.[node.fontFamily], {
+        weight: node.fontWeight,
+        italic: wantItalic,
+      })
+    ) {
+      // Both names, real one first: at render time we can't know which the
+      // user's eventual install will register under.
+      const families = Array.from(
+        new Set([...(realName ? [realName] : []), node.fontFamily]),
+      );
+      try {
+        textNode.setPluginData(
+          ORIGINAL_CUT_PLUGIN_KEY,
+          JSON.stringify({ families, weight: node.fontWeight, italic: wantItalic }),
+        );
       } catch {
         // setPluginData unavailable in some test environments; non-fatal.
       }
@@ -994,7 +1087,7 @@ export async function createTextNode(
       let segFontFamily: string;
       if (context?.fontMode === "plugin") {
         const segFont = segment.fontFamily || usedFontFamily;
-        if (isIconFont(segFont)) {
+        if (isIconFont(segFont) || isPuaOnlyText(segment.text ?? "")) {
           // Preserve icon font — remapping would break glyph rendering
           segFontFamily = segFont;
         } else if (context.fontMapping && context.fontMapping[segFont]) {
@@ -1013,7 +1106,7 @@ export async function createTextNode(
         }
       }
 
-      const isSegIcon = isIconFont(segFontFamily);
+      const isSegIcon = isIconFont(segFontFamily) || isPuaOnlyText(segment.text ?? "");
       const segStylesToTry = isSegIcon
         ? Array.from(new Set([...segCandidates, ...ICON_FONT_EXTRA_STYLES]))
         : segCandidates;

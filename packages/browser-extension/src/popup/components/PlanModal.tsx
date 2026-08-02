@@ -454,6 +454,12 @@ function LoadedView({
           <span>Usage</span>
           <span class="plan-meta-value">{limitText(license)}</span>
         </div>
+        {/* Capturing in the browser is free and unmetered — the count only
+            moves in Figma. Says so here so the number isn't read as a cap on
+            captures. */}
+        <p class="plan-meta-note">
+          Imports are counted when you open a .w2w file in the Figma plugin.
+        </p>
         <div class="plan-meta-row">
           <span>{isPro ? "Access expires" : "Cycle resets"}</span>
           <span class="plan-meta-value">{inDaysPhrase(license.cycleEndsAt)}</span>

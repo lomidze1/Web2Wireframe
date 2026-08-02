@@ -201,6 +201,14 @@ export function shouldUseAutoLayout(
 // ============================================================================
 
 /**
+ * Renderer recursion cap. MUST be ≥ the extractor's MAX_DEPTH (30, see
+ * browser-extension content/extractor.ts) plus headroom for converter-added
+ * wrapper levels (pseudo-element wrappers, margin wrappers). Kept exported so
+ * tests can assert the invariant against the capture-side cap.
+ */
+export const MAX_RENDER_DEPTH = 40;
+
+/**
  * Recursively create Figma nodes from tree structure
  */
 export async function createNodeInFigma(
@@ -208,8 +216,12 @@ export async function createNodeInFigma(
   context: RenderContext,
   depth: number = 0
 ): Promise<SceneNode | null> {
-  // Depth limit to prevent infinite recursion
-  if (depth > 20) {
+  // Depth limit to prevent runaway recursion. The extractor emits trees up to
+  // 30 levels deep (extractor MAX_DEPTH) and the converter can add wrapper
+  // levels (pseudo-element spans, margin wrappers), so the renderer cap must
+  // sit ABOVE the capture cap — a tighter cap here silently truncates real
+  // page content (telex.ge product prices live at DOM depth 21+).
+  if (depth > MAX_RENDER_DEPTH) {
     logger.warn("Max depth reached", { nodeId: node.id, depth });
     return null;
   }
@@ -314,8 +326,18 @@ export async function createNodeInFigma(
   frame.name = node.name || "Container";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
+  // Figma auto-layout cannot express column-wrap — `layoutWrap: WRAP` is
+  // HORIZONTAL-only — so a `flex-direction: column; flex-wrap: wrap` container
+  // would collapse its 2-D layout into a single column (telex.ge blog grid:
+  // one tall post beside a 3×2 grid of small ones). Fall back to absolute
+  // placement, where the captured x/y already carry the exact 2-D positions.
+  const isColumnWrap =
+    (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") &&
+    node.layoutMode === "VERTICAL";
+
   // Apply Auto Layout: global autoLayout mode OR node has its own layout (e.g. card with VERTICAL)
-  const useAutoLayout = shouldUseAutoLayout(context.layoutMode, node.layoutMode);
+  const useAutoLayout =
+    shouldUseAutoLayout(context.layoutMode, node.layoutMode) && !isColumnWrap;
   const isGrid = node.layoutMode === "GRID" && context.layoutMode !== "absolute";
 
   let gridApplied = false;
@@ -378,9 +400,25 @@ export async function createNodeInFigma(
     // text-align fallback for non-flex block containers
     applyTextAlignFallback(frame, node.textAlign, node.justifyContent, node.alignItems);
 
-    // Apply flex-wrap
-    if (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") {
+    // Apply flex-wrap. Figma allows WRAP only on HORIZONTAL auto-layout, and
+    // setting it elsewhere THROWS — an exception the parent's per-child
+    // try/catch swallows, deleting the whole subtree. A block container can
+    // still report `flex-wrap: wrap` when JS overrides its display inline
+    // (telex.ge `.ab-fn-first-level`: `display:flex` in CSS, `display:block`
+    // set by owl-carousel), and that combination lost eleven subtrees per
+    // import — including the entire category-circles block.
+    if (
+      (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") &&
+      frame.layoutMode === "HORIZONTAL"
+    ) {
       frame.layoutWrap = "WRAP";
+      // CSS `gap` covers both axes; Figma splits them and defaults the
+      // cross-axis one to 0. Without this, every wrapped row rendered its
+      // lines flush against each other (web2wireframe.design's hero: the CTA
+      // button sat 13.6px too high, touching the feature list above it).
+      if (node.counterAxisSpacing && node.counterAxisSpacing > 0) {
+        frame.counterAxisSpacing = node.counterAxisSpacing;
+      }
     }
 
     if (node.itemSpacing > 0) {
@@ -592,8 +630,16 @@ export async function createNodeInFigma(
     // Sort flex children by CSS order property (visual reordering)
     const orderSorted = sortByFlexOrder(gridSorted, node.layoutMode);
 
-    // Sort for correct stacking (bg images to front; z-index only in absolute mode)
-    const childrenToRender = sortChildrenForStacking(orderSorted, node.layoutMode);
+    // Sort for correct stacking (bg images to front; z-index only in absolute mode).
+    // IMPORTANT: pass the layout mode the frame will ACTUALLY use, not the
+    // CSS-derived node.layoutMode. In global autoLayout mode a plain block
+    // container (node.layoutMode "NONE") still renders as VERTICAL auto-layout,
+    // where children are placed by FLOW order — z-index must not reorder them
+    // (telex.ge: header has z-index:5 and was pushed to the page bottom).
+    const childrenToRender = sortChildrenForStacking(
+      orderSorted,
+      effectiveStackingLayoutMode(gridApplied, useAutoLayout, node.layoutMode)
+    );
 
     // Grid: build the linear append sequence with `null` spacer cells so that
     // children with an explicit grid-column/grid-row land in the right cell
@@ -1943,10 +1989,42 @@ export function sortByFlexOrder(
 }
 
 /**
+ * Resolve the layout mode a container frame will ACTUALLY render with, for
+ * stacking decisions. `node.layoutMode` alone is wrong: in global autoLayout
+ * mode, a block container with layoutMode "NONE" is still rendered as a
+ * VERTICAL auto-layout frame (children placed by flow order), so z-index
+ * must not reorder its children. Conversely in absolute mode every child is
+ * positioned by x/y, where z-index ordering is exactly right.
+ */
+export function effectiveStackingLayoutMode(
+  gridApplied: boolean,
+  useAutoLayout: boolean,
+  nodeLayoutMode: WireframeNode["layoutMode"]
+): WireframeNode["layoutMode"] {
+  if (gridApplied) return "GRID";
+  if (!useAutoLayout) return "NONE";
+  return nodeLayoutMode && nodeLayoutMode !== "NONE" && nodeLayoutMode !== "GRID"
+    ? nodeLayoutMode
+    : "VERTICAL";
+}
+
+/**
+ * Out of normal flow AND explicitly stacked behind its siblings — the one case
+ * where reordering a child under auto-layout is safe and necessary.
+ */
+function isBehindSiblings(child: WireframeNode): boolean {
+  return (
+    (child.position === "absolute" || child.position === "fixed") &&
+    (child.zIndex ?? 0) < 0
+  );
+}
+
+/**
  * Sort children for correct visual stacking in Figma:
  * 1. Move abs-positioned image-only containers to front (behind = background)
- * 2. Sort by z-index ONLY in absolute mode (layoutMode=NONE) — in auto-layout,
- *    z-index sorting would break DOM flow order (e.g., buttons above text)
+ * 2. Sort by z-index — fully in absolute mode (layoutMode=NONE), but in
+ *    auto-layout only for out-of-flow children, since reordering in-flow ones
+ *    would break DOM order (e.g., buttons above text)
  *
  * @param parentLayoutMode - parent's layoutMode ("NONE" for absolute, "VERTICAL"/"HORIZONTAL"/"GRID" for auto-layout)
  */
@@ -1974,10 +2052,21 @@ export function sortChildrenForStacking(
     ? [...bgImages, ...rest]
     : children;
 
-  // Step 2: Z-index sort — ONLY in absolute positioning mode.
-  // In auto-layout (VERTICAL/HORIZONTAL/GRID), z-index affects visual stacking
-  // but NOT layout flow. Reordering would break DOM order (e.g., buttons above text).
-  if (parentLayoutMode !== "NONE") return result;
+  // Step 2: In auto-layout (VERTICAL/HORIZONTAL/GRID) children are laid out in
+  // child order, so a general z-index sort would break DOM flow (e.g. buttons
+  // above text). Out-of-flow children are the exception: Figma gives them
+  // layoutPositioning "ABSOLUTE" and skips them when laying out, so their order
+  // only affects paint. A negative z-index puts such a child BEHIND its
+  // siblings in CSS — leaving it last paints it on top and hides them, which is
+  // how stripe.com's header background covered the entire nav.
+  if (parentLayoutMode !== "NONE") {
+    const behind = result.filter(isBehindSiblings);
+    if (behind.length === 0) return result;
+    return [
+      ...behind.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
+      ...result.filter((c) => !isBehindSiblings(c)),
+    ];
+  }
 
   const hasZIndex = result.some(c => c.zIndex != null);
   if (!hasZIndex) return result;

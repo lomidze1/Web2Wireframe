@@ -21,8 +21,9 @@
  *     a no-op for the same node.
  */
 
-import { fontStyleCandidates, orderStylesByProximity, parseStyleName } from "./styles";
+import { fontCutExactStyles, fontStyleCandidates, orderStylesByProximity, parseStyleName } from "./styles";
 import { isServerFallbackFamily } from "../utils/fontUtils";
+import { logger } from "../utils/logger";
 
 // Re-exported so the rebind-side callers (text.ts, tests) keep importing the
 // predicate from here even though it now lives with the other font-family
@@ -38,6 +39,40 @@ export const ORIGINAL_FONT_PLUGIN_KEY = "w2w_original_font";
  *  runs that already show their correct font (e.g. a Newsreader <em>) intact —
  *  the node-level `ORIGINAL_FONT_PLUGIN_KEY` only records the primary family. */
 export const SEGMENT_FONT_PLUGIN_KEY = "w2w_original_font_segments";
+
+/** Pluginata key stamped when the FAMILY rendered correctly but the WEIGHT
+ *  didn't — a 600 heading drawn with the family's Bold because no 600 file is
+ *  installed. JSON `{ families, weight, italic }`; `families` lists the CSS
+ *  name and its real (SFNT) name, real first, because a later install may
+ *  register under either. Self-contained so {@link countRebindableNodes} stays
+ *  a pure read of pluginData. */
+export const ORIGINAL_CUT_PLUGIN_KEY = "w2w_original_cut";
+
+/** Parsed {@link ORIGINAL_CUT_PLUGIN_KEY} payload. */
+export interface PendingCut {
+  families: string[];
+  weight: number;
+  italic: boolean;
+}
+
+/** Read a cut marker, tolerating corrupt/legacy payloads (→ `null`). */
+export function parsePendingCut(json: string): PendingCut | null {
+  if (!json) return null;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    const cut = parsed as Partial<PendingCut> | null;
+    if (!cut || typeof cut.weight !== "number" || !Array.isArray(cut.families)) {
+      return null;
+    }
+    const families = cut.families.filter(
+      (f): f is string => typeof f === "string" && !isServerFallbackFamily(f),
+    );
+    if (families.length === 0) return null;
+    return { families, weight: cut.weight, italic: cut.italic === true };
+  } catch {
+    return null;
+  }
+}
 
 /** Pluginata key stamped on a text node *after* a successful rebind. Carries
  *  the family the node was rebound to. Survives the clearing of
@@ -81,6 +116,17 @@ export function countRebindableNodes(
   for (const n of nodes) {
     const fam = n.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
     const segJson = n.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
+    // A cut marker counts on its own: the family is already right, so the
+    // family/segment markers stay empty even though a weight is pending.
+    const cut = fam || segJson
+      ? null
+      : parsePendingCut(n.getPluginData(ORIGINAL_CUT_PLUGIN_KEY));
+    if (cut) {
+      count++;
+      families.add(cut.families[0]);
+      layers.push({ id: n.id, name: n.name, families: [cut.families[0]] });
+      continue;
+    }
     if (!fam && !segJson) continue;
     // Server-fallback families (Liberation Sans, Noto * CJK …) are dead
     // markers — never installable via the ZIP. Exclude them so the footer
@@ -308,10 +354,75 @@ export async function rebindOriginalFonts(
   for (const node of nodes) {
     const originalFamily = node.getPluginData(ORIGINAL_FONT_PLUGIN_KEY);
     const segJson = node.getPluginData(SEGMENT_FONT_PLUGIN_KEY);
-    if (!originalFamily && !segJson) continue;
+    const pendingCut =
+      originalFamily || segJson
+        ? null
+        : parsePendingCut(node.getPluginData(ORIGINAL_CUT_PLUGIN_KEY));
+    if (!originalFamily && !segJson && !pendingCut) continue;
     total++;
 
     const charsPreview = (node.characters || "").slice(0, 40).replace(/\s+/g, " ");
+
+    // Cut-level pending: the family is already correct, only the weight is
+    // wrong. Accept the EXACT cut and nothing else — the ladder used below for
+    // family rebinds would happily re-apply the same near cut the user is
+    // trying to replace, clear the marker, and call it a success.
+    if (pendingCut) {
+      const requestedStyle = fontCutExactStyles(pendingCut.weight, pendingCut.italic)[0];
+      if (node.fontName === figma.mixed) {
+        skippedMixed++;
+        perNode.push({
+          nodeId: node.id, family: pendingCut.families[0], requestedStyle,
+          outcome: "skippedMixed", attemptsTried: 0, chars: charsPreview,
+        });
+        continue;
+      }
+
+      let applied: { family: string; style: string } | null = null;
+      let attempts = 0;
+      for (const family of pendingCut.families) {
+        for (const style of fontCutExactStyles(pendingCut.weight, pendingCut.italic)) {
+          attempts++;
+          try {
+            await figma.loadFontAsync({ family, style });
+            applied = { family, style };
+            break;
+          } catch {
+            /* try the next spelling / family */
+          }
+        }
+        if (applied) break;
+      }
+
+      if (!applied) {
+        stillMissing.add(pendingCut.families[0]);
+        perNode.push({
+          nodeId: node.id, family: pendingCut.families[0], requestedStyle,
+          outcome: "stillMissing", attemptsTried: attempts, chars: charsPreview,
+        });
+        continue;
+      }
+
+      try {
+        node.fontName = applied;
+        node.setPluginData(ORIGINAL_CUT_PLUGIN_KEY, "");
+        node.setPluginData(REBOUND_DONE_PLUGIN_KEY, applied.family);
+        rebound++;
+        perNode.push({
+          nodeId: node.id, family: applied.family, requestedStyle,
+          outcome: "rebound", appliedStyle: applied.style,
+          attemptsTried: attempts, chars: charsPreview,
+        });
+      } catch (err) {
+        perNode.push({
+          nodeId: node.id, family: applied.family, requestedStyle,
+          outcome: "setFailed", appliedStyle: applied.style,
+          attemptsTried: attempts, chars: charsPreview,
+          firstError: err instanceof Error ? err.message : String(err),
+        });
+      }
+      continue;
+    }
 
     // Mixed-style text: a single block can mix SEVERAL real families (e.g.
     // paco.me: Söhne body + a Newsreader-italic <em>). The render stamps a
@@ -404,9 +515,15 @@ export async function rebindOriginalFonts(
           }
           try {
             node.setRangeFontName(r.start, r.end, { family: originalFamily, style: loaded });
-          } catch {
+          } catch (err) {
             allRunsSet = false;
             stillMissing.add(originalFamily);
+            fbTrace.attempts.push({
+              family: originalFamily,
+              style: loaded,
+              ok: false,
+              error: `setRangeFontName(${r.start},${r.end}): ${err instanceof Error ? err.message : String(err)}`,
+            });
           }
         }
 
@@ -469,9 +586,18 @@ export async function rebindOriginalFonts(
         try {
           node.setRangeFontName(s.start, s.end, { family: s.family, style: loaded });
           anyRunSet = true;
-        } catch {
+        } catch (err) {
           allRunsSet = false;
           stillMissing.add(s.family);
+          // Record WHY the set failed (e.g. "Range outside the bounds of the
+          // node" when instance text was overridden after the marker was
+          // stamped) — a font-load failure it is not, and the trace must say so.
+          segTrace.attempts.push({
+            family: s.family,
+            style: loaded,
+            ok: false,
+            error: `setRangeFontName(${s.start},${s.end}): ${err instanceof Error ? err.message : String(err)}`,
+          });
         }
       }
 
@@ -594,9 +720,23 @@ export async function rebindOriginalFonts(
     }
   }
 
-  // Per-node breakdown is collected for future diagnostics but not logged in
-  // normal runs (Figma's sandbox lacks console.table; plain logs are noisy).
-  void perNode;
+  // Surface every non-success in the dev log (logger is a no-op in prod).
+  // "149/181 rebound" alone can't say WHY 32 nodes stayed behind — the
+  // per-node firstError distinguishes a font that won't load from a
+  // setRangeFontName that throws on stale segment offsets.
+  const failures = perNode.filter(
+    (p) => p.outcome !== "rebound" && p.outcome !== "healedFallback",
+  );
+  if (failures.length > 0) {
+    logger.info("Re-apply failures", {
+      count: failures.length,
+      installedStylesForMissing: Array.from(stillMissing).map((f) => ({
+        family: f,
+        styles: installedStyles.get(f) ?? "(absent from listAvailableFontsAsync)",
+      })),
+      failures: failures.slice(0, 40),
+    });
+  }
 
   return {
     rebound,
