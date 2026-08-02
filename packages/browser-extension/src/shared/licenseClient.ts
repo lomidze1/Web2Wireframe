@@ -309,7 +309,9 @@ const delay = (ms: number, signal?: AbortSignal): Promise<void> =>
 export async function connectFigma(signal?: AbortSignal): Promise<License> {
   const nonce = generateNonce();
   const baseUrl = await getBaseUrl();
-  chrome.tabs.create({
+  // Keep the tab id: the callback page's own window.close() is a no-op on a
+  // tab the page didn't open, so the tab we created is ours to clean up.
+  const tab = await chrome.tabs.create({
     url: `${baseUrl}/auth/figma/login?plugin_nonce=${encodeURIComponent(nonce)}`,
     active: true,
   });
@@ -360,6 +362,12 @@ export async function connectFigma(signal?: AbortSignal): Promise<License> {
     const session = await getSession();
     if (session && license.email !== session.email) {
       await setSession({ ...session, email: license.email });
+    }
+    // Success only. On timeout or cancellation the tab is left alone — it may
+    // be showing the OAuth error page, and closing it would take away the only
+    // explanation the user gets. Swallow failures: the user may have closed it.
+    if (tab.id != null) {
+      await chrome.tabs.remove(tab.id).catch(() => undefined);
     }
     return license;
   }

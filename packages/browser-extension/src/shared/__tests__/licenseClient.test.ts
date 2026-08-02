@@ -293,12 +293,21 @@ describe("decodeTokenUserId", () => {
 // ---------------------------------------------------------------------------
 
 describe("connectFigma", () => {
+  let tabs: { create: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
+
   beforeEach(() => {
-    // Stub chrome.tabs.create so the test doesn't try to open a real tab.
+    // Stub chrome.tabs so the test doesn't open a real tab. `create` resolves
+    // to a tab with an id, which connectFigma keeps so it can close the tab
+    // itself — the OAuth page's own window.close() is blocked on tabs the
+    // page didn't open.
+    tabs = {
+      create: vi.fn(async () => ({ id: 42 })),
+      remove: vi.fn(async () => undefined),
+    };
     vi.stubGlobal("chrome", {
       ...((globalThis as { chrome?: unknown }).chrome as object | undefined),
       storage: { local: storage },
-      tabs: { create: vi.fn() },
+      tabs,
     });
   });
 
@@ -336,6 +345,38 @@ describe("connectFigma", () => {
       expect(persisted?.figmaUserId).toBe("u-7");
       expect(persisted?.email).toBe("u7@example.com");
       expect(persisted?.cachedLicense?.figmaUserId).toBe("u-7");
+      // The OAuth tab is ours to clean up — the page can't close itself.
+      expect(tabs.remove).toHaveBeenCalledWith(42);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still resolves when the user already closed the OAuth tab", async () => {
+    tabs.remove.mockRejectedValue(new Error("No tab with id: 42."));
+    const token = makeToken({ userId: "u-8", iat: 1, exp: 9999999999 });
+    const license = fakeLicense({ figmaUserId: "u-8" });
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            pending: false,
+            token,
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(license), { status: 200 }),
+      );
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await expect(lc.connectFigma()).resolves.toMatchObject({
+        figmaUserId: "u-8",
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -356,5 +397,8 @@ describe("connectFigma", () => {
     setTimeout(() => controller.abort(), 50);
     await expect(promise).rejects.toThrow();
     expect(await session.getSession()).toBeNull();
+    // Left open on purpose — the tab may be showing the OAuth error page, and
+    // closing it would destroy the only explanation the user gets.
+    expect(tabs.remove).not.toHaveBeenCalled();
   });
 });
