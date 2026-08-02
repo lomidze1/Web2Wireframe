@@ -1,156 +1,108 @@
 .footer {
-  border-top: 1px solid var(--border);
-  background-color: var(--text);
-  color: #f2f4f8;
-  margin-top: 4rem;
+  margin-top: 104px;
+  border-top: 1px solid var(--color-divider);
+}
+
+/* — newsletter row (moved here from the retired MyUserModal) — */
+.newsletterRow {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding-top: 32px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.newsletterLabel {
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  margin-right: auto;
+}
+
+.newsletterForm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.newsletterInput {
+  width: 240px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--color-text);
+  caret-color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+}
+
+.newsletterInput:hover {
+  border-color: var(--color-neutral-500);
+}
+
+.newsletterInput:focus-visible {
+  border-color: var(--color-accent);
+  outline-offset: 0;
+}
+
+.newsletterStatus {
+  font-size: 12.5px;
+  color: var(--color-neutral-600);
+  min-width: 0;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .inner {
-  display: grid;
-  gap: 1rem;
-  padding: 2.5rem 0;
-
-  p {
-    color: #f2f4f8;
-  }
-}
-
-.brandBlock {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.brandBlock p {
-  color: #f2f4f8;
-  line-height: 1.6;
-}
-
-.logoBlock {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: fit-content;
-}
-
-.logoBlock strong {
-  color: var(--color-logo);
-  margin: 0;
-}
-
-.logoImage {
-  width: 48px;
-  height: 48px;
-  object-fit: contain;
-  display: block;
-  filter: drop-shadow(0 14px 30px rgba(59, 130, 246, 0.32));
-}
-
-.columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 1.2rem;
-  // text-align: center;
-}
-
-.columns h4 {
-  min-width: fit-content;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 3rem;
-  border-radius: 12px;
-  color: var(--surface);
-  align-self: flex-start;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.columns a {
-  display: block;
-  color: rgba(242, 244, 248, 0.9);
-  margin: 0.35rem 0;
-  width: fit-content;
-}
-
-.columns a:hover {
-  color: white;
-}
-
-// Style a <button> inside the columns grid identically to <a> links so the
-// "Get Pro" trigger blends in. Underline on hover for affordance.
-.linkButton {
-  display: block;
-  color: rgba(242, 244, 248, 0.9);
-  margin: 0.35rem 0;
-  width: fit-content;
-  background: transparent;
-  border: none;
-  padding: 0;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.linkButton:hover {
-  color: white;
-  text-decoration: underline;
-}
-
-.ctaBlock {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.2),
-    rgba(59, 130, 246, 0.05)
-  );
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-md);
-  padding: 1.8rem;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-}
-
-.ctaBlock h3 {
-  margin-bottom: 1rem;
-}
-
-.actions {
-  display: flex;
+  align-items: baseline;
+  gap: 40px;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  padding-top: 28px;
+  padding-bottom: 56px;
 }
 
-.bottom {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 1rem 0;
+.brand {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 19px;
+  margin-right: auto;
+  color: var(--color-text);
 }
 
-.bottom span {
-  color: var(--accent-strong);
-}
-
-.bottom div {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  color: rgba(242, 244, 248, 0.75);
-  font-size: 0.95rem;
-}
-
-@media (max-width: 720px) {
-  .brandBlock {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .bottom div {
-    flex-direction: column;
-  }
-}
-
-.email {
+.link {
+  font-size: 13px;
+  color: var(--color-accent-700);
   text-decoration: underline;
-  text-underline-offset: 6px;
-  color: var(--accent-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.link:hover {
+  color: var(--color-accent-600);
+}
+
+.copyright {
+  font-size: 13px;
+  color: var(--color-neutral-600);
+  font-feature-settings: "tnum";
+}
+
+@media (max-width: 640px) {
+  .inner {
+    gap: 16px 24px;
+  }
 }

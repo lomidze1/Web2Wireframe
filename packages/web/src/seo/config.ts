@@ -16,7 +16,7 @@ import { docsNavigation } from "../pages/Docs/data/docsStructure";
  * to a unique URL path so Google never sees duplicate <title> across docs.
  * Order matches `docsNavigation` topic ordering.
  */
-const DOCS_PAGE_SEO: Record<
+export const DOCS_PAGE_SEO: Record<
   string,
   { title: string; description: string }
 > = {
@@ -155,7 +155,7 @@ export const seoConfig: Record<string, SeoConfig> = {
     title:
       "Web2Wireframe — Convert Any Website Into Editable Figma Wireframes",
     description:
-      "Turn any website into clean, editable Figma wireframes in minutes. Capture layouts, structure, fonts, and styles with our Figma plugin. Free tier available.",
+      "Decide how the wireframe comes out — before it lands in Figma. Configure layout, text, assets, colours, fonts and variables up front, then import any website. Free tier available.",
     canonical: `${SITE_URL}/`,
     ogType: "website",
     twitterCard: "summary_large_image",
@@ -166,7 +166,7 @@ export const seoConfig: Record<string, SeoConfig> = {
   "/how-it-works": {
     title: "How It Works — Web2Wireframe",
     description:
-      "Learn how Web2Wireframe converts websites to Figma wireframes in 5 simple steps. Paste a URL, adjust settings, click import, and edit in Figma.",
+      "Five steps, about a minute: pick a source, open W2W in Figma, hand it the page, set the options, import. Learn every import option and when to change it.",
     canonical: `${SITE_URL}/how-it-works`,
     ogType: "article",
     jsonLd: [
@@ -242,6 +242,25 @@ export const seoConfig: Record<string, SeoConfig> = {
         { name: "Privacy", url: "/privacy" },
       ]),
     ],
+  },
+  // Session-driven pages — real titles for the tab/history, but noindex:
+  // they render per-user state and have no value in the index (robots.txt
+  // also disallows them).
+  "/signin": {
+    title: "Sign in — Web2Wireframe",
+    description:
+      "Sign in with Figma to see your Web2Wireframe plan and import quota. Same account as the plugin — no password.",
+    canonical: `${SITE_URL}/signin`,
+    ogType: "website",
+    noindex: true,
+  },
+  "/checkout": {
+    title: "Checkout — Web2Wireframe Pro",
+    description:
+      "Upgrade to Web2Wireframe Pro. One-time payment, no auto-renewal — handled securely by Flitt.",
+    canonical: `${SITE_URL}/checkout`,
+    ogType: "website",
+    noindex: true,
   },
   // S-C3: spread the 16 generated docs entries here so a missed lookup
   // falls back to the home page only when the route truly isn't a docs page.

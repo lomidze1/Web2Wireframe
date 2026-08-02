@@ -9,7 +9,9 @@ import Terms from "./pages/Terms&conditions/Terms";
 import Privacy from "./pages/Privacy/Privacy";
 import CheckoutSuccess from "./pages/Checkout/CheckoutSuccess";
 import CheckoutCancel from "./pages/Checkout/CheckoutCancel";
+import CheckoutPage from "./pages/Checkout/CheckoutPage";
 import Account from "./pages/Account/Account";
+import Signin from "./pages/Signin/Signin";
 import Renew from "./pages/Renew/Renew";
 import { docsNavigation } from "./pages/Docs/data/docsStructure";
 
@@ -50,9 +52,11 @@ export default function AppRoutes(): ReactElement {
       <Route path="/support" element={<Support />} />
       <Route path="/terms" element={<Terms />} />
       <Route path="/privacy" element={<Privacy />} />
+      <Route path="/checkout" element={<CheckoutPage />} />
       <Route path="/checkout/success" element={<CheckoutSuccess />} />
       <Route path="/checkout/cancel" element={<CheckoutCancel />} />
       <Route path="/account" element={<Account />} />
+      <Route path="/signin" element={<Signin />} />
       <Route path="/renew" element={<Renew />} />
     </Routes>
   );

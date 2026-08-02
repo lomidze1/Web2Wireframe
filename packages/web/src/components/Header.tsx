@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import MyUserModal from "./MyUserModal";
+import { installLinks } from "../data/links";
+import { getChipLabel, getInitials } from "../pages/Account/accountLogic";
 import styles from "./Header.module.scss";
 
 type NavItem = {
@@ -10,7 +11,8 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { path: "/how-it-works", label: "How It Works" },
+  { path: "/", label: "Overview" },
+  { path: "/how-it-works", label: "How it works" },
   { path: "/pricing", label: "Pricing" },
   { path: "/docs", label: "Docs" },
 ];
@@ -18,7 +20,6 @@ const navItems: NavItem[] = [
 const Header = (): ReactElement => {
   const location = useLocation();
   const { user } = useAuth();
-  const [modalOpen, setModalOpen] = useState(false);
   // S-H6: mobile nav state. Hamburger toggles the panel at <768px; the
   // existing inline `<nav>` is hidden on narrow viewports via CSS so it
   // no longer wraps/overflows the brand row.
@@ -27,6 +28,10 @@ const Header = (): ReactElement => {
   const isTermsPage = location.pathname.startsWith("/terms");
   const isPrivacyPage = location.pathname.startsWith("/privacy");
   const isStaticHeader = isDocsPage || isTermsPage || isPrivacyPage;
+  // The loudest button on a payment screen must not point away from the
+  // purchase — the primary Install CTA is suppressed on Checkout/Success.
+  const isPaymentPage = location.pathname.startsWith("/checkout");
+  const isAccountPage = location.pathname.startsWith("/account");
 
   // Close the mobile menu on route change so a NavLink click doesn't leave
   // it hovering over the new page.
@@ -34,101 +39,85 @@ const Header = (): ReactElement => {
     setMobileNavOpen(false);
   }, [location.pathname]);
 
-  // Logged-out: text label "My User". Logged-in: render an avatar circle
-  // with a generic person icon. Universal symbol — no language dependency,
-  // no truncation issues regardless of email length. Full email + ID live
-  // one click away inside MyUserModal.
-
   return (
-    <>
-      <header
-        className={`${styles.header} ${isStaticHeader ? styles.headerStatic : ""}`}
-      >
-        <div className={`container ${styles.inner}`}>
-          <Link to="/" className={styles.brand}>
-            <img
-              src="/logo.svg"
-              alt="Web2Wireframe logo"
-              className={styles.logoMark}
-            />
-
-            <span className={styles.brandText}>
-              <strong>Web2Wireframe</strong>
-            </span>
-          </Link>
-          <nav
-            id="primary-mobile-nav"
-            className={`${styles.nav} ${
-              mobileNavOpen ? styles.navOpen : ""
-            }`}
-            aria-label="Primary"
-          >
-            {navItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  `${styles.link} ${isActive ? styles.active : ""}`
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-          <div className={styles.actions}>
-            {/* S-H6: hamburger button visible only at <768px (CSS handles
-                the breakpoint). Toggles the mobile nav panel. */}
-            <button
-              type="button"
-              className={styles.hamburger}
-              onClick={() => setMobileNavOpen((open) => !open)}
-              aria-expanded={mobileNavOpen}
-              aria-controls="primary-mobile-nav"
-              aria-label={mobileNavOpen ? "Close menu" : "Open menu"}
+    <header
+      className={`${styles.header} ${isStaticHeader ? styles.headerStatic : ""}`}
+    >
+      <div className={`container ${styles.inner}`}>
+        <Link to="/" className={styles.brand}>
+          <span className={styles.brandName}>Web2Wireframe</span>
+          <span className={styles.brandTag}>Figma plugin</span>
+        </Link>
+        <nav
+          id="primary-mobile-nav"
+          className={`${styles.nav} ${
+            mobileNavOpen ? styles.navOpen : ""
+          }`}
+          aria-label="Primary"
+        >
+          {navItems.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              end={item.path === "/"}
+              className={({ isActive }) =>
+                `${styles.link} ${isActive ? styles.active : ""}`
+              }
             >
-              <span aria-hidden="true">{mobileNavOpen ? "✕" : "☰"}</span>
-            </button>
-            {user ? (
-              <button
-                type="button"
-                className={styles.avatarButton}
-                onClick={() => setModalOpen(true)}
-                aria-label={
-                  user.email
-                    ? `Account — ${user.email}`
-                    : `Account — ${user.figmaUserId}`
-                }
-                title={user.email ?? user.figmaUserId}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setModalOpen(true)}
-              >
-                My User
-              </button>
-            )}
-          </div>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+        <div className={styles.actions}>
+          {!user && (
+            <Link to="/signin" className={styles.signInLink}>
+              Sign in
+            </Link>
+          )}
+          {!isPaymentPage && (
+            <a
+              className={`btn btn-primary ${styles.installBtn}`}
+              href={installLinks.figmaCommunity}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Install free
+            </a>
+          )}
+          {user && (
+            <Link
+              to="/account"
+              className={`${styles.accountChip} ${
+                isAccountPage ? styles.accountChipActive : ""
+              }`}
+              aria-label={
+                user.email ? `Account — ${user.email}` : "Account"
+              }
+              title={user.email ?? user.figmaUserId}
+            >
+              <span className={styles.chipInitials}>
+                {getInitials(user.email)}
+              </span>
+              <span className={styles.chipLabel}>
+                {getChipLabel(user.plan, user.usage)}
+              </span>
+            </Link>
+          )}
+          {/* S-H6: hamburger button visible only at <768px (CSS handles
+              the breakpoint). Toggles the mobile nav panel. */}
+          <button
+            type="button"
+            className={styles.hamburger}
+            onClick={() => setMobileNavOpen((open) => !open)}
+            aria-expanded={mobileNavOpen}
+            aria-controls="primary-mobile-nav"
+            aria-label={mobileNavOpen ? "Close menu" : "Open menu"}
+          >
+            <span aria-hidden="true">{mobileNavOpen ? "✕" : "☰"}</span>
+          </button>
         </div>
-      </header>
-      <MyUserModal open={modalOpen} onClose={() => setModalOpen(false)} />
-    </>
+      </div>
+    </header>
   );
 };
 

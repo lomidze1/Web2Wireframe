@@ -2,8 +2,18 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 // Self-hosted fonts (no Google CDN — avoids leaking visitor IP to Google and
-// keeps the CSP free of third-party font origins). Weights match the previous
-// Google Fonts request: Space Grotesk 400/500/600/700, Inter 400/500/600.
+// keeps the CSP free of third-party font origins). Classical design system:
+// Cormorant Garamond 300–600 + italic 400 (headings), Lora 400–600 + italic
+// 400 (body). Space Grotesk/Inter stay for the legacy pages until Phase 2.
+import "@fontsource/cormorant-garamond/300.css";
+import "@fontsource/cormorant-garamond/400.css";
+import "@fontsource/cormorant-garamond/500.css";
+import "@fontsource/cormorant-garamond/600.css";
+import "@fontsource/cormorant-garamond/400-italic.css";
+import "@fontsource/lora/400.css";
+import "@fontsource/lora/500.css";
+import "@fontsource/lora/600.css";
+import "@fontsource/lora/400-italic.css";
 import "@fontsource/space-grotesk/400.css";
 import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";

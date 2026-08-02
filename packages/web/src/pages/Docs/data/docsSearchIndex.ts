@@ -1,9 +1,6 @@
-import { docsNavigation } from "./docsStructure";
-import {
-  buildHeadingIds,
-  normalizeSearchText,
-  stripHeadingText,
-} from "../utils/docsSearchUtils";
+import { getAllDocPages } from "./docsStructure";
+import { docsArticles } from "./docsArticles";
+import { normalizeSearchText } from "../utils/docsSearchUtils";
 
 export interface DocsSearchItem {
   id: string;
@@ -16,82 +13,63 @@ export interface DocsSearchItem {
   searchText: string;
 }
 
-const headingRegex = /<h([23])[^>]*>([\s\S]*?)<\/h\1>/g;
-const rawPages = import.meta.glob("../pages/*.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
-
 let cachedIndex: DocsSearchItem[] | null = null;
 
-const buildIndex = (): DocsSearchItem[] => {
-  const items: DocsSearchItem[] = [];
+/**
+ * Builds the search index straight from the content model — one entry per
+ * page plus one per section. The previous implementation scraped headings
+ * out of raw JSX source with a regex; now that articles are data, the index
+ * and the rendered page cannot drift apart.
+ */
+export function getDocsSearchIndex(): DocsSearchItem[] {
+  if (cachedIndex) return cachedIndex;
 
-  docsNavigation.forEach((topic) => {
-    topic.pages.forEach((page) => {
-      const pagePath = `/docs/${topic.id}/${page.path}`;
-      const baseSearchText = normalizeSearchText(
-        `${page.title} ${topic.title}`
-      );
+  const index: DocsSearchItem[] = [];
 
-      items.push({
-        id: `${topic.id}-${page.id}`,
-        pageTitle: page.title,
-        topicTitle: topic.title,
-        topicId: topic.id,
-        pagePath,
-        searchText: baseSearchText,
-      });
-
-      const sourceKey = Object.keys(rawPages).find((key) =>
-        key.endsWith(`/${page.source}.tsx`)
-      );
-
-      if (!sourceKey) {
-        return;
-      }
-
-      const source = rawPages[sourceKey];
-      headingRegex.lastIndex = 0;
-      const headings: string[] = [];
-      let match = headingRegex.exec(source);
-      while (match) {
-        const headingText = stripHeadingText(match[2]);
-        if (headingText) {
-          headings.push(headingText);
-        }
-        match = headingRegex.exec(source);
-      }
-
-      const headingIds = buildHeadingIds(headings);
-      headings.forEach((heading, index) => {
-        if (normalizeSearchText(heading) === normalizeSearchText(page.title)) {
-          return;
-        }
-        const headingId = headingIds[index];
-        items.push({
-          id: `${topic.id}-${page.id}-${headingId}`,
-          pageTitle: page.title,
-          topicTitle: topic.title,
-          topicId: topic.id,
-          pagePath,
-          sectionTitle: heading,
-          headingId,
-          searchText: normalizeSearchText(
-            `${page.title} ${topic.title} ${heading}`
-          ),
-        });
-      });
+  for (const page of getAllDocPages()) {
+    index.push({
+      id: page.key,
+      pageTitle: page.title,
+      topicTitle: page.topicTitle,
+      topicId: page.topicId,
+      pagePath: page.path,
+      searchText: normalizeSearchText(
+        `${page.title} ${page.topicTitle} ${page.blurb}`,
+      ),
     });
-  });
 
-  return items;
-};
+    const article = docsArticles[page.key];
+    if (!article) continue;
 
-export const getDocsSearchIndex = (): DocsSearchItem[] => {
-  if (!cachedIndex) {
-    cachedIndex = buildIndex();
+    for (const section of article.sections) {
+      index.push({
+        id: `${page.key}#${section.id}`,
+        pageTitle: page.title,
+        topicTitle: page.topicTitle,
+        topicId: page.topicId,
+        pagePath: page.path,
+        sectionTitle: section.title,
+        headingId: section.id,
+        searchText: normalizeSearchText(
+          `${section.title} ${page.title} ${page.topicTitle}`,
+        ),
+      });
+    }
   }
-  return cachedIndex;
-};
+
+  cachedIndex = index;
+  return index;
+}
+
+export function searchDocs(query: string, limit = 8): DocsSearchItem[] {
+  const needle = normalizeSearchText(query);
+  if (!needle) return [];
+  return getDocsSearchIndex()
+    .filter((item) => item.searchText.includes(needle))
+    .slice(0, limit);
+}
+
+export function getSearchItemRoute(item: DocsSearchItem): string {
+  const base = `/docs/${item.topicId}/${item.pagePath}`;
+  return item.headingId ? `${base}#${item.headingId}` : base;
+}

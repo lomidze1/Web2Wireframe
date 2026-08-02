@@ -1,356 +1,199 @@
 import type { ReactElement } from "react";
+import { Link } from "react-router-dom";
+import ImportConsole from "../../components/ImportConsole/ImportConsole";
+import { derivePrice } from "../../components/ImportConsole/consoleLogic";
 import { installLinks } from "../../data/links";
-import { useAuth } from "../../contexts/AuthContext";
-import CompareSlider, {
-  type ComparePanel,
-} from "../../components/CompareSlider";
 import styles from "./Home.module.scss";
 
-// Left to right: the live site, then the same page imported twice — once
-// keeping the site's own styles, once in the plugin's wireframe styles.
-const heroPanels: ComparePanel[] = [
-  {
-    src: "/home/hero-1-website.webp",
-    alt: "The Stripe homepage as it appears in a browser",
-    label: "Website",
-  },
-  {
-    src: "/home/hero-2-site-styles.webp",
-    alt: "The same page imported into Figma with the site's own colors and fonts",
-    label: "Site styles",
-  },
-  {
-    src: "/home/hero-3-wireframe.webp",
-    alt: "The same page imported into Figma as a plain wireframe",
-    label: "Wireframe",
-  },
+const steps = [
+  { n: "01", title: "Pick a source", body: "A URL, a screenshot, pasted HTML, or a region you draw." },
+  { n: "02", title: "Open W2W in Figma", body: "The plugin runs in the file you're already working in." },
+  { n: "03", title: "Hand it the page", body: "Paste, drop, or select. Parsing starts immediately." },
+  { n: "04", title: "Set the options", body: "The eight decisions. Thirty seconds here, an hour saved after." },
+  { n: "05", title: "Import", body: "Named, editable layers land on the canvas, ready to change." },
 ];
 
-type ComparisonRow = {
-  feature: string;
-  free: string;
-  pro: string;
-};
-
-type Step = {
-  title: string;
-  desc: string;
-};
-
-type FeatureGroup = {
-  title: string;
-  subtitle: string;
-  items: string[];
-};
-
-const featureGroups: FeatureGroup[] = [
+const screenshotItems = [
   {
-    title: "Capture",
-    subtitle: "Import websites in the way that fits your workflow.",
-    items: [
-      "Web URL import",
-      "Screenshot import",
-      "HTML/CSS import",
-      "Area selection",
-    ],
+    title: "Behind a login",
+    body: "Dashboards, account settings, anything a crawler is shown the door for.",
   },
   {
-    title: "Analyze",
-    subtitle: "Automatically detect layout and structure.",
-    items: ["Layout detection", "Block-level structure", "Hover state capture"],
+    title: "Checkout and paywalls",
+    body: "The three screens every audit needs and no public URL will give you.",
   },
   {
-    title: "Output",
-    subtitle: "Clean, editable Figma-ready results.",
-    items: [
-      "Clean & editable wireframes",
-      "Multi-viewport export",
-      "Styles & assets included (Pro)",
-    ],
-  },
-];
-
-const steps: Step[] = [
-  {
-    title: "Choose a website (URL)",
-    desc: "Pick any public URL you want to convert.",
+    title: "A slide or a PDF",
+    body: "Whatever the client sent at eleven at night, in whatever format they had.",
   },
   {
-    title: "Open the W2W plugin in Figma",
-    desc: "Launch the plugin directly from your Figma workspace.",
+    title: "One region only",
+    body: "Area select takes the pricing table, not the eight sections around it.",
   },
-  {
-    title: "Paste the URL",
-    desc: "Drop the URL into the plugin and we handle the rest.",
-  },
-  {
-    title: "Adjust the import settings",
-    desc: "Choose your preferred output type and fidelity level.",
-  },
-  {
-    title: "Click Import and get an editable wireframe in Figma",
-    desc: "Receive clean, ready-to-edit layers instantly.",
-  },
-];
-
-const comparisonRows: ComparisonRow[] = [
-  { feature: "Imports per month", free: "10", pro: "Unlimited" },
-  { feature: "Colors", free: "Full access", pro: "Full access" },
-  { feature: "Fonts", free: "Full access", pro: "Full access" },
-  { feature: "Viewports", free: "Full access", pro: "Full access" },
-  { feature: "Text Content", free: "Full access", pro: "Full access" },
-  { feature: "Styles & Assets", free: "Included", pro: "Included" },
-  { feature: "Hover state capture", free: "Yes", pro: "Yes" },
-  { feature: "Font binary download", free: "Yes", pro: "Yes" },
-  { feature: "Support", free: "Community", pro: "Priority" },
-];
-
-const lovePoints: string[] = [
-  "Fastest way to get stakeholder sites into Figma for teardown.",
-  "Keeps layers tidy: frames, text, buttons, and spacing you can actually edit.",
-  "Wireframe, blocks, or full UI kit — pick the fidelity you need per project.",
-  "Great for audits, redesigns, component mining, and inspiration capture.",
 ];
 
 const Home = (): ReactElement => {
-  const { openPricing } = useAuth();
+  const price = derivePrice("annual");
+
   return (
-    <div className={styles.home}>
-      <section className={styles.hero}>
-        <div className="container">
-          <div className={styles.heroHead}>
-            {/* S-H2: H1 now includes "Figma plugin" — the primary search query.
-              Previously H1 ranked well for "convert website to Figma wireframes"
-              but missed the higher-volume "Figma plugin" query. */}
+    <>
+      <section className={`container ${styles.hero}`}>
+        <div className={styles.heroGrid}>
+          <div>
+            <div className={styles.kicker}>Import configuration, not cleanup</div>
             <h1 className={styles.heroTitle}>
-              The Figma Plugin That Converts Any Website Into Editable
-              Wireframes — Instantly.
+              Decide how the wireframe comes out — before it lands in Figma.
             </h1>
-            <p>Stop rebuilding layouts from scratch. Just import.</p>
-          </div>
-
-          <div className={styles.heroVisual}>
-            <CompareSlider panels={heroPanels} />
-            <h2 className={styles.visualNote}>
-              Built specifically for Figma workflows
-            </h2>
-          </div>
-
-          <div className={styles.heroTextBlock}>
-            <div className={styles.actions}>
-              <ul className={styles.diffList}>
-                <li>
-                  <span
-                    className={`${styles.diffIcon} ${styles.iconCalendar}`}
-                    aria-hidden="true"
-                  >
-                    <svg viewBox="0 0 24 24" role="presentation">
-                      <rect x="4" y="6.5" width="16" height="13" rx="2" />
-                      <path d="M4 10.5h16" />
-                      <path d="M9 4v4" />
-                      <path d="M15 4v4" />
-                      <path d="M9 14h2" />
-                      <path d="M13 14h2" />
-                    </svg>
-                  </span>
-                  <div>
-                    <strong>Layout-first parsing</strong>
-                    <p>Understands structure, not just pixels.</p>
-                  </div>
-                </li>
-                <li>
-                  <span
-                    className={`${styles.diffIcon} ${styles.iconCheck}`}
-                    aria-hidden="true"
-                  >
-                    <svg viewBox="0 0 24 24" role="presentation">
-                      <path d="M6 12.5l4 3.5 8-9" />
-                    </svg>
-                  </span>
-                  <div>
-                    <strong>Designer-ready output</strong>
-                    <p>Clean, editable Figma components.</p>
-                  </div>
-                </li>
-                <li>
-                  <span
-                    className={`${styles.diffIcon} ${styles.iconClock}`}
-                    aria-hidden="true"
-                  >
-                    <svg viewBox="0 0 24 24" role="presentation">
-                      <circle cx="12" cy="12" r="7.5" />
-                      <path d="M12 8v5l3 2" />
-                    </svg>
-                  </span>
-                  <div>
-                    <strong>Minutes, not hours</strong>
-                    <p>From website to wireframe fast.</p>
-                  </div>
-                </li>
-              </ul>
+            <p className={styles.heroSub}>
+              Eight decisions before the import, not an evening of fixing after it.
+            </p>
+            <div className={styles.heroActions}>
               <a
                 className="btn btn-primary"
-                href={installLinks.figma}
+                href={installLinks.figmaCommunity}
                 target="_blank"
                 rel="noreferrer"
               >
-                Get it on Figma Community
+                Install on Figma Community
+              </a>
+              <a
+                className="btn btn-secondary"
+                href={installLinks.chrome}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Browser extension
               </a>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section className={styles.how}>
-        <div className="container">
-          <div className={styles.sectionHead}>
-            <div className={`${styles.compareBadge} section-label`}>
-              Getting Started
-            </div>
-            <h2>5 Simple Steps to Convert Websites to Wireframes</h2>
-            <p>From URL to editable Figma frames in a minute.</p>
-          </div>
-          <div className={styles.steps}>
-            {steps.map((step, index) => (
-              <div key={step.title} className={styles.stepCard}>
-                <div className={styles.stepIndex}>
-                  {(index + 1).toString().padStart(2, "0")}
-                </div>
-                <h3>{step.title}</h3>
-                <p>{step.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className={styles.features}>
-        <div className="container">
-          <div className={styles.sectionHead}>
-            <div className={`${styles.compareBadge} section-label`}>
-              Design Process
-            </div>
-            <h2>Everything you need to turn websites into wireframes.</h2>
-            <p>
-              Powerful import options, smart structure detection, and clean
-              Figma output ready for editing and handoff.
+          <div className={styles.heroAside}>
+            <p className={styles.heroAsideLine}>
+              Below is the plugin's real settings panel. Change anything — the
+              frame redraws as Figma would receive it.
             </p>
           </div>
-          <div className={styles.featureGrid}>
-            {featureGroups.map((group) => (
-              <div key={group.title} className={styles.featureGroup}>
-                <div className={styles.featureGroupHead}>
-                  <h3>{group.title}</h3>
-                  <p>{group.subtitle}</p>
-                </div>
-                <ul className={styles.featureList}>
-                  {group.items.map((item) => (
-                    <li key={item}>
-                      <span className={styles.dot} aria-hidden="true" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
+        </div>
+      </section>
+
+      <section className={`container ${styles.consoleSection}`}>
+        <ImportConsole />
+      </section>
+
+      <section className={`container ${styles.comparison}`}>
+        <div className={styles.comparisonGrid}>
+          <div className={styles.comparisonLeft}>
+            <div className={styles.kickerMuted}>The usual way</div>
+            <h2 className={styles.comparisonTitle}>Import once, then fix everything.</h2>
+            <p className={styles.comparisonBodyMuted}>
+              One button, one output. You get absolute positions where you wanted
+              auto layout, real marketing copy where you wanted placeholders, hex
+              values where your library expects variables. The import took thirty
+              seconds; the tidying takes the rest of the afternoon, and you do it
+              again on the next page.
+            </p>
+          </div>
+          <div className={styles.comparisonRight}>
+            <div className={styles.kicker}>Web2Wireframe</div>
+            <h2 className={styles.comparisonTitle}>Configure once, import clean.</h2>
+            <p className={styles.comparisonBody}>
+              Say what you want before the frame exists. Auto layout or absolute.
+              Semantic placeholders, Lorem at the original character counts, or
+              the site's own words. Grey boxes or the real images. Direct values
+              or generated Figma variables. Three viewports in one run. What
+              arrives is already the file you would have edited it into.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className={`container ${styles.screenshot}`}>
+        <div className={styles.screenshotGrid}>
+          <div>
+            <div className={styles.kicker}>Screenshot import</div>
+            <h2 className={styles.screenshotTitle}>For the pages a URL can't reach.</h2>
+            <p className={styles.screenshotLead}>
+              Half of the work worth studying sits behind something. Drop an
+              image in and it is parsed into structured frames the same way a
+              live page is.
+            </p>
+          </div>
+          <div className={styles.screenshotItems}>
+            {screenshotItems.map((item) => (
+              <div key={item.title} className={styles.screenshotItem}>
+                <h3 className={styles.itemTitle}>{item.title}</h3>
+                <p className={styles.itemBody}>{item.body}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className={styles.comparison}>
-        <div className="container">
-          <div className={styles.compareTop}>
-            <div className={`${styles.compareBadge} section-label`}>
-              Compare Plans
+      <section className={`container ${styles.steps}`}>
+        <h2 className={styles.stepsTitle}>Five steps, about a minute.</h2>
+        <p className={styles.stepsSub}>
+          Step four is the one worth your attention.{" "}
+          <Link className={styles.inlineLink} to="/how-it-works">
+            See what each option does
+          </Link>
+          .
+        </p>
+        <div className={styles.stepsGrid}>
+          {steps.map((step) => (
+            <div key={step.n} className={styles.step}>
+              <div className={styles.stepNumeral}>{step.n}</div>
+              <h3 className={styles.stepTitle}>{step.title}</h3>
+              <p className={styles.stepBody}>{step.body}</p>
             </div>
-
-            <div>
-              <h2>Choose your plan. Upgrade when you need more control.</h2>
-              <p>
-                Pick the access level that fits your workflow. Switch plans
-                anytime as your wireframing needs grow.
-              </p>
-            </div>
-          </div>
-          <div className={styles.table}>
-            <div className={`${styles.tableHead} ${styles.tableRow}`}>
-              <span>Feature</span>
-              <span>Free</span>
-              <span>Pro</span>
-            </div>
-            {comparisonRows.map((row) => (
-              <div key={row.feature} className={styles.tableRow}>
-                <span>{row.feature}</span>
-                <span>{row.free}</span>
-                <span>{row.pro}</span>
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
       </section>
 
-      <section className={styles.love}>
-        <div className="container">
-          <div className={styles.sectionHead}>
-            <div className={`${styles.compareBadge} section-label`}>
-              Why designers love it
-            </div>
-            <h2>
-              Optimized for audits, inspiration capture, and clean handoff.
+      <section className={`container ${styles.planClose}`}>
+        <div className={styles.planPanel}>
+          <div>
+            <h2 className={styles.planTitle}>
+              Ten imports free. Every option unlocked from the first one.
             </h2>
-          </div>
-          <div className={styles.loveGrid}>
-            {lovePoints.map((point) => (
-              <div key={point} className={styles.loveCard}>
-                <span className={styles.spark}>✺</span>
-                <p>{point}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="container">
-          <div className={styles.ctaCard}>
-            <div>
-              <h2>
-                Install the free plugin. Upgrade to Pro when you need more.
-              </h2>
-              <p>
-                Start with wireframes, unlock images/styles/assets with Pro.
-              </p>
-            </div>
-            <div className={styles.actions}>
-              <div className={styles.actionsSecondary}>
-                <a
-                  className="btn btn-secondary"
-                  href={installLinks.figmaCommunity}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Start Free
-                </a>
-
-                <a
-                  className="btn btn-secondary"
-                  href={installLinks.chrome}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Browser Extension
-                </a>
-              </div>
-              <button
-                type="button"
+            <p className={styles.planBody}>
+              Nothing in the settings panel is held back on the free plan —
+              viewports, variables, real assets, all of it. Pro removes the
+              monthly count, for the weeks when one audit is twenty pages.
+            </p>
+            <div className={styles.planActions}>
+              <a
                 className="btn btn-primary"
-                onClick={() => openPricing()}
+                href={installLinks.figmaCommunity}
+                target="_blank"
+                rel="noreferrer"
               >
-                Upgrade to Pro
-              </button>
+                Install free
+              </a>
+              <Link className="btn btn-secondary" to="/pricing">
+                Compare plans
+              </Link>
+            </div>
+          </div>
+          <div className={styles.planRows}>
+            <div className={styles.planRow}>
+              <span className={styles.planName}>Free</span>
+              <span className={styles.planValue}>10 imports / month</span>
+            </div>
+            <div className={styles.planRow}>
+              <span className={styles.planName}>Pro</span>
+              <span className={styles.planValue}>
+                Unlimited · {price.monthly} / month
+              </span>
+            </div>
+            <div className={`${styles.planRow} ${styles.planRowLast}`}>
+              <span className={styles.planValue}>Pro, yearly</span>
+              <span className={styles.planValueAccent}>
+                {price.annual} · {price.perMonth} / month
+              </span>
             </div>
           </div>
         </div>
       </section>
-    </div>
+    </>
   );
 };
 

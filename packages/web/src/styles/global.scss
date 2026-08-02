@@ -1,6 +1,64 @@
 /* Fonts are self-hosted via @fontsource — imported in src/main.tsx. */
 
+/* ══════════════════════════════════════════════════════════════════════════
+   "Classical" design system tokens — the site-wide source of truth.
+   Editorial, book-like: serif display type, hairline rules, colour used as
+   stroke rather than fill, quiet elevation. Values come verbatim from the
+   design handoff (design/tokens/classical-styles.css).
+   ══════════════════════════════════════════════════════════════════════ */
 :root {
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201f1d;
+  --color-accent: #b68235;
+  --color-divider: color-mix(in srgb, #201f1d 16%, transparent);
+
+  /* Tonal ramps — generated in OKLCH on one shared lightness scale. */
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  --color-accent-100: #fff3e4;
+  --color-accent-200: #ffe3bf;
+  --color-accent-300: #facb8d;
+  --color-accent-400: #e1ad66;
+  --color-accent-500: #c28d41;
+  --color-accent-600: #a06f24;
+  --color-accent-700: #7d5411;
+  --color-accent-800: #5a3b0a;
+  --color-accent-900: #3a270d;
+
+  --font-heading: "Cormorant Garamond", Georgia, serif;
+  --font-heading-weight: 600; /* interface-heading ceiling; display text uses 400 */
+  --font-body: "Lora", Georgia, serif;
+
+  --space-1: 4.6px;
+  --space-2: 9.2px;
+  --space-3: 13.8px;
+  --space-4: 18.4px;
+  --space-6: 27.6px;
+  --space-8: 36.8px;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+
+  /* Elevation is a whisper — soft ink-tinted shadows on a light ground. */
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+
+  /* ── Legacy tokens (pre-Classical pages: Docs, Support, Terms, Privacy,
+     Account, Checkout, Renew + PricingModal). Their module.scss
+     files still reference these; remove in Phase 2 once those pages get the
+     Classical treatment. NOTE: --radius-* above intentionally replaces the
+     old rounder values so shared modals pick up the new crisp corners. ── */
   --bg: #f7f8fb;
   --surface: #ffffff;
   --text: #0c0d12;
@@ -12,18 +70,7 @@
   --glass-bg: rgba(255, 255, 255, 0.65);
   --glass-tint: rgba(255, 255, 255, 0.4);
   --glass-border: rgba(255, 255, 255, 0.35);
-  --radius-lg: 18px;
-  --radius-md: 12px;
-  --radius-sm: 10px;
-
-  /* Color palette */
-  --color-sand-light: #e9c46a;
   --color-sand-accent: #f4a261;
-  --color-brown: #bc6c25;
-  --color-gold: #dda15e;
-  --color-green-light: #606c38;
-  --color-green-dark: #283618;
-  --color-teal: #2a9d8f;
   --color-logo: #e94e1b;
 }
 
@@ -35,21 +82,12 @@
 
 body {
   margin: 0;
-  background: radial-gradient(
-      circle at 20% 20%,
-      rgba(59, 130, 246, 0.08),
-      transparent 28%
-    ),
-    radial-gradient(
-      circle at 80% 10%,
-      rgba(36, 109, 255, 0.08),
-      transparent 25%
-    ),
-    var(--bg);
-  color: var(--text);
-  font-family: "Space Grotesk", "Inter", system-ui, -apple-system, "Segoe UI",
-    sans-serif;
-  line-height: 1.6;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
   min-height: 100vh;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -71,111 +109,17 @@ img {
   display: block;
 }
 
-.container {
-  width: min(1180px, 92vw);
-  margin: 0 auto;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0.85rem 1.25rem;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  cursor: pointer;
-  transition: transform 160ms ease, box-shadow 160ms ease,
-    border-color 160ms ease, background 160ms ease;
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: #fff;
-  box-shadow: 0 18px 40px rgba(59, 130, 246, 0.25);
-}
-
-.btn-secondary {
-  background: rgba(12, 13, 18, 0.08);
-  color: var(--text);
-  border-color: var(--border);
-  border: 1px solid var(--border);
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text);
-  border-color: var(--border);
-}
-
-.btn:hover {
-  transform: translateY(-2px);
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.8rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(12, 13, 18, 0.04);
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.3rem 0.65rem;
-  border-radius: 999px;
-  background: rgba(59, 130, 246, 0.12);
-  color: var(--accent-strong);
-  font-weight: 600;
-  font-size: 0.85rem;
-}
-
-.section-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.9rem;
-  border-radius: 12px;
-  background: rgba(12, 13, 18, 0.04);
-  color: var(--muted);
-  font-size: 0.95rem;
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 1.35rem;
-  box-shadow: 0 12px 35px rgba(12, 13, 18, 0.04);
-}
-
-.grid {
-  display: grid;
-  gap: 1.2rem;
-}
-
-.eyebrow {
-  font-size: 0.95rem;
-  color: var(--accent-strong);
-  letter-spacing: 0.02em;
-  font-weight: 700;
-}
-
 h1,
 h2,
 h3,
-h4 {
-  letter-spacing: -0.03em;
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
   margin: 0;
-  color: var(--text);
 }
 
 p {
@@ -189,6 +133,211 @@ ul {
   color: var(--muted);
 }
 
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-accent-200);
+}
+
+.container {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-left: 32px;
+  padding-right: 32px;
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
+/* — rules — */
+.hr {
+  height: 1px;
+  border: 0;
+  margin: var(--space-4) 0;
+  background: var(--color-divider);
+}
+
+/* — buttons (Classical: accent is an outline, never a fill) — */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.btn svg {
+  display: block;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.btn-primary:active {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.btn-secondary {
+  border-color: var(--color-divider);
+}
+
+.btn-secondary:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+.btn-secondary:active {
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+.btn-ghost {
+  color: var(--color-accent);
+  padding-inline: var(--space-1);
+}
+
+.btn-ghost:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.btn-ghost:active {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+/* — cards — */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+}
+
+.card-kicker {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.card-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 17px;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+
+.card-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text);
+  opacity: 0.8;
+  flex: 1;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+}
+
+/* — tags — */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  border-radius: calc(var(--radius-md) * 0.75);
+}
+
+.tag-accent {
+  background: var(--color-accent-100);
+  color: var(--color-accent-800);
+}
+
+/* — tables — */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.table tbody tr:hover {
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+/* — image mat — */
+.plate {
+  filter: sepia(0.22) saturate(0.82) contrast(1.05);
+  box-sizing: border-box;
+  border: 6px solid var(--color-surface);
+  outline: 1px solid var(--color-divider);
+}
+
+/* Legacy — Support page layers this under its own module class. */
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(12, 13, 18, 0.04);
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 /* S-H6: Skip-to-content link. Off-screen until the link receives keyboard
    focus (first Tab on a fresh page load), at which point it slides into
    view at the top-left. Screen readers always announce it. Standard
@@ -198,7 +347,7 @@ ul {
   top: -100px;
   left: 1rem;
   z-index: 1000;
-  background: var(--accent);
+  background: var(--color-accent-700);
   color: #fff;
   padding: 0.6rem 1rem;
   border-radius: 6px;
