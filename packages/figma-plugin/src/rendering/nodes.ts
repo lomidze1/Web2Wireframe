@@ -38,6 +38,7 @@ import {
   convertFillsToPaints,
   convertStrokesToFigma,
   convertEffectsToFigma,
+  mapCSSBlendMode,
 } from "./fills";
 import {
   linkEffectStyleIfAvailable,
@@ -55,34 +56,11 @@ import { extractHostname } from "./hostname";
 // Blend Mode Mapping (CSS mix-blend-mode → Figma BlendMode)
 // ============================================================================
 
-const CSS_TO_FIGMA_BLEND_MODE: Record<string, BlendMode> = {
-  "multiply": "MULTIPLY",
-  "screen": "SCREEN",
-  "overlay": "OVERLAY",
-  "darken": "DARKEN",
-  "lighten": "LIGHTEN",
-  "color-dodge": "COLOR_DODGE",
-  "color-burn": "COLOR_BURN",
-  "hard-light": "HARD_LIGHT",
-  "soft-light": "SOFT_LIGHT",
-  "difference": "DIFFERENCE",
-  "exclusion": "EXCLUSION",
-  "hue": "HUE",
-  "saturation": "SATURATION",
-  "color": "COLOR",
-  "luminosity": "LUMINOSITY",
-};
-
-/**
- * Maps CSS mix-blend-mode value to Figma BlendMode.
- * Returns undefined for "normal", unknown, or empty values.
- */
-export function mapCSSBlendMode(
-  cssBlendMode: string | undefined
-): BlendMode | undefined {
-  if (!cssBlendMode) return undefined;
-  return CSS_TO_FIGMA_BLEND_MODE[cssBlendMode];
-}
+// The map itself lives in fills.ts — paints need it for
+// `background-blend-mode`, and nodes.ts already imports from fills.ts, so
+// keeping it there avoids a circular import. Re-exported for callers/tests
+// that have always imported it from here.
+export { mapCSSBlendMode };
 
 // ============================================================================
 // Legacy Fill/Stroke Application
@@ -231,6 +209,137 @@ export function recordDroppedNode(
 }
 
 /**
+ * Apply the box decorations every node type shares, regardless of which
+ * creation branch produced it.
+ *
+ * The text / image / placeholder branches return early, before the frame
+ * path's decoration block — so an `<img>` with `opacity: .6`, a
+ * `mix-blend-mode`, a hover-reveal `visible=false`, or a `position: sticky`
+ * logo silently lost all of it. Only properties that are legal on every
+ * SceneNode live here; strokes and effects are frame-only and applied by
+ * {@link applyPaintDecorations}.
+ */
+export function applySharedDecorations(
+  target: SceneNode | null,
+  node: WireframeNode,
+  context: RenderContext
+): void {
+  if (!target) return;
+  // Slice/Widget nodes have no opacity/blendMode and the render path never
+  // creates one — narrow to the shape we actually set.
+  const paintable = target as SceneNode & { opacity: number; blendMode: BlendMode };
+  // Opacity — skip in plugin colors mode (flat wireframes)
+  if (
+    context.colorMode !== "plugin" &&
+    typeof node.opacity === "number" &&
+    node.opacity < 1 &&
+    node.opacity > 0
+  ) {
+    paintable.opacity = Math.max(0, Math.min(1, node.opacity));
+  }
+
+  // CSS mix-blend-mode → Figma BlendMode
+  if (node.blendMode) {
+    const figmaBlendMode = mapCSSBlendMode(node.blendMode);
+    if (figmaBlendMode) {
+      paintable.blendMode = figmaBlendMode;
+    }
+  }
+
+  // Hidden in default state (hover-variant rendering)
+  if (node.isHiddenInDefault) {
+    target.visible = false;
+  }
+
+  // position:fixed / sticky marker — createWireframeFrame re-parents these
+  // to the root frame and sets numberOfFixedChildren.
+  if (
+    (node.position === "fixed" || node.position === "sticky") &&
+    !node.isHiddenInDefault &&
+    !(typeof node.opacity === "number" && node.opacity === 0)
+  ) {
+    try {
+      target.setPluginData("w2w_position_fixed", "1");
+      if (typeof node.cssTop === "number" && !isNaN(node.cssTop)) {
+        target.setPluginData("w2w_css_top", String(node.cssTop));
+      }
+      if (typeof node.cssLeft === "number" && !isNaN(node.cssLeft)) {
+        target.setPluginData("w2w_css_left", String(node.cssLeft));
+      }
+    } catch {
+      // setPluginData may not be available in mock environments
+    }
+  }
+}
+
+/**
+ * Apply strokes and effects to an image / placeholder frame.
+ *
+ * These branches never reached the frame path's stroke/effect blocks, so a
+ * bordered `<img>` rendered borderless and a card image lost its
+ * box-shadow. Text nodes are deliberately excluded — Figma strokes on a
+ * TEXT node outline the glyphs, which is not what a CSS border means.
+ */
+export function applyPaintDecorations(
+  frame: FrameNode,
+  node: WireframeNode,
+  context: RenderContext
+): void {
+  if (node.strokes && node.strokes.length > 0) {
+    const { paints, weight, individualWeights, style } = convertStrokesToFigma(
+      node.strokes,
+      context
+    );
+    if (paints.length > 0) {
+      frame.strokes = paints;
+      frame.strokeWeight = weight;
+      if (individualWeights) {
+        frame.strokeTopWeight = individualWeights.top;
+        frame.strokeRightWeight = individualWeights.right;
+        frame.strokeBottomWeight = individualWeights.bottom;
+        frame.strokeLeftWeight = individualWeights.left;
+      }
+      frame.dashPattern = dashPatternForStyle(style, weight);
+    }
+  }
+
+  if (node.effects && node.effects.length > 0) {
+    const figmaEffects = convertEffectsToFigma(node.effects, context);
+    if (figmaEffects.length > 0) {
+      frame.effects = figmaEffects;
+    }
+  }
+}
+
+/**
+ * Whether a CSS overflow value clips its box in Figma terms.
+ *
+ * Also the correct default for SYNTHETIC wrapper frames: `figma.createFrame()`
+ * starts with `clipsContent = true`, so a wrapper we invent (text padding
+ * box, text-with-background) clipped glyph descenders and outside shadows
+ * that the browser painted. Passing the node's own overflow — `undefined`
+ * for the common case — turns that off.
+ */
+export function cssOverflowClips(overflow: string | undefined): boolean {
+  return overflow === "hidden" || overflow === "scroll" || overflow === "auto";
+}
+
+/**
+ * CSS dash lengths scale with the border width — a 4px dashed border draws
+ * far longer dashes than a 1px one. The old fixed [6,4] / [2,2] patterns
+ * made every dashed border look identical regardless of weight.
+ */
+export function dashPatternForStyle(
+  style: "SOLID" | "DASHED" | "DOTTED",
+  weight: number
+): number[] {
+  const w = Math.max(1, weight || 1);
+  if (style === "DASHED") return [w * 3, w * 2];
+  if (style === "DOTTED") return [w, w];
+  return [];
+}
+
+/**
  * Recursively create Figma nodes from tree structure
  */
 export async function createNodeInFigma(
@@ -272,7 +381,9 @@ export async function createNodeInFigma(
       hasBackgroundEffects ||
       hasBorderRadius
     ) {
-      return await createTextWithBackground(node, context);
+      const boxed = await createTextWithBackground(node, context);
+      applySharedDecorations(boxed, node, context);
+      return boxed;
     }
 
     // Text with padding but no background: Figma TextNode has no padding
@@ -293,6 +404,9 @@ export async function createNodeInFigma(
       wrapper.name = node.name || node.tag || "Text";
       wrapper.fills = [];
       wrapper.strokes = [];
+      // Figma frames clip by default; a padding wrapper we invented must not
+      // cut off glyph descenders the browser painted.
+      wrapper.clipsContent = cssOverflowClips(node.overflow);
       wrapper.resize(
         Math.max(node.width || 1, 1),
         Math.max(node.height || 1, 1),
@@ -300,11 +414,14 @@ export async function createNodeInFigma(
       wrapper.appendChild(textNode);
       textNode.x = node.padding!.left || 0;
       textNode.y = node.padding!.top || 0;
+      applySharedDecorations(wrapper, node, context);
       return wrapper;
     }
 
     // Simple text node without background
-    return await createTextNode(node, context.fontFamily, context);
+    const plainText = await createTextNode(node, context.fontFamily, context);
+    if (plainText) applySharedDecorations(plainText, node, context);
+    return plainText;
   }
 
   // Handle placeholders (images/videos)
@@ -320,27 +437,36 @@ export async function createNodeInFigma(
       node.imageUrl &&
       context.assetsMap?.has(node.imageUrl)
     ) {
-      return await createRealImage(
+      const image = await createRealImage(
         node,
         context.assetsMap.get(node.imageUrl)!,
         context
       );
+      applyPaintDecorations(image, node, context);
+      applySharedDecorations(image, node, context);
+      return image;
     }
 
     // SVG markup → Figma Vector (when realAssets mode)
     // css-converter stores SVG markup in computedStyles.svgMarkup
     const svgMarkup = node.computedStyles?.svgMarkup;
     if (context.assetMode === "realAssets" && svgMarkup) {
-      return await createRealImage(node, svgMarkup, context);
+      const vector = await createRealImage(node, svgMarkup, context);
+      applyPaintDecorations(vector, node, context);
+      applySharedDecorations(vector, node, context);
+      return vector;
     }
 
     // Default: wireframe placeholder
-    return await createPlaceholder(
+    const placeholder = await createPlaceholder(
       node,
       context.pluginColors.secondary,
       context.pluginColors.text,
       context
     );
+    applyPaintDecorations(placeholder, node, context);
+    applySharedDecorations(placeholder, node, context);
+    return placeholder;
   }
 
   // Create frame for containers
@@ -535,9 +661,7 @@ export async function createNodeInFigma(
         frame.strokeBottomWeight = individualWeights.bottom;
         frame.strokeLeftWeight = individualWeights.left;
       }
-      if (style === "DASHED") frame.dashPattern = [6, 4];
-      else if (style === "DOTTED") frame.dashPattern = [2, 2];
-      else frame.dashPattern = [];
+      frame.dashPattern = dashPatternForStyle(style, weight);
       await linkStrokeStyleIfAvailable(frame, context, node.strokes);
     }
   }
@@ -566,24 +690,12 @@ export async function createNodeInFigma(
   // Apply border radius (per-corner — asymmetric CSS radii stay asymmetric)
   applyCornerRadii(frame, node.borderRadius, node.width, node.height);
 
-  // Apply opacity - skip in plugin colors mode
-  if (context.colorMode !== "plugin" && typeof node.opacity === 'number' && node.opacity < 1 && node.opacity > 0) {
-    frame.opacity = Math.max(0, Math.min(1, node.opacity));
-  }
-
-  // Apply blend mode (CSS mix-blend-mode → Figma BlendMode)
-  if (node.blendMode) {
-    const figmaBlendMode = mapCSSBlendMode(node.blendMode);
-    if (figmaBlendMode) {
-      frame.blendMode = figmaBlendMode;
-    }
-  }
+  // Opacity, blend mode, hidden-in-default, fixed/sticky markers — shared
+  // with the text/image branches so every node type gets them.
+  applySharedDecorations(frame, node, context);
 
   // Clips content based on CSS overflow
-  frame.clipsContent =
-    node.overflow === "hidden" ||
-    node.overflow === "scroll" ||
-    node.overflow === "auto";
+  frame.clipsContent = cssOverflowClips(node.overflow);
 
   // FIX 4: tag frames that have their own hover diff via pluginData.
   // This survives Figma's `clone()` when creating variant components, so
@@ -604,42 +716,8 @@ export async function createNodeInFigma(
     }
   }
 
-  // Hidden in default state (for interaction variant rendering)
-  // Element exists in tree but is not visible — ready for component hover variant
-  if (node.isHiddenInDefault) {
-    frame.visible = false;
-  }
-
-  // Mark position:fixed AND position:sticky frames so createWireframeFrame can
-  // re-parent them to the root frame and set numberOfFixedChildren (Figma's
-  // scroll behavior). Sticky elements behave like fixed once scrolled past
-  // their threshold — modern sites (web2wireframe.design, stripe.com, etc.)
-  // use `position: sticky` for headers instead of `position: fixed`.
-  // Skip hidden overlays (e.g. globalnav-curtain: opacity:0, visibility:hidden)
-  // — these are hover-reveal elements that should NOT be promoted to fixed.
-  if (
-    (node.position === "fixed" || node.position === "sticky") &&
-    !node.isHiddenInDefault
-  ) {
-    const isZeroOpacity = typeof node.opacity === "number" && node.opacity === 0;
-    if (!isZeroOpacity) {
-      try {
-        frame.setPluginData("w2w_position_fixed", "1");
-        // FIX D: save the CSS top/left values so the re-parenting logic can
-        // place the element at its intended viewport offset (y=0 for
-        // `top: 0px`, y=10 for `top: 10px`, etc.), instead of the DOM
-        // flow coordinate which can be arbitrary for nested sticky headers.
-        if (typeof node.cssTop === "number" && !isNaN(node.cssTop)) {
-          frame.setPluginData("w2w_css_top", String(node.cssTop));
-        }
-        if (typeof node.cssLeft === "number" && !isNaN(node.cssLeft)) {
-          frame.setPluginData("w2w_css_left", String(node.cssLeft));
-        }
-      } catch {
-        // setPluginData may not be available in mock environments
-      }
-    }
-  }
+  // `isHiddenInDefault`, and the position:fixed / sticky pluginData markers
+  // that drive root re-parenting, are set by applySharedDecorations above.
 
   // Recursively create children
   if (node.children && node.children.length > 0) {

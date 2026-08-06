@@ -1516,6 +1516,11 @@ export interface TypographyCombo {
   fontWeight: number;
   lineHeight: LineHeight;
   letterSpacing: number;
+  /** How many text nodes use this combo — drives which styles survive the
+   *  MAX_TEXT_STYLES cap. Without it the 50 kept styles were whichever the
+   *  traversal happened to reach first, so a one-off footnote could take a
+   *  slot from the body copy. */
+  usageCount?: number;
 }
 
 /**
@@ -1558,8 +1563,11 @@ export function collectTypographyFromTree(
     const lh = parseFigmaLineHeight(node.lineHeight);
     const ls = Math.round((node.letterSpacing || 0) * 10) / 10;
 
-    if (!combos.has(key)) {
-      combos.set(key, { fontFamily: family, fontSize, fontWeight, lineHeight: lh, letterSpacing: ls });
+    const existing = combos.get(key);
+    if (existing) {
+      existing.usageCount = (existing.usageCount ?? 1) + 1;
+    } else {
+      combos.set(key, { fontFamily: family, fontSize, fontWeight, lineHeight: lh, letterSpacing: ls, usageCount: 1 });
     }
 
     // Also collect from styledSegments (multi-segment text like "$12 /month")
@@ -1570,8 +1578,11 @@ export function collectTypographyFromTree(
           const segFontSize = Math.max(seg.fontSize || 14, 8);
           const segFontWeight = seg.fontWeight || node.fontWeight || 400;
           const segKey = buildTextStyleKey(segFamily, segFontWeight, seg.fontSize, node.lineHeight, node.letterSpacing || 0);
-          if (!combos.has(segKey)) {
-            combos.set(segKey, { fontFamily: segFamily, fontSize: segFontSize, fontWeight: segFontWeight, lineHeight: lh, letterSpacing: ls });
+          const existingSeg = combos.get(segKey);
+          if (existingSeg) {
+            existingSeg.usageCount = (existingSeg.usageCount ?? 1) + 1;
+          } else {
+            combos.set(segKey, { fontFamily: segFamily, fontSize: segFontSize, fontWeight: segFontWeight, lineHeight: lh, letterSpacing: ls, usageCount: 1 });
           }
         }
       }
@@ -1656,7 +1667,15 @@ export async function createTextStyles(
   // same-run dedupe works and V2 counter is consistent).
   const createdInThisRun = new Map<string, TextStyle>();
 
-  for (const [key, combo] of Array.from(combos)) {
+  // Most-used typography first: when a page has more than MAX_TEXT_STYLES
+  // combos, the styles that survive the cap should be the ones the design
+  // actually leans on, not whichever the tree walk reached first. Ties keep
+  // insertion order so repeat imports stay deterministic.
+  const orderedCombos = Array.from(combos).sort(
+    (a, b) => (b[1].usageCount ?? 1) - (a[1].usageCount ?? 1)
+  );
+
+  for (const [key, combo] of orderedCombos) {
     if (stylesCreated >= MAX_TEXT_STYLES) break;
 
     const styleStr = fontWeightToStyle(combo.fontWeight);

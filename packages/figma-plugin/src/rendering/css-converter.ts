@@ -1892,11 +1892,20 @@ function parseFills(
     const sizes = str(s.backgroundSize).split(',').map(v => v.trim());
     const repeats = str(s.backgroundRepeat).split(',').map(v => v.trim());
     const positions = str(s.backgroundPosition).split(',').map(v => v.trim());
+    // background-blend-mode is per-layer too. Figma has a blendMode on each
+    // Paint, which is the exact 1:1 slot — multi-layer backgrounds that
+    // relied on blending used to render as plain stacked paints.
+    const blendModes = str(s.backgroundBlendMode).split(',').map(v => v.trim());
+    const layerBlend = (li: number): string | undefined => {
+      const mode = blendModes[li] || blendModes[0];
+      return mode && mode !== 'normal' ? mode : undefined;
+    };
     for (let li = 0; li < layers.length; li++) {
       const layer = layers[li];
       const gradientFill = parseGradientToFill(layer, width, height);
       if (gradientFill) {
-        fills.push(gradientFill);
+        const blend = layerBlend(li);
+        fills.push(blend ? { ...gradientFill, blendMode: blend } : gradientFill);
       } else if (layer.includes('url(')) {
         // background-position (captured only when non-default) → fractional
         // crop focus. fills.ts turns FILL + position into CROP+imageTransform.
@@ -1915,6 +1924,7 @@ function parseFills(
             height,
           ),
           ...(position ? { position } : {}),
+          ...(layerBlend(li) ? { blendMode: layerBlend(li) } : {}),
           elementWidth: width,
           elementHeight: height,
         });

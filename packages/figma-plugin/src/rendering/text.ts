@@ -1759,6 +1759,13 @@ export async function createTextWithBackground(
   // Create the wrapper frame
   const frame = figma.createFrame();
   frame.name = node.name || "Button";
+  // Figma frames clip by default. This wrapper exists only to carry the
+  // element's own background/border, so it must not cut off glyph
+  // descenders or an outside box-shadow the browser painted.
+  frame.clipsContent =
+    node.overflow === "hidden" ||
+    node.overflow === "scroll" ||
+    node.overflow === "auto";
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
 
   // In absolute (freeform) import mode the wrapper stays layoutMode="NONE";

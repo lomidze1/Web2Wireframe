@@ -19,6 +19,48 @@ import {
 import { parseImageSize, computeCoverCropTransform } from "./imageCrop";
 
 // ============================================================================
+// Blend Mode Mapping (CSS mix-blend-mode / background-blend-mode → Figma)
+// ============================================================================
+
+const CSS_TO_FIGMA_BLEND_MODE: Record<string, BlendMode> = {
+  "multiply": "MULTIPLY",
+  "screen": "SCREEN",
+  "overlay": "OVERLAY",
+  "darken": "DARKEN",
+  "lighten": "LIGHTEN",
+  "color-dodge": "COLOR_DODGE",
+  "color-burn": "COLOR_BURN",
+  "hard-light": "HARD_LIGHT",
+  "soft-light": "SOFT_LIGHT",
+  "difference": "DIFFERENCE",
+  "exclusion": "EXCLUSION",
+  "hue": "HUE",
+  "saturation": "SATURATION",
+  "color": "COLOR",
+  "luminosity": "LUMINOSITY",
+};
+
+/**
+ * Maps a CSS blend-mode value to a Figma BlendMode.
+ * Returns undefined for "normal", unknown, or empty values.
+ */
+export function mapCSSBlendMode(
+  cssBlendMode: string | undefined
+): BlendMode | undefined {
+  if (!cssBlendMode) return undefined;
+  return CSS_TO_FIGMA_BLEND_MODE[cssBlendMode];
+}
+
+/**
+ * Per-paint blend mode from CSS `background-blend-mode`. Figma's Paint
+ * blendMode is the exact 1:1 slot; it used to be hardcoded "NORMAL", so
+ * multiply-tinted heroes and duotone stacks rendered as plain layers.
+ */
+function paintBlendMode(fill: FigmaFill): BlendMode {
+  return mapCSSBlendMode(fill.blendMode) ?? "NORMAL";
+}
+
+// ============================================================================
 // Fill Conversion
 // ============================================================================
 
@@ -72,6 +114,7 @@ export function convertFillsToPaints(
             type: "SOLID",
             color: finalColor,
             opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity,
+            blendMode: paintBlendMode(fill),
           };
           paints.push(solidPaint);
         }
@@ -102,6 +145,7 @@ export function convertFillsToPaints(
             const linearPaint: GradientPaint = {
               type: "GRADIENT_LINEAR",
               opacity: fill.opacity ?? 1,
+              blendMode: paintBlendMode(fill),
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
@@ -143,6 +187,7 @@ export function convertFillsToPaints(
             const radialPaint: GradientPaint = {
               type: "GRADIENT_RADIAL",
               opacity: fill.opacity ?? 1,
+              blendMode: paintBlendMode(fill),
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
@@ -177,6 +222,7 @@ export function convertFillsToPaints(
             const angularPaint: GradientPaint = {
               type: "GRADIENT_ANGULAR",
               opacity: fill.opacity ?? 1,
+              blendMode: paintBlendMode(fill),
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
@@ -269,6 +315,7 @@ export function convertFillsToPaints(
                   : {}),
                 visible: true,
                 opacity: 1,
+                blendMode: paintBlendMode(fill),
               } as Paint);
               break;
             }
