@@ -100,12 +100,15 @@ export function convertFillsToPaints(
             // Website colors mode - preserve gradient
             const linearPaint: GradientPaint = {
               type: "GRADIENT_LINEAR",
+              opacity: fill.opacity ?? 1,
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
               })),
+              // `?? 180` — angle 0 (`to top` / `0deg`) is a valid value; `||`
+              // treated it as unset and flipped every top-pointing gradient.
               gradientTransform: calculateLinearGradientTransform(
-                fill.angle || 180,
+                fill.angle ?? 180,
                 fill.elementWidth,
                 fill.elementHeight
               ),
@@ -138,6 +141,7 @@ export function convertFillsToPaints(
             const radialTransform = calculateRadialGradientTransform(fill);
             const radialPaint: GradientPaint = {
               type: "GRADIENT_RADIAL",
+              opacity: fill.opacity ?? 1,
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
@@ -171,6 +175,7 @@ export function convertFillsToPaints(
           } else {
             const angularPaint: GradientPaint = {
               type: "GRADIENT_ANGULAR",
+              opacity: fill.opacity ?? 1,
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },

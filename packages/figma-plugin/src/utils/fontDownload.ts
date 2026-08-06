@@ -10,6 +10,7 @@ import JSZip from "jszip";
 import { convertEotToSfnt, isEot } from "./eotToSfnt";
 import { convertWoffToSfnt, isWoff } from "./woffToSfnt";
 import { readSfntNames } from "./sfntNames";
+import { convertWoff2ToSfnt, isWoff2 } from "./woff2ToSfnt";
 import type { FontDownloadInfo } from "../ui/components/modalPopup/FontFallbackModal";
 import { parseFontSrcUrls, type FontCut } from "./fontUtils";
 
@@ -364,18 +365,33 @@ function withExtension(fileName: string, ext: "ttf" | "otf"): string {
  * never the file name (cached binaries arrive mislabeled: telex.ge's ZIP
  * shipped EOT bytes under .ttf names, which macOS refused to install).
  *
+ * - WOFF2     → Brotli-decoded to its SFNT, renamed .ttf/.otf.
  * - WOFF v1  → unwrapped to its original SFNT, renamed .ttf/.otf.
  * - EOT      → unwrapped when uncompressed; MTX-compressed EOT can't be
  *              converted and returns null so the caller skips it honestly
  *              instead of shipping a file no OS can install.
  * - SFNT     → shipped as-is, extension corrected to match the flavor.
- * - Anything else (WOFF2/Brotli, unparseable) ships unchanged.
+ * - Anything else (unparseable) ships unchanged.
  * Exported for tests.
  */
-export function repackageForInstall(
+export async function repackageForInstall(
   fileName: string,
   bytes: Uint8Array
-): { fileName: string; bytes: Uint8Array } | null {
+): Promise<{ fileName: string; bytes: Uint8Array } | null> {
+  // WOFF2 is Brotli-compressed and no OS installs it. Decoding needs no
+  // WebAssembly (see woff2ToSfnt); a payload we cannot decode falls through
+  // and ships unchanged, exactly as before.
+  if (isWoff2(bytes)) {
+    const converted = await convertWoff2ToSfnt(bytes);
+    if (converted) {
+      return {
+        fileName: withExtension(fileName, converted.extension),
+        bytes: converted.bytes,
+      };
+    }
+    return { fileName, bytes };
+  }
+
   if (isWoff(bytes)) {
     const converted = convertWoffToSfnt(bytes);
     if (!converted) return { fileName, bytes };
@@ -465,7 +481,7 @@ export async function createFontsZipBlob(
           continue;
         }
       }
-      const packaged = repackageForInstall(fileName, bytes);
+      const packaged = await repackageForInstall(fileName, bytes);
       if (!packaged) {
         // Bytes no OS can install (e.g. MTX-compressed EOT) — skip honestly.
         skippedEntries.push(entry.fileName);
@@ -725,13 +741,13 @@ interface CapturedAsset {
  * Both are fixed from data that was in the `.w2w` file all along. Faces the
  * server already described (API imports) are returned untouched.
  */
-export function enrichFontsFromAssets(
+export async function enrichFontsFromAssets(
   fonts: unknown[] | undefined,
   assets: Record<string, CapturedAsset> | undefined,
-): unknown[] {
+): Promise<unknown[]> {
   if (!fonts || !assets) return fonts ?? [];
 
-  return fonts.map((entry) => {
+  return Promise.all(fonts.map(async (entry) => {
     const font = entry as FontMetadata;
     if (!font || typeof font !== "object") return entry;
     if (font.fontBase64 && font.realFamily) return entry;
@@ -758,6 +774,19 @@ export function enrichFontsFromAssets(
 
     if (!fontBase64) return entry;
 
+    // Unwrap WOFF2 once, here: everything downstream — the ZIP entry and the
+    // SFNT name lookup below — then works on bytes an OS can actually install.
+    // A payload we cannot decode keeps its original bytes, so this can only
+    // ever improve on the previous behaviour.
+    const rawBytes = base64ToBytes(fontBase64);
+    if (isWoff2(rawBytes)) {
+      const sfnt = await convertWoff2ToSfnt(rawBytes);
+      if (sfnt) {
+        fontBase64 = bytesToBase64(sfnt.bytes);
+        fontMimeType = sfnt.extension === "otf" ? "font/otf" : "font/ttf";
+      }
+    }
+
     const enriched: FontMetadata = { ...font, fontBase64 };
     if (fontMimeType) enriched.fontMimeType = fontMimeType;
 
@@ -770,7 +799,18 @@ export function enrichFontsFromAssets(
     }
 
     return enriched;
-  });
+  }));
+}
+
+/** bytes → base64. Byte-at-a-time: spreading a large font into
+ *  String.fromCharCode blows the argument limit, and the plugin targets a TS
+ *  level without downlevel iteration. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 /** base64 → bytes. Returns an empty array for malformed input so callers can

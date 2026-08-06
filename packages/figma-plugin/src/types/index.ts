@@ -125,6 +125,10 @@ export interface WireframeNode {
   justifyContent?: string; // CSS justify-content value
   alignItems?: string; // CSS align-items value
   flexWrap?: string; // CSS flex-wrap value
+  // CSS flex-direction. Figma auto-layout has no reversed direction, so the
+  // `-reverse` variants are reproduced by appending children backwards and
+  // flipping the main-axis alignment — see reverseFlexChildren in nodes.ts.
+  flexDirection?: string;
   // Child-level flex properties
   layoutGrow?: 0 | 1; // flex-grow: 0 = fixed, 1 = fill (Figma only supports 0 or 1)
   layoutAlign?: "STRETCH" | "INHERIT"; // align-self: stretch
@@ -216,6 +220,20 @@ export interface WireframeNode {
   // element sits inside a FILL/HUG auto-layout parent that would otherwise
   // stretch the child past its constraint (e.g. Apple.com p.tile-subhead).
   cssMaxWidth?: number;
+  // CSS min-width / min-height / max-height (px) — applied as Figma native
+  // minWidth/minHeight/maxHeight on auto-layout children, so an imported
+  // layout keeps its CSS floors/ceilings when the designer edits content
+  // (min-height heroes, min-width buttons). px-only, like cssMaxWidth.
+  cssMinWidth?: number;
+  cssMinHeight?: number;
+  cssMaxHeight?: number;
+  // Absolute URL from the nearest <a href> ancestor — applied as
+  // TextNode.hyperlink so imported links stay clickable.
+  href?: string;
+  // CSS text-shadow parsed to DROP_SHADOW effects. Kept separate from
+  // `effects` because it must land on the TextNode itself — a shadow on the
+  // wrapper box renders visibly differently from a shadow on the glyphs.
+  textShadowEffects?: FigmaEffect[];
 
   // Raw computed styles passthrough (filtered non-default values)
   computedStyles?: Record<string, string>;
@@ -432,6 +450,11 @@ export interface RenderContext {
     hoverCacheMisses: number;
     emptyPseudoSkipped: number;
     pseudoErrors: number;
+    // Children whose creation threw and was swallowed by the per-child
+    // try/catch (the subtree is lost). Surfaced to the user via
+    // figma.notify at the end of the import — without this a 20%-incomplete
+    // import looks identical to a perfect one.
+    droppedNodes?: { name: string; error: string }[];
   };
 }
 

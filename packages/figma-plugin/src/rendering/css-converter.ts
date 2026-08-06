@@ -19,7 +19,7 @@ import type {
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
 import { isItalicStyle } from './styles';
-import { isIconFont, isPuaOnlyText, CSS_FONT_KEYWORDS, isServerFallbackFamily } from '../utils/fontUtils';
+import { isIconFont, isPuaOnlyText, CSS_FONT_KEYWORDS, isUsableMeasuredFamily } from '../utils/fontUtils';
 
 // Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
 interface W2WFrameNode {
@@ -287,7 +287,7 @@ function convertFrame(
   // Sizing
   const sizing = isAbsoluteMode
     ? { horizontal: 'FIXED' as const, vertical: 'FIXED' as const, grow: 0 as const, align: 'INHERIT' as const }
-    : getSizing(s, parent?.styles, cssLayoutMode, parent ? { width: parent.width, height: parent.height } : undefined);
+    : getSizing(s, parent?.styles, cssLayoutMode, parent ? { width: parent.width, height: parent.height } : undefined, node.width);
 
   // Fills
   let fills = parseFills(s, node.width, node.height);
@@ -321,8 +321,8 @@ function convertFrame(
   // Effects
   const effects = parseEffects(s);
 
-  // Border radius
-  const borderRadius = parseBorderRadius(s);
+  // Border radius (percentages resolve against the element box)
+  const borderRadius = parseBorderRadius(s, node.width, node.height);
 
   // Text color (from styles, for text children)
   const textColor = resolveTextColor(s, textFills);
@@ -650,16 +650,13 @@ function convertFrame(
       !!ownTextDecoration;
     if (hasStyleVariation) {
       styledSegments = segmentSource.map(t => {
-        const { family } = parseFontString(t.font);
+        const family = measuredFamily(t.font);
         // Strip weight suffix from platform font name (e.g., "Space Grotesk Light" → "Space Grotesk").
         // A server-capture fallback (Liberation Sans, Noto * CJK) is an
         // artifact of the Linux container, not the page's font — taking it
         // here would put an uninstallable family into the wireframe's font
         // demand and reopen the download modal on every import.
-        const cleanPlatformFamily =
-          t.platformFamily && !isServerFallbackFamily(t.platformFamily)
-            ? parseFontString(t.platformFamily).family
-            : undefined;
+        const cleanPlatformFamily = measuredFamily(t.platformFamily) || undefined;
         // A PUA-only run inside mixed text is an icon glyph whose measured
         // font is the DOMINANT text font (the extension collapses platform
         // fonts per host element) — recover the icon family from the CSS stack.
@@ -700,7 +697,7 @@ function convertFrame(
     // renders the glyph as tofu and hides the icon font from the
     // missing-font/ZIP flow (collectAllFonts walks node.fontFamily).
     const runFamilies = new Set(
-      segmentSource.map(t => parseFontString(t.font).family).filter(Boolean),
+      segmentSource.map(t => measuredFamily(t.font)).filter(Boolean),
     );
     if (runFamilies.size === 1) {
       const runFamily = Array.from(runFamilies)[0];
@@ -757,10 +754,9 @@ function convertFrame(
         if (rowSegs && rowSegs.length > 1) {
           const segTransform = str(s.textTransform);
           wn.styledSegments = rowSegs.map(seg => {
-            const { family: segFamily, weight: segWeight } = parseFontString(seg.font);
-            const segPlatform = seg.platformFamily
-              ? parseFontString(seg.platformFamily).family
-              : undefined;
+            const { weight: segWeight } = parseFontString(seg.font);
+            const segFamily = measuredFamily(seg.font);
+            const segPlatform = measuredFamily(seg.platformFamily) || undefined;
             return {
               text: applyTextTransform(seg.value, segTransform),
               color: seg.color || str(s.webkitTextFillColor) || str(s.color) || 'rgb(0, 0, 0)',
@@ -960,8 +956,15 @@ function convertFrame(
     justifyContent: str(s.justifyContent),
     alignItems: str(s.alignItems),
     flexWrap: !isAbsoluteMode ? str(s.flexWrap) : undefined,
+    flexDirection: !isAbsoluteMode ? str(s.flexDirection) : undefined,
     layoutGrow: sizing.grow,
     layoutAlign: sizing.align,
+    // Raw CSS align-self — nodes.ts turns it into a per-child Figma
+    // layoutAlign. `auto` is the CSS default and carries no intent.
+    alignSelf: (() => {
+      const v = str(s.alignSelf);
+      return !v || v === 'auto' ? undefined : v;
+    })(),
     // Single-line coalesced text whose natural DOM width exceeds its parent:
     // override FILL to HUG so the text keeps its natural width instead of
     // being wrapped to the narrower Figma parent. This matches browser
@@ -1093,6 +1096,25 @@ function convertFrame(
       return Number.isFinite(n) && n > 0 ? n : undefined;
     })(),
 
+    // CSS min/max box constraints → native Figma minWidth/minHeight/maxHeight
+    // on auto-layout children (nodes.ts applyChildInAutoLayout). px-only.
+    cssMinWidth: parsePxLength(str(s.minWidth)),
+    cssMinHeight: parsePxLength(str(s.minHeight)),
+    cssMaxHeight: parsePxLength(str(s.maxHeight)),
+
+    // Nearest <a href> as an absolute URL → TextNode.hyperlink downstream.
+    href: resolveLinkHref(node, parent),
+
+    // Base-state text-shadow — applied on the TextNode itself in text.ts
+    // (previously only hover variants rendered it).
+    textShadowEffects: (() => {
+      if (type !== 'text') return undefined;
+      const raw = str(s.textShadow);
+      if (!raw || raw === 'none') return undefined;
+      const fx = parseBoxShadow(raw);
+      return fx.length > 0 ? fx : undefined;
+    })(),
+
     // Text
     textContent,
     styledSegments,
@@ -1205,7 +1227,8 @@ function convertTextNodeFromValue(
   _options: ConvertOptions,
 ): WireframeNode {
   const id = `w2w-${_nodeId++}`;
-  const { family, weight } = parseFontString(tv.font);
+  const { weight } = parseFontString(tv.font);
+  const family = measuredFamily(tv.font);
 
   // Mixed-children counterpart of the coalesced path: a `background-clip: text`
   // parent keeps its paint off the box, so each TEXT child carries the clipped
@@ -1258,7 +1281,7 @@ function convertTextNodeFromValue(
     // Server-capture fallbacks are ignored here for the same reason as in the
     // styled-segment path above: they are Linux container artifacts, not the
     // page's font, and must not enter the wireframe's font demand.
-    fontFamily: iconFamily || (tv.platformFamily && !isServerFallbackFamily(tv.platformFamily) ? parseFontString(tv.platformFamily).family : undefined) || family,
+    fontFamily: iconFamily || measuredFamily(tv.platformFamily) || family || parentStack[0] || '',
     fontFamilyList: parentStack.length > 1 ? parentStack : undefined,
     textAlign: str(parentStyles.textAlign) || 'left',
     lineHeight: str(parentStyles.lineHeight) || 'normal',
@@ -1272,6 +1295,16 @@ function convertTextNodeFromValue(
       if (!raw || raw === 'none' || raw.includes('%')) return undefined;
       const n = parseFloat(raw);
       return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
+
+    // Mixed-children counterparts of the coalesced-path fields: the parent's
+    // link URL and inherited text-shadow apply to each TEXT child.
+    href: resolveLinkHref(parentNode, null),
+    textShadowEffects: (() => {
+      const raw = str(parentStyles.textShadow);
+      if (!raw || raw === 'none') return undefined;
+      const fx = parseBoxShadow(raw);
+      return fx.length > 0 ? fx : undefined;
     })(),
 
     isPlaceholder: false,
@@ -1634,11 +1667,25 @@ function inferLayoutFromChildren(
 // Sizing detection (HUG / FILL / FIXED)
 // ---------------------------------------------------------------------------
 
+/** True when `margin-left` or `margin-right` resolves to a negative length. */
+function hasNegativeInlineMargin(
+  s: Record<string, string | number | undefined>,
+): boolean {
+  for (const key of ['marginLeft', 'marginRight'] as const) {
+    const raw = s[key];
+    if (raw == null) continue;
+    const value = parseFloat(String(raw));
+    if (!isNaN(value) && value < 0) return true;
+  }
+  return false;
+}
+
 function getSizing(
   s: Record<string, string | number | undefined>,
   parentStyles: Record<string, string | number | undefined> | undefined | null,
   layoutMode: string,
   parentDims?: { width: number; height: number },
+  ownWidth?: number,
 ): {
   horizontal: 'FIXED' | 'HUG' | 'FILL' | undefined;
   vertical: 'FIXED' | 'HUG' | 'FILL' | undefined;
@@ -1649,6 +1696,21 @@ function getSizing(
   const height = str(s.height);
   const flexGrow = typeof s.flexGrow === 'number' ? s.flexGrow : 0;
   const alignSelf = str(s.alignSelf);
+
+  // A negative side margin used as a BLEED gutter (`margin: 0 -6px`) makes the
+  // element wider than its container. The browser-measured width already
+  // carries that overhang, so FILL would snap it back to the parent and lose
+  // it (iwm.org.uk's mosaic row: 1273px measured, 1261px parent). A negative
+  // margin that leaves the element narrower than its parent is just a pull —
+  // it keeps the normal sizing rules.
+  if (
+    hasNegativeInlineMargin(s) &&
+    typeof ownWidth === 'number' &&
+    parentDims &&
+    ownWidth > parentDims.width + 0.5
+  ) {
+    return { horizontal: 'FIXED', vertical: 'FIXED', grow: 0, align: 'INHERIT' };
+  }
 
   const parentDisplay = parentStyles ? str(parentStyles.display) : '';
   const parentIsFlexOrGrid = parentDisplay === 'flex' || parentDisplay === 'inline-flex'
@@ -1826,13 +1888,12 @@ function parseFills(
       if (gradientFill) {
         fills.push(gradientFill);
       } else if (layer.includes('url(')) {
-        const urlMatch = layer.match(/url\(["']?([^"')]+)["']?\)/);
         fills.push({
           type: 'IMAGE_PLACEHOLDER',
           visible: true,
           opacity: 1,
           isImagePlaceholder: true,
-          imageUrl: urlMatch?.[1] || undefined,
+          imageUrl: extractCssUrl(layer) || undefined,
           scaleMode: backgroundScaleMode(
             sizes[li] || sizes[0] || '',
             repeats[li] || repeats[0] || '',
@@ -2093,7 +2154,24 @@ function parseEffects(
   // Filter (blur, drop-shadow)
   const filter = str(s.filter);
   if (filter && filter !== 'none') {
-    const blurMatch = filter.match(/blur\(([^)]+)\)/);
+    // filter: drop-shadow(x y blur color) → DROP_SHADOW. Same syntax as a
+    // single box-shadow without spread/inset, so reuse parseBoxShadow on the
+    // extracted (paren-balanced) argument string. Previously this rendered
+    // only on hover variants — the base state stayed flat.
+    let filterWithoutDropShadows = filter;
+    for (const args of extractFunctionArgs(filter, 'drop-shadow')) {
+      filterWithoutDropShadows = filterWithoutDropShadows.replace(
+        `drop-shadow(${args})`,
+        '',
+      );
+      for (const fx of parseBoxShadow(args)) {
+        if (fx.type === 'DROP_SHADOW') effects.push(fx);
+      }
+    }
+
+    // blur() — matched on the drop-shadow-stripped string so a blur radius
+    // inside drop-shadow(...) is never misread as a layer blur.
+    const blurMatch = filterWithoutDropShadows.match(/blur\(([^)]+)\)/);
     if (blurMatch) {
       effects.push({
         type: 'LAYER_BLUR',
@@ -2156,6 +2234,72 @@ function parseBoxShadow(shadowStr: string): FigmaEffect[] {
   return effects;
 }
 
+/**
+ * Extract the argument strings of every `fnName(...)` occurrence, balancing
+ * nested parentheses — `drop-shadow(0 4px 6px rgba(0,0,0,.3))` carries an
+ * rgba() inside the outer parens, so a plain regex stops too early.
+ */
+function extractFunctionArgs(input: string, fnName: string): string[] {
+  const out: string[] = [];
+  const needle = fnName + '(';
+  let idx = 0;
+  while ((idx = input.indexOf(needle, idx)) !== -1) {
+    let depth = 1;
+    let i = idx + needle.length;
+    while (i < input.length && depth > 0) {
+      if (input[i] === '(') depth++;
+      else if (input[i] === ')') depth--;
+      i++;
+    }
+    out.push(input.slice(idx + needle.length, depth === 0 ? i - 1 : i));
+    idx = i;
+  }
+  return out;
+}
+
+/**
+ * Parse a px length like "220px". Returns undefined for 'none'/'auto'/'0px',
+ * percentages and non-finite values — same policy as cssMaxWidth.
+ */
+function parsePxLength(raw: string | undefined): number | undefined {
+  if (!raw || raw === 'none' || raw === 'auto' || raw.includes('%')) return undefined;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/**
+ * Resolve the nearest <a href> (the element itself or its DOM parent) to an
+ * absolute http(s) URL, without `new URL()` — unreliable in the Figma
+ * sandbox. Fragment-only and javascript: links carry no navigable target.
+ */
+function resolveLinkHref(
+  node: W2WFrameNode | null,
+  parent: W2WFrameNode | null,
+): string | undefined {
+  const holder =
+    node && node.tag === 'a' && typeof node.attr?.href === 'string' && node.attr.href
+      ? node
+      : parent && parent.tag === 'a' && typeof parent.attr?.href === 'string' && parent.attr.href
+        ? parent
+        : null;
+  if (!holder) return undefined;
+
+  const href = String(holder.attr.href).trim();
+  if (!href || href.startsWith('#') || /^(javascript|mailto|tel):/i.test(href)) {
+    return undefined;
+  }
+  if (/^https?:\/\//i.test(href)) return href;
+  if (href.startsWith('//')) return `https:${href}`;
+
+  const base = typeof holder.attr.baseURI === 'string' ? holder.attr.baseURI : '';
+  const origin = base.match(/^https?:\/\/[^/]+/)?.[0];
+  if (!origin) return undefined;
+  if (href.startsWith('/')) return origin + href;
+  // Path-relative: resolve against the base document's directory.
+  const dir = base.replace(/[?#].*$/, '').replace(/\/[^/]*$/, '/');
+  return (dir.startsWith(origin) ? dir : origin + '/') + href;
+}
+
 function splitShadows(str: string): string[] {
   const result: string[] = [];
   let current = '';
@@ -2181,11 +2325,26 @@ function splitShadows(str: string): string[] {
 
 function parseBorderRadius(
   s: Record<string, string | number | undefined>,
+  width: number,
+  height: number,
 ): number | { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number } {
-  const tl = parseFloat(str(s.borderTopLeftRadius) || '0');
-  const tr = parseFloat(str(s.borderTopRightRadius) || '0');
-  const br = parseFloat(str(s.borderBottomRightRadius) || '0');
-  const bl = parseFloat(str(s.borderBottomLeftRadius) || '0');
+  // Percentage radii stay percentages in getComputedStyle — parseFloat('50%')
+  // read them as raw px (a 200×200 avatar got r=50 instead of a circle).
+  // CSS resolves the horizontal and vertical radius against width/height
+  // separately (elliptical); Figma corners are circular, so resolve against
+  // the smaller dimension — exact for squares, pill-shaped otherwise.
+  const resolve = (v: string | number | undefined): number => {
+    const raw = str(v) || '0';
+    const n = parseFloat(raw);
+    if (!n || n < 0) return 0;
+    if (raw.includes('%')) return (n / 100) * Math.min(width, height);
+    return n;
+  };
+
+  const tl = resolve(s.borderTopLeftRadius);
+  const tr = resolve(s.borderTopRightRadius);
+  const br = resolve(s.borderBottomRightRadius);
+  const bl = resolve(s.borderBottomLeftRadius);
 
   if (tl === tr && tr === br && br === bl) {
     return tl;
@@ -2357,6 +2516,44 @@ function figmaColorToCSS(color: FigmaColor): string {
  * (so rgba()/gradients/etc aren't broken in the middle) and quoted strings
  * (so url("a,b.jpg") stays intact).
  */
+/**
+ * Elements that declare media candidates or settings and paint nothing:
+ * `<source>` in a `<picture>`/`<video>`/`<audio>`, `<track>` captions,
+ * legacy `<param>`. The extractor keeps them because they are DOM elements
+ * with a box; the wireframe must not.
+ */
+const NON_RENDERING_TAGS = new Set(['source', 'track', 'param']);
+
+/**
+ * Pull the URL out of a single `background-image` layer, or null when the
+ * layer isn't a `url()` at all.
+ *
+ * Quote-aware on purpose: an inline SVG data URI carries its own quotes and
+ * may carry parentheses, so a character-class regex truncates it or fails to
+ * match entirely (iwm.org.uk's hero wordmark is a 5.3 KB
+ * `data:image/svg+xml` layer full of `width='277'`-style attributes).
+ * Exported for tests.
+ */
+export function extractCssUrl(layer: string): string | null {
+  const start = layer.indexOf('url(');
+  if (start === -1) return null;
+  let i = start + 4;
+  while (i < layer.length && /\s/.test(layer[i])) i++;
+
+  const quote = layer[i] === '"' || layer[i] === "'" ? layer[i] : null;
+  if (quote) {
+    const end = layer.indexOf(quote, i + 1);
+    if (end === -1) return null;
+    return layer.slice(i + 1, end);
+  }
+
+  // Unquoted: CSS forbids unescaped parens here, so the first `)` closes it.
+  const end = layer.indexOf(')', i);
+  if (end === -1) return null;
+  const url = layer.slice(i, end).trim();
+  return url.length > 0 ? url : null;
+}
+
 function splitMultipleBackgrounds(background: string): string[] {
   const layers: string[] = [];
   let depth = 0;
@@ -2831,8 +3028,54 @@ function adoptPosterFromSiblings(children: W2WNode[]): void {
   }
 }
 
+/**
+ * Does this subtree contain a `position: fixed` element?
+ *
+ * Fixed elements are laid out against the viewport, so an ancestor's
+ * `overflow: hidden` does NOT clip them — the only escape hatch from the
+ * screen-reader-only rule below.
+ */
+function hasFixedDescendant(node: W2WFrameNode): boolean {
+  for (const child of node.children ?? []) {
+    if (child.type !== 'FRAME') continue;
+    if (str(child.styles.position) === 'fixed') return true;
+    if (hasFixedDescendant(child)) return true;
+  }
+  return false;
+}
+
+/**
+ * The screen-reader-only clip pattern: `position: absolute; width: 1px;
+ * height: 1px; overflow: hidden` (Drupal `.visually-hidden`, Bootstrap
+ * `.sr-only`, "Skip to main content" links). The browser paints nothing —
+ * the content is clipped away by the 1px box — but Figma kept the frame at
+ * 1px wide and the inline-overhang correction then snapped its height to the
+ * text ink, turning iwm.org.uk's "Secondary navigation" into a 1×122 column
+ * of one-letter lines.
+ *
+ * `clip`/`clip-path` can't be used as the signal: the extractor doesn't
+ * capture them. The three conditions below stand in for it:
+ *   - `overflow: hidden` — without it a 0/1px wrapper legitimately shows
+ *     absolutely-positioned children (tooltips, badges).
+ *   - a non-static position — makes the box the containing block for those
+ *     children, so the clip really is total.
+ *   - no `position: fixed` descendant — see {@link hasFixedDescendant}.
+ */
+function isScreenReaderOnlyBox(child: W2WFrameNode): boolean {
+  if (child.width > 1 || child.height > 1) return false;
+  const position = str(child.styles.position);
+  if (position === '' || position === 'static') return false;
+  if (parseOverflow(child.styles) !== 'hidden') return false;
+  return !hasFixedDescendant(child);
+}
+
 function shouldSkipInvisibleFrame(child: W2WFrameNode, options: ConvertOptions): boolean {
   if (child._posterDonor) return true;
+  // Media metadata, never painted. They still occupy an inline box, so the
+  // extractor reports them at ~1 × line-height and each one used to land in
+  // Figma as a sliver frame — four per <picture> on any responsive image.
+  if (NON_RENDERING_TAGS.has(child.tag)) return true;
+  if (isScreenReaderOnlyBox(child)) return true;
   const vis = str(child.styles.visibility);
   const childOpacity = child.styles.opacity;
   const isInvisible = vis === 'hidden' || vis === 'collapse';
@@ -2907,6 +3150,17 @@ function applyTextTransform(value: string, textTransform: string | undefined): s
     default:
       return value;
   }
+}
+
+/**
+ * Family name of the font a text run was MEASURED with, or `''` when the
+ * measurement is not a usable family (see {@link isUsableMeasuredFamily} —
+ * Chromium reports a placeholder while a `font-display: swap` webfont loads).
+ * Returning `''` lets every call site fall through to the CSS-declared stack.
+ */
+function measuredFamily(raw: string | undefined | null): string {
+  const { family } = parseFontString(raw);
+  return isUsableMeasuredFamily(family) ? family : '';
 }
 
 function parseFontString(font: string | undefined | null): { family: string; weight: number } {

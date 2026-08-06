@@ -186,6 +186,9 @@ importers:
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
+      woff-lib:
+        specifier: 0.0.3
+        version: 0.0.3
     devDependencies:
       '@create-figma-plugin/build':
         specifier: ^4.0.3
@@ -1881,6 +1884,10 @@ packages:
   braces@3.0.3:
     resolution: {integrity: sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA==}
     engines: {node: '>=8'}
+
+  brotli-lib@0.0.7:
+    resolution: {integrity: sha512-ph4vAFd0gGa9nl94BeFLnjsWt3XfpRD6dPoUWPLrj3GO6qcx2pb7S/2O2zwxt2+a4Co5+cMBuPgj/N0zUo+pvw==}
+    engines: {node: '>=12'}
 
   browserslist@4.28.1:
     resolution: {integrity: sha512-ZC5Bd0LgJXgwGqUknZY/vkUQ04r8NXnJZ3yYi4vDmSiZmC/pdSN0NbNRPxZpbtO4uAfDUAFffO8IZoM3Gj8IkA==}
@@ -4532,6 +4539,10 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  woff-lib@0.0.3:
+    resolution: {integrity: sha512-GHPHOEUL7A8EXRID4LWiMvEHc7Mag6SN43ly0+QIlrtHxslI09LOOPDAnenN19fO8mv1iguYDKsoGMzJmYMtNQ==}
+    engines: {node: '>=16'}
+
   word-wrap@1.2.5:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
@@ -6041,6 +6052,8 @@ snapshots:
   braces@3.0.3:
     dependencies:
       fill-range: 7.1.1
+
+  brotli-lib@0.0.7: {}
 
   browserslist@4.28.1:
     dependencies:
@@ -9012,6 +9025,10 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  woff-lib@0.0.3:
+    dependencies:
+      brotli-lib: 0.0.7
 
   word-wrap@1.2.5: {}
 

@@ -5,7 +5,7 @@
 
 import type { WireframeNode, RenderContext } from "../types";
 import { hexToFigmaRGB, normalizeColorForLookup } from "./colors";
-import { getBorderRadius } from "./layout";
+import { applyCornerRadii } from "./layout";
 
 // ============================================================================
 // Placeholder Icon
@@ -210,14 +210,8 @@ export async function createPlaceholder(
     ];
   }
 
-  // Border radius
-  const cornerRadius = getBorderRadius(node.borderRadius);
-  if (cornerRadius > 0) {
-    placeholder.cornerRadius = Math.min(
-      cornerRadius,
-      Math.min(node.width, node.height) / 2
-    );
-  }
+  // Border radius (per-corner — asymmetric CSS radii stay asymmetric)
+  applyCornerRadii(placeholder, node.borderRadius, node.width, node.height);
 
   // Determine icon color (use provided color or derive from surface color)
   let iconColor: RGB;

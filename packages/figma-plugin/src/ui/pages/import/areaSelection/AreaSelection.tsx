@@ -401,7 +401,7 @@ export default function AreaSelection() {
    * Handles both single and multi-frame files
    * Uses inline settings from useTabSettings hook
    */
-  const processAndRender = (
+  const processAndRender = async (
     captureResult: UnifiedCaptureResult
   ) => {
     // Collapse settings panel during import
@@ -415,7 +415,7 @@ export default function AreaSelection() {
     // the ZIP then builds from the bytes already in the .w2w (no blocked
     // cross-origin fetches), and each face gains the real SFNT family name the
     // font actually installs under.
-    const capturedFonts = enrichFontsFromAssets(
+    const capturedFonts = await enrichFontsFromAssets(
       captureResult.fonts,
       captureResult.frames.find((f) => f.capturedData?.assets)?.capturedData?.assets,
     );
@@ -638,7 +638,7 @@ export default function AreaSelection() {
       }
 
       // Render directly using inline settings (no modal)
-      processAndRender(unifiedResult);
+      await processAndRender(unifiedResult);
 
       // Refresh the footer badge to reflect the just-incremented count.
       void refreshLicense();

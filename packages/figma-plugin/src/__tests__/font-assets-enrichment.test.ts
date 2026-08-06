@@ -50,7 +50,7 @@ function toBase64(bytes: Uint8Array): string {
 const GLYPHS_TTF = toBase64(ttfNamed("icomoon"));
 
 describe("enrichFontsFromAssets", () => {
-  it("attaches the cached binary so the ZIP needs no network", () => {
+  it("attaches the cached binary so the ZIP needs no network", async () => {
     const fonts = [{ fontFamily: "glyphs", src: "https://telex.ge/fonts/glyphs.ttf" }];
     const assets = {
       "https://telex.ge/fonts/glyphs.ttf": {
@@ -60,7 +60,7 @@ describe("enrichFontsFromAssets", () => {
       },
     };
 
-    const [font] = enrichFontsFromAssets(fonts, assets) as Array<{
+    const [font] = await enrichFontsFromAssets(fonts, assets) as Array<{
       fontBase64?: string;
       fontMimeType?: string;
     }>;
@@ -69,18 +69,18 @@ describe("enrichFontsFromAssets", () => {
     expect(font.fontMimeType).toBe("font/ttf");
   });
 
-  it("reads the real family from those bytes", () => {
+  it("reads the real family from those bytes", async () => {
     const fonts = [{ fontFamily: "glyphs", src: "url(https://telex.ge/fonts/glyphs.ttf)" }];
     const assets = {
       "https://telex.ge/fonts/glyphs.ttf": { base64Encoded: true, content: GLYPHS_TTF },
     };
 
-    const [font] = enrichFontsFromAssets(fonts, assets) as Array<{ realFamily?: string }>;
+    const [font] = await enrichFontsFromAssets(fonts, assets) as Array<{ realFamily?: string }>;
 
     expect(font.realFamily).toBe("icomoon");
   });
 
-  it("prefers an installable URL over the bulletproof EOT declared first", () => {
+  it("prefers an installable URL over the bulletproof EOT declared first", async () => {
     const fonts = [{
       fontFamily: "glyphs",
       src: "url(https://telex.ge/f/glyphs.eot) url(https://telex.ge/f/glyphs.ttf)",
@@ -90,25 +90,84 @@ describe("enrichFontsFromAssets", () => {
       "https://telex.ge/f/glyphs.ttf": { base64Encoded: true, content: GLYPHS_TTF },
     };
 
-    const [font] = enrichFontsFromAssets(fonts, assets) as Array<{ realFamily?: string; fontBase64?: string }>;
+    const [font] = await enrichFontsFromAssets(fonts, assets) as Array<{ realFamily?: string; fontBase64?: string }>;
 
     expect(font.fontBase64).toBe(GLYPHS_TTF);
     expect(font.realFamily).toBe("icomoon");
   });
 
-  it("leaves a font the server already described untouched", () => {
+  it("leaves a font the server already described untouched", async () => {
     const fonts = [{ fontFamily: "PSA", src: "https://x/psa.ttf", realFamily: "Averta Std", fontBase64: "AAA=" }];
     const assets = { "https://x/psa.ttf": { base64Encoded: true, content: GLYPHS_TTF } };
 
-    const [font] = enrichFontsFromAssets(fonts, assets) as Array<{ realFamily?: string; fontBase64?: string }>;
+    const [font] = await enrichFontsFromAssets(fonts, assets) as Array<{ realFamily?: string; fontBase64?: string }>;
 
     expect(font.realFamily).toBe("Averta Std");
     expect(font.fontBase64).toBe("AAA=");
   });
 
-  it("is a no-op without an asset map (API imports already carry their bytes)", () => {
+  it("is a no-op without an asset map (API imports already carry their bytes)", async () => {
     const fonts = [{ fontFamily: "glyphs", src: "https://telex.ge/fonts/glyphs.ttf" }];
 
-    expect(enrichFontsFromAssets(fonts, undefined)).toEqual(fonts);
+    expect(await enrichFontsFromAssets(fonts, undefined)).toEqual(fonts);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// WOFF2 assets
+// ---------------------------------------------------------------------------
+
+/**
+ * A page that serves woff2 ONLY (iwm.org.uk) used to hand the user a ZIP full
+ * of .woff2 files -- a web-only container no OS installs -- and readSfntNames
+ * could not read a family out of them either, so "Re-apply original fonts"
+ * had no real name to bind to. The bytes must be unwrapped to SFNT here, once,
+ * so both the ZIP and the name lookup see an installable font.
+ */
+describe("enrichFontsFromAssets -- WOFF2", () => {
+  it("unwraps a woff2 asset to SFNT and reads its real family", async () => {
+    const { ROBOTO_SUBSET_WOFF2_BASE64 } = await import(
+      "./fixtures/roboto-subset.woff2.base64"
+    );
+    const fonts = [{ fontFamily: "Roboto", src: "https://x.io/roboto.woff2" }];
+    const assets = {
+      "https://x.io/roboto.woff2": {
+        base64Encoded: true,
+        content: ROBOTO_SUBSET_WOFF2_BASE64,
+        mimeType: "font/woff2",
+      },
+    };
+    const [font] = (await enrichFontsFromAssets(fonts, assets)) as Array<{
+      fontBase64?: string;
+      fontMimeType?: string;
+      realFamily?: string;
+    }>;
+
+    expect(font.fontBase64).toBeTruthy();
+    const bin = atob(font.fontBase64!);
+    // SFNT now, not a wOF2 container.
+    expect([bin.charCodeAt(0), bin.charCodeAt(1), bin.charCodeAt(2), bin.charCodeAt(3)])
+      .toEqual([0x00, 0x01, 0x00, 0x00]);
+    expect(font.fontMimeType).toBe("font/ttf");
+    expect(font.realFamily).toBe("Roboto");
+  });
+
+  it("keeps the original bytes when the woff2 payload is unreadable", async () => {
+    const fonts = [{ fontFamily: "Broken", src: "https://x.io/broken.woff2" }];
+    const junk = btoa("wOF2    junk");
+    const assets = {
+      "https://x.io/broken.woff2": {
+        base64Encoded: true,
+        content: junk,
+        mimeType: "font/woff2",
+      },
+    };
+    const [font] = (await enrichFontsFromAssets(fonts, assets)) as Array<{
+      fontBase64?: string;
+      fontMimeType?: string;
+    }>;
+    expect(font.fontBase64).toBe(junk);
+    expect(font.fontMimeType).toBe("font/woff2");
   });
 });

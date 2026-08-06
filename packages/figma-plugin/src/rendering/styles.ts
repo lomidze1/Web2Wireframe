@@ -75,7 +75,9 @@ export function paintKeyFromFigmaFill(fill: FigmaFill): string {
           `${Math.round(s.color.r * 255)},${Math.round(s.color.g * 255)},${Math.round(s.color.b * 255)},${Math.round(s.color.a * 100)}@${Math.round(s.position * 1000)}`
       )
       .join("|");
-    return `${fill.type}:${fill.angle || 0}:${stopsKey}`;
+    // Key on the EFFECTIVE angle (render default is 180) so an explicit
+    // angle-0 gradient never shares a style with a default-angle one.
+    return `${fill.type}:${fill.angle ?? 180}:${stopsKey}`;
   }
 
   return "";
@@ -844,7 +846,7 @@ function figmaFillToPaint(fill: FigmaFill): Paint | null {
         color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
       })),
       gradientTransform: calculateLinearGradientTransform(
-        fill.angle || 180,
+        fill.angle ?? 180,
         fill.elementWidth,
         fill.elementHeight
       ),
@@ -1143,7 +1145,7 @@ export async function createUnifiedWebsiteColorStyles(
               color: { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a },
             })),
             gradientTransform: calculateLinearGradientTransform(
-              fill.angle || 180,
+              fill.angle ?? 180,
               fill.elementWidth,
               fill.elementHeight
             ),

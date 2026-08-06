@@ -23,15 +23,25 @@ import { getResourceBase64 } from "./resource-graph";
 
 /**
  * Extract download URLs from CSS @font-face src property.
- * Handles: url("https://..."), url('https://...'), url(https://...)
- * Ignores: data: URIs
+ *
+ * Two shapes reach this parser and BOTH must work:
+ *   - raw CSS, wrapped:  `url("https://...") format("woff2")`
+ *   - w2w capture, bare: `https://... format("woff2")`
+ * The browser-extension capture strips the wrapper on purpose before storing a
+ * face ("Clean src: strip url() wrapper for clean URL storage"), so insisting
+ * on `url(...)` returned nothing for every captured page — the capture then
+ * never asked the content script for the font bytes and dropped the font
+ * assets it held, leaving the plugin's font ZIP empty (iwm.org.uk).
+ *
+ * Ignores: `local()`, `data:` URIs — neither is downloadable.
  */
 export function extractUrlsFromSrc(src: string): string[] {
+  // The first alternative consumes the whole `url(...)`, so a wrapped URL can
+  // never also be picked up by the bare-URL alternative.
+  const regex = /url\(\s*['"]?(https?:\/\/[^'")\s]+)['"]?\s*\)|(https?:\/\/[^\s'")\],]+)/g;
   const urls: string[] = [];
-  const regex = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
-  let match;
-  while ((match = regex.exec(src)) !== null) {
-    urls.push(match[1]);
+  for (const match of src.matchAll(regex)) {
+    urls.push(match[1] || match[2]);
   }
   return urls;
 }

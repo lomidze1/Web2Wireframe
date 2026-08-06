@@ -26,6 +26,7 @@ import {
   refreshAuthToken,
 } from "./shared/licenseClient";
 import { API_BASE_URL } from "./shared/apiConfig";
+import { hasTransparentPixel } from "./shared/imageAlpha";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
 import { onImportTabRequest } from "./shared/importTabEvents";
@@ -282,16 +283,29 @@ function AppContent() {
               img.src = asset.dataUri;
             });
 
-            // Draw to canvas and export as JPEG
+            // Draw to canvas and export. JPEG has no alpha channel — a
+            // transparent WebP/AVIF logo converted to JPEG flattens onto
+            // black. Detect transparency and export those as PNG; fully
+            // opaque images keep JPEG 0.85 (smaller).
             const canvas = document.createElement("canvas");
             canvas.width = img.naturalWidth;
             canvas.height = img.naturalHeight;
             const ctx = canvas.getContext("2d");
             if (!ctx) throw new Error("No 2d context");
             ctx.drawImage(img, 0, 0);
-            const jpegDataUri = canvas.toDataURL("image/jpeg", 0.85);
 
-            results.push({ url: asset.url, dataUri: jpegDataUri, frameIdx: asset.frameIdx });
+            let needsPng = false;
+            try {
+              const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+              needsPng = hasTransparentPixel(rgba);
+            } catch {
+              // getImageData failed (tainted canvas) — assume opaque.
+            }
+            const convertedDataUri = needsPng
+              ? canvas.toDataURL("image/png")
+              : canvas.toDataURL("image/jpeg", 0.85);
+
+            results.push({ url: asset.url, dataUri: convertedDataUri, frameIdx: asset.frameIdx });
           } catch {
             // Image conversion failed — skip this asset (falls back to placeholder).
           }

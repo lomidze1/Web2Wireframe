@@ -22,10 +22,11 @@ import {
 } from "./colors";
 import { parseGradient } from "./gradients";
 import {
-  getBorderRadius,
+  applyCornerRadii,
   cssJustifyToFigma,
   cssAlignToFigma,
   cssAlignSelfToFigma,
+  resolveChildLayoutAlign,
   applyTextAlignFallback,
   needsMarginWrapper,
   createMarginWrapper,
@@ -209,6 +210,26 @@ export function shouldUseAutoLayout(
 export const MAX_RENDER_DEPTH = 40;
 
 /**
+ * Record a child subtree lost to a swallowed render exception. The per-child
+ * try/catch keeps one bad node from aborting the whole import, but in prod
+ * the logger is a no-op — without this record, a partially-lost import is
+ * indistinguishable from a perfect one. main.ts surfaces the count via
+ * figma.notify after rendering.
+ */
+export function recordDroppedNode(
+  context: RenderContext,
+  name: string | undefined,
+  err: unknown
+): void {
+  if (!context.renderStats) return;
+  if (!context.renderStats.droppedNodes) context.renderStats.droppedNodes = [];
+  context.renderStats.droppedNodes.push({
+    name: name || "(unnamed)",
+    error: err instanceof Error ? err.message : String(err),
+  });
+}
+
+/**
  * Recursively create Figma nodes from tree structure
  */
 export async function createNodeInFigma(
@@ -223,6 +244,7 @@ export async function createNodeInFigma(
   // page content (telex.ge product prices live at DOM depth 21+).
   if (depth > MAX_RENDER_DEPTH) {
     logger.warn("Max depth reached", { nodeId: node.id, depth });
+    recordDroppedNode(context, node.name, new Error(`max render depth ${MAX_RENDER_DEPTH} exceeded`));
     return null;
   }
 
@@ -390,12 +412,25 @@ export async function createNodeInFigma(
       frame.layoutSizingVertical = "FIXED";
     }
 
-    // Apply alignment from CSS
-    const primaryResult = cssJustifyToFigma(node.justifyContent);
+    // Apply alignment from CSS. A reversed flex direction moves main-start to
+    // the far edge, so the packing side flips with it.
+    const isReversed =
+      node.flexDirection === "row-reverse" ||
+      node.flexDirection === "column-reverse";
+    const primaryResult = cssJustifyToFigma(node.justifyContent, isReversed);
     const counterResult = cssAlignToFigma(node.alignItems);
 
     frame.primaryAxisAlignItems = primaryResult;
-    frame.counterAxisAlignItems = counterResult;
+    // BASELINE is only legal on HORIZONTAL auto-layout — setting it on a
+    // VERTICAL frame THROWS, and the parent's per-child try/catch swallows
+    // the exception, silently deleting the whole subtree. A block container
+    // (layoutMode NONE → VERTICAL here) can still carry `align-items:
+    // baseline` in its computed styles; baseline behaves like flex-start in
+    // that case, so fall back to MIN.
+    frame.counterAxisAlignItems =
+      counterResult === "BASELINE" && frame.layoutMode !== "HORIZONTAL"
+        ? "MIN"
+        : counterResult;
 
     // text-align fallback for non-flex block containers
     applyTextAlignFallback(frame, node.textAlign, node.justifyContent, node.alignItems);
@@ -407,9 +442,12 @@ export async function createNodeInFigma(
     // (telex.ge `.ab-fn-first-level`: `display:flex` in CSS, `display:block`
     // set by owl-carousel), and that combination lost eleven subtrees per
     // import — including the entire category-circles block.
+    // WRAP also throws when the primary axis HUGs (sizing mode AUTO) — a
+    // HUG-width row cannot wrap in the browser either, so skip it there.
     if (
       (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") &&
-      frame.layoutMode === "HORIZONTAL"
+      frame.layoutMode === "HORIZONTAL" &&
+      node.layoutSizingHorizontal !== "HUG"
     ) {
       frame.layoutWrap = "WRAP";
       // CSS `gap` covers both axes; Figma splits them and defaults the
@@ -524,13 +562,8 @@ export async function createNodeInFigma(
     }
   }
 
-  // Apply border radius
-  if (getBorderRadius(node.borderRadius) > 0) {
-    frame.cornerRadius = Math.min(
-      getBorderRadius(node.borderRadius),
-      Math.min(node.width, node.height) / 2
-    );
-  }
+  // Apply border radius (per-corner — asymmetric CSS radii stay asymmetric)
+  applyCornerRadii(frame, node.borderRadius, node.width, node.height);
 
   // Apply opacity - skip in plugin colors mode
   if (context.colorMode !== "plugin" && typeof node.opacity === 'number' && node.opacity < 1 && node.opacity > 0) {
@@ -630,6 +663,14 @@ export async function createNodeInFigma(
     // Sort flex children by CSS order property (visual reordering)
     const orderSorted = sortByFlexOrder(gridSorted, node.layoutMode);
 
+    // row-reverse / column-reverse: Figma has no reversed axis, so append the
+    // children backwards (per wrapped line — see reverseFlexChildren).
+    const directionApplied = reverseFlexChildren(
+      orderSorted,
+      node.layoutMode,
+      node.flexDirection
+    );
+
     // Sort for correct stacking (bg images to front; z-index only in absolute mode).
     // IMPORTANT: pass the layout mode the frame will ACTUALLY use, not the
     // CSS-derived node.layoutMode. In global autoLayout mode a plain block
@@ -637,7 +678,7 @@ export async function createNodeInFigma(
     // where children are placed by FLOW order — z-index must not reorder them
     // (telex.ge: header has z-index:5 and was pushed to the page bottom).
     const childrenToRender = sortChildrenForStacking(
-      orderSorted,
+      directionApplied,
       effectiveStackingLayoutMode(gridApplied, useAutoLayout, node.layoutMode)
     );
 
@@ -736,6 +777,7 @@ export async function createNodeInFigma(
           childId: entry?.id,
           childName: entry?.name,
         });
+        recordDroppedNode(context, entry?.name, err);
       }
     }
   }
@@ -1133,6 +1175,32 @@ function applyChildInAutoLayout(
     }
   }
 
+  // CSS min-width / min-height / max-height → native Figma constraints.
+  // Only legal on auto-layout children — which is exactly this code path.
+  // These keep the imported layout behaving like the source CSS when the
+  // designer edits content (a min-height hero holds its floor when its text
+  // shrinks; a FILL child can't collapse below its CSS min-width).
+  if (typeof child.cssMinWidth === "number" && child.cssMinWidth > 0) {
+    if ("minWidth" in childNode) {
+      (childNode as FrameNode | TextNode).minWidth = child.cssMinWidth;
+    }
+  }
+  if (typeof child.cssMinHeight === "number" && child.cssMinHeight > 0) {
+    if ("minHeight" in childNode) {
+      (childNode as FrameNode | TextNode).minHeight = child.cssMinHeight;
+    }
+  }
+  if (
+    typeof child.cssMaxHeight === "number" &&
+    child.cssMaxHeight > 0 &&
+    // Sanity: ignore a max that contradicts an also-present min.
+    (typeof child.cssMinHeight !== "number" || child.cssMaxHeight >= child.cssMinHeight)
+  ) {
+    if ("maxHeight" in childNode) {
+      (childNode as FrameNode | TextNode).maxHeight = child.cssMaxHeight;
+    }
+  }
+
   // Sizing target = wrapper (if exists) or childNode.
   // When wrapper exists: sizing goes on wrapper; inner child already FILLs wrapper.
   const isHorizontalLayout = parentFrame.layoutMode === "HORIZONTAL";
@@ -1155,12 +1223,9 @@ function applyChildInAutoLayout(
       child.alignSelf,
       parentFrame.counterAxisAlignItems
     );
-    if (selfAlign === "STRETCH") {
-      target.layoutAlign = "STRETCH";
-    } else if (selfAlign === "CENTER") {
-      target.layoutAlign = "INHERIT";
-    } else if (child.layoutAlign === "STRETCH") {
-      target.layoutAlign = "STRETCH";
+    const resolvedAlign = resolveChildLayoutAlign(selfAlign, child.layoutAlign);
+    if (resolvedAlign) {
+      target.layoutAlign = resolvedAlign;
     }
 
     if (isHorizontalLayout) {
@@ -1241,10 +1306,9 @@ function applyChildInAutoLayout(
       child.alignSelf,
       parentFrame.counterAxisAlignItems
     );
-    if (selfAlign === "STRETCH") {
-      (wrapper || textChild).layoutAlign = "STRETCH";
-    } else if (child.layoutAlign === "STRETCH") {
-      (wrapper || textChild).layoutAlign = "STRETCH";
+    const resolvedAlign = resolveChildLayoutAlign(selfAlign, child.layoutAlign);
+    if (resolvedAlign) {
+      (wrapper || textChild).layoutAlign = resolvedAlign;
     }
 
     if (wrapper) {
@@ -1575,7 +1639,12 @@ export async function createWireframeFrame(
     const primaryResult = cssJustifyToFigma(rootTree.justifyContent);
     const counterResult = cssAlignToFigma(rootTree.alignItems);
     wireframeFrame.primaryAxisAlignItems = primaryResult;
-    wireframeFrame.counterAxisAlignItems = counterResult;
+    // Same BASELINE guard as the child path — BASELINE on a non-HORIZONTAL
+    // frame throws and would abort the whole wireframe.
+    wireframeFrame.counterAxisAlignItems =
+      counterResult === "BASELINE" && wireframeFrame.layoutMode !== "HORIZONTAL"
+        ? "MIN"
+        : counterResult;
 
     // text-align fallback for non-flex block containers
     applyTextAlignFallback(wireframeFrame, rootTree.textAlign, rootTree.justifyContent, rootTree.alignItems);
@@ -1622,6 +1691,7 @@ export async function createWireframeFrame(
           childId: child.id,
           childName: child.name,
         });
+        recordDroppedNode(context, child.name, err);
       }
     }
 
@@ -1989,6 +2059,60 @@ export function sortByFlexOrder(
 }
 
 /**
+ * Reorder the children of a `row-reverse` / `column-reverse` flex container.
+ *
+ * Figma auto-layout only lays children out along the positive axis, so a
+ * reversed container is reproduced by appending its children backwards. With
+ * `flex-wrap: wrap` a GLOBAL reverse is wrong: CSS breaks lines in main-axis
+ * order, so reversing everything re-packs items into different lines whenever
+ * their sizes differ. Only the items within one line may swap.
+ *
+ * Line boundaries are read off the captured main-axis geometry rather than the
+ * cross axis: in a reversed row every next item sits to the LEFT of the
+ * previous one, so an item that jumps back towards the start edge opens a new
+ * line. Cross-axis banding cannot be used — a tall item makes its line overlap
+ * the next one (iwm.org.uk: HMS Belfast is 383px in a 318px line).
+ */
+export function reverseFlexChildren(
+  children: WireframeNode[],
+  layoutMode: WireframeNode["layoutMode"],
+  flexDirection: string | undefined
+): WireframeNode[] {
+  if (flexDirection !== "row-reverse" && flexDirection !== "column-reverse") {
+    return children;
+  }
+  if (layoutMode !== "HORIZONTAL" && layoutMode !== "VERTICAL") return children;
+  if (children.length < 2) return children;
+
+  const horizontal = layoutMode === "HORIZONTAL";
+  const start = (n: WireframeNode) => (horizontal ? n.x : n.y);
+  const size = (n: WireframeNode) => (horizontal ? n.width : n.height);
+  // Zero-area children (spacers, collapsed pseudo-elements) carry no position
+  // of their own — they must not open a line.
+  const hasArea = (n: WireframeNode) => n.width > 0.5 && n.height > 0.5;
+
+  const out: WireframeNode[] = [];
+  let line: WireframeNode[] = [];
+  let lineStart: number | null = null;
+
+  for (const child of children) {
+    if (hasArea(child)) {
+      const end = start(child) + size(child);
+      // Still moving towards the start edge → same line. Otherwise a new one.
+      if (lineStart !== null && end > lineStart) {
+        out.push(...line.reverse());
+        line = [];
+      }
+      lineStart = start(child);
+    }
+    line.push(child);
+  }
+  out.push(...line.reverse());
+
+  return out;
+}
+
+/**
  * Resolve the layout mode a container frame will ACTUALLY render with, for
  * stacking decisions. `node.layoutMode` alone is wrong: in global autoLayout
  * mode, a block container with layoutMode "NONE" is still rendered as a
@@ -2017,6 +2141,36 @@ function isBehindSiblings(child: WireframeNode): boolean {
     (child.position === "absolute" || child.position === "fixed") &&
     (child.zIndex ?? 0) < 0
   );
+}
+
+/**
+ * The mirror of {@link isBehindSiblings}: out of normal flow AND explicitly
+ * stacked in FRONT. CSS paints such a child above every in-flow sibling no
+ * matter where it sits in the DOM; Figma paints the LAST child on top, so it
+ * has to move to the end.
+ *
+ * `z-index: auto` is deliberately excluded — it covers the vast majority of
+ * absolute children, and hoisting them all would churn every import's layer
+ * order for no measured gain. Only an explicit positive value is treated as
+ * the author saying "this belongs on top".
+ */
+function isInFrontOfSiblings(child: WireframeNode): boolean {
+  return (
+    (child.position === "absolute" || child.position === "fixed") &&
+    (child.zIndex ?? 0) > 0
+  );
+}
+
+/** Stable ascending sort by z-index (DOM order breaks ties). */
+function byZIndexStable(children: WireframeNode[]): WireframeNode[] {
+  return children
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => {
+      const za = a.c.zIndex ?? 0;
+      const zb = b.c.zIndex ?? 0;
+      return za !== zb ? za - zb : a.i - b.i;
+    })
+    .map((s) => s.c);
 }
 
 /**
@@ -2061,10 +2215,16 @@ export function sortChildrenForStacking(
   // how stripe.com's header background covered the entire nav.
   if (parentLayoutMode !== "NONE") {
     const behind = result.filter(isBehindSiblings);
-    if (behind.length === 0) return result;
+    // A background-layer container hoisted by Step 1 keeps that placement —
+    // the front sort must not drag it back to the end.
+    const front = result.filter(
+      (c) => isInFrontOfSiblings(c) && bgImages.indexOf(c) === -1,
+    );
+    if (behind.length === 0 && front.length === 0) return result;
     return [
-      ...behind.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
-      ...result.filter((c) => !isBehindSiblings(c)),
+      ...byZIndexStable(behind),
+      ...result.filter((c) => !isBehindSiblings(c) && front.indexOf(c) === -1),
+      ...byZIndexStable(front),
     ];
   }
 

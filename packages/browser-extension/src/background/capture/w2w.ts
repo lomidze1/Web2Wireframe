@@ -35,6 +35,8 @@ import {
   type CaptureOptions,
   type CaptureStats,
   DEFAULT_CAPTURE_OPTIONS,
+  extractUrlsFromSrc,
+  orderUrlsByInstallability,
 } from "@w2w/shared";
 
 import { state, updateProgress } from "../state";
@@ -559,14 +561,17 @@ export async function handleCapturePageW2W(
       }
     }
     // Fallback: fetch missing font binaries via content script (page context, no CORS issues)
+    // The browser downloads exactly ONE format per face, so every other
+    // declared URL lands here. Ask for them best-installable first and skip the
+    // two formats nothing can use — .svg outlines and the IE-only .eot — so the
+    // page isn't made to fetch files that would only be discarded.
     const missingFontUrls: string[] = [];
     for (const font of w2wFonts) {
       if (!font.src) continue;
-      const urlRegex2 = /(?:url\(['"]?)?((https?:\/\/[^\s'")\],]+))['"]?\)?/g;
-      let m2;
-      while ((m2 = urlRegex2.exec(font.src)) !== null) {
-        const fontUrl = m2[1];
-        if (!assets[fontUrl]) missingFontUrls.push(fontUrl);
+      for (const fontUrl of orderUrlsByInstallability(extractUrlsFromSrc(font.src))) {
+        if (assets[fontUrl]) continue;
+        if (/\.(svg|eot)(\?|#|$)/i.test(fontUrl)) continue;
+        missingFontUrls.push(fontUrl);
       }
     }
 
@@ -576,6 +581,11 @@ export async function handleCapturePageW2W(
           type: "FETCH_FONT_DATA",
           urls: missingFontUrls,
         });
+        console.log(
+          `[W2W] Content-script font fetch: asked ${missingFontUrls.length}, got ${
+            response?.data ? Object.keys(response.data).length : 0
+          }`,
+        );
         if (response?.success && response.data) {
           for (const [url, base64] of Object.entries(response.data)) {
             if (base64 && typeof base64 === 'string') {
@@ -592,22 +602,31 @@ export async function handleCapturePageW2W(
             }
           }
         }
-      } catch {
+      } catch (err) {
         // Content script font fetch failed — degrade silently; missing fonts
-        // are surfaced later via the font fallback modal.
+        // are surfaced later via the font fallback modal. Logged because a
+        // silent failure here is indistinguishable from "the page shipped no
+        // fonts", and it decides whether the export can carry any binary.
+        console.warn("[W2W] Content-script font fetch failed:", err);
       }
     }
 
     // --- Filter fonts: keep only actually-used fonts (like h2d) ---
     // aggregatedUsedFamilies unions platform fonts across ALL viewports
-    // (responsive designs may use different fonts at different widths).
+    // (responsive designs may use different fonts at different widths). Those
+    // are the names the OS RESOLVED to; an @font-face is keyed by the name the
+    // CSS REQUESTED, and for icon fonts the two differ ("glyphs" renders as
+    // "icomoon"). Matching platform names alone dropped every such face from
+    // the export, so the plugin could neither render nor download them.
     const usedFontFamilies = aggregatedUsedFamilies;
+    const usedCssFontFamilies = new Set<string>();
+    for (const cap of captures) w2wCollectCssFontFamilies(cap.frame, usedCssFontFamilies);
 
-    if (usedFontFamilies.size > 0) {
-      // Filter w2wFonts: keep only entries whose fontFamily matches a used font
-      const filteredFonts = w2wFonts.filter((f) =>
-        usedFontFamilies.has(f.fontFamily.toLowerCase()) ||
-        (f.platformFontFamily && usedFontFamilies.has(f.platformFontFamily.toLowerCase()))
+    if (usedFontFamilies.size > 0 || usedCssFontFamilies.size > 0) {
+      const filteredFonts = w2wFilterUsedFonts(
+        w2wFonts,
+        usedFontFamilies,
+        usedCssFontFamilies,
       );
 
       // For each kept font, prefer woff2 over woff over ttf
@@ -618,26 +637,13 @@ export async function handleCapturePageW2W(
       for (const font of filteredFonts) {
         if (!font.src) continue;
         const key = `${font.fontFamily.toLowerCase()}|${font.fontWeight}|${font.fontStyle}`;
-        const urlRegex = /(?:url\(['"]?)?((https?:\/\/[^\s'")\],]+))['"]?\)?/g;
-        let m;
-        const urls: string[] = [];
-        while ((m = urlRegex.exec(font.src)) !== null) {
-          urls.push(m[1]);
-        }
-        // Prefer woff2 > woff > ttf > otf
-        const ranked = urls.sort((a, b) => {
-          const rank = (u: string) => {
-            if (u.includes('.woff2')) return 0;
-            if (u.includes('.woff')) return 1;
-            if (u.includes('.ttf')) return 2;
-            if (u.includes('.otf')) return 3;
-            return 4;
-          };
-          return rank(a) - rank(b);
-        });
-        if (ranked.length > 0) {
-          fontFamilyBestUrl.set(key, ranked[0]);
-          fontUrlsToKeep.add(ranked[0]);
+        // Keep the files we HOLD BYTES for, most installable first — see
+        // w2wPickFontUrlsToKeep. Ranking the declared URLs without checking
+        // what was cached drops the one format the browser actually fetched.
+        const keep = w2wPickFontUrlsToKeep(font.src, (url) => !!assets[url]);
+        if (keep.length > 0) {
+          fontFamilyBestUrl.set(key, keep[0]);
+          for (const url of keep) fontUrlsToKeep.add(url);
         }
       }
 
@@ -773,6 +779,84 @@ export function w2wCollectImageUrls(node: W2WNode, urls: string[] = []): string[
  * The content script sets data-w2w-idx in the same DFS order (incremented
  * for each frame that has TEXT children).
  */
+/** CSS keywords that name no installable file, so an @font-face can never
+ *  declare them. */
+const GENERIC_CSS_FAMILIES = new Set([
+  "serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui",
+  "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded", "math", "emoji",
+  "fangsong", "inherit", "initial", "unset", "revert",
+]);
+
+/**
+ * Every font family the captured tree REQUESTS, lowercased.
+ *
+ * The used-font filter can't rely on platform font names alone: those are what
+ * the OS resolved to ("icomoon"), while an @font-face is keyed by what the CSS
+ * asked for ("glyphs"). Collecting the CSS side is the only way to tell that a
+ * face is used when the two names differ — which is the norm for icon fonts,
+ * anti-piracy aliases and variable-font instances.
+ */
+export function w2wCollectCssFontFamilies(
+  node: W2WNode,
+  out: Set<string> = new Set<string>(),
+): Set<string> {
+  if (node.type === "FRAME") {
+    const declared = node.styles?.fontFamily;
+    if (declared) {
+      for (const part of declared.split(",")) {
+        const name = part.trim().replace(/^['"]|['"]$/g, "").trim().toLowerCase();
+        if (name && !GENERIC_CSS_FAMILIES.has(name)) out.add(name);
+      }
+    }
+    for (const child of node.children) w2wCollectCssFontFamilies(child, out);
+  }
+  return out;
+}
+
+/**
+ * Keep only the @font-face entries the page actually uses — matched against
+ * BOTH the platform names that rendered and the families the CSS requested.
+ * With an empty demand on both sides we can't prove anything unused, so
+ * everything stays.
+ */
+export function w2wFilterUsedFonts<
+  T extends { fontFamily: string; platformFontFamily?: string },
+>(fonts: T[], usedPlatformFamilies: Set<string>, usedCssFamilies: Set<string>): T[] {
+  if (usedPlatformFamilies.size === 0 && usedCssFamilies.size === 0) return fonts;
+  return fonts.filter((f) => {
+    const css = f.fontFamily.toLowerCase();
+    return (
+      usedCssFamilies.has(css) ||
+      usedPlatformFamilies.has(css) ||
+      (!!f.platformFontFamily && usedPlatformFamilies.has(f.platformFontFamily.toLowerCase()))
+    );
+  });
+}
+
+/**
+ * The URLs of a face worth keeping in the export, best-installable first.
+ *
+ * Ranking alone is not enough: a face declares up to five formats but the
+ * browser only ever downloaded ONE of them, so the ranking must be applied to
+ * the URLs we actually HOLD BYTES for. Keeping the theoretically-best URL
+ * instead (a .ttf the page never requested) makes the cleanup below delete the
+ * cached .woff — which is how a capture ended up shipping zero font files.
+ *
+ * All available URLs are kept, not just the first: they cost a few KB each and
+ * let the plugin pick the format it can actually unwrap (it converts WOFF and
+ * EOT to SFNT, but has no Brotli for WOFF2). When nothing was cached we keep
+ * the best-ranked URL as a marker so a later fetch has a target.
+ */
+export function w2wPickFontUrlsToKeep(
+  src: string,
+  hasBytes: (url: string) => boolean,
+): string[] {
+  const ranked = orderUrlsByInstallability(extractUrlsFromSrc(src));
+  const available = ranked.filter(hasBytes);
+  if (available.length > 0) return available;
+  return ranked.slice(0, 1);
+}
+
 export function w2wEnrichAllTextNodes(
   frame: W2WFrameNode,
   fontsByIdx: Map<number, { familyName: string; postScriptName: string }>,

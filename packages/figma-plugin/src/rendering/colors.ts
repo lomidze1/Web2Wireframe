@@ -23,7 +23,16 @@ export function hexToFigmaRGB(hex: string): RGB {
     return { r: 0.96, g: 0.96, b: 0.96 }; // Default light gray
   }
 
-  const cleanHex = hex.replace("#", "");
+  let cleanHex = hex.replace("#", "");
+
+  // Expand 3-digit (#fff) and 4-digit (#fffc) shorthand — these previously
+  // fell through to the light-gray fallback.
+  if (cleanHex.length === 3 || cleanHex.length === 4) {
+    cleanHex = cleanHex
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
 
   // Handle 8-digit hex (with alpha) - extract first 6 digits
   const colorHex = cleanHex.length === 8 ? cleanHex.slice(0, 6) : cleanHex;
@@ -89,14 +98,16 @@ export function cssColorToFigmaRGB(
 ): { color: RGB; opacity: number } | null {
   if (!color || color === "transparent") return null;
 
-  // Handle hex (6 or 8 digit)
+  // Handle hex (3/4/6/8 digit)
   if (color.startsWith("#")) {
     const cleanHex = color.replace("#", "");
     let opacity = 1;
 
-    // 8-digit hex has alpha in last 2 characters
+    // 8-digit hex has alpha in last 2 characters; 4-digit in the last one
     if (cleanHex.length === 8) {
       opacity = parseInt(cleanHex.slice(6, 8), 16) / 255;
+    } else if (cleanHex.length === 4) {
+      opacity = parseInt(cleanHex[3] + cleanHex[3], 16) / 255;
     }
 
     return { color: hexToFigmaRGB(color), opacity };

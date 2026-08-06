@@ -70,7 +70,7 @@ function buildWoff(flavor: number): { woff: Uint8Array; tables: Uint8Array[] } {
 // ---------------------------------------------------------------------------
 
 describe("convertWoffToSfnt", () => {
-  it("unwraps a TrueType-flavored WOFF to a valid TTF", () => {
+  it("unwraps a TrueType-flavored WOFF to a valid TTF", async () => {
     const { woff, tables } = buildWoff(0x00010000);
     expect(isWoff(woff)).toBe(true);
 
@@ -103,7 +103,7 @@ describe("convertWoffToSfnt", () => {
     expect(nameOffset % 4).toBe(0);
   });
 
-  it("maps 'OTTO' flavor to .otf", () => {
+  it("maps 'OTTO' flavor to .otf", async () => {
     const { woff } = buildWoff(0x4f54544f);
     const result = convertWoffToSfnt(woff);
     expect(result).not.toBeNull();
@@ -111,7 +111,7 @@ describe("convertWoffToSfnt", () => {
     expect(new DataView(result!.bytes.buffer).getUint32(0)).toBe(0x4f54544f);
   });
 
-  it("returns null for non-WOFF and corrupt input", () => {
+  it("returns null for non-WOFF and corrupt input", async () => {
     expect(convertWoffToSfnt(new Uint8Array([1, 2, 3]))).toBeNull();
     const { woff } = buildWoff(0x00010000);
     woff[0] = 0x00; // break signature
@@ -122,36 +122,36 @@ describe("convertWoffToSfnt", () => {
 });
 
 describe("repackageForInstall", () => {
-  it("renames .woff entries to .ttf with converted bytes", () => {
+  it("renames .woff entries to .ttf with converted bytes", async () => {
     const { woff } = buildWoff(0x00010000);
-    const result = repackageForInstall("uni2-icons-normal-normal-100.woff", woff);
+    const result = await repackageForInstall("uni2-icons-normal-normal-100.woff", woff);
     expect(result).not.toBeNull();
     expect(result!.fileName).toBe("uni2-icons-normal-normal-100.ttf");
     expect(new DataView(result!.bytes.buffer).getUint32(0)).toBe(0x00010000);
   });
 
-  it("converts WOFF bytes even when the file name lies (mislabeled .ttf)", () => {
+  it("converts WOFF bytes even when the file name lies (mislabeled .ttf)", async () => {
     // Content-based detection: cached binaries arrive with names derived from
     // URLs, which can disagree with the actual bytes.
     const { woff } = buildWoff(0x00010000);
-    const result = repackageForInstall("glyphs-normal-normal-100.ttf", woff);
+    const result = await repackageForInstall("glyphs-normal-normal-100.ttf", woff);
     expect(result).not.toBeNull();
     expect(result!.fileName).toBe("glyphs-normal-normal-100.ttf");
     expect(new DataView(result!.bytes.buffer).getUint32(0)).toBe(0x00010000);
     expect(isWoff(result!.bytes)).toBe(false); // unwrapped, no longer WOFF
   });
 
-  it("leaves .woff2 and non-WOFF bytes untouched", () => {
+  it("leaves .woff2 and non-WOFF bytes untouched", async () => {
     const junk = new Uint8Array([9, 9, 9, 9, 9]);
-    expect(repackageForInstall("font.woff2", junk)).toEqual({ fileName: "font.woff2", bytes: junk });
+    expect(await repackageForInstall("font.woff2", junk)).toEqual({ fileName: "font.woff2", bytes: junk });
     // .woff name but not actually WOFF bytes → untouched
-    expect(repackageForInstall("font.woff", junk)).toEqual({ fileName: "font.woff", bytes: junk });
+    expect(await repackageForInstall("font.woff", junk)).toEqual({ fileName: "font.woff", bytes: junk });
   });
 
-  it("corrects the extension of raw SFNT bytes mislabeled .woff", () => {
+  it("corrects the extension of raw SFNT bytes mislabeled .woff", async () => {
     const { woff } = buildWoff(0x00010000);
     const sfnt = convertWoffToSfnt(woff)!.bytes; // genuine TrueType bytes
-    const result = repackageForInstall("font.woff", sfnt);
+    const result = await repackageForInstall("font.woff", sfnt);
     expect(result).not.toBeNull();
     expect(result!.fileName).toBe("font.ttf");
     expect(result!.bytes).toBe(sfnt); // bytes untouched, only the name fixed

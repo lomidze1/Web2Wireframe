@@ -1492,6 +1492,36 @@ export async function createTextNode(
     textNode.letterSpacing = { value: node.letterSpacing, unit: "PIXELS" };
   }
 
+  // CSS text-shadow → DROP_SHADOW on the TextNode itself. Effects on a
+  // wrapper box render visibly differently from a shadow on the glyphs.
+  if (node.textShadowEffects && node.textShadowEffects.length > 0) {
+    try {
+      textNode.effects = node.textShadowEffects
+        .filter((fx) => fx.type === "DROP_SHADOW" && fx.color && fx.offset)
+        .map((fx) => ({
+          type: "DROP_SHADOW" as const,
+          visible: true,
+          color: { r: fx.color!.r, g: fx.color!.g, b: fx.color!.b, a: fx.color!.a },
+          offset: { x: fx.offset!.x, y: fx.offset!.y },
+          radius: fx.radius || 0,
+          spread: 0,
+          blendMode: "NORMAL" as const,
+          showShadowBehindNode: false,
+        }));
+    } catch {
+      // Effects are decorative — never fail the text node over them.
+    }
+  }
+
+  // Captured <a href> → clickable hyperlink (h2d parity).
+  if (node.href) {
+    try {
+      textNode.hyperlink = { type: "URL", value: node.href };
+    } catch {
+      // Invalid URL for Figma — keep the text without a link.
+    }
+  }
+
   // =========================================================================
   // SMART TEXT SIZING LOGIC
   // =========================================================================
