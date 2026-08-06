@@ -18,6 +18,7 @@ import type {
   TextSegment,
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
+import { parseCssPosition } from './imageCrop';
 import { isItalicStyle } from './styles';
 import { isIconFont, isPuaOnlyText, CSS_FONT_KEYWORDS, isUsableMeasuredFamily } from '../utils/fontUtils';
 
@@ -1197,6 +1198,14 @@ function convertFrame(
     isPlaceholder: type === 'placeholder',
     imageUrl: node.$url,
     objectFit: type === 'placeholder' ? str(s.objectFit) || undefined : undefined,
+    // object-position (captured only when non-default) → fractional crop
+    // focus for realImages.ts. Percent/keyword forms only; px falls back.
+    objectPosition: (() => {
+      if (type !== 'placeholder') return undefined;
+      const raw = str(s.objectPosition);
+      if (!raw) return undefined;
+      return parseCssPosition(raw) || undefined;
+    })(),
 
     // Static rotation (degrees, clockwise) recovered from the transform matrix
     rotation: parseCssRotation(str(s.transform)),
@@ -1878,16 +1887,21 @@ function parseFills(
   const bgImage = str(s.backgroundImage);
   if (bgImage && bgImage !== 'none') {
     const layers = splitMultipleBackgrounds(bgImage);
-    // background-size / background-repeat are comma-separated per layer,
-    // in the same order as background-image layers.
+    // background-size / background-repeat / background-position are
+    // comma-separated per layer, in the same order as background-image.
     const sizes = str(s.backgroundSize).split(',').map(v => v.trim());
     const repeats = str(s.backgroundRepeat).split(',').map(v => v.trim());
+    const positions = str(s.backgroundPosition).split(',').map(v => v.trim());
     for (let li = 0; li < layers.length; li++) {
       const layer = layers[li];
       const gradientFill = parseGradientToFill(layer, width, height);
       if (gradientFill) {
         fills.push(gradientFill);
       } else if (layer.includes('url(')) {
+        // background-position (captured only when non-default) → fractional
+        // crop focus. fills.ts turns FILL + position into CROP+imageTransform.
+        const rawPosition = positions[li] || positions[0] || '';
+        const position = rawPosition ? parseCssPosition(rawPosition) : null;
         fills.push({
           type: 'IMAGE_PLACEHOLDER',
           visible: true,
@@ -1900,6 +1914,9 @@ function parseFills(
             width,
             height,
           ),
+          ...(position ? { position } : {}),
+          elementWidth: width,
+          elementHeight: height,
         });
       }
     }
@@ -2421,6 +2438,57 @@ function parseCSSColor(color: string): FigmaColor | null {
       g: parseInt(rgbMatch[2]) / 255,
       b: parseInt(rgbMatch[3]) / 255,
       a: rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1,
+    };
+  }
+
+  // Modern space-separated syntax: rgb(0 0 0 / 50%) — Chrome preserves it
+  // in gradient strings; the comma regex above never matched it, so the
+  // whole fill silently dropped.
+  const rgbSpaceMatch = color.match(
+    /rgba?\(\s*([\d.]+%?)\s+([\d.]+%?)\s+([\d.]+%?)\s*(?:\/\s*([\d.]+%?)\s*)?\)/,
+  );
+  if (rgbSpaceMatch) {
+    const channel = (v: string): number =>
+      v.endsWith('%') ? (parseFloat(v) / 100) : (parseFloat(v) / 255);
+    const alpha = (v: string | undefined): number => {
+      if (v === undefined) return 1;
+      return v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v);
+    };
+    return {
+      r: Math.min(1, channel(rgbSpaceMatch[1])),
+      g: Math.min(1, channel(rgbSpaceMatch[2])),
+      b: Math.min(1, channel(rgbSpaceMatch[3])),
+      a: Math.max(0, Math.min(1, alpha(rgbSpaceMatch[4]))),
+    };
+  }
+
+  // hsl(h, s%, l%) / hsla(...) — comma or space separated.
+  const hslMatch = color.match(
+    /hsla?\(\s*([\d.]+)(?:deg)?\s*[,\s]\s*([\d.]+)%\s*[,\s]\s*([\d.]+)%\s*(?:[,/]\s*([\d.]+%?)\s*)?\)/,
+  );
+  if (hslMatch) {
+    const hue = ((parseFloat(hslMatch[1]) % 360) + 360) % 360;
+    const sat = Math.max(0, Math.min(1, parseFloat(hslMatch[2]) / 100));
+    const light = Math.max(0, Math.min(1, parseFloat(hslMatch[3]) / 100));
+    const rawAlpha = hslMatch[4];
+    const alphaValue = rawAlpha === undefined
+      ? 1
+      : rawAlpha.endsWith('%') ? parseFloat(rawAlpha) / 100 : parseFloat(rawAlpha);
+    const chroma = (1 - Math.abs(2 * light - 1)) * sat;
+    const second = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
+    const base = light - chroma / 2;
+    let rp = 0, gp = 0, bp = 0;
+    if (hue < 60) { rp = chroma; gp = second; }
+    else if (hue < 120) { rp = second; gp = chroma; }
+    else if (hue < 180) { gp = chroma; bp = second; }
+    else if (hue < 240) { gp = second; bp = chroma; }
+    else if (hue < 300) { rp = second; bp = chroma; }
+    else { rp = chroma; bp = second; }
+    return {
+      r: rp + base,
+      g: gp + base,
+      b: bp + base,
+      a: Math.max(0, Math.min(1, alphaValue)),
     };
   }
 

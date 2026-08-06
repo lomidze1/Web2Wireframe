@@ -100,6 +100,36 @@ export function applyCornerRadii(
 }
 
 // ============================================================================
+// Absolute-child constraints
+// ============================================================================
+
+export type AxisConstraint = "MIN" | "MAX" | "CENTER" | "STRETCH";
+
+/**
+ * Infer Figma constraints for an absolutely-positioned child from its
+ * captured geometry. Computed CSS left/right/top/bottom are used values on
+ * positioned elements (both sides always resolve to px), so authoring
+ * intent must be read off the box instead:
+ *   - spans (almost) the full axis → STRETCH (full-bleed overlays, inset:0)
+ *   - equidistant from both edges → CENTER (centered modals/dropdowns)
+ *   - closer to the far edge → MAX (close buttons, right-anchored badges)
+ *   - otherwise → MIN (Figma's default)
+ * Wrong guesses degrade to today's behavior (everything MIN), never worse.
+ */
+export function inferAxisConstraint(
+  start: number,
+  size: number,
+  parentSize: number
+): AxisConstraint {
+  if (!(parentSize > 0) || !(size > 0)) return "MIN";
+  const nearGap = start;
+  const farGap = parentSize - (start + size);
+  if (size >= parentSize * 0.9) return "STRETCH";
+  if (Math.abs(nearGap - farGap) <= 2) return "CENTER";
+  return farGap < nearGap ? "MAX" : "MIN";
+}
+
+// ============================================================================
 // CSS → Figma Auto Layout Mapping
 // ============================================================================
 

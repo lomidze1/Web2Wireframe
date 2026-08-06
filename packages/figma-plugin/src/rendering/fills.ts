@@ -16,6 +16,7 @@ import {
   calculateRadialGradientTransform,
   calculateLinearGradientTransform,
 } from "./gradients";
+import { parseImageSize, computeCoverCropTransform } from "./imageCrop";
 
 // ============================================================================
 // Fill Conversion
@@ -224,11 +225,40 @@ export function convertFillsToPaints(
                 if (p < bufLen) bytes[p++] = ((c & 3) << 6) | d;
               }
               const image = figma.createImage(bytes);
-              const scaleMode = fill.scaleMode ?? "FILL";
+              let scaleMode = fill.scaleMode ?? "FILL";
+
+              // background-position on a cover layer → CROP + imageTransform.
+              // FILL always center-crops; the author's focus point (e.g.
+              // `center 30%` hero) needs the crop rectangle spelled out.
+              let imageTransform: Transform | undefined;
+              if (
+                scaleMode === "FILL" &&
+                fill.position &&
+                fill.elementWidth &&
+                fill.elementHeight
+              ) {
+                const size = parseImageSize(bytes);
+                if (size) {
+                  const crop = computeCoverCropTransform(
+                    size.width,
+                    size.height,
+                    fill.elementWidth,
+                    fill.elementHeight,
+                    fill.position.x,
+                    fill.position.y
+                  );
+                  if (crop) {
+                    scaleMode = "CROP";
+                    imageTransform = crop as Transform;
+                  }
+                }
+              }
+
               paints.push({
                 type: "IMAGE",
                 imageHash: image.hash,
                 scaleMode,
+                ...(imageTransform ? { imageTransform } : {}),
                 // TILE renders the image at natural size × scalingFactor;
                 // natural size is unknown here, so tile 1:1.
                 ...(scaleMode === "TILE" ? { scalingFactor: 1 } : {}),

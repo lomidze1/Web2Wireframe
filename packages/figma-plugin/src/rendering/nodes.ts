@@ -23,6 +23,7 @@ import {
 import { parseGradient } from "./gradients";
 import {
   applyCornerRadii,
+  inferAxisConstraint,
   cssJustifyToFigma,
   cssAlignToFigma,
   cssAlignSelfToFigma,
@@ -1141,6 +1142,20 @@ function applyChildInAutoLayout(
     }
     childNode.x = child.x;
     childNode.y = child.y;
+    // Geometry-derived constraints: a right-anchored close button stays at
+    // the right edge when the designer resizes the frame, a full-bleed
+    // backdrop stretches, a centered modal stays centered. Without this
+    // every absolute child was pinned top-left (Figma's default).
+    if ("constraints" in childNode) {
+      try {
+        (childNode as FrameNode | TextNode).constraints = {
+          horizontal: inferAxisConstraint(child.x, child.width, parentFrame.width),
+          vertical: inferAxisConstraint(child.y, child.height, parentFrame.height),
+        };
+      } catch {
+        // Constraints unsupported on this node type — keep defaults.
+      }
+    }
     applyStaticRotation(childNode, child, child.x, child.y);
     return;
   }

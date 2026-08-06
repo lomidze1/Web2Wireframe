@@ -56,6 +56,10 @@ export interface FigmaFill {
   // Figma scale mode derived from CSS background-size/background-repeat
   // (contain → FIT, cover → FILL, tiling patterns → TILE). Default: FILL.
   scaleMode?: "FILL" | "FIT" | "CROP" | "TILE";
+  // CSS background-position as fractions (0..1). When present with a
+  // cover/FILL layer, fills.ts upgrades the paint to CROP + imageTransform
+  // so the author's crop focus survives (FILL always center-crops).
+  position?: { x: number; y: number };
   // CSS variable reference (e.g. "--primary-color") if this fill came from a var()
   cssVariable?: string;
 }
@@ -271,6 +275,9 @@ export interface WireframeNode {
   // CSS object-fit from the captured <img>/<video> — maps to the IMAGE fill's
   // scaleMode (cover → FILL, contain/none/scale-down → FIT). Default fill → FILL.
   objectFit?: string;
+  // CSS object-position as fractions (0..1); non-center values upgrade the
+  // image paint to CROP + imageTransform in realImages.ts.
+  objectPosition?: { x: number; y: number };
   // CSS filter: grayscale(N) on this element (0…1). Applied as a saturation
   // color adjustment on the element's IMAGE paints (realImages.ts / fills.ts).
   filterGrayscale?: number;

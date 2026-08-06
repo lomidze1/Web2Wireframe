@@ -5,6 +5,7 @@
 
 import type { WireframeNode, RenderContext } from "../types";
 import { applyCornerRadii } from "./layout";
+import { parseImageSize, computeCoverCropTransform } from "./imageCrop";
 import { isRasterMasqueradeSvg, extractEmbeddedImageFromSvg } from "@w2w/shared";
 import { logger } from "../utils/logger";
 
@@ -220,11 +221,39 @@ export async function createRealImage(
     const bytes = dataUriToBytes(base64Data);
     const image = figma.createImage(bytes);
 
+    // object-position on a cover image → CROP + imageTransform so the
+    // author's focus point survives (FILL always center-crops).
+    let scaleMode: "FILL" | "FIT" | "CROP" = objectFitToScaleMode(node.objectFit);
+    let imageTransform: Transform | undefined;
+    if (
+      scaleMode === "FILL" &&
+      node.objectPosition &&
+      node.width > 0 &&
+      node.height > 0
+    ) {
+      const size = parseImageSize(bytes);
+      if (size) {
+        const crop = computeCoverCropTransform(
+          size.width,
+          size.height,
+          node.width,
+          node.height,
+          node.objectPosition.x,
+          node.objectPosition.y
+        );
+        if (crop) {
+          scaleMode = "CROP";
+          imageTransform = crop as Transform;
+        }
+      }
+    }
+
     frame.fills = [
       {
         type: "IMAGE",
         imageHash: image.hash,
-        scaleMode: objectFitToScaleMode(node.objectFit),
+        scaleMode,
+        ...(imageTransform ? { imageTransform } : {}),
         // CSS filter: grayscale(N) on the <img> → Figma saturation adjustment
         // (telex.ge brand logos render grayscale until hover).
         ...(typeof node.filterGrayscale === "number" && node.filterGrayscale > 0
