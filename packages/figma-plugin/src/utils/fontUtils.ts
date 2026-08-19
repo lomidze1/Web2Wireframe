@@ -120,9 +120,15 @@ const SERVER_FALLBACK_PATTERNS = [
   /^Noto (Sans|Serif) CJK/i,
   /^Noto Color Emoji$/i,
   /^Free(Sans|Serif|Mono)$/i,
+  // macOS hides its system faces behind a leading dot (".New York", ".SF NS",
+  // ".AppleSystemUIFont"). The browser extension captures on the user's own
+  // machine, so CDP's platform-font lookup reports these verbatim — and Figma
+  // never lists them, no @font-face ships them, no ZIP can carry them.
+  /^\./,
 ];
 
-/** True when `family` is a known Linux server fallback (see list above). */
+/** True when `family` is a fallback no download can ever supply — a Linux
+ *  capture-container face or a hidden OS system face (see patterns above). */
 export function isServerFallbackFamily(family: string): boolean {
   return SERVER_FALLBACK_PATTERNS.some((p) => p.test(family));
 }
@@ -169,6 +175,32 @@ export function isWebsafeSystemFont(family: string): boolean {
  */
 function isUnshippableFamily(family: string): boolean {
   return isServerFallbackFamily(family) || isWebsafeSystemFont(family);
+}
+
+/**
+ * True when a MEASURED font name (CDP's `CSS.getPlatformFontsForNode`) names a
+ * real family we can trust over the CSS-declared stack.
+ *
+ * Chromium answers with a placeholder while a `font-display: swap` webfont is
+ * still loading — iwm.org.uk's capture came back with `familyName: "."`
+ * (postScriptName `"_"`) on 434 of 444 text nodes. Taken at face value that
+ * placeholder replaced the real `Interface` family everywhere, so the font
+ * modal offered "." for download and the ZIP had nothing to fetch.
+ *
+ * Rejects: blank names, anything holding a control character, names with no
+ * letter at all, and the hidden-OS / capture-container families that no
+ * download could ever satisfy (see {@link isServerFallbackFamily}).
+ */
+export function isUsableMeasuredFamily(family: string | undefined | null): family is string {
+  if (!family) return false;
+  const trimmed = family.trim();
+  if (trimmed.length === 0) return false;
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return false;
+  // A real family always contains a letter. No \p{L}: the plugin's TS target
+  // predates Unicode property escapes, so match ASCII letters plus every
+  // non-ASCII script block (CJK, Cyrillic, Greek families are all valid).
+  if (!/[A-Za-z\u00C0-\u024F\u0370-\uFFFF]/.test(trimmed)) return false;
+  return !isServerFallbackFamily(trimmed);
 }
 
 /** CSS keywords that are not valid font names */

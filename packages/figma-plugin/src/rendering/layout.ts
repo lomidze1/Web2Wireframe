@@ -60,17 +60,92 @@ export function getCornerRadii(
   return value;
 }
 
+/**
+ * Apply border radius to a Figma node, preserving per-corner asymmetry.
+ * Each corner is clamped to half the smaller dimension. Collapsing
+ * asymmetric corners to Math.max (the old behavior) lost every flat
+ * corner — tabs, chat bubbles and `rounded-t-lg` cards rendered fully
+ * rounded on all four corners.
+ */
+export function applyCornerRadii(
+  target: {
+    cornerRadius: unknown;
+    topLeftRadius: number;
+    topRightRadius: number;
+    bottomRightRadius: number;
+    bottomLeftRadius: number;
+  },
+  borderRadius: WireframeNode["borderRadius"] | undefined,
+  width: number,
+  height: number
+): void {
+  const radii = getCornerRadii(borderRadius);
+  const maxRadius = Math.min(width, height) / 2;
+  const topLeft = Math.min(radii.topLeft || 0, maxRadius);
+  const topRight = Math.min(radii.topRight || 0, maxRadius);
+  const bottomRight = Math.min(radii.bottomRight || 0, maxRadius);
+  const bottomLeft = Math.min(radii.bottomLeft || 0, maxRadius);
+
+  if (topLeft <= 0 && topRight <= 0 && bottomRight <= 0 && bottomLeft <= 0) {
+    return;
+  }
+  if (topLeft === topRight && topRight === bottomRight && bottomRight === bottomLeft) {
+    target.cornerRadius = topLeft;
+  } else {
+    target.topLeftRadius = topLeft;
+    target.topRightRadius = topRight;
+    target.bottomRightRadius = bottomRight;
+    target.bottomLeftRadius = bottomLeft;
+  }
+}
+
+// ============================================================================
+// Absolute-child constraints
+// ============================================================================
+
+export type AxisConstraint = "MIN" | "MAX" | "CENTER" | "STRETCH";
+
+/**
+ * Infer Figma constraints for an absolutely-positioned child from its
+ * captured geometry. Computed CSS left/right/top/bottom are used values on
+ * positioned elements (both sides always resolve to px), so authoring
+ * intent must be read off the box instead:
+ *   - spans (almost) the full axis → STRETCH (full-bleed overlays, inset:0)
+ *   - equidistant from both edges → CENTER (centered modals/dropdowns)
+ *   - closer to the far edge → MAX (close buttons, right-anchored badges)
+ *   - otherwise → MIN (Figma's default)
+ * Wrong guesses degrade to today's behavior (everything MIN), never worse.
+ */
+export function inferAxisConstraint(
+  start: number,
+  size: number,
+  parentSize: number
+): AxisConstraint {
+  if (!(parentSize > 0) || !(size > 0)) return "MIN";
+  const nearGap = start;
+  const farGap = parentSize - (start + size);
+  if (size >= parentSize * 0.9) return "STRETCH";
+  if (Math.abs(nearGap - farGap) <= 2) return "CENTER";
+  return farGap < nearGap ? "MAX" : "MIN";
+}
+
 // ============================================================================
 // CSS → Figma Auto Layout Mapping
 // ============================================================================
 
 /**
- * Convert CSS justify-content to Figma primaryAxisAlignItems
+ * Convert CSS justify-content to Figma primaryAxisAlignItems.
+ *
+ * `reversed` marks a `row-reverse` / `column-reverse` container. There the CSS
+ * main-start sits at the far edge, so packing swaps: the default `flex-start`
+ * means "flush right" (Figma MAX) and `flex-end` means "flush left" (MIN).
+ * Centered and distributed packing are symmetric and stay put.
  */
 export function cssJustifyToFigma(
-  justify: string | undefined
+  justify: string | undefined,
+  reversed = false
 ): "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN" {
-  if (!justify) return "MIN";
+  if (!justify) return reversed ? "MAX" : "MIN";
   const map: Record<string, "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN"> = {
     "flex-start": "MIN",
     start: "MIN",
@@ -84,7 +159,11 @@ export function cssJustifyToFigma(
     "space-evenly": "SPACE_BETWEEN", // Figma approximation
     normal: "MIN",
   };
-  return map[justify] || "MIN";
+  const mapped = map[justify] || "MIN";
+  if (!reversed) return mapped;
+  if (mapped === "MIN") return "MAX";
+  if (mapped === "MAX") return "MIN";
+  return mapped;
 }
 
 /**
@@ -136,6 +215,25 @@ export function cssAlignSelfToFigma(
   };
 
   return map[alignSelf] || "INHERIT";
+}
+
+/**
+ * Decide the `layoutAlign` to write on an auto-layout child, or `null` to leave
+ * Figma's default in place.
+ *
+ * `align-self` wins over the node-level STRETCH intent, and CENTER is
+ * deliberately dropped: Figma centers a whole line via the parent's
+ * `counterAxisAlignItems`, and forcing CENTER per child fights that.
+ */
+export function resolveChildLayoutAlign(
+  selfAlign: "MIN" | "CENTER" | "MAX" | "STRETCH" | "INHERIT",
+  nodeLayoutAlign: "STRETCH" | "INHERIT" | undefined
+): "MIN" | "CENTER" | "MAX" | "STRETCH" | "INHERIT" | null {
+  if (selfAlign === "STRETCH") return "STRETCH";
+  if (selfAlign === "MIN" || selfAlign === "MAX") return selfAlign;
+  if (selfAlign === "CENTER") return "INHERIT";
+  if (nodeLayoutAlign === "STRETCH") return "STRETCH";
+  return null;
 }
 
 // ============================================================================

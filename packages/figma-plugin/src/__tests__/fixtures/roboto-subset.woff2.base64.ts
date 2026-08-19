@@ -1,0 +1,23 @@
+/**
+ * A real 940-byte WOFF2 (a Google Fonts Roboto subset), used to prove the
+ * WOFF2 -> SFNT converter against actual Brotli-compressed font data rather
+ * than a synthetic header. Decodes to a 1804-byte TrueType SFNT.
+ */
+export const ROBOTO_SUBSET_WOFF2_BASE64 =
+  "d09GMgABAAAAAAOsAA8AAAAABwwAAANSAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGhQbHhw0BmA/" +
+  "U1RBVF4AXhEMCoJEgkMLFAABNgIkAyQEIAWEYgcgG/AFSJ6FsfMijMLuRpxKnu0XGQE017+zm8t9" +
+  "AEZFzBZBoYUiCte69mWftd/2TZvh4juxHaIaEonQ4HUogXRphO9/NXv2/3cqJxvwNONTXkSitDrW" +
+  "0EVnHXSgxVqx4PP5xE3BAHdprFpA6Ttxhdt/uzBakkwy3QsBxQFBYUEQUFR1cbD/wL4xcMlBBhg0" +
+  "2iph25Qwb/2GBjGLVpA60PI5W8YswLc9lyjhmJT0QtoOhFrjryafLIyIAHqDBAAGjRrshCZQa0Re" +
+  "AQsLXYhqw6uQ65reQ21WQVBYgvKsaM6ydv6WhA3A2kXSFjaGS1Yta9iWRUMhDokohiyAgEQQQ144" +
+  "RnyFgBgyrQFEAuIBfstmKFBSYVEeUQm1fdYakUH6NJDdX9mi315WLkH0PCqscEYpBEVAWaAoxgMn" +
+  "URLFQR5AFMnkaEOoYr7ooUDw7s/RUj26nouH6zLrD8RjN8LZd199VfTAN9/8EML5j99+W+zg119/" +
+  "P/6JfEOmEvmKENu+NiHyLQ1vDNOKmTwXi32ZHuMtg61P3+t4oGM19tnqybdvNazeoOCNb09vUGFV" +
+  "V2yxr2Kbh246pt8aTs4//mbW7nPoXPqekNxaorF48Ym4/fq0Cz9j45ts5o6yDwv2fgyYMfPWvvC2" +
+  "8sOOmTsrPy7et3iEqQvv7fPvSj+qUn9XmZV9/ir80mP9/xPuDg7OXnSpq8uE5tOOQK4h+0BQSL6g" +
+  "cMY2CtZlS0en3+whIEn+O01fdrIY7P5v4WqFwdvLAPzd6MRx7LcoIoJAoeUFxUk/GERTkwojXZHk" +
+  "yXyF8N89lm63NqnD5LbbP0QRzTl0ZxP4792UcEMi5NzAg1ASISgeLBCV9A8k2vqFnOq+INXQGeRV" +
+  "t6aW1FGBDtN51IdMPpWpLK54OU+cS1jChyG2LNPIVk0iMpFkywC2QddNTZKt2bLVe7aYNtUoVIiZ" +
+  "iEHADFu7bLG/iRTscUs0gq1gW1i+EUS0TbNswwSyYZN8fTtJqQJFipWrlaREkRIVzSCJdC2+06BB" +
+  "nWpjSYE0x1uPau/bqCKQAy9WLMmYSBGZKGMIxzAFWfXUm23XFefTpifJKq4ukk34thUFVjGuK1XG" +
+  "0NZQpfObCm0cE19NXt+0Wbbv2axAljWAAAAAAA==";

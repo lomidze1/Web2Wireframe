@@ -35,6 +35,41 @@ export function resolveRelativeUrl(relativeUrl: string, baseUrl: string): string
  * Parse all @font-face blocks from raw CSS text.
  * Returns one entry per @font-face block (preserves all weight/style variants).
  */
+/**
+ * Index of the last `src:` declaration inside an @font-face block, or 0 when
+ * there is none. Only counts a `src:` that starts a declaration (block start or
+ * after a `;`), so one sitting inside a url() can't be mistaken for one.
+ */
+function lastSrcDeclIndex(block: string): number {
+  let last = 0;
+  // `replace` is only a vehicle for the offsets here — the result is discarded.
+  block.replace(/(?:^|;)\s*src\s*:/gi, (match: string, offset: number) => {
+    last = offset;
+    return match;
+  });
+  return last;
+}
+
+/**
+ * The full value of the first `src:` declaration in `scope` — everything up to
+ * the semicolon that TERMINATES the declaration, tracked with a paren counter
+ * so semicolons inside url(...) (data URIs: `data:font/woff2;base64,…`) don't
+ * cut the value short.
+ */
+function extractSrcValue(scope: string): string {
+  const start = scope.match(/src\s*:/i);
+  if (!start || start.index === undefined) return "";
+  let depth = 0;
+  const from = start.index + start[0].length;
+  for (let i = from; i < scope.length; i++) {
+    const c = scope[i];
+    if (c === "(") depth++;
+    else if (c === ")") depth = Math.max(0, depth - 1);
+    else if (c === ";" && depth === 0) return scope.slice(from, i).trim();
+  }
+  return scope.slice(from).trim();
+}
+
 export function parseFontFaceRules(cssText: string, sourceURL: string): ExtractedFont[] {
   if (!cssText) return [];
 
@@ -58,11 +93,15 @@ export function parseFontFaceRules(cssText: string, sourceURL: string): Extracte
     const weightMatch = block.match(/font-weight\s*:\s*([^;]+);?/i);
     const weight = weightMatch ? weightMatch[1].trim() : "400";
 
-    // Extract src — greedy match up to the last closing paren before a semicolon or end of block
-    // Need special handling because data URIs contain semicolons
-    const srcMatch = block.match(/src\s*:\s*((?:url\([^)]*\)[^;]*?)+);?/i)
-      || block.match(/src\s*:\s*([^;]+);?/i);
-    const rawSrc = srcMatch ? srcMatch[1].trim() : "";
+    // Extract src. A @font-face may carry SEVERAL `src:` declarations — the
+    // "bulletproof" pattern names an IE-only `src: url(...eot)` first and the
+    // real list second. Read the LAST one, and read it with a paren counter so
+    // semicolons inside url() (data URIs) don't cut the value short. Mirrors
+    // @w2w/shared's parser, which fixed exactly this: the old lazy regex
+    // stopped at the first url(), leaving telex.ge's faces holding only a dead
+    // EOT URL — nothing installable ever reached the plugin.
+    const srcScope = block.slice(lastSrcDeclIndex(block));
+    const rawSrc = extractSrcValue(srcScope);
 
     // Resolve relative URLs in src
     const resolvedSrc = rawSrc.replace(

@@ -559,6 +559,7 @@ export default function () {
           hoverCacheMisses: 0,
           emptyPseudoSkipped: 0,
           pseudoErrors: 0,
+          droppedNodes: [],
         },
       };
 
@@ -932,6 +933,21 @@ export default function () {
             timeout: 3000,
           }
         );
+
+        // Surface silently-dropped subtrees. Without this a partially-lost
+        // import is indistinguishable from a perfect one (prod logger is a
+        // no-op, so the per-child catch messages never reach anyone).
+        const droppedNodes = renderContext.renderStats?.droppedNodes;
+        if (droppedNodes && droppedNodes.length > 0) {
+          logger.warn("Dropped nodes during render", {
+            count: droppedNodes.length,
+            samples: droppedNodes.slice(0, 20),
+          });
+          figma.notify(
+            `⚠️ ${droppedNodes.length} element(s) could not be rendered and were skipped`,
+            { timeout: 5000 }
+          );
+        }
 
         // Send completion progress to UI
         figma.ui.postMessage({

@@ -46,7 +46,7 @@ export const CSS_PROPERTIES: readonly string[] = [
   'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius',
 
   // Typography
-  'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing',
+  'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing',
   'textAlign', 'textDecoration', 'textDecorationLine', 'textOverflow',
   'whiteSpace', 'color', 'webkitTextFillColor', 'webkitTextStrokeColor',
   'webkitTextStrokeWidth', 'listStyleType', 'textTransform', 'wordSpacing',
@@ -183,6 +183,7 @@ export const DEFAULT_VALUES: Record<string, string | number> = {
   gridAutoFlow: 'row',
   gridArea: 'auto / auto / auto / auto',
   fontWeight: '400',
+  fontStyle: 'normal',
   letterSpacing: 'normal',
   textAlign: 'start',
   fill: 'rgb(0, 0, 0)',

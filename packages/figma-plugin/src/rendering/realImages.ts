@@ -4,7 +4,8 @@
  */
 
 import type { WireframeNode, RenderContext } from "../types";
-import { getBorderRadius } from "./layout";
+import { applyCornerRadii } from "./layout";
+import { parseImageSize, computeCoverCropTransform } from "./imageCrop";
 import { isRasterMasqueradeSvg, extractEmbeddedImageFromSvg } from "@w2w/shared";
 import { logger } from "../utils/logger";
 
@@ -20,6 +21,14 @@ for (let i = 0; i < B64_CHARS.length; i++) {
  * Works in Figma's restricted sandbox environment.
  */
 function base64ToBytes(base64: string): Uint8Array {
+  // Strip whitespace/newlines (MIME encoders wrap at 76 chars), then pad to
+  // a multiple of 4 so charCodeAt never reads past the string end — an
+  // out-of-range read returns NaN and produced garbage bytes. Mirrors the
+  // same fix in fills.ts.
+  let sanitized = base64.replace(/\s+/g, "");
+  while (sanitized.length % 4 !== 0) sanitized += "=";
+  base64 = sanitized;
+
   const len = base64.length;
   let bufferLength = Math.floor(len * 3 / 4);
   if (base64[len - 1] === "=") bufferLength--;
@@ -61,9 +70,18 @@ function isSvgDataUri(dataUri: string): boolean {
 }
 
 /**
- * Decode SVG data URI back to SVG string for figma.createNodeFromSvg()
+ * Decode an SVG data URI back to SVG markup for figma.createNodeFromSvg().
+ *
+ * Handles all three shapes a page can serve:
+ *   - `data:image/svg+xml;base64,…`        → base64
+ *   - `data:image/svg+xml;charset=utf-8,…` → percent-encoded text (iwm.org.uk's
+ *                                             hero wordmark; base64-decoding it
+ *                                             yields garbage, not markup)
+ *   - raw `<svg …>` markup passed straight through by css-converter.
+ *
+ * Exported for tests.
  */
-function svgDataUriToString(dataUri: string): string {
+export function decodeSvgDataUri(dataUri: string): string {
   // Raw SVG markup (not a data URI) — return as-is.
   // Used when css-converter passes svgMarkup directly from computedStyles.
   if (!dataUri.startsWith('data:')) {
@@ -72,8 +90,20 @@ function svgDataUriToString(dataUri: string): string {
   const commaIndex = dataUri.indexOf(",");
   if (commaIndex === -1) throw new Error("Invalid SVG data URI");
 
+  const meta = dataUri.substring(0, commaIndex);
+  const payload = dataUri.substring(commaIndex + 1);
+
+  // Text payload: percent-encoded (or already plain) markup.
+  if (!/;\s*base64/i.test(meta)) {
+    try {
+      return decodeURIComponent(payload);
+    } catch {
+      return payload;
+    }
+  }
+
   // Decode base64 to bytes, then bytes to UTF-8 string
-  const bytes = base64ToBytes(dataUri.substring(commaIndex + 1));
+  const bytes = base64ToBytes(payload);
   let str = "";
   for (let i = 0; i < bytes.length; i++) {
     str += String.fromCharCode(bytes[i]);
@@ -85,6 +115,9 @@ function svgDataUriToString(dataUri: string): string {
     return str;
   }
 }
+
+/** @deprecated internal alias kept for existing call sites. */
+const svgDataUriToString = decodeSvgDataUri;
 
 /**
  * Map CSS object-fit to a Figma ImagePaint scaleMode.
@@ -126,14 +159,8 @@ export async function createRealImage(
   frame.resize(Math.max(node.width, 1), Math.max(node.height, 1));
   frame.clipsContent = true;
 
-  // Border radius
-  const cornerRadius = getBorderRadius(node.borderRadius);
-  if (cornerRadius > 0) {
-    frame.cornerRadius = Math.min(
-      cornerRadius,
-      Math.min(node.width, node.height) / 2
-    );
-  }
+  // Border radius (per-corner — asymmetric CSS radii stay asymmetric)
+  applyCornerRadii(frame, node.borderRadius, node.width, node.height);
 
   // Fixed sizing to prevent collapse in auto-layout
   frame.layoutMode = "NONE";
@@ -194,11 +221,39 @@ export async function createRealImage(
     const bytes = dataUriToBytes(base64Data);
     const image = figma.createImage(bytes);
 
+    // object-position on a cover image → CROP + imageTransform so the
+    // author's focus point survives (FILL always center-crops).
+    let scaleMode: "FILL" | "FIT" | "CROP" = objectFitToScaleMode(node.objectFit);
+    let imageTransform: Transform | undefined;
+    if (
+      scaleMode === "FILL" &&
+      node.objectPosition &&
+      node.width > 0 &&
+      node.height > 0
+    ) {
+      const size = parseImageSize(bytes);
+      if (size) {
+        const crop = computeCoverCropTransform(
+          size.width,
+          size.height,
+          node.width,
+          node.height,
+          node.objectPosition.x,
+          node.objectPosition.y
+        );
+        if (crop) {
+          scaleMode = "CROP";
+          imageTransform = crop as Transform;
+        }
+      }
+    }
+
     frame.fills = [
       {
         type: "IMAGE",
         imageHash: image.hash,
-        scaleMode: objectFitToScaleMode(node.objectFit),
+        scaleMode,
+        ...(imageTransform ? { imageTransform } : {}),
         // CSS filter: grayscale(N) on the <img> → Figma saturation adjustment
         // (telex.ge brand logos render grayscale until hover).
         ...(typeof node.filterGrayscale === "number" && node.filterGrayscale > 0

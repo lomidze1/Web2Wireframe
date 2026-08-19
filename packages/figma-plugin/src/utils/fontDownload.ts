@@ -9,6 +9,8 @@
 import JSZip from "jszip";
 import { convertEotToSfnt, isEot } from "./eotToSfnt";
 import { convertWoffToSfnt, isWoff } from "./woffToSfnt";
+import { readSfntNames } from "./sfntNames";
+import { convertWoff2ToSfnt, isWoff2 } from "./woff2ToSfnt";
 import type { FontDownloadInfo } from "../ui/components/modalPopup/FontFallbackModal";
 import { parseFontSrcUrls, type FontCut } from "./fontUtils";
 
@@ -352,6 +354,30 @@ function renameByUrlFormat(fileName: string, url: string): string {
   return dot === -1 ? fileName + ext : fileName.slice(0, dot) + ext;
 }
 
+/**
+ * Reserve `fileName` inside `used`, disambiguating with `-2`, `-3`, … before
+ * the extension when it is already taken.
+ *
+ * Distinct faces legitimately reduce to the same name: Google Fonts serves one
+ * file per unicode-range subset under an identical family, weight and style,
+ * and a webfont whose `name` table says "Regular" for every cut does the same.
+ * JSZip overwrites a repeated entry and reports nothing, so the archive would
+ * quietly hold fewer fonts than the user was told it did.
+ */
+function reserveZipName(fileName: string, used: Set<string>): string {
+  let candidate = fileName;
+  if (used.has(candidate)) {
+    const dot = fileName.lastIndexOf(".");
+    const stem = dot === -1 ? fileName : fileName.slice(0, dot);
+    const ext = dot === -1 ? "" : fileName.slice(dot);
+    let n = 2;
+    while (used.has(`${stem}-${n}${ext}`)) n++;
+    candidate = `${stem}-${n}${ext}`;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
 /** Replace a file name's extension (appending when there is none). */
 function withExtension(fileName: string, ext: "ttf" | "otf"): string {
   const dot = fileName.lastIndexOf(".");
@@ -363,18 +389,33 @@ function withExtension(fileName: string, ext: "ttf" | "otf"): string {
  * never the file name (cached binaries arrive mislabeled: telex.ge's ZIP
  * shipped EOT bytes under .ttf names, which macOS refused to install).
  *
+ * - WOFF2     → Brotli-decoded to its SFNT, renamed .ttf/.otf.
  * - WOFF v1  → unwrapped to its original SFNT, renamed .ttf/.otf.
  * - EOT      → unwrapped when uncompressed; MTX-compressed EOT can't be
  *              converted and returns null so the caller skips it honestly
  *              instead of shipping a file no OS can install.
  * - SFNT     → shipped as-is, extension corrected to match the flavor.
- * - Anything else (WOFF2/Brotli, unparseable) ships unchanged.
+ * - Anything else (unparseable) ships unchanged.
  * Exported for tests.
  */
-export function repackageForInstall(
+export async function repackageForInstall(
   fileName: string,
   bytes: Uint8Array
-): { fileName: string; bytes: Uint8Array } | null {
+): Promise<{ fileName: string; bytes: Uint8Array } | null> {
+  // WOFF2 is Brotli-compressed and no OS installs it. Decoding needs no
+  // WebAssembly (see woff2ToSfnt); a payload we cannot decode falls through
+  // and ships unchanged, exactly as before.
+  if (isWoff2(bytes)) {
+    const converted = await convertWoff2ToSfnt(bytes);
+    if (converted) {
+      return {
+        fileName: withExtension(fileName, converted.extension),
+        bytes: converted.bytes,
+      };
+    }
+    return { fileName, bytes };
+  }
+
   if (isWoff(bytes)) {
     const converted = convertWoffToSfnt(bytes);
     if (!converted) return { fileName, bytes };
@@ -429,6 +470,7 @@ export async function createFontsZipBlob(
 ): Promise<FontsZipResult> {
   const zip = new JSZip();
   const skippedEntries: string[] = [];
+  const usedNames = new Set<string>();
 
   for (const entry of entries) {
     try {
@@ -464,13 +506,13 @@ export async function createFontsZipBlob(
           continue;
         }
       }
-      const packaged = repackageForInstall(fileName, bytes);
+      const packaged = await repackageForInstall(fileName, bytes);
       if (!packaged) {
         // Bytes no OS can install (e.g. MTX-compressed EOT) — skip honestly.
         skippedEntries.push(entry.fileName);
         continue;
       }
-      zip.file(packaged.fileName, packaged.bytes);
+      zip.file(reserveZipName(packaged.fileName, usedNames), packaged.bytes);
     } catch {
       skippedEntries.push(entry.fileName);
     }
@@ -701,6 +743,112 @@ export function buildFontDownloads(
   }
 
   return downloads.length > 0 ? downloads : undefined;
+}
+
+/** One entry of a capture's URL-keyed asset map. */
+interface CapturedAsset {
+  base64Encoded?: boolean;
+  content?: string;
+  mimeType?: string;
+}
+
+/**
+ * Attach each @font-face's cached binary — and the real family name inside it —
+ * from the capture's URL-keyed asset map.
+ *
+ * The browser extension fetches every font file into `assets` but never links
+ * it back to the face that declared it. Without that link the plugin has:
+ *   - no bytes → the ZIP falls back to fetching font URLs from the Figma
+ *     iframe, which cross-origin rules block → an EMPTY fonts.zip;
+ *   - no real name → "glyphs" never resolves to its installed identity
+ *     "icomoon" → the download modal opens for a font already installed.
+ *
+ * Both are fixed from data that was in the `.w2w` file all along. Faces the
+ * server already described (API imports) are returned untouched.
+ */
+export async function enrichFontsFromAssets(
+  fonts: unknown[] | undefined,
+  assets: Record<string, CapturedAsset> | undefined,
+): Promise<unknown[]> {
+  if (!fonts || !assets) return fonts ?? [];
+
+  return Promise.all(fonts.map(async (entry) => {
+    const font = entry as FontMetadata;
+    if (!font || typeof font !== "object") return entry;
+    if (font.fontBase64 && font.realFamily) return entry;
+
+    let fontBase64 = font.fontBase64;
+    let fontMimeType = font.fontMimeType;
+
+    if (!fontBase64 && font.src) {
+      // Most-installable candidate first: the bulletproof @font-face pattern
+      // declares the IE-only .eot URL first, and its bytes carry neither an
+      // installable font nor a readable name table.
+      const urls = [...parseFontSrcUrls(font.src)].sort(
+        (a, b) => installabilityRank(a) - installabilityRank(b),
+      );
+      for (const url of urls) {
+        const asset = assets[url];
+        if (asset?.base64Encoded && asset.content) {
+          fontBase64 = asset.content;
+          fontMimeType = asset.mimeType ?? fontMimeType;
+          break;
+        }
+      }
+    }
+
+    if (!fontBase64) return entry;
+
+    // Unwrap WOFF2 once, here: everything downstream — the ZIP entry and the
+    // SFNT name lookup below — then works on bytes an OS can actually install.
+    // A payload we cannot decode keeps its original bytes, so this can only
+    // ever improve on the previous behaviour.
+    const rawBytes = base64ToBytes(fontBase64);
+    if (isWoff2(rawBytes)) {
+      const sfnt = await convertWoff2ToSfnt(rawBytes);
+      if (sfnt) {
+        fontBase64 = bytesToBase64(sfnt.bytes);
+        fontMimeType = sfnt.extension === "otf" ? "font/otf" : "font/ttf";
+      }
+    }
+
+    const enriched: FontMetadata = { ...font, fontBase64 };
+    if (fontMimeType) enriched.fontMimeType = fontMimeType;
+
+    if (!enriched.realFamily) {
+      const names = readSfntNames(base64ToBytes(fontBase64));
+      if (names.family) enriched.realFamily = names.family;
+      if (names.subfamily && !enriched.realSubfamily) {
+        enriched.realSubfamily = names.subfamily;
+      }
+    }
+
+    return enriched;
+  }));
+}
+
+/** bytes → base64. Byte-at-a-time: spreading a large font into
+ *  String.fromCharCode blows the argument limit, and the plugin targets a TS
+ *  level without downlevel iteration. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/** base64 → bytes. Returns an empty array for malformed input so callers can
+ *  treat it as "no readable font" rather than crashing an import. */
+function base64ToBytes(base64: string): Uint8Array {
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  } catch {
+    return new Uint8Array(0);
+  }
 }
 
 /**

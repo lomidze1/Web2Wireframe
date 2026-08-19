@@ -222,11 +222,14 @@ describe("same-row inline TEXT runs merge with styledSegments", () => {
     const merged = findNode(root, n =>
       n.type === 'text' && typeof n.textContent === 'string' && n.textContent.includes('03.05.2026'));
     expect(merged).not.toBeNull();
-    expect(merged!.textContent).toBe('03.05.2026 PORTO, PORTUGAL');
+    // Since the 2026-08-08 audit, uppercase rides Figma textCase with the raw
+    // string preserved — visually identical, but source casing survives edits.
+    expect(merged!.textContent).toBe('03.05.2026 Porto, Portugal');
+    expect(merged!.textCase).toBe('UPPER');
     expect(merged!.styledSegments).toBeDefined();
     expect(merged!.styledSegments!.length).toBe(2);
     expect(merged!.styledSegments![0].text).toBe('03.05.2026 ');
-    expect(merged!.styledSegments![1].text).toBe('PORTO, PORTUGAL');
+    expect(merged!.styledSegments![1].text).toBe('Porto, Portugal');
     expect(merged!.styledSegments![1].fontWeight).toBe(700);
     // No second standalone text node for the city
     const city = findNode(root, n =>

@@ -194,9 +194,12 @@ describe("css-converter: text-only wrapper preserves box CSS", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 5. Margin-top on a direct <a> child preserves the margin
+  // 5. Margin-top on a direct <a> child preserves the 10px of leading space.
+  //    As the sole flow child, collapseMarginWrappers folds that margin into
+  //    the <div>'s padding-top instead of building an `a:margin` wrapper —
+  //    the same rendered offset, one layer fewer.
   // -----------------------------------------------------------------------
-  it("5. <div><a margin-top:10>Link</a></div> preserves <a>'s margin.top", () => {
+  it("5. <div><a margin-top:10>Link</a></div> preserves <a>'s leading 10px", () => {
     const a = makeFrame({
       tag: 'a',
       x: 0, y: 10, width: 60, height: 16,
@@ -220,8 +223,9 @@ describe("css-converter: text-only wrapper preserves box CSS", () => {
     expect((result as Tree).type).toBe('frame');
     const aNode = findChildByTag(result as Tree, 'a');
     expect(aNode).not.toBeNull();
-    const margin = aNode!.margin as { top: number; right: number; bottom: number; left: number };
-    expect(margin.top).toBe(10);
+    const margin = aNode!.margin as { top: number } | undefined;
+    const padding = (result as Tree).padding as { top: number };
+    expect((margin?.top ?? 0) + padding.top).toBe(10);
   });
 
   // -----------------------------------------------------------------------

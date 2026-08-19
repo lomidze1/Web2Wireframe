@@ -56,6 +56,14 @@ export interface FigmaFill {
   // Figma scale mode derived from CSS background-size/background-repeat
   // (contain → FIT, cover → FILL, tiling patterns → TILE). Default: FILL.
   scaleMode?: "FILL" | "FIT" | "CROP" | "TILE";
+  // CSS background-size in px for TILE layers — fills.ts derives
+  // scalingFactor = tileSize.width / naturalWidth so patterns keep their
+  // authored density (a 200px texture tiled at 40px needs 0.2, not 1).
+  tileSize?: { width: number; height?: number };
+  // CSS background-position as fractions (0..1). When present with a
+  // cover/FILL layer, fills.ts upgrades the paint to CROP + imageTransform
+  // so the author's crop focus survives (FILL always center-crops).
+  position?: { x: number; y: number };
   // CSS variable reference (e.g. "--primary-color") if this fill came from a var()
   cssVariable?: string;
 }
@@ -125,6 +133,10 @@ export interface WireframeNode {
   justifyContent?: string; // CSS justify-content value
   alignItems?: string; // CSS align-items value
   flexWrap?: string; // CSS flex-wrap value
+  // CSS flex-direction. Figma auto-layout has no reversed direction, so the
+  // `-reverse` variants are reproduced by appending children backwards and
+  // flipping the main-axis alignment — see reverseFlexChildren in nodes.ts.
+  flexDirection?: string;
   // Child-level flex properties
   layoutGrow?: 0 | 1; // flex-grow: 0 = fixed, 1 = fill (Figma only supports 0 or 1)
   layoutAlign?: "STRETCH" | "INHERIT"; // align-self: stretch
@@ -216,6 +228,37 @@ export interface WireframeNode {
   // element sits inside a FILL/HUG auto-layout parent that would otherwise
   // stretch the child past its constraint (e.g. Apple.com p.tile-subhead).
   cssMaxWidth?: number;
+  // CSS min-width / min-height / max-height (px) — applied as Figma native
+  // minWidth/minHeight/maxHeight on auto-layout children, so an imported
+  // layout keeps its CSS floors/ceilings when the designer edits content
+  // (min-height heroes, min-width buttons). px-only, like cssMaxWidth.
+  cssMinWidth?: number;
+  cssMinHeight?: number;
+  cssMaxHeight?: number;
+  // Absolute URL from the nearest <a href> ancestor — applied as
+  // TextNode.hyperlink so imported links stay clickable.
+  href?: string;
+  // CSS text-shadow parsed to DROP_SHADOW effects. Kept separate from
+  // `effects` because it must land on the TextNode itself — a shadow on the
+  // wrapper box renders visibly differently from a shadow on the glyphs.
+  textShadowEffects?: FigmaEffect[];
+
+  // text-transform uppercase/lowercase → Figma textCase. The raw source-case
+  // string is kept in textContent so editing/copying preserves the author's
+  // casing; `capitalize` stays baked (CSS keeps inner caps, Figma TITLE not).
+  textCase?: "UPPER" | "LOWER";
+  // text-overflow: ellipsis / -webkit-line-clamp with clipping overflow.
+  textTruncation?: "ENDING";
+  maxLines?: number;
+  // Vertical position of the text ink inside its element box, derived from
+  // per-line geometry (covers flex-center, table-cell middle, line-height
+  // tricks without needing the CSS signal). Absent = Figma default TOP.
+  textAlignVertical?: "CENTER" | "BOTTOM";
+  // Base-state text-decoration beyond the line kind (dotted/wavy, tinted).
+  textDecorationStyle?: "WAVY" | "DOTTED";
+  textDecorationColor?: string;
+  // -webkit-text-stroke → TextNode strokes (outlined display text).
+  textStroke?: { width: number; color: string };
 
   // Raw computed styles passthrough (filtered non-default values)
   computedStyles?: Record<string, string>;
@@ -242,6 +285,11 @@ export interface WireframeNode {
   // Visibility state (for interaction variants — hidden in default state, visible in hover)
   isHiddenInDefault?: boolean;
 
+  // CSS `aspect-ratio` → Figma `constrainProportions`. Geometry still comes
+  // from the browser measurement, so this changes nothing at import time; it
+  // keeps the declared ratio when the frame is resized afterwards.
+  constrainProportions?: boolean;
+
   // FIX 4: true when any descendant has its own pseudoStateStyles. Used to
   // decide whether a node should become a ComponentSet trigger even if its
   // own hover diff is empty (parent-hover → child-visibility case).
@@ -253,6 +301,9 @@ export interface WireframeNode {
   // CSS object-fit from the captured <img>/<video> — maps to the IMAGE fill's
   // scaleMode (cover → FILL, contain/none/scale-down → FIT). Default fill → FILL.
   objectFit?: string;
+  // CSS object-position as fractions (0..1); non-center values upgrade the
+  // image paint to CROP + imageTransform in realImages.ts.
+  objectPosition?: { x: number; y: number };
   // CSS filter: grayscale(N) on this element (0…1). Applied as a saturation
   // color adjustment on the element's IMAGE paints (realImages.ts / fills.ts).
   filterGrayscale?: number;
@@ -432,6 +483,11 @@ export interface RenderContext {
     hoverCacheMisses: number;
     emptyPseudoSkipped: number;
     pseudoErrors: number;
+    // Children whose creation threw and was swallowed by the per-child
+    // try/catch (the subtree is lost). Surfaced to the user via
+    // figma.notify at the end of the import — without this a 20%-incomplete
+    // import looks identical to a perfect one.
+    droppedNodes?: { name: string; error: string }[];
   };
 }
 

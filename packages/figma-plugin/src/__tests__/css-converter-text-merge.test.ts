@@ -600,7 +600,10 @@ describe("css-converter: identical-value dedup (semantic placeholder fix)", () =
 
   it("regression: different values still join with space (lorem/website mode)", () => {
     // Lorem mode: per-line random words must STILL join, not dedup.
-    const text1 = makeText('Lorem ipsum dolor', { x: 0, y: 0, width: 100, height: 18 });
+    // Line 1 fills the 200px box (soft width-wrap) — a half-empty line would
+    // now legitimately read as an authored hard break (\n) per the 2026-08-08
+    // line-geometry heuristic, which is out of scope for this dedup test.
+    const text1 = makeText('Lorem ipsum dolor', { x: 0, y: 0, width: 180, height: 18 });
     const text2 = makeText('sit amet consectetur', { x: 0, y: 20, width: 120, height: 18 });
 
     const p = makeFrame({

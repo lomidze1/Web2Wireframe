@@ -35,6 +35,8 @@ import {
   type CaptureOptions,
   type CaptureStats,
   DEFAULT_CAPTURE_OPTIONS,
+  extractUrlsFromSrc,
+  orderUrlsByInstallability,
 } from "@w2w/shared";
 
 import { state, updateProgress } from "../state";
@@ -106,6 +108,12 @@ export async function handleCapturePageW2W(
 
     // Per-viewport progress budget: [10 .. 70] = 60 points across N viewports
     const perViewportBudget = 60 / viewports.length;
+
+    const settings = await getSettings();
+
+    // Filled per viewport inside the loop — see w2wHarvestImageAssets for why
+    // harvesting can't wait until after the loop.
+    const assets: Record<string, W2WAssetEntry> = {};
 
     // =========================================================================
     // CAPTURE EACH VIEWPORT SEQUENTIALLY (single CDP attach)
@@ -378,6 +386,15 @@ export async function handleCapturePageW2W(
       }
 
       captures.push({ width: targetViewport, frame, doc });
+
+      // Harvest this viewport's image assets while its srcset variants are
+      // still referenced by the live document.
+      if (settings.captureAssets) {
+        const harvest = await w2wHarvestImageAssets(client, [frame], assets);
+        console.log(
+          `[W2W] Assets at ${label}: +${harvest.extracted} extracted, ${harvest.missed} deferred to final pass`,
+        );
+      }
     }
 
     // =========================================================================
@@ -387,7 +404,6 @@ export async function handleCapturePageW2W(
     // Union of image URLs across ALL captured frames (responsive srcset may
     // expose different images per viewport; browser cache is shared).
     updateProgress(72, "Extracting assets from cache...");
-    const assets: Record<string, W2WAssetEntry> = {};
 
     // captureStats is built up alongside the asset loop so the popup can
     // tell the user about cache misses / fetch failures. Format-conversion
@@ -396,45 +412,56 @@ export async function handleCapturePageW2W(
     // need a return channel from the plugin we don't have today.
     let captureStats: CaptureStats | undefined;
 
-    const settings = await getSettings();
     if (settings.captureAssets) {
-      const resourceMap = await buildResourceMap(client);
-      const seenUrls = new Set<string>();
-      const imageUrls: string[] = [];
-      for (const cap of captures) {
-        for (const url of w2wCollectImageUrls(cap.frame)) {
-          if (!seenUrls.has(url)) {
-            seenUrls.add(url);
-            imageUrls.push(url);
-          }
-        }
-      }
-      console.log(
-        `[W2W] Extracting ${imageUrls.length} unique assets across ${captures.length} viewport(s)...`,
+      // Mop-up pass over the union of all frames: catches anything the
+      // per-viewport passes missed (late lazy loads, retried URLs).
+      const finalPass = await w2wHarvestImageAssets(
+        client,
+        captures.map((cap) => cap.frame),
+        assets,
       );
+      let resourceMapMisses = finalPass.missed;
 
-      let resourceMapMisses = 0;
-      for (const url of imageUrls) {
-        const resource = resourceMap.get(url);
-        if (!resource) {
-          resourceMapMisses += 1;
-          continue;
+      // Last resort for URLs the resource tree no longer lists: fetch from
+      // page context (same FETCH_FONT_DATA handler the fonts use) — hits the
+      // HTTP cache for same-origin and CORS-enabled URLs.
+      if (resourceMapMisses > 0) {
+        const missingUrls: string[] = [];
+        const seenMissing = new Set<string>();
+        for (const cap of captures) {
+          for (const url of w2wCollectImageUrls(cap.frame)) {
+            if (!assets[url] && !seenMissing.has(url)) {
+              seenMissing.add(url);
+              missingUrls.push(url);
+            }
+          }
         }
         try {
-          const base64 = await getResourceBase64(client, resource.frameId, url);
-          if (base64) {
-            assets[url] = {
-              base64Encoded: true,
-              content: base64,
-              mimeType: resource.mimeType,
-            };
-          } else {
-            resourceMapMisses += 1;
+          const response = await chrome.tabs.sendMessage(tabId, {
+            type: "FETCH_FONT_DATA",
+            urls: missingUrls,
+          });
+          if (response?.success && response.data) {
+            for (const [url, base64] of Object.entries(response.data)) {
+              if (!base64 || typeof base64 !== "string") continue;
+              const mime = w2wSniffImageMime(base64);
+              if (!mime) continue; // unidentifiable bytes — placeholder is safer
+              assets[url] = {
+                base64Encoded: true,
+                content: base64,
+                mimeType: mime,
+              };
+              resourceMapMisses -= 1;
+            }
           }
-        } catch {
-          resourceMapMisses += 1;
+          console.log(
+            `[W2W] Page-context image fetch: asked ${missingUrls.length}, recovered ${missingUrls.length - resourceMapMisses}`,
+          );
+        } catch (err) {
+          console.warn("[W2W] Page-context image fetch failed:", err);
         }
       }
+
       console.log(`[W2W] Assets extracted: ${Object.keys(assets).length}, missed: ${resourceMapMisses}`);
 
       captureStats = {
@@ -559,14 +586,17 @@ export async function handleCapturePageW2W(
       }
     }
     // Fallback: fetch missing font binaries via content script (page context, no CORS issues)
+    // The browser downloads exactly ONE format per face, so every other
+    // declared URL lands here. Ask for them best-installable first and skip the
+    // two formats nothing can use — .svg outlines and the IE-only .eot — so the
+    // page isn't made to fetch files that would only be discarded.
     const missingFontUrls: string[] = [];
     for (const font of w2wFonts) {
       if (!font.src) continue;
-      const urlRegex2 = /(?:url\(['"]?)?((https?:\/\/[^\s'")\],]+))['"]?\)?/g;
-      let m2;
-      while ((m2 = urlRegex2.exec(font.src)) !== null) {
-        const fontUrl = m2[1];
-        if (!assets[fontUrl]) missingFontUrls.push(fontUrl);
+      for (const fontUrl of orderUrlsByInstallability(extractUrlsFromSrc(font.src))) {
+        if (assets[fontUrl]) continue;
+        if (/\.(svg|eot)(\?|#|$)/i.test(fontUrl)) continue;
+        missingFontUrls.push(fontUrl);
       }
     }
 
@@ -576,6 +606,11 @@ export async function handleCapturePageW2W(
           type: "FETCH_FONT_DATA",
           urls: missingFontUrls,
         });
+        console.log(
+          `[W2W] Content-script font fetch: asked ${missingFontUrls.length}, got ${
+            response?.data ? Object.keys(response.data).length : 0
+          }`,
+        );
         if (response?.success && response.data) {
           for (const [url, base64] of Object.entries(response.data)) {
             if (base64 && typeof base64 === 'string') {
@@ -592,22 +627,31 @@ export async function handleCapturePageW2W(
             }
           }
         }
-      } catch {
+      } catch (err) {
         // Content script font fetch failed — degrade silently; missing fonts
-        // are surfaced later via the font fallback modal.
+        // are surfaced later via the font fallback modal. Logged because a
+        // silent failure here is indistinguishable from "the page shipped no
+        // fonts", and it decides whether the export can carry any binary.
+        console.warn("[W2W] Content-script font fetch failed:", err);
       }
     }
 
     // --- Filter fonts: keep only actually-used fonts (like h2d) ---
     // aggregatedUsedFamilies unions platform fonts across ALL viewports
-    // (responsive designs may use different fonts at different widths).
+    // (responsive designs may use different fonts at different widths). Those
+    // are the names the OS RESOLVED to; an @font-face is keyed by the name the
+    // CSS REQUESTED, and for icon fonts the two differ ("glyphs" renders as
+    // "icomoon"). Matching platform names alone dropped every such face from
+    // the export, so the plugin could neither render nor download them.
     const usedFontFamilies = aggregatedUsedFamilies;
+    const usedCssFontFamilies = new Set<string>();
+    for (const cap of captures) w2wCollectCssFontFamilies(cap.frame, usedCssFontFamilies);
 
-    if (usedFontFamilies.size > 0) {
-      // Filter w2wFonts: keep only entries whose fontFamily matches a used font
-      const filteredFonts = w2wFonts.filter((f) =>
-        usedFontFamilies.has(f.fontFamily.toLowerCase()) ||
-        (f.platformFontFamily && usedFontFamilies.has(f.platformFontFamily.toLowerCase()))
+    if (usedFontFamilies.size > 0 || usedCssFontFamilies.size > 0) {
+      const filteredFonts = w2wFilterUsedFonts(
+        w2wFonts,
+        usedFontFamilies,
+        usedCssFontFamilies,
       );
 
       // For each kept font, prefer woff2 over woff over ttf
@@ -618,26 +662,13 @@ export async function handleCapturePageW2W(
       for (const font of filteredFonts) {
         if (!font.src) continue;
         const key = `${font.fontFamily.toLowerCase()}|${font.fontWeight}|${font.fontStyle}`;
-        const urlRegex = /(?:url\(['"]?)?((https?:\/\/[^\s'")\],]+))['"]?\)?/g;
-        let m;
-        const urls: string[] = [];
-        while ((m = urlRegex.exec(font.src)) !== null) {
-          urls.push(m[1]);
-        }
-        // Prefer woff2 > woff > ttf > otf
-        const ranked = urls.sort((a, b) => {
-          const rank = (u: string) => {
-            if (u.includes('.woff2')) return 0;
-            if (u.includes('.woff')) return 1;
-            if (u.includes('.ttf')) return 2;
-            if (u.includes('.otf')) return 3;
-            return 4;
-          };
-          return rank(a) - rank(b);
-        });
-        if (ranked.length > 0) {
-          fontFamilyBestUrl.set(key, ranked[0]);
-          fontUrlsToKeep.add(ranked[0]);
+        // Keep the files we HOLD BYTES for, most installable first — see
+        // w2wPickFontUrlsToKeep. Ranking the declared URLs without checking
+        // what was cached drops the one format the browser actually fetched.
+        const keep = w2wPickFontUrlsToKeep(font.src, (url) => !!assets[url]);
+        if (keep.length > 0) {
+          fontFamilyBestUrl.set(key, keep[0]);
+          for (const url of keep) fontUrlsToKeep.add(url);
         }
       }
 
@@ -769,10 +800,162 @@ export function w2wCollectImageUrls(node: W2WNode, urls: string[] = []): string[
 }
 
 /**
+ * Harvest the given frames' image assets from the browser cache into `assets`.
+ *
+ * Must run while the current document still references those resources:
+ * Page.getResourceTree only lists the LIVE document's resources, and a srcset
+ * variant fetched for an intermediate viewport width (e.g. `*_desktop_1x`) can
+ * be evicted once a later width swaps it out. Harvesting once after the
+ * viewport loop lost exactly those variants (iwm.org.uk, resourceMapMisses: 8),
+ * so the loop calls this per viewport and the post-loop call only mops up.
+ */
+export async function w2wHarvestImageAssets(
+  client: CDPClient,
+  frames: W2WNode[],
+  assets: Record<string, W2WAssetEntry>,
+): Promise<{ extracted: number; missed: number }> {
+  const resourceMap = await buildResourceMap(client);
+  let extracted = 0;
+  let missed = 0;
+  const seen = new Set<string>();
+  for (const frame of frames) {
+    for (const url of w2wCollectImageUrls(frame)) {
+      if (seen.has(url) || assets[url]) continue;
+      seen.add(url);
+      const resource = resourceMap.get(url);
+      if (!resource) {
+        missed += 1;
+        continue;
+      }
+      try {
+        const base64 = await getResourceBase64(client, resource.frameId, url);
+        if (base64) {
+          assets[url] = {
+            base64Encoded: true,
+            content: base64,
+            mimeType: resource.mimeType,
+          };
+          extracted += 1;
+        } else {
+          missed += 1;
+        }
+      } catch {
+        missed += 1;
+      }
+    }
+  }
+  return { extracted, missed };
+}
+
+/**
+ * Identify an image's MIME type from its magic bytes. The page-context fetch
+ * fallback returns bare base64 with no Content-Type, and the plugin's decode
+ * path keys off mimeType — a wrong guess misrenders, so unknown bytes return
+ * null and the caller must skip the asset.
+ */
+export function w2wSniffImageMime(base64: string): string | null {
+  let head: Uint8Array;
+  try {
+    head = Uint8Array.from(atob(base64.slice(0, 64)), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  if (head.length < 4) return null;
+  if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return "image/png";
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
+  if (head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46) return "image/gif";
+  if (
+    head.length >= 12 &&
+    head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
+    head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50
+  ) return "image/webp";
+  if (head[0] === 0x3c) return "image/svg+xml"; // '<' — "<svg" or "<?xml"
+  return null;
+}
+
+/**
  * Enrich all TEXT nodes with platform fonts by walking the tree in DFS order.
  * The content script sets data-w2w-idx in the same DFS order (incremented
  * for each frame that has TEXT children).
  */
+/** CSS keywords that name no installable file, so an @font-face can never
+ *  declare them. */
+const GENERIC_CSS_FAMILIES = new Set([
+  "serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui",
+  "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded", "math", "emoji",
+  "fangsong", "inherit", "initial", "unset", "revert",
+]);
+
+/**
+ * Every font family the captured tree REQUESTS, lowercased.
+ *
+ * The used-font filter can't rely on platform font names alone: those are what
+ * the OS resolved to ("icomoon"), while an @font-face is keyed by what the CSS
+ * asked for ("glyphs"). Collecting the CSS side is the only way to tell that a
+ * face is used when the two names differ — which is the norm for icon fonts,
+ * anti-piracy aliases and variable-font instances.
+ */
+export function w2wCollectCssFontFamilies(
+  node: W2WNode,
+  out: Set<string> = new Set<string>(),
+): Set<string> {
+  if (node.type === "FRAME") {
+    const declared = node.styles?.fontFamily;
+    if (declared) {
+      for (const part of declared.split(",")) {
+        const name = part.trim().replace(/^['"]|['"]$/g, "").trim().toLowerCase();
+        if (name && !GENERIC_CSS_FAMILIES.has(name)) out.add(name);
+      }
+    }
+    for (const child of node.children) w2wCollectCssFontFamilies(child, out);
+  }
+  return out;
+}
+
+/**
+ * Keep only the @font-face entries the page actually uses — matched against
+ * BOTH the platform names that rendered and the families the CSS requested.
+ * With an empty demand on both sides we can't prove anything unused, so
+ * everything stays.
+ */
+export function w2wFilterUsedFonts<
+  T extends { fontFamily: string; platformFontFamily?: string },
+>(fonts: T[], usedPlatformFamilies: Set<string>, usedCssFamilies: Set<string>): T[] {
+  if (usedPlatformFamilies.size === 0 && usedCssFamilies.size === 0) return fonts;
+  return fonts.filter((f) => {
+    const css = f.fontFamily.toLowerCase();
+    return (
+      usedCssFamilies.has(css) ||
+      usedPlatformFamilies.has(css) ||
+      (!!f.platformFontFamily && usedPlatformFamilies.has(f.platformFontFamily.toLowerCase()))
+    );
+  });
+}
+
+/**
+ * The URLs of a face worth keeping in the export, best-installable first.
+ *
+ * Ranking alone is not enough: a face declares up to five formats but the
+ * browser only ever downloaded ONE of them, so the ranking must be applied to
+ * the URLs we actually HOLD BYTES for. Keeping the theoretically-best URL
+ * instead (a .ttf the page never requested) makes the cleanup below delete the
+ * cached .woff — which is how a capture ended up shipping zero font files.
+ *
+ * All available URLs are kept, not just the first: they cost a few KB each and
+ * let the plugin pick the format it can actually unwrap (it converts WOFF and
+ * EOT to SFNT, but has no Brotli for WOFF2). When nothing was cached we keep
+ * the best-ranked URL as a marker so a later fetch has a target.
+ */
+export function w2wPickFontUrlsToKeep(
+  src: string,
+  hasBytes: (url: string) => boolean,
+): string[] {
+  const ranked = orderUrlsByInstallability(extractUrlsFromSrc(src));
+  const available = ranked.filter(hasBytes);
+  if (available.length > 0) return available;
+  return ranked.slice(0, 1);
+}
+
 export function w2wEnrichAllTextNodes(
   frame: W2WFrameNode,
   fontsByIdx: Map<number, { familyName: string; postScriptName: string }>,

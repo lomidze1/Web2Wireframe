@@ -18,7 +18,7 @@ import { transformFramesData, transformW2WTreeText } from "../../../shared/trans
 import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import SettingsPanel from "../../../components/settingsPanel";
-import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
+import { buildFontDownloads, buildFontRealNames, enrichFontsFromAssets } from "../../../../utils/fontDownload";
 import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
 
 // ============================================================================
@@ -401,7 +401,7 @@ export default function AreaSelection() {
    * Handles both single and multi-frame files
    * Uses inline settings from useTabSettings hook
    */
-  const processAndRender = (
+  const processAndRender = async (
     captureResult: UnifiedCaptureResult
   ) => {
     // Collapse settings panel during import
@@ -409,7 +409,17 @@ export default function AreaSelection() {
 
     // Surface the captured fonts list so FontFallbackModal can offer the
     // "Download fonts (.zip)" button if any are missing on the user's machine.
-    setExtractedFonts(captureResult.fonts || []);
+    //
+    // The extension stores font binaries in the capture's URL-keyed asset map
+    // without linking them to the face that declared them. Re-attach them here:
+    // the ZIP then builds from the bytes already in the .w2w (no blocked
+    // cross-origin fetches), and each face gains the real SFNT family name the
+    // font actually installs under.
+    const capturedFonts = await enrichFontsFromAssets(
+      captureResult.fonts,
+      captureResult.frames.find((f) => f.capturedData?.assets)?.capturedData?.assets,
+    );
+    setExtractedFonts(capturedFonts);
 
     // Cancel any pending reset from previous import
     if (resetTimeoutRef.current) {
@@ -499,8 +509,8 @@ export default function AreaSelection() {
             textMode: settings.localTextMode,
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
-            fontRealNames: buildFontRealNames(captureResult.fonts),
-            fontDeclaredCuts: buildFontDeclaredCuts(captureResult.fonts),
+            fontRealNames: buildFontRealNames(capturedFonts),
+            fontDeclaredCuts: buildFontDeclaredCuts(capturedFonts),
           },
         },
       },
@@ -628,7 +638,7 @@ export default function AreaSelection() {
       }
 
       // Render directly using inline settings (no modal)
-      processAndRender(unifiedResult);
+      await processAndRender(unifiedResult);
 
       // Refresh the footer badge to reflect the just-incremented count.
       void refreshLicense();

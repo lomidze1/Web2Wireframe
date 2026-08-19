@@ -89,6 +89,100 @@ async function convertToFigmaFormat(
   }
 }
 
+/** Figma's createImage rejects images with any dimension above 4096px. */
+const MAX_IMAGE_DIMENSION = 4096;
+
+/**
+ * Pure scale-step for the downscale loop: given the current attempt's output
+ * size, pick the next scale so the following attempt lands ~15% under the
+ * byte target (area scales quadratically with the linear scale factor).
+ * Exported for tests.
+ */
+export function nextDownscaleScale(
+  currentScale: number,
+  currentBytes: number,
+  targetBytes: number
+): number {
+  if (currentBytes <= targetBytes) return currentScale;
+  const shrink = Math.sqrt((targetBytes * 0.85) / currentBytes);
+  // Never stall: guarantee a real reduction each attempt.
+  return currentScale * Math.min(shrink, 0.9);
+}
+
+/**
+ * Downscale an oversized image until it fits MAX_SINGLE_IMAGE_BYTES.
+ *
+ * Previously any image above 2MB was dropped outright and rendered as a gray
+ * placeholder in Figma. A downscaled real image is strictly better, and it
+ * also keeps the .w2w payload smaller than shipping the original would.
+ *
+ * Alpha-aware: transparent images export as PNG (JPEG would flatten them
+ * onto black), opaque ones as JPEG 0.85. Dimensions are always capped at
+ * Figma's 4096px hard limit. Returns null when even aggressive downscaling
+ * cannot fit the budget (caller falls back to the old drop behavior).
+ */
+async function downscaleToFit(
+  base64: string,
+  mimeType: string
+): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    const binaryStr = atob(base64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: mimeType }));
+
+    let scale = Math.min(
+      1,
+      MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height)
+    );
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const w = Math.max(1, Math.round(bitmap.width * scale));
+      const h = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = new OffscreenCanvas(w, h);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Failed to get 2d context");
+      ctx.drawImage(bitmap, 0, 0, w, h);
+
+      // JPEG has no alpha channel — transparent images must stay PNG.
+      let hasAlpha = false;
+      try {
+        const rgba = ctx.getImageData(0, 0, w, h).data;
+        for (let i = 3; i < rgba.length; i += 16) {
+          if (rgba[i] < 255) { hasAlpha = true; break; }
+        }
+      } catch {
+        // getImageData failure — assume opaque.
+      }
+
+      const outBlob = await canvas.convertToBlob(
+        hasAlpha ? { type: "image/png" } : { type: "image/jpeg", quality: 0.85 }
+      );
+      const outBase64 = uint8ToBase64(new Uint8Array(await outBlob.arrayBuffer()));
+
+      if (outBase64.length <= MAX_SINGLE_IMAGE_BYTES) {
+        bitmap.close();
+        console.log(
+          `[W2W] Downscaled oversized image ${bitmap.width}x${bitmap.height} → ${w}x${h} (${Math.round(outBase64.length / 1024)}KB)`
+        );
+        return {
+          base64: outBase64,
+          mimeType: hasAlpha ? "image/png" : "image/jpeg",
+        };
+      }
+      scale = nextDownscaleScale(scale, outBase64.length, MAX_SINGLE_IMAGE_BYTES);
+    }
+
+    bitmap.close();
+    return null;
+  } catch (error) {
+    console.warn(`[W2W] Downscale failed for ${mimeType}:`, error);
+    return null;
+  }
+}
+
 /** Resource info from Page.getResourceTree */
 interface ResourceInfo {
   frameId: string;
@@ -391,8 +485,18 @@ export async function extractAssetsForTree(
           assets[url] = `data:${effectiveMime};base64,${base64Data}`;
           totalBytes += base64Data.length;
         } else {
-          console.warn(`[W2W] Skipping data URI (${Math.round(base64Data.length / 1024)}KB > 2MB limit)`);
-          stats.oversizedCount += 1;
+          // Oversized inline image — downscale instead of dropping.
+          // GIFs are excluded: rasterizing would freeze their animation.
+          const downscaled = effectiveMime === "image/gif"
+            ? null
+            : await downscaleToFit(base64Data, effectiveMime);
+          if (downscaled) {
+            assets[url] = `data:${downscaled.mimeType};base64,${downscaled.base64}`;
+            totalBytes += downscaled.base64.length;
+          } else {
+            console.warn(`[W2W] Skipping data URI (${Math.round(base64Data.length / 1024)}KB > 2MB limit)`);
+            stats.oversizedCount += 1;
+          }
         }
       }
       continue;
@@ -424,10 +528,23 @@ export async function extractAssetsForTree(
       continue;
     }
 
-    // Check single image size limit
+    // Check single image size limit — downscale instead of dropping.
+    // GIF (animation) and SVG (vector, rendered via createNodeFromSvg) must
+    // not be rasterized; those keep the old drop behavior.
     if (base64.length > MAX_SINGLE_IMAGE_BYTES) {
-      console.warn(`[W2W] Skipping large image (${Math.round(base64.length / 1024)}KB): ${url}`);
-      stats.oversizedCount += 1;
+      const canDownscale =
+        resourceInfo.mimeType !== "image/gif" &&
+        resourceInfo.mimeType !== "image/svg+xml";
+      const downscaled = canDownscale
+        ? await downscaleToFit(base64, resourceInfo.mimeType)
+        : null;
+      if (downscaled) {
+        assets[url] = `data:${downscaled.mimeType};base64,${downscaled.base64}`;
+        totalBytes += downscaled.base64.length;
+      } else {
+        console.warn(`[W2W] Skipping large image (${Math.round(base64.length / 1024)}KB): ${url}`);
+        stats.oversizedCount += 1;
+      }
       continue;
     }
 
@@ -443,11 +560,18 @@ export async function extractAssetsForTree(
       }
       finalBase64 = converted.base64;
       finalMimeType = converted.mimeType;
-      // Re-check size after conversion (PNG can be larger than AVIF)
+      // Re-check size after conversion (PNG can be larger than AVIF) —
+      // downscale the converted output instead of dropping it.
       if (finalBase64.length > MAX_SINGLE_IMAGE_BYTES) {
-        console.warn(`[W2W] Converted image too large (${Math.round(finalBase64.length / 1024)}KB): ${url}`);
-        stats.oversizedCount += 1;
-        continue;
+        const downscaled = await downscaleToFit(finalBase64, finalMimeType);
+        if (downscaled) {
+          finalBase64 = downscaled.base64;
+          finalMimeType = downscaled.mimeType;
+        } else {
+          console.warn(`[W2W] Converted image too large (${Math.round(finalBase64.length / 1024)}KB): ${url}`);
+          stats.oversizedCount += 1;
+          continue;
+        }
       }
     }
 

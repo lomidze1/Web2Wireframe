@@ -13,9 +13,53 @@ import {
   getAlternativePluginColor,
 } from "./colors";
 import {
+  calculateConicGradientTransform,
   calculateRadialGradientTransform,
   calculateLinearGradientTransform,
 } from "./gradients";
+import { parseImageSize, computeCoverCropTransform } from "./imageCrop";
+
+// ============================================================================
+// Blend Mode Mapping (CSS mix-blend-mode / background-blend-mode → Figma)
+// ============================================================================
+
+const CSS_TO_FIGMA_BLEND_MODE: Record<string, BlendMode> = {
+  "multiply": "MULTIPLY",
+  "screen": "SCREEN",
+  "overlay": "OVERLAY",
+  "darken": "DARKEN",
+  "lighten": "LIGHTEN",
+  "color-dodge": "COLOR_DODGE",
+  "color-burn": "COLOR_BURN",
+  "hard-light": "HARD_LIGHT",
+  "soft-light": "SOFT_LIGHT",
+  "difference": "DIFFERENCE",
+  "exclusion": "EXCLUSION",
+  "hue": "HUE",
+  "saturation": "SATURATION",
+  "color": "COLOR",
+  "luminosity": "LUMINOSITY",
+};
+
+/**
+ * Maps a CSS blend-mode value to a Figma BlendMode.
+ * Returns undefined for "normal", unknown, or empty values.
+ */
+export function mapCSSBlendMode(
+  cssBlendMode: string | undefined
+): BlendMode | undefined {
+  if (!cssBlendMode) return undefined;
+  return CSS_TO_FIGMA_BLEND_MODE[cssBlendMode];
+}
+
+/**
+ * Per-paint blend mode from CSS `background-blend-mode`. Figma's Paint
+ * blendMode is the exact 1:1 slot; it used to be hardcoded "NORMAL", so
+ * multiply-tinted heroes and duotone stacks rendered as plain layers.
+ */
+function paintBlendMode(fill: FigmaFill): BlendMode {
+  return mapCSSBlendMode(fill.blendMode) ?? "NORMAL";
+}
 
 // ============================================================================
 // Fill Conversion
@@ -71,6 +115,7 @@ export function convertFillsToPaints(
             type: "SOLID",
             color: finalColor,
             opacity: context.colorMode === "plugin" ? 1.0 : fill.opacity,
+            blendMode: paintBlendMode(fill),
           };
           paints.push(solidPaint);
         }
@@ -100,12 +145,16 @@ export function convertFillsToPaints(
             // Website colors mode - preserve gradient
             const linearPaint: GradientPaint = {
               type: "GRADIENT_LINEAR",
+              opacity: fill.opacity ?? 1,
+              blendMode: paintBlendMode(fill),
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
               })),
+              // `?? 180` — angle 0 (`to top` / `0deg`) is a valid value; `||`
+              // treated it as unset and flipped every top-pointing gradient.
               gradientTransform: calculateLinearGradientTransform(
-                fill.angle || 180,
+                fill.angle ?? 180,
                 fill.elementWidth,
                 fill.elementHeight
               ),
@@ -138,6 +187,8 @@ export function convertFillsToPaints(
             const radialTransform = calculateRadialGradientTransform(fill);
             const radialPaint: GradientPaint = {
               type: "GRADIENT_RADIAL",
+              opacity: fill.opacity ?? 1,
+              blendMode: paintBlendMode(fill),
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
@@ -171,14 +222,19 @@ export function convertFillsToPaints(
           } else {
             const angularPaint: GradientPaint = {
               type: "GRADIENT_ANGULAR",
+              opacity: fill.opacity ?? 1,
+              blendMode: paintBlendMode(fill),
               gradientStops: fill.stops.map((stop) => ({
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
               })),
-              gradientTransform: [
-                [1, 0, 0],
-                [0, 1, 0],
-              ],
+              // `from <angle>` / `at <pos>` — CSS 0deg starts at 12 o'clock,
+              // Figma's angular at 3 o'clock, so even default conics need it.
+              gradientTransform: calculateConicGradientTransform(
+                fill.angle ?? 0,
+                fill.center?.x ?? 0.5,
+                fill.center?.y ?? 0.5,
+              ),
             };
             paints.push(angularPaint);
           }
@@ -219,14 +275,60 @@ export function convertFillsToPaints(
                 if (p < bufLen) bytes[p++] = ((c & 3) << 6) | d;
               }
               const image = figma.createImage(bytes);
-              const scaleMode = fill.scaleMode ?? "FILL";
+              let scaleMode = fill.scaleMode ?? "FILL";
+
+              // background-position on a cover layer → CROP + imageTransform.
+              // FILL always center-crops; the author's focus point (e.g.
+              // `center 30%` hero) needs the crop rectangle spelled out.
+              let imageTransform: Transform | undefined;
+              if (
+                scaleMode === "FILL" &&
+                fill.position &&
+                fill.elementWidth &&
+                fill.elementHeight
+              ) {
+                const size = parseImageSize(bytes);
+                if (size) {
+                  const crop = computeCoverCropTransform(
+                    size.width,
+                    size.height,
+                    fill.elementWidth,
+                    fill.elementHeight,
+                    fill.position.x,
+                    fill.position.y
+                  );
+                  if (crop) {
+                    scaleMode = "CROP";
+                    imageTransform = crop as Transform;
+                  }
+                }
+              }
+
               paints.push({
                 type: "IMAGE",
                 imageHash: image.hash,
                 scaleMode,
-                // TILE renders the image at natural size × scalingFactor;
-                // natural size is unknown here, so tile 1:1.
-                ...(scaleMode === "TILE" ? { scalingFactor: 1 } : {}),
+                ...(imageTransform ? { imageTransform } : {}),
+                // TILE renders the image at natural size × scalingFactor.
+                // When the converter forwarded a CSS px background-size,
+                // scale the natural size to it (a 200px texture tiled at
+                // 40px needs 0.2); otherwise tile 1:1.
+                ...(scaleMode === "TILE"
+                  ? {
+                      scalingFactor: (() => {
+                        if (fill.tileSize && fill.tileSize.width > 0) {
+                          const natural = parseImageSize(bytes);
+                          if (natural && natural.width > 0) {
+                            const factor = fill.tileSize.width / natural.width;
+                            if (isFinite(factor) && factor > 0) {
+                              return Math.max(0.01, Math.min(4, factor));
+                            }
+                          }
+                        }
+                        return 1;
+                      })(),
+                    }
+                  : {}),
                 // CSS filter: grayscale(N) → Figma per-paint saturation
                 // adjustment (−1 = fully desaturated).
                 ...(typeof fill.imageSaturation === "number"
@@ -234,6 +336,7 @@ export function convertFillsToPaints(
                   : {}),
                 visible: true,
                 opacity: 1,
+                blendMode: paintBlendMode(fill),
               } as Paint);
               break;
             }
