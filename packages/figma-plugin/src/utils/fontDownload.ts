@@ -354,6 +354,30 @@ function renameByUrlFormat(fileName: string, url: string): string {
   return dot === -1 ? fileName + ext : fileName.slice(0, dot) + ext;
 }
 
+/**
+ * Reserve `fileName` inside `used`, disambiguating with `-2`, `-3`, … before
+ * the extension when it is already taken.
+ *
+ * Distinct faces legitimately reduce to the same name: Google Fonts serves one
+ * file per unicode-range subset under an identical family, weight and style,
+ * and a webfont whose `name` table says "Regular" for every cut does the same.
+ * JSZip overwrites a repeated entry and reports nothing, so the archive would
+ * quietly hold fewer fonts than the user was told it did.
+ */
+function reserveZipName(fileName: string, used: Set<string>): string {
+  let candidate = fileName;
+  if (used.has(candidate)) {
+    const dot = fileName.lastIndexOf(".");
+    const stem = dot === -1 ? fileName : fileName.slice(0, dot);
+    const ext = dot === -1 ? "" : fileName.slice(dot);
+    let n = 2;
+    while (used.has(`${stem}-${n}${ext}`)) n++;
+    candidate = `${stem}-${n}${ext}`;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
 /** Replace a file name's extension (appending when there is none). */
 function withExtension(fileName: string, ext: "ttf" | "otf"): string {
   const dot = fileName.lastIndexOf(".");
@@ -446,6 +470,7 @@ export async function createFontsZipBlob(
 ): Promise<FontsZipResult> {
   const zip = new JSZip();
   const skippedEntries: string[] = [];
+  const usedNames = new Set<string>();
 
   for (const entry of entries) {
     try {
@@ -487,7 +512,7 @@ export async function createFontsZipBlob(
         skippedEntries.push(entry.fileName);
         continue;
       }
-      zip.file(packaged.fileName, packaged.bytes);
+      zip.file(reserveZipName(packaged.fileName, usedNames), packaged.bytes);
     } catch {
       skippedEntries.push(entry.fileName);
     }

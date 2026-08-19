@@ -13,6 +13,7 @@ import {
   getAlternativePluginColor,
 } from "./colors";
 import {
+  calculateConicGradientTransform,
   calculateRadialGradientTransform,
   calculateLinearGradientTransform,
 } from "./gradients";
@@ -227,10 +228,13 @@ export function convertFillsToPaints(
                 position: stop.position,
                 color: { r: stop.color.r, g: stop.color.g, b: stop.color.b, a: stop.color.a },
               })),
-              gradientTransform: [
-                [1, 0, 0],
-                [0, 1, 0],
-              ],
+              // `from <angle>` / `at <pos>` — CSS 0deg starts at 12 o'clock,
+              // Figma's angular at 3 o'clock, so even default conics need it.
+              gradientTransform: calculateConicGradientTransform(
+                fill.angle ?? 0,
+                fill.center?.x ?? 0.5,
+                fill.center?.y ?? 0.5,
+              ),
             };
             paints.push(angularPaint);
           }
@@ -305,9 +309,26 @@ export function convertFillsToPaints(
                 imageHash: image.hash,
                 scaleMode,
                 ...(imageTransform ? { imageTransform } : {}),
-                // TILE renders the image at natural size × scalingFactor;
-                // natural size is unknown here, so tile 1:1.
-                ...(scaleMode === "TILE" ? { scalingFactor: 1 } : {}),
+                // TILE renders the image at natural size × scalingFactor.
+                // When the converter forwarded a CSS px background-size,
+                // scale the natural size to it (a 200px texture tiled at
+                // 40px needs 0.2); otherwise tile 1:1.
+                ...(scaleMode === "TILE"
+                  ? {
+                      scalingFactor: (() => {
+                        if (fill.tileSize && fill.tileSize.width > 0) {
+                          const natural = parseImageSize(bytes);
+                          if (natural && natural.width > 0) {
+                            const factor = fill.tileSize.width / natural.width;
+                            if (isFinite(factor) && factor > 0) {
+                              return Math.max(0.01, Math.min(4, factor));
+                            }
+                          }
+                        }
+                        return 1;
+                      })(),
+                    }
+                  : {}),
                 // CSS filter: grayscale(N) → Figma per-paint saturation
                 // adjustment (−1 = fully desaturated).
                 ...(typeof fill.imageSaturation === "number"

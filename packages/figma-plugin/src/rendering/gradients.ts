@@ -208,6 +208,27 @@ export function calculateRadialGradientTransform(fill: FigmaFill): Transform {
 }
 
 /**
+ * Gradient transform for a CSS conic gradient rendered as Figma
+ * GRADIENT_ANGULAR. Figma's angular sweep starts at 3 o'clock while CSS
+ * conic starts at 12 o'clock, so the base rotation is (angle − 90°); the
+ * matrix (layer coords → gradient coords) also maps the CSS `at` center
+ * onto the gradient-space center (0.5, 0.5).
+ */
+export function calculateConicGradientTransform(
+  angleDeg: number,
+  cx: number,
+  cy: number,
+): Transform {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return [
+    [cos, sin, 0.5 - cos * cx - sin * cy],
+    [-sin, cos, 0.5 + sin * cx - cos * cy],
+  ];
+}
+
+/**
  * Calculate linear gradient transform for a given CSS angle
  *
  * When elementWidth/elementHeight are provided, uses the CSS gradient line formula

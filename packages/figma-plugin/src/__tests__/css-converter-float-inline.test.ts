@@ -154,8 +154,16 @@ describe("float:left columns in block row (telex footer)", () => {
 
   it("keeps the inter-column gap (margin-left) so columns don't jam", () => {
     const root = convertW2WToWireframe(page([footerRow()]) as never, { layoutMode: "autoLayout" });
+    const row = findByClass(root, "row-fluid") as { itemSpacing?: number } | null;
+    const col1 = findByClass(root, "my-account-grid") as { margin?: { right?: number } } | null;
     const col2 = findByClass(root, "demo-store-grid") as { margin?: { left?: number } } | null;
     expect(col2).not.toBeNull();
-    expect(Math.round(col2!.margin?.left ?? 0)).toBe(26);
+    // The 25.5px gap is uniform across all four columns, so
+    // collapseMarginWrappers folds it into the row's itemSpacing instead of
+    // giving every column a `:margin` wrapper. Assert the rendered gap, not
+    // which property happens to carry it.
+    const gap =
+      (row!.itemSpacing ?? 0) + (col1!.margin?.right ?? 0) + (col2!.margin?.left ?? 0);
+    expect(Math.round(gap)).toBe(26);
   });
 });

@@ -2,9 +2,12 @@
  * CSS text-transform application.
  *
  * The content script stores raw `textContent` (source case) while the browser
- * renders the transformed case. The converter must apply the captured
- * `text-transform` to the text value so nav links / buttons / eyebrow labels
- * render as the user saw them (e.g. "Buy now" + uppercase → "BUY NOW").
+ * renders the transformed case. Since the 2026-08-08 audit, uppercase and
+ * lowercase ride Figma's `textCase` property with the RAW string preserved
+ * (visually identical, but editing/copying keeps the author's casing and
+ * TextStyles can be shared across differently-cased elements). `capitalize`
+ * is still baked into the string: CSS keeps inner caps ("iPhone" → "IPhone")
+ * while Figma's TITLE case does not, so baking is the accurate rendering.
  */
 import { describe, it, expect } from "vitest";
 import { convertW2WToWireframe } from "../rendering/css-converter";
@@ -74,23 +77,25 @@ function findFirstText(node: unknown): Record<string, unknown> | null {
 }
 
 describe("convertW2WToWireframe — text-transform", () => {
-  it("applies uppercase to coalesced text content", () => {
+  it("uppercase → textCase UPPER with raw content kept", () => {
     const el = makeFrame({
       tag: 'a',
       styles: { display: 'block', textTransform: 'uppercase' },
       children: [makeText('Buy now')],
     });
     const root = convertW2WToWireframe(page([el]) as never, { layoutMode: "autoLayout" });
-    expect(collectTextContents(root)).toContain('BUY NOW');
+    expect(collectTextContents(root)).toContain('Buy now');
+    expect(findFirstText(root)!.textCase).toBe('UPPER');
   });
 
-  it("applies lowercase", () => {
+  it("lowercase → textCase LOWER with raw content kept", () => {
     const el = makeFrame({
       styles: { display: 'block', textTransform: 'lowercase' },
       children: [makeText('Buy NOW')],
     });
     const root = convertW2WToWireframe(page([el]) as never, { layoutMode: "autoLayout" });
-    expect(collectTextContents(root)).toContain('buy now');
+    expect(collectTextContents(root)).toContain('Buy NOW');
+    expect(findFirstText(root)!.textCase).toBe('LOWER');
   });
 
   it("applies capitalize word-by-word", () => {
@@ -126,8 +131,9 @@ describe("convertW2WToWireframe — text-transform", () => {
     expect(textNode).not.toBeNull();
     const segments = textNode!.styledSegments as Array<{ text: string }> | undefined;
     if (segments) {
-      expect(segments.map(s => s.text)).toEqual(['GET', 'PRO']);
+      expect(segments.map(s => s.text)).toEqual(['Get', 'Pro']);
     }
-    expect(textNode!.textContent).toBe('GET PRO');
+    expect(textNode!.textContent).toBe('Get Pro');
+    expect(textNode!.textCase).toBe('UPPER');
   });
 });

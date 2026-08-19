@@ -375,6 +375,30 @@ export function isBlockLevelElement(node: WireframeNode): boolean {
  * Skips linking when:
  * - Multi-segment nodes (TextStyle would override per-range formatting)
  */
+/**
+ * Whether every segment carries the SAME typography (weight/size/family/
+ * style/decoration) so a single TextStyle can represent the whole node.
+ * The converter emits one segment per visual line, so multi-line paragraphs
+ * are uniform by construction — bailing on segment COUNT alone silently
+ * unlinked every one of them. Color differences don't matter: color is a
+ * fill, not part of the TextStyle.
+ */
+export function segmentsShareUniformTypography(
+  segments: TextSegment[],
+  node: Pick<WireframeNode, "fontWeight" | "fontSize" | "fontFamily">,
+): boolean {
+  if (segments.length <= 1) return true;
+  const first = segments[0];
+  return segments.every(
+    (seg) =>
+      (seg.fontWeight || node.fontWeight || 400) === (first.fontWeight || node.fontWeight || 400) &&
+      (seg.fontSize || node.fontSize) === (first.fontSize || node.fontSize) &&
+      (seg.fontFamily || node.fontFamily) === (first.fontFamily || node.fontFamily) &&
+      (seg.fontStyle || undefined) === (first.fontStyle || undefined) &&
+      (seg.textDecoration || undefined) === (first.textDecoration || undefined),
+  );
+}
+
 async function linkTextStyleIfApplicable(
   textNode: TextNode,
   node: WireframeNode,
@@ -386,10 +410,14 @@ async function linkTextStyleIfApplicable(
     !context ||
     context.variableMode !== "styles" ||
     !context.textStyleMap ||
-    segments.length !== 1 ||
+    segments.length === 0 ||
+    // Only true per-range variation must keep direct properties — a
+    // TextStyle would flatten it. Uniform multi-segment nodes (one segment
+    // per line) link like single-segment ones.
+    !segmentsShareUniformTypography(segments, node) ||
     // Italic nodes: the weight-based TextStyle has no italic, so linking it
     // would overwrite the italic cut already applied. Keep the direct font.
-    isItalicStyle(segments[0]?.fontStyle) ||
+    segments.some((seg) => isItalicStyle(seg.fontStyle)) ||
     isItalicStyle(node.fontStyle)
   ) {
     return;
@@ -1492,6 +1520,58 @@ export async function createTextNode(
     textNode.letterSpacing = { value: node.letterSpacing, unit: "PIXELS" };
   }
 
+  // text-transform uppercase/lowercase — Figma renders the transform while
+  // the stored string keeps the author's casing (h2d parity).
+  if (node.textCase) {
+    try {
+      textNode.textCase = node.textCase;
+    } catch {
+      // Non-fatal — worst case the text shows source casing.
+    }
+  }
+
+  // Geometry-derived vertical ink alignment (converter set it only when the
+  // browser painted the text centered/bottom inside a taller element box).
+  if (node.textAlignVertical) {
+    textNode.textAlignVertical = node.textAlignVertical;
+  }
+
+  // Base-state decoration style/color (dotted/wavy, tinted underlines).
+  if (node.textDecorationStyle) {
+    try {
+      textNode.textDecorationStyle = node.textDecorationStyle;
+    } catch {
+      // Requires a decoration line — skip silently when absent.
+    }
+  }
+  if (node.textDecorationColor) {
+    try {
+      const parsed = cssColorToFigmaRGB(node.textDecorationColor);
+      if (parsed) {
+        textNode.textDecorationColor = {
+          value: { type: "SOLID", color: parsed.color, opacity: parsed.opacity },
+        };
+      }
+    } catch {
+      // Decorative — never fail the node.
+    }
+  }
+
+  // -webkit-text-stroke → glyph stroke. CSS centers the stroke on the glyph
+  // edge, so strokeAlign CENTER matches.
+  if (node.textStroke) {
+    try {
+      const parsed = cssColorToFigmaRGB(node.textStroke.color);
+      if (parsed) {
+        textNode.strokes = [{ type: "SOLID", color: parsed.color, opacity: parsed.opacity }];
+        textNode.strokeWeight = node.textStroke.width;
+        textNode.strokeAlign = "CENTER";
+      }
+    } catch {
+      // Decorative — never fail the node.
+    }
+  }
+
   // CSS text-shadow → DROP_SHADOW on the TextNode itself. Effects on a
   // wrapper box render visibly differently from a shadow on the glyphs.
   if (node.textShadowEffects && node.textShadowEffects.length > 0) {
@@ -1722,6 +1802,20 @@ export async function createTextNode(
       textNode.resize(hugWidth, browserHeight);
     }
     textNode.textAutoResize = "NONE";
+  }
+
+  // text-overflow: ellipsis / -webkit-line-clamp → native truncation. Applied
+  // AFTER the sizing ladder so its textAutoResize choices stand; the clamp
+  // then cuts exactly where the browser did instead of overflowing the card.
+  if (node.textTruncation === "ENDING") {
+    try {
+      textNode.textTruncation = "ENDING";
+      if (node.maxLines && node.maxLines > 0) {
+        textNode.maxLines = node.maxLines;
+      }
+    } catch {
+      // Truncation is progressive enhancement — keep the untruncated text.
+    }
   }
 
   // Apply all deferred TextStyle links LAST (after sizing, lineHeight, letterSpacing)

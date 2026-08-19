@@ -251,6 +251,14 @@ export function applySharedDecorations(
     target.visible = false;
   }
 
+  // CSS aspect-ratio → lock the proportions for later manual resizing.
+  if (node.constrainProportions) {
+    const proportional = target as SceneNode & { constrainProportions?: boolean };
+    if (typeof proportional.constrainProportions === "boolean") {
+      proportional.constrainProportions = true;
+    }
+  }
+
   // position:fixed / sticky marker — createWireframeFrame re-parents these
   // to the root frame and sets numberOfFixedChildren.
   if (

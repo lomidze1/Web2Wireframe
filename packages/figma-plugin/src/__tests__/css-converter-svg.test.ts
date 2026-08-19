@@ -97,7 +97,7 @@ describe("css-converter — background-image: url('*.svg') with $svgMarkup", () 
     expect(child.computedStyles?.svgMarkup).toBe(SVG_MARKUP);
   });
 
-  it("without $svgMarkup, keeps existing IMAGE_PLACEHOLDER fill behavior", () => {
+  it("without $svgMarkup, promotes an imageUrl child (2026-08-08: fills.ts refuses SVG data URIs, so the fill was a guaranteed gray box)", () => {
     const div = makeFrame({
       tag: "div",
       width: 64, height: 64,
@@ -109,12 +109,16 @@ describe("css-converter — background-image: url('*.svg') with $svgMarkup", () 
 
     const result = convertW2WToWireframe(div as never);
 
+    // The SVG layer must NOT linger as a fill — fills.ts would refuse the
+    // data URI and fall back to a flat surface color.
     const imagePlaceholderFills = (result.fills ?? []).filter(
       (f) => f.type === "IMAGE_PLACEHOLDER"
     );
-    expect(imagePlaceholderFills).toHaveLength(1);
-    expect(imagePlaceholderFills[0].imageUrl).toBe("https://example.com/bg.svg");
-    // No synthetic child injected
-    expect(result.children).toHaveLength(0);
+    expect(imagePlaceholderFills).toHaveLength(0);
+    // Instead a synthetic child carries the URL for assets-map resolution.
+    expect(result.children).toHaveLength(1);
+    const child = result.children[0];
+    expect(child.isPlaceholder).toBe(true);
+    expect(child.imageUrl).toBe("https://example.com/bg.svg");
   });
 });
