@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Web2Wireframe",
-  "version": "1.0.3",
+  "name": "Website to Figma — Web2Wireframe",
+  "version": "1.0.4",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkGqBxaWzePsoqN/16lB8OolJl65aHDpYz3WWoLSa2G0/vYbnVsVD386CRPlIi2ZPbnLZanv2UjXojm/1xyXJX1aWUSmV3cSDiPfZ3Ldef1O/nWsTtZ/lKtWnPbap9xwAfbpf3hANz9tMjCBYPsFwRmOC5YbjtiAoznWfIOkmlCPAvptCtPfLyijr2J7D0/ENE06VEtzhEhb6+5v2okcxv7szFU+aAjKsWlueVsLJBE18kPKvfzP8hl3u7LHtYCuDB8sVWN8xV4fMATbJdTNqy1PC33psDBVr+NsQQbWJmJZVzs6LSvwURvWhuSOZzaiZiuWc2hWPAbb9vCEOalErYwIDAQAB",
-  "description": "Capture any website and convert it to an editable Figma wireframe — colors, fonts, layout, hover states preserved.",
+  "description": "Capture any page — or just a region — as editable Figma layers, with real fonts, assets and hover states.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
