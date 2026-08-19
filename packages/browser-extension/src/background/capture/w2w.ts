@@ -109,6 +109,12 @@ export async function handleCapturePageW2W(
     // Per-viewport progress budget: [10 .. 70] = 60 points across N viewports
     const perViewportBudget = 60 / viewports.length;
 
+    const settings = await getSettings();
+
+    // Filled per viewport inside the loop — see w2wHarvestImageAssets for why
+    // harvesting can't wait until after the loop.
+    const assets: Record<string, W2WAssetEntry> = {};
+
     // =========================================================================
     // CAPTURE EACH VIEWPORT SEQUENTIALLY (single CDP attach)
     // =========================================================================
@@ -380,6 +386,15 @@ export async function handleCapturePageW2W(
       }
 
       captures.push({ width: targetViewport, frame, doc });
+
+      // Harvest this viewport's image assets while its srcset variants are
+      // still referenced by the live document.
+      if (settings.captureAssets) {
+        const harvest = await w2wHarvestImageAssets(client, [frame], assets);
+        console.log(
+          `[W2W] Assets at ${label}: +${harvest.extracted} extracted, ${harvest.missed} deferred to final pass`,
+        );
+      }
     }
 
     // =========================================================================
@@ -389,7 +404,6 @@ export async function handleCapturePageW2W(
     // Union of image URLs across ALL captured frames (responsive srcset may
     // expose different images per viewport; browser cache is shared).
     updateProgress(72, "Extracting assets from cache...");
-    const assets: Record<string, W2WAssetEntry> = {};
 
     // captureStats is built up alongside the asset loop so the popup can
     // tell the user about cache misses / fetch failures. Format-conversion
@@ -398,45 +412,56 @@ export async function handleCapturePageW2W(
     // need a return channel from the plugin we don't have today.
     let captureStats: CaptureStats | undefined;
 
-    const settings = await getSettings();
     if (settings.captureAssets) {
-      const resourceMap = await buildResourceMap(client);
-      const seenUrls = new Set<string>();
-      const imageUrls: string[] = [];
-      for (const cap of captures) {
-        for (const url of w2wCollectImageUrls(cap.frame)) {
-          if (!seenUrls.has(url)) {
-            seenUrls.add(url);
-            imageUrls.push(url);
-          }
-        }
-      }
-      console.log(
-        `[W2W] Extracting ${imageUrls.length} unique assets across ${captures.length} viewport(s)...`,
+      // Mop-up pass over the union of all frames: catches anything the
+      // per-viewport passes missed (late lazy loads, retried URLs).
+      const finalPass = await w2wHarvestImageAssets(
+        client,
+        captures.map((cap) => cap.frame),
+        assets,
       );
+      let resourceMapMisses = finalPass.missed;
 
-      let resourceMapMisses = 0;
-      for (const url of imageUrls) {
-        const resource = resourceMap.get(url);
-        if (!resource) {
-          resourceMapMisses += 1;
-          continue;
+      // Last resort for URLs the resource tree no longer lists: fetch from
+      // page context (same FETCH_FONT_DATA handler the fonts use) — hits the
+      // HTTP cache for same-origin and CORS-enabled URLs.
+      if (resourceMapMisses > 0) {
+        const missingUrls: string[] = [];
+        const seenMissing = new Set<string>();
+        for (const cap of captures) {
+          for (const url of w2wCollectImageUrls(cap.frame)) {
+            if (!assets[url] && !seenMissing.has(url)) {
+              seenMissing.add(url);
+              missingUrls.push(url);
+            }
+          }
         }
         try {
-          const base64 = await getResourceBase64(client, resource.frameId, url);
-          if (base64) {
-            assets[url] = {
-              base64Encoded: true,
-              content: base64,
-              mimeType: resource.mimeType,
-            };
-          } else {
-            resourceMapMisses += 1;
+          const response = await chrome.tabs.sendMessage(tabId, {
+            type: "FETCH_FONT_DATA",
+            urls: missingUrls,
+          });
+          if (response?.success && response.data) {
+            for (const [url, base64] of Object.entries(response.data)) {
+              if (!base64 || typeof base64 !== "string") continue;
+              const mime = w2wSniffImageMime(base64);
+              if (!mime) continue; // unidentifiable bytes — placeholder is safer
+              assets[url] = {
+                base64Encoded: true,
+                content: base64,
+                mimeType: mime,
+              };
+              resourceMapMisses -= 1;
+            }
           }
-        } catch {
-          resourceMapMisses += 1;
+          console.log(
+            `[W2W] Page-context image fetch: asked ${missingUrls.length}, recovered ${missingUrls.length - resourceMapMisses}`,
+          );
+        } catch (err) {
+          console.warn("[W2W] Page-context image fetch failed:", err);
         }
       }
+
       console.log(`[W2W] Assets extracted: ${Object.keys(assets).length}, missed: ${resourceMapMisses}`);
 
       captureStats = {
@@ -772,6 +797,80 @@ export function w2wCollectImageUrls(node: W2WNode, urls: string[] = []): string[
     }
   }
   return urls;
+}
+
+/**
+ * Harvest the given frames' image assets from the browser cache into `assets`.
+ *
+ * Must run while the current document still references those resources:
+ * Page.getResourceTree only lists the LIVE document's resources, and a srcset
+ * variant fetched for an intermediate viewport width (e.g. `*_desktop_1x`) can
+ * be evicted once a later width swaps it out. Harvesting once after the
+ * viewport loop lost exactly those variants (iwm.org.uk, resourceMapMisses: 8),
+ * so the loop calls this per viewport and the post-loop call only mops up.
+ */
+export async function w2wHarvestImageAssets(
+  client: CDPClient,
+  frames: W2WNode[],
+  assets: Record<string, W2WAssetEntry>,
+): Promise<{ extracted: number; missed: number }> {
+  const resourceMap = await buildResourceMap(client);
+  let extracted = 0;
+  let missed = 0;
+  const seen = new Set<string>();
+  for (const frame of frames) {
+    for (const url of w2wCollectImageUrls(frame)) {
+      if (seen.has(url) || assets[url]) continue;
+      seen.add(url);
+      const resource = resourceMap.get(url);
+      if (!resource) {
+        missed += 1;
+        continue;
+      }
+      try {
+        const base64 = await getResourceBase64(client, resource.frameId, url);
+        if (base64) {
+          assets[url] = {
+            base64Encoded: true,
+            content: base64,
+            mimeType: resource.mimeType,
+          };
+          extracted += 1;
+        } else {
+          missed += 1;
+        }
+      } catch {
+        missed += 1;
+      }
+    }
+  }
+  return { extracted, missed };
+}
+
+/**
+ * Identify an image's MIME type from its magic bytes. The page-context fetch
+ * fallback returns bare base64 with no Content-Type, and the plugin's decode
+ * path keys off mimeType — a wrong guess misrenders, so unknown bytes return
+ * null and the caller must skip the asset.
+ */
+export function w2wSniffImageMime(base64: string): string | null {
+  let head: Uint8Array;
+  try {
+    head = Uint8Array.from(atob(base64.slice(0, 64)), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  if (head.length < 4) return null;
+  if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return "image/png";
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
+  if (head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46) return "image/gif";
+  if (
+    head.length >= 12 &&
+    head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
+    head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50
+  ) return "image/webp";
+  if (head[0] === 0x3c) return "image/svg+xml"; // '<' — "<svg" or "<?xml"
+  return null;
 }
 
 /**
