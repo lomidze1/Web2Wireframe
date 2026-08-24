@@ -579,3 +579,70 @@ describe("getResourceBase64", () => {
     expect(bad).toBeNull();
   });
 });
+
+// ============================================================================
+// REAL CDP SHAPE — regression
+// ============================================================================
+
+/**
+ * `Page.getResourceTree` შვილ frame-ებს **პირდაპირ** აბრუნებს
+ * (`childFrames: FrameResourceTree[]`), და არა `{ frameResourceTree }`
+ * შესაფუთში. ზემოთა mock-ები არასწორ ფორმას იყენებდნენ, ამიტომ ტესტები
+ * მწვანე იყო, პროდაქშენი კი ვარდებოდა:
+ *
+ *   [W2W] Failed to get resource tree:
+ *   TypeError: Cannot read properties of undefined (reading 'frame')
+ *
+ * გაზომილი stripe.com-ზე (childFrames: 1, keys: ['frame','resources']).
+ * ამოქმედდებოდა ნებისმიერ გვერდზე, რომელსაც თუნდაც ერთი iframe აქვს.
+ */
+describe("buildResourceGraph — რეალური CDP ფორმა", () => {
+  const realShapeTree = {
+    frameTree: {
+      frame: { id: "main", url: "https://example.com" },
+      resources: [
+        { url: "https://example.com/main.css", type: "Stylesheet", mimeType: "text/css" },
+      ],
+      // ⬇️ არა `{ frameResourceTree: … }` — ზუსტად ისე, როგორც CDP აბრუნებს
+      childFrames: [
+        {
+          frame: { id: "iframe-1", url: "https://example.com/iframe" },
+          resources: [
+            { url: "https://example.com/iframe-img.png", type: "Image", mimeType: "image/png" },
+          ],
+          childFrames: [
+            {
+              frame: { id: "nested", url: "https://example.com/nested" },
+              resources: [
+                { url: "https://example.com/nested-font.woff2", type: "Font", mimeType: "font/woff2" },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  it("iframe-ის რესურსებს კრებს და არ ვარდება", async () => {
+    const client = makeMockClient(async (method) =>
+      method === "Page.getResourceTree" ? realShapeTree : {},
+    );
+
+    const graph = await buildResourceGraph(client);
+
+    expect(graph.stylesheets.map((s) => s.url)).toContain("https://example.com/main.css");
+    expect(graph.images.map((i) => i.url)).toContain("https://example.com/iframe-img.png");
+    expect(graph.fonts.map((f) => f.url)).toContain("https://example.com/nested-font.woff2");
+  });
+
+  it("ჩადგმული frame-ის frameId სწორად ენიჭება", async () => {
+    const client = makeMockClient(async (method) =>
+      method === "Page.getResourceTree" ? realShapeTree : {},
+    );
+
+    const graph = await buildResourceGraph(client);
+
+    const nested = graph.fonts.find((f) => f.url.endsWith("nested-font.woff2"));
+    expect(nested?.frameId).toBe("nested");
+  });
+});
