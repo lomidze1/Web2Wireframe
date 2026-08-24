@@ -23,6 +23,7 @@
 
 import type { Page } from "puppeteer";
 import { createCDPClient } from "./client.js";
+import { waitForNetworkSettled } from "./network-settle.js";
 
 import { getContentScriptBundle } from "@w2w/shared/content-script-bundle";
 import {
@@ -162,7 +163,13 @@ export async function extractWithContentScript(
     // the empty blank page and discards every element (empty body downstream).
     if (!skipReload) {
       await client.send("Page.reload", { ignoreCache: true });
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // `minWaitMs: 1500` ინარჩუნებს ძველ ფიქსირებულ ლოდინს როგორც იატაკს —
+      // ვერსად ველოდებით ნაკლებს, ვიდრე აქამდე. სხვაობა ისაა, რომ ნელ საიტზე
+      // ახლა რეალურ დამშვიდებას ველოდებით და არა თვითნებურ 1.5 წამს.
+      const settle = await waitForNetworkSettled(page, { minWaitMs: 1500 });
+      console.log(
+        `[W2W] reload settled: ${settle.reason} ${settle.waitedMs}ms stuck=${settle.stuck}`,
+      );
     }
 
     // Auto-scroll for lazy content
