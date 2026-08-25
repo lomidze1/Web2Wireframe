@@ -32,6 +32,8 @@ import {
   collectImageUrlsFromW2W,
   extractCSSVariables,
   parseFontFaceRules,
+  collectStyleSheetHeaders,
+  getStyleSheetText,
   getResourceText,
   w2wFindHoverCandidates,
   attachHoverToDescendants,
@@ -480,26 +482,62 @@ export async function extractWithContentScript(
     }
 
     if (captureFonts) {
-      // Extract @font-face rules from stylesheets
+      // @font-face rules come from two independent sources — neither alone
+      // covers every site:
+      //
+      //   1. CSS domain (`CSS.styleSheetAdded` + `CSS.getStyleSheetText`) —
+      //      sees inline <style> and cross-origin sheets. On stripe.com this
+      //      is the ONLY source that finds anything (6 sheets → 3 faces).
+      //   2. Resource graph (`Page.getResourceContent`) — sheets that rode
+      //      the page as cached documents. Finds 0 on stripe.com.
+      //
+      // Both feed the same collector, deduplicated by family+weight+style+src
+      // so the binary-binding pass below never fetches the same face twice.
+      const seenFaces = new Set<string>();
+      const collectFaces = (cssText: string, sourceUrl: string): void => {
+        for (const face of parseFontFaceRules(cssText, sourceUrl)) {
+          const cleanSrc = face.src.replace(/url\(['"]?([^'")\s]+)['"]?\)/g, "$1").trim();
+          const src = cleanSrc || face.src;
+          const key = `${face.family}|${face.weight}|${face.style}|${src}`;
+          if (seenFaces.has(key)) continue;
+          seenFaces.add(key);
+          w2wFonts.push({
+            fontFamily: face.family,
+            fontWeight: String(face.weight),
+            fontStyle: face.style,
+            platformFontFamily: face.family,
+            src,
+          });
+        }
+      };
+
+      // Source 1 — CSS domain
+      const sheetHeaders = await collectStyleSheetHeaders(client);
+      for (const header of sheetHeaders) {
+        try {
+          const cssText = await getStyleSheetText(client, header.styleSheetId);
+          if (cssText) collectFaces(cssText, header.sourceURL || page.url());
+        } catch {
+          // Sheet vanished between announcement and read — skip it.
+        }
+      }
+      const facesFromCSSDomain = w2wFonts.length;
+
+      // Source 2 — resource graph
       for (const stylesheet of resourceGraph.stylesheets) {
         try {
           const cssText = await getResourceText(client, stylesheet);
-          if (!cssText) continue;
-          const faces = parseFontFaceRules(cssText, stylesheet.url);
-          for (const face of faces) {
-            const cleanSrc = face.src.replace(/url\(['"]?([^'")\s]+)['"]?\)/g, "$1").trim();
-            w2wFonts.push({
-              fontFamily: face.family,
-              fontWeight: String(face.weight),
-              fontStyle: face.style,
-              platformFontFamily: face.family,
-              src: cleanSrc || face.src,
-            });
-          }
+          if (cssText) collectFaces(cssText, stylesheet.url);
         } catch {
           // Skip failed stylesheet extraction
         }
       }
+
+      console.log(
+        `[W2W] Stylesheets: ${sheetHeaders.length} via CSS domain, ` +
+        `${resourceGraph.stylesheets.length} via resource graph ` +
+        `(@font-face: ${facesFromCSSDomain} + ${w2wFonts.length - facesFromCSSDomain})`,
+      );
 
       // Extract font binaries from browser cache
       for (const fontEntry of resourceGraph.fonts) {

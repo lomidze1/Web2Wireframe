@@ -145,6 +145,59 @@ export async function getAllStyleSheets(
 }
 
 /**
+ * Enumerate every stylesheet the CSS domain knows about.
+ *
+ * `getAllStyleSheets()` above reads `document.styleSheets` from page context —
+ * cross-origin sheets throw on `.cssRules` there, and it yields no
+ * `styleSheetId`, so its output can't feed `CSS.getStyleSheetText`.
+ *
+ * The CSS domain has no "list sheets" command; it announces them through
+ * `CSS.styleSheetAdded`. Sheets registered before we subscribed are replayed
+ * only by an enable cycle, hence the `disable` → `enable` pair.
+ *
+ * Measured on stripe.com, where the resource-graph path finds nothing:
+ *   resource graph stylesheets = 0  → @font-face = 0
+ *   CSS.getStyleSheetText      = 6  → @font-face = 3
+ *
+ * @param settleMs - how long to let `styleSheetAdded` events arrive
+ */
+export async function collectStyleSheetHeaders(
+  client: CDPClientInterface,
+  settleMs = 150
+): Promise<Array<{ styleSheetId: string; sourceURL: string }>> {
+  if (!client.on) return [];
+
+  const headers: Array<{ styleSheetId: string; sourceURL: string }> = [];
+  let unsubscribe: (() => void) | undefined;
+
+  try {
+    unsubscribe = client.on("CSS.styleSheetAdded", (params?: unknown) => {
+      const header = (params as { header?: { styleSheetId?: string; sourceURL?: string } })
+        ?.header;
+      if (!header?.styleSheetId) return;
+      headers.push({
+        styleSheetId: header.styleSheetId,
+        sourceURL: header.sourceURL || "",
+      });
+    });
+
+    await client.send("CSS.disable");
+    await client.send("CSS.enable");
+
+    if (settleMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, settleMs));
+    }
+
+    return headers;
+  } catch {
+    // CSS domain unavailable — callers fall back to their other sources.
+    return [];
+  } finally {
+    unsubscribe?.();
+  }
+}
+
+/**
  * Get stylesheet content by ID
  */
 export async function getStyleSheetText(

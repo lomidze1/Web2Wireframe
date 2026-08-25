@@ -118,6 +118,7 @@ export {
   getComputedStyleForNode,
   getInlineStylesForNode,
   getAllStyleSheets,
+  collectStyleSheetHeaders,
   getStyleSheetText,
   getPlatformFontsForNode,
   collectPlatformFonts,
