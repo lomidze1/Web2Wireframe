@@ -99,3 +99,74 @@ describe("enrichAllTextNodes — isCustomFont gate", () => {
     expect(t.platformFont).toBeUndefined();
   });
 });
+
+// ============================================================================
+// enrichAllTextNodes — გაფუჭებული `name` ცხრილის დამცავი
+// ============================================================================
+
+/**
+ * ფონტის `name` ცხრილში ოჯახის ველი (ID 1) ზოგჯერ საავტორო სტრიქონითაა
+ * შევსებული. Chromium მას პატიოსნად აბრუნებს — გაზომილი stripe.com-ზე:
+ *
+ *   familyName="Copyright Klim Type Foundry"  postScriptName="SohneVF-Buch"
+ *   isCustomFont=true  glyphCount=2751
+ *
+ * `isCustomFont` gate ასეთს ვერ იჭერს (ნამდვილი web font-ია), ამიტომ სტრიქონი
+ * `font`-ად ეწერებოდა და მომხმარებელს „Fonts Not Available" სიაში ხვდებოდა.
+ *
+ * მოსალოდნელი ქცევა: გაზომვა მთლიანად უგულებელვყოთ — არც `font`, არც
+ * `platformFont` — რომ CSS-ში დეკლარირებული სახელი გადარჩეს. იგივე წესი
+ * მოქმედებს tree-builder-ში obfuscated ფონტებზე.
+ */
+describe("enrichAllTextNodes — საავტორო ტექსტი familyName-ში", () => {
+  it("არ ცვლის font-ს, როცა familyName საავტორო სტრიქონია", () => {
+    const t = textNode("sohne-var");
+    const root = frameNode([frameNode([t])]);
+    const fontsByIdx = new Map([
+      [
+        0,
+        {
+          familyName: "Copyright Klim Type Foundry",
+          postScriptName: "SohneVF-Buch",
+          isCustomFont: true,
+        },
+      ],
+    ]);
+
+    enrichAllTextNodes(root, fontsByIdx);
+
+    expect(t.font).toBe("sohne-var"); // CSS-ის სახელი გადარჩა
+  });
+
+  it("არც platformFont-ს stamp-ავს საავტორო სტრიქონით", () => {
+    const t = textNode("sohne-var");
+    const root = frameNode([frameNode([t])]);
+    const fontsByIdx = new Map([
+      [
+        0,
+        {
+          familyName: "Copyright Klim Type Foundry",
+          postScriptName: "SohneVF-Buch",
+          isCustomFont: true,
+        },
+      ],
+    ]);
+
+    enrichAllTextNodes(root, fontsByIdx);
+
+    expect(t.platformFont?.familyName).not.toBe("Copyright Klim Type Foundry");
+  });
+
+  it("ნამდვილ web font-ს ისევე stamp-ავს, როგორც აქამდე (რეგრესია არ არის)", () => {
+    const t = textNode("Inter Medium");
+    const root = frameNode([frameNode([t])]);
+    const fontsByIdx = new Map([
+      [0, { familyName: "Inter", postScriptName: "Inter-Medium", isCustomFont: true }],
+    ]);
+
+    enrichAllTextNodes(root, fontsByIdx);
+
+    expect(t.font).toBe("Inter");
+    expect(t.platformFont?.familyName).toBe("Inter");
+  });
+});

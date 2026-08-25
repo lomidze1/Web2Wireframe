@@ -32,6 +32,7 @@ import {
   collectImageUrlsFromW2W,
   extractCSSVariables,
   parseFontFaceRules,
+  isObfuscatedFont,
   collectStyleSheetHeaders,
   getStyleSheetText,
   getResourceText,
@@ -806,7 +807,15 @@ export function enrichAllTextNodes(
       const hasTextChildren = node.children.some((c) => c.type === "TEXT");
       if (hasTextChildren) {
         const font = fontsByIdx.get(idx);
-        if (font) {
+        // A malformed `name` table can put legal text where the family name
+        // belongs — stripe.com measures as familyName "Copyright Klim Type
+        // Foundry" / postScriptName "SohneVF-Buch". The isCustomFont gate
+        // below can't catch it (it IS a real web font), so the string used to
+        // reach the user as a font name. Ignore the measurement entirely and
+        // let the CSS-declared family stand, same as tree-builder does.
+        const trustworthy =
+          font && !isObfuscatedFont({ ...font, glyphCount: 1 });
+        if (font && trustworthy) {
           for (const child of node.children) {
             if (child.type === "TEXT") {
               (child as W2WTextNode).platformFont = {

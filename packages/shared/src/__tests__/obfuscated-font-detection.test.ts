@@ -65,3 +65,57 @@ describe("isObfuscatedFont", () => {
     expect(isObfuscatedFont(makeFont("Arial", "ArialMT", false))).toBe(false);
   });
 });
+
+// ============================================================================
+// გაფუჭებული `name` ცხრილი — საავტორო ტექსტი ოჯახის სახელის ველში
+// ============================================================================
+
+/**
+ * ზოგიერთ ფონტს `name` ცხრილში ოჯახის ველი (ID 1) საავტორო სტრიქონით აქვს
+ * შევსებული. Chromium მას პატიოსნად აბრუნებს, ჩვენ კი ფონტის სახელად
+ * ვასაღებდით — მომხმარებელს „Fonts Not Available" სიაში ეწერა:
+ *
+ *   Copyright Klim Type Foundry
+ *
+ * გაზომილი stripe.com-ზე:
+ *   familyName="Copyright Klim Type Foundry"  postScript="SohneVF-Buch"
+ *   isCustomFont=true  glyphs=2751
+ *
+ * ასეთი სახელი უნდა უარვყოთ, რომ CSS-ში დეკლარირებულ სახელზე (`sohne-var`)
+ * გადავიდეთ.
+ */
+describe("isObfuscatedFont — საავტორო ტექსტი ოჯახის სახელად", () => {
+  it("იჭერს stripe.com-ის რეალურ შემთხვევას", () => {
+    expect(
+      isObfuscatedFont(makeFont("Copyright Klim Type Foundry", "SohneVF-Buch", true, 2751)),
+    ).toBe(true);
+  });
+
+  it("იჭერს © სიმბოლოს ოჯახის სახელში", () => {
+    expect(isObfuscatedFont(makeFont("© 2024 Some Foundry", "Some-Regular"))).toBe(true);
+  });
+
+  it("იჭერს (c) ფორმას", () => {
+    expect(isObfuscatedFont(makeFont("(c) Type Company", "Type-Regular"))).toBe(true);
+  });
+
+  it("იჭერს all rights reserved-ს", () => {
+    expect(
+      isObfuscatedFont(makeFont("Acme Type. All Rights Reserved.", "Acme-Regular")),
+    ).toBe(true);
+  });
+
+  // ⬇️ ცრუ დადებითის დაცვა: ესენი ნამდვილი ფონტების სახელებია და უნდა გაიაროს
+  it("არ იჭერს ნამდვილ ოჯახს, სადაც სიტყვა Foundry გვხვდება", () => {
+    // "Foundry Sterling" — The Foundry-ს რეალური გარნიტურაა
+    expect(isObfuscatedFont(makeFont("Foundry Sterling", "FoundrySterling-Book"))).toBe(false);
+  });
+
+  it("არ იჭერს ნამდვილ ოჯახს სიტყვა Type-ით", () => {
+    expect(isObfuscatedFont(makeFont("Klim Type Sohne", "SohneVF-Buch"))).toBe(false);
+  });
+
+  it("არ იჭერს ოჯახს, რომელიც უბრალოდ ასო c-ით იწყება", () => {
+    expect(isObfuscatedFont(makeFont("Cormorant Garamond", "Cormorant-Regular"))).toBe(false);
+  });
+});
