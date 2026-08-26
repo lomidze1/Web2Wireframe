@@ -8,7 +8,14 @@ build
 *.timestamp-*
 
 # Third-party research material (not our code; reference only)
-docs/research/
+_research/
 
 # Playwright MCP session artifacts
 .playwright-mcp/
+# სოც-არხების მედია — გეგმა/სცენარი/build-სკრიპტი ინახება, ნედლი მედია არა
+social-agent/**/*.mp4
+social-agent/**/*.mov
+social-agent/**/*.m4a
+social-agent/**/*.wav
+social-agent/**/*.cmproj/
+__pycache__/

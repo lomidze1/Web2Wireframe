@@ -273,10 +273,19 @@ function convertFrame(
 
   // Block parent: check if children's float/inline-block indicates horizontal layout
   if (cssLayoutMode === 'NONE' && !isAbsoluteMode) {
-    const inferred = inferLayoutFromChildren(getEffectiveChildren(node), node.tag);
+    const inferred = inferLayoutFromChildren(getEffectiveChildren(node), node.tag, node.width);
     if (inferred) {
       cssLayoutMode = inferred;
     }
+  }
+
+  // Overlaid grid items cannot survive Figma's grid: the renderer appends each
+  // child and sets only its span, so auto-placement drops two children sharing
+  // one cell into two cells (stripe.com's hero stacks two <h1> in `grid-area:
+  // 2 / 2 / auto / -2`, one blended over the other). Absolute placement keeps
+  // the captured coordinates, and the overlay with them.
+  if (cssLayoutMode === 'GRID' && !isAbsoluteMode && hasOverlappingChildren(getEffectiveChildren(node))) {
+    cssLayoutMode = 'NONE';
   }
 
   const layoutMode = isAbsoluteMode ? 'NONE' as const : cssLayoutMode;
@@ -316,7 +325,14 @@ function convertFrame(
   // Sizing
   const sizing = isAbsoluteMode
     ? { horizontal: 'FIXED' as const, vertical: 'FIXED' as const, grow: 0 as const, align: 'INHERIT' as const }
-    : getSizing(s, parent?.styles, cssLayoutMode, parent ? { width: parent.width, height: parent.height } : undefined, node.width);
+    : getSizing(
+        s,
+        parent?.styles,
+        cssLayoutMode,
+        parent ? { width: parent.width, height: parent.height } : undefined,
+        node.width,
+        hasNoInFlowChildren(node),
+      );
 
   // Fills
   let fills = parseFills(s, node.width, node.height);
@@ -1811,9 +1827,55 @@ function countLineBands(children: W2WNode[]): number {
  * - float: left/right/inline-start/inline-end → children are side-by-side
  * - display: inline-block/inline → children flow horizontally
  */
+/**
+ * Do these inline-level children add up past the parent's width?
+ *
+ * Inline boxes wrap. When their widths sum beyond the parent, the browser
+ * broke them across lines, so a single-row auto-layout cannot be what the
+ * page showed — it would crush every child to fit (stripe.com's section
+ * heading: an h2 and a p needing 1369px inside an 856px block).
+ *
+ * An inline box's rect is the union of its line boxes, so a wrapped paragraph
+ * reports a width far past where any one line ends. That makes the sum a
+ * reliable "this wrapped" signal, and `countLineBands()` a useless one here:
+ * the boxes all start at the same origin and read as a single band.
+ */
+function inlineChildrenOverflowParent(
+  children: W2WNode[],
+  parentWidth?: number,
+): boolean {
+  if (typeof parentWidth !== 'number' || parentWidth <= 0) return false;
+  const total = children.reduce((sum, c) => sum + (c.width > 0 ? c.width : 0), 0);
+  return total > parentWidth + 1;
+}
+
+/**
+ * Do any two children's captured rects overlap?
+ *
+ * Grid tracks never overlap, so an overlap means the page stacked items in one
+ * cell — an arrangement Figma's auto-placed grid cannot reproduce. Shared
+ * edges do not count: neighbouring tiles touch at exactly one coordinate.
+ *
+ * Zero-area children are skipped; they cover nothing.
+ */
+function hasOverlappingChildren(children: W2WNode[]): boolean {
+  const boxes = children.filter((c) => c.width > 0.5 && c.height > 0.5);
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+      const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+      if (overlapX > 0.5 && overlapY > 0.5) return true;
+    }
+  }
+  return false;
+}
+
 function inferLayoutFromChildren(
   children: W2WNode[],
   parentTag: string,
+  parentWidth?: number,
 ): 'HORIZONTAL' | null {
   if (children.length === 0) return null;
 
@@ -1882,7 +1944,8 @@ function inferLayoutFromChildren(
   if (
     !TEXT_COALESCE_TAGS.has(parentTag) &&
     blockFrameCount === 0 &&
-    inlineSignal > 0
+    inlineSignal > 0 &&
+    !inlineChildrenOverflowParent(children, parentWidth)
   ) {
     return 'HORIZONTAL';
   }
@@ -1912,12 +1975,61 @@ function hasNegativeInlineMargin(
   return false;
 }
 
+/**
+ * Are all of this frame's children out of flow (`position: absolute`/`fixed`)?
+ *
+ * TEXT children have no `position`, so a frame holding any text counts as
+ * having in-flow content. A childless frame is not "out of flow" either —
+ * there is simply nothing to say about it.
+ */
+function hasNoInFlowChildren(node: W2WFrameNode): boolean {
+  const children = node.children ?? [];
+  if (children.length === 0) return false;
+  return children.every((c) => {
+    if (c.type !== 'FRAME') return false;
+    const pos = str((c as W2WFrameNode).styles?.position);
+    return pos === 'absolute' || pos === 'fixed';
+  });
+}
+
+/**
+ * Does a `width: auto` flex item carry a width the browser already resolved?
+ *
+ * Two signals count, and both mean the page stated a definite intent that the
+ * measured geometry now embodies:
+ *
+ *   max-width the element actually reached — the cap won, so the cap IS the
+ *   width. (`flex-grow: 1` normally routes past the max-width rule above via
+ *   `hasExplicitFillIntent`; a grown item that stopped exactly at its cap did
+ *   not, in the end, grow past it.)
+ *
+ *   a definite `flex-basis` — a percentage, calc(), or length. We never have
+ *   to evaluate `calc(33.333% - 8px)` ourselves: the browser resolved it and
+ *   the result is the measured width.
+ *
+ * `flex-basis: auto` / `content` state no intent and fall through to HUG.
+ */
+function flexAutoHasDefiniteWidth(
+  s: Record<string, string | number | undefined>,
+  ownWidth?: number,
+): boolean {
+  if (typeof ownWidth !== 'number' || ownWidth <= 0) return false;
+
+  const maxW = parseFloat(str(s.maxWidth) || '');
+  if (Number.isFinite(maxW) && Math.abs(maxW - ownWidth) <= 1) return true;
+
+  const basis = str(s.flexBasis);
+  return !!basis && basis !== 'auto' && basis !== 'content';
+}
+
 function getSizing(
   s: Record<string, string | number | undefined>,
   parentStyles: Record<string, string | number | undefined> | undefined | null,
   layoutMode: string,
   parentDims?: { width: number; height: number },
   ownWidth?: number,
+  /** Every child is `position: absolute`/`fixed` — nothing is in flow to hug. */
+  hasNoInFlowChildren?: boolean,
 ): {
   horizontal: 'FIXED' | 'HUG' | 'FILL' | undefined;
   vertical: 'FIXED' | 'HUG' | 'FILL' | undefined;
@@ -2043,7 +2155,12 @@ function getSizing(
         horizontal = 'HUG';
       }
     } else {
-      horizontal = 'HUG'; // Horizontal flex: auto = content-sized
+      // CSS `auto` on a flex item does NOT mean Figma's HUG. It means
+      // "flex-basis and flex-grow decide my width" — and the browser already
+      // did that arithmetic for us. HUG would throw the result away and
+      // re-derive the width from the children instead (stripe.com's bento
+      // cards: measured 816/400/1232px, all HUG, all collapsed into one row).
+      horizontal = flexAutoHasDefiniteWidth(s, ownWidth) ? 'FIXED' : 'HUG';
     }
   } else if (width === '100%') {
     horizontal = isParentVertical || !cannotShrink ? 'FILL' : 'FIXED';
@@ -2099,6 +2216,14 @@ function getSizing(
         }
       }
     }
+  }
+
+  // Nothing in flow to hug. A frame whose children are all absolutely
+  // positioned has no content box to shrink onto, so HUG collapses it to
+  // whatever Figma decides — never the browser's measurement (stripe.com's
+  // bento cards hold four absolute layers each). Keep the measured width.
+  if (horizontal === 'HUG' && hasNoInFlowChildren) {
+    horizontal = 'FIXED';
   }
 
   return {

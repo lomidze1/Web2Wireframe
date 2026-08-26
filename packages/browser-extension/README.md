@@ -15,7 +15,7 @@ Chrome/Chromium extension for capturing websites using Chrome DevTools Protocol 
 ### Setup
 
 ```bash
-cd Browser_Extension
+cd packages/browser-extension
 npm install
 ```
 
@@ -34,12 +34,12 @@ npm run build
 1. Go to `chrome://extensions/`
 2. Enable "Developer mode"
 3. Click "Load unpacked"
-4. Select the `Browser_Extension/dist` folder
+4. Select the `packages/browser-extension/dist` folder
 
 ## Architecture
 
 ```
-Browser_Extension/
+packages/browser-extension/
 ├── manifest.json           # Extension manifest (V3)
 ├── src/
 │   ├── background/         # Service worker + CDP client

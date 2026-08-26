@@ -268,6 +268,10 @@ export function applySharedDecorations(
   ) {
     try {
       target.setPluginData("w2w_position_fixed", "1");
+      // Which of the two it was decides whether promoting it leaves a hole in
+      // the flow: `sticky` occupied space and needs a spacer, `fixed` never
+      // did. See `insertFixedSpacer`'s call site.
+      target.setPluginData("w2w_css_position", node.position);
       if (typeof node.cssTop === "number" && !isNaN(node.cssTop)) {
         target.setPluginData("w2w_css_top", String(node.cssTop));
       }
@@ -1564,6 +1568,19 @@ export function insertFixedSpacer(fn: FrameNode): void {
   }
 }
 
+/**
+ * The CSS `position` a promoted node carried, from the marker written in
+ * `createNodeInFigma`. Empty when the marker is missing (older renders, mock
+ * environments) — callers treat that as "unknown", never as "fixed".
+ */
+function readCssPosition(node: SceneNode): string {
+  try {
+    return "getPluginData" in node ? node.getPluginData("w2w_css_position") : "";
+  } catch {
+    return "";
+  }
+}
+
 function collectFixedNodes(root: FrameNode): SceneNode[] {
   const result: SceneNode[] = [];
 
@@ -1810,7 +1827,15 @@ export async function createWireframeFrame(
         // space it used to occupy in the DOM flow — sibling content slides
         // up and visually overlaps the now-fixed header. Mirrors h2d's
         // approach of preserving header height after promotion.
-        insertFixedSpacer(fixedNode as FrameNode);
+        //
+        // Only `position: sticky` leaves such a hole. A `position: fixed`
+        // element is out of flow and occupied nothing, so a spacer there
+        // INVENTS space: glinc.io's `body::before` / `body::after` are
+        // decorative `inset: 0` overlays captured at full viewport size, and
+        // two 900px spacers pushed the whole page down 1800px.
+        if (readCssPosition(fixedNode) !== "fixed") {
+          insertFixedSpacer(fixedNode as FrameNode);
+        }
 
         // appendChild on an already-parented node moves it (re-parents)
         wireframeFrame.appendChild(fixedNode);
