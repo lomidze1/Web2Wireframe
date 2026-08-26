@@ -23,6 +23,7 @@ import { buildResourceMap, getResourceBase64 } from "../cdp/assets";
 
 import {
   extractCSSVariables,
+  isObfuscatedFont,
   attachHoverToDescendants,
   w2wFindHoverCandidates,
   type W2WCaptureResult,
@@ -967,7 +968,19 @@ export function w2wEnrichAllTextNodes(
       const hasTextChildren = node.children.some((c) => c.type === "TEXT");
       if (hasTextChildren) {
         const font = fontsByIdx.get(idx);
-        if (font) {
+        // A malformed `name` table can put legal text where the family name
+        // belongs — stripe.com measures as familyName "Copyright Klim Type
+        // Foundry" / postScriptName "SohneVF-Buch". Ignore such measurements
+        // entirely so the CSS-declared family stands.
+        const trustworthy =
+          font &&
+          !isObfuscatedFont({
+            familyName: font.familyName,
+            postScriptName: font.postScriptName,
+            isCustomFont: true,
+            glyphCount: 1,
+          });
+        if (font && trustworthy) {
           for (const child of node.children) {
             if (child.type === "TEXT") {
               child.platformFont = {

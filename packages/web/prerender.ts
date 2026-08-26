@@ -18,6 +18,7 @@ async function prerender() {
   // load them directly from source via tsx — no need to bundle them via SSR.
   const { getSeoConfig } = await import("./src/seo/config.js");
   const { renderHead } = await import("./src/seo/render.js");
+  const { buildSitemap } = await import("./src/seo/sitemap.js");
 
   // Read the client HTML template
   const template = fs.readFileSync(
@@ -57,6 +58,18 @@ async function prerender() {
       `Pre-rendered: ${route} → ${path.relative(__dirname, outFile)}\n`,
     );
   }
+
+  // Sitemap is generated from the same route list that drove the loop above,
+  // so it can never list a URL we didn't prerender (or miss one we did).
+  const lastmod = new Date().toISOString().slice(0, 10);
+  const sitemapPath = path.resolve(__dirname, "dist/client/sitemap.xml");
+  const sitemap = buildSitemap(staticRoutes, lastmod);
+  fs.writeFileSync(sitemapPath, sitemap);
+
+  const urlCount = (sitemap.match(/<loc>/g) ?? []).length;
+  process.stdout.write(
+    `Generated:     sitemap.xml → ${urlCount} URLs (lastmod ${lastmod})\n`,
+  );
 
   process.stdout.write(`\nDone! ${staticRoutes.length} pages pre-rendered.\n`);
 }

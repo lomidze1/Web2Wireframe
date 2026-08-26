@@ -23,6 +23,7 @@ import puppeteer, { type Browser, type Page, type HTTPRequest } from "puppeteer"
 import type { Protocol } from "devtools-protocol";
 import { extractDOMTreeWithCDP } from "./cdp/index.js";
 import { orchestratePuppeteerViewport } from "./cdp/viewport-orchestration.js";
+import { waitForNetworkSettled } from "./cdp/network-settle.js";
 import { isPrivateHost, assertPublicUrl } from "../utils/urlValidation.js";
 import type {
   ExtractedElement,
@@ -305,7 +306,11 @@ export async function renderWebsite(
     // hides scrollbar -> captures final metrics
     const { viewportMetadata, cleanup } = await orchestratePuppeteerViewport(page, viewportWidth, {
       navigationFn: async () => {
-        await page.goto(effectiveUrl, { waitUntil: "networkidle0", timeout: 60000 });
+        await page.goto(effectiveUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+        const settle = await waitForNetworkSettled(page);
+        console.log(
+          `[W2W] network settled: ${settle.reason} ${settle.waitedMs}ms stuck=${settle.stuck}`,
+        );
       },
       autoScrollFn: async () => {
         await autoScroll(page);
@@ -484,7 +489,11 @@ export async function renderWebsiteW2W(
     }
 
     // Navigate to URL
-    await page.goto(effectiveUrl, { waitUntil: "networkidle0", timeout: 60000 });
+    await page.goto(effectiveUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const settle = await waitForNetworkSettled(page);
+    console.log(
+      `[W2W] network settled: ${settle.reason} ${settle.waitedMs}ms stuck=${settle.stuck}`,
+    );
 
     // Extract using content script (handles viewport, scroll, extraction, assets, fonts)
     const result = await extractWithContentScript(page, { viewportWidth });
@@ -593,7 +602,11 @@ export async function renderHTMLContentW2W(
     });
 
     // Set HTML content
-    await page.setContent(htmlString, { waitUntil: "networkidle0", timeout: 30000 });
+    await page.setContent(htmlString, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const settle = await waitForNetworkSettled(page);
+    console.log(
+      `[W2W] network settled: ${settle.reason} ${settle.waitedMs}ms stuck=${settle.stuck}`,
+    );
 
     // Extract using content script. skipReload: the document was injected via
     // page.setContent() (URL stays about:blank); reloading would wipe it and
@@ -759,7 +772,11 @@ export async function renderHTMLContent(
     // No auto-scroll needed for user-provided HTML (not lazy-loaded)
     const { viewportMetadata, cleanup } = await orchestratePuppeteerViewport(page, viewportWidth, {
       navigationFn: async () => {
-        await page.setContent(htmlString, { waitUntil: "networkidle0", timeout: 30000 });
+        await page.setContent(htmlString, { waitUntil: "domcontentloaded", timeout: 30000 });
+        const settle = await waitForNetworkSettled(page);
+        console.log(
+          `[W2W] network settled: ${settle.reason} ${settle.waitedMs}ms stuck=${settle.stuck}`,
+        );
       },
       // No autoScrollFn -- user HTML is not lazy-loaded
     });

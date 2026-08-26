@@ -228,5 +228,37 @@ export function isObfuscatedFont(font: PlatformFontInfo): boolean {
     return true;
   }
 
+  // Legal text leaking out of a malformed `name` table.
+  //
+  // A font's name table keeps the copyright in name ID 0 and the family in
+  // ID 1. Some foundries ship files with the copyright in both, and Chromium
+  // reports it faithfully — measured on stripe.com:
+  //
+  //   familyName="Copyright Klim Type Foundry"  postScriptName="SohneVF-Buch"
+  //
+  // Without this check the string reaches the user as a font name in the
+  // "Fonts Not Available" list. Rejecting it falls back to the CSS-declared
+  // family ("sohne-var"), which is the name they actually recognise.
+  if (isCopyrightText(font.familyName)) {
+    return true;
+  }
+
   return false;
+}
+
+/**
+ * Legal boilerplate sitting where a family name belongs.
+ *
+ * Deliberately narrow — it matches copyright markers only, never foundry or
+ * industry words. Real families like "Foundry Sterling" or "Klim Type Sohne"
+ * must survive.
+ */
+function isCopyrightText(familyName: string): boolean {
+  const name = familyName.trim().toLowerCase();
+  return (
+    name.startsWith("copyright") ||
+    name.startsWith("(c)") ||
+    name.includes("©") ||
+    name.includes("all rights reserved")
+  );
 }

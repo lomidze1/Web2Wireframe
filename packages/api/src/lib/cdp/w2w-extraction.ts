@@ -23,6 +23,7 @@
 
 import type { Page } from "puppeteer";
 import { createCDPClient } from "./client.js";
+import { waitForNetworkSettled } from "./network-settle.js";
 
 import { getContentScriptBundle } from "@w2w/shared/content-script-bundle";
 import {
@@ -31,6 +32,9 @@ import {
   collectImageUrlsFromW2W,
   extractCSSVariables,
   parseFontFaceRules,
+  isObfuscatedFont,
+  collectStyleSheetHeaders,
+  getStyleSheetText,
   getResourceText,
   w2wFindHoverCandidates,
   attachHoverToDescendants,
@@ -162,7 +166,13 @@ export async function extractWithContentScript(
     // the empty blank page and discards every element (empty body downstream).
     if (!skipReload) {
       await client.send("Page.reload", { ignoreCache: true });
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // `minWaitMs: 1500` ინარჩუნებს ძველ ფიქსირებულ ლოდინს როგორც იატაკს —
+      // ვერსად ველოდებით ნაკლებს, ვიდრე აქამდე. სხვაობა ისაა, რომ ნელ საიტზე
+      // ახლა რეალურ დამშვიდებას ველოდებით და არა თვითნებურ 1.5 წამს.
+      const settle = await waitForNetworkSettled(page, { minWaitMs: 1500 });
+      console.log(
+        `[W2W] reload settled: ${settle.reason} ${settle.waitedMs}ms stuck=${settle.stuck}`,
+      );
     }
 
     // Auto-scroll for lazy content
@@ -473,26 +483,62 @@ export async function extractWithContentScript(
     }
 
     if (captureFonts) {
-      // Extract @font-face rules from stylesheets
+      // @font-face rules come from two independent sources — neither alone
+      // covers every site:
+      //
+      //   1. CSS domain (`CSS.styleSheetAdded` + `CSS.getStyleSheetText`) —
+      //      sees inline <style> and cross-origin sheets. On stripe.com this
+      //      is the ONLY source that finds anything (6 sheets → 3 faces).
+      //   2. Resource graph (`Page.getResourceContent`) — sheets that rode
+      //      the page as cached documents. Finds 0 on stripe.com.
+      //
+      // Both feed the same collector, deduplicated by family+weight+style+src
+      // so the binary-binding pass below never fetches the same face twice.
+      const seenFaces = new Set<string>();
+      const collectFaces = (cssText: string, sourceUrl: string): void => {
+        for (const face of parseFontFaceRules(cssText, sourceUrl)) {
+          const cleanSrc = face.src.replace(/url\(['"]?([^'")\s]+)['"]?\)/g, "$1").trim();
+          const src = cleanSrc || face.src;
+          const key = `${face.family}|${face.weight}|${face.style}|${src}`;
+          if (seenFaces.has(key)) continue;
+          seenFaces.add(key);
+          w2wFonts.push({
+            fontFamily: face.family,
+            fontWeight: String(face.weight),
+            fontStyle: face.style,
+            platformFontFamily: face.family,
+            src,
+          });
+        }
+      };
+
+      // Source 1 — CSS domain
+      const sheetHeaders = await collectStyleSheetHeaders(client);
+      for (const header of sheetHeaders) {
+        try {
+          const cssText = await getStyleSheetText(client, header.styleSheetId);
+          if (cssText) collectFaces(cssText, header.sourceURL || page.url());
+        } catch {
+          // Sheet vanished between announcement and read — skip it.
+        }
+      }
+      const facesFromCSSDomain = w2wFonts.length;
+
+      // Source 2 — resource graph
       for (const stylesheet of resourceGraph.stylesheets) {
         try {
           const cssText = await getResourceText(client, stylesheet);
-          if (!cssText) continue;
-          const faces = parseFontFaceRules(cssText, stylesheet.url);
-          for (const face of faces) {
-            const cleanSrc = face.src.replace(/url\(['"]?([^'")\s]+)['"]?\)/g, "$1").trim();
-            w2wFonts.push({
-              fontFamily: face.family,
-              fontWeight: String(face.weight),
-              fontStyle: face.style,
-              platformFontFamily: face.family,
-              src: cleanSrc || face.src,
-            });
-          }
+          if (cssText) collectFaces(cssText, stylesheet.url);
         } catch {
           // Skip failed stylesheet extraction
         }
       }
+
+      console.log(
+        `[W2W] Stylesheets: ${sheetHeaders.length} via CSS domain, ` +
+        `${resourceGraph.stylesheets.length} via resource graph ` +
+        `(@font-face: ${facesFromCSSDomain} + ${w2wFonts.length - facesFromCSSDomain})`,
+      );
 
       // Extract font binaries from browser cache
       for (const fontEntry of resourceGraph.fonts) {
@@ -761,7 +807,15 @@ export function enrichAllTextNodes(
       const hasTextChildren = node.children.some((c) => c.type === "TEXT");
       if (hasTextChildren) {
         const font = fontsByIdx.get(idx);
-        if (font) {
+        // A malformed `name` table can put legal text where the family name
+        // belongs — stripe.com measures as familyName "Copyright Klim Type
+        // Foundry" / postScriptName "SohneVF-Buch". The isCustomFont gate
+        // below can't catch it (it IS a real web font), so the string used to
+        // reach the user as a font name. Ignore the measurement entirely and
+        // let the CSS-declared family stand, same as tree-builder does.
+        const trustworthy =
+          font && !isObfuscatedFont({ ...font, glyphCount: 1 });
+        if (font && trustworthy) {
           for (const child of node.children) {
             if (child.type === "TEXT") {
               (child as W2WTextNode).platformFont = {

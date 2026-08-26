@@ -11,11 +11,16 @@ export default defineConfig({
   // them. In dev (`pnpm dev:web`, port 5173) we need the same paths to
   // reach the backend on :3002 — Vite proxies them server-side, which
   // also keeps it same-origin from the browser's perspective.
+  // Regex keys (not bare prefixes) so the proxy only claims whole path
+  // segments. A bare '/web' prefix also matched page routes like
+  // `/website-to-figma`, which then 404'd from the API instead of rendering.
+  // The trailing slash mirrors vercel.json's `/web/(.*)` rewrite, so dev and
+  // production agree on which paths belong to the backend.
   server: {
     proxy: {
-      '/api': 'http://localhost:3002',
-      '/web': 'http://localhost:3002',
-      '/auth': 'http://localhost:3002',
+      '^/api/': 'http://localhost:3002',
+      '^/web/': 'http://localhost:3002',
+      '^/auth/': 'http://localhost:3002',
     },
   },
 })

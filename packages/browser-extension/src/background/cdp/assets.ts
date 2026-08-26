@@ -198,7 +198,18 @@ interface FrameResourceTree {
     mimeType: string;
     contentSize?: number;
   }>;
-  childFrames?: Array<{ frameResourceTree: FrameResourceTree }>;
+  // CDP-ს `Page.getResourceTree` შვილებს პირდაპირ აბრუნებს — არა
+  // `{ frameResourceTree }` შესაფუთში. ძველი, არასწორი ტიპის გამო iframe-იანი
+  // ყოველი გვერდი ვარდებოდა („Cannot read properties of undefined").
+  childFrames?: Array<FrameResourceTree | { frameResourceTree: FrameResourceTree }>;
+}
+
+/** შვილი frame — ან პირდაპირ (CDP), ან ძველ შესაფუთში (თავდაცვითად). */
+function unwrapChildFrame(
+  child: FrameResourceTree | { frameResourceTree: FrameResourceTree },
+): FrameResourceTree | undefined {
+  if ("frameResourceTree" in child) return child.frameResourceTree;
+  return child.frame ? child : undefined;
 }
 
 /**
@@ -267,7 +278,8 @@ function flattenResources(
   // Recurse into child frames (iframes)
   if (tree.childFrames) {
     for (const child of tree.childFrames) {
-      flattenResources(child.frameResourceTree, map);
+      const subtree = unwrapChildFrame(child);
+      if (subtree) flattenResources(subtree, map);
     }
   }
 }
