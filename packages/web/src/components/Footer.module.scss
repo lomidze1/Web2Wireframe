@@ -66,6 +66,25 @@
   border: 0;
 }
 
+/* — import-method links, one row above the utility links — */
+.useCasesRow {
+  display: flex;
+  align-items: baseline;
+  gap: 28px;
+  flex-wrap: wrap;
+  padding-top: 26px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.useCasesLabel {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  margin-right: auto;
+}
+
 .inner {
   display: flex;
   align-items: baseline;

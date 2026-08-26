@@ -13,6 +13,8 @@ import CheckoutPage from "./pages/Checkout/CheckoutPage";
 import Account from "./pages/Account/Account";
 import Signin from "./pages/Signin/Signin";
 import Renew from "./pages/Renew/Renew";
+import LandingPage from "./pages/Landing/LandingPage";
+import { landingPages } from "./pages/Landing/landingData";
 import { docsNavigation } from "./pages/Docs/data/docsStructure";
 
 /**
@@ -35,6 +37,7 @@ export const staticRoutes = [
   "/",
   "/how-it-works",
   "/pricing",
+  ...landingPages.map((page) => page.slug),
   "/docs",
   "/support",
   "/terms",
@@ -48,6 +51,13 @@ export default function AppRoutes(): ReactElement {
       <Route path="/" element={<Home />} />
       <Route path="/how-it-works" element={<HowItWorks />} />
       <Route path="/pricing" element={<Pricing />} />
+      {landingPages.map((page) => (
+        <Route
+          key={page.slug}
+          path={page.slug}
+          element={<LandingPage content={page} />}
+        />
+      ))}
       <Route path="/docs/*" element={<Docs />} />
       <Route path="/support" element={<Support />} />
       <Route path="/terms" element={<Terms />} />

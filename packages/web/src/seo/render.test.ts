@@ -5,7 +5,7 @@ import type { SeoConfig } from "./types";
 const baseConfig: SeoConfig = {
   title: "Test Title",
   description: "Test description",
-  canonical: "https://web2wireframe.design/test",
+  canonical: "https://www.web2wireframe.design/test",
 };
 
 describe("renderHead", () => {
@@ -14,7 +14,7 @@ describe("renderHead", () => {
     expect(html).toContain("<title>Test Title</title>");
     expect(html).toContain('<meta name="description" content="Test description" />');
     expect(html).toContain(
-      '<link rel="canonical" href="https://web2wireframe.design/test" />',
+      '<link rel="canonical" href="https://www.web2wireframe.design/test" />',
     );
   });
 
@@ -23,7 +23,7 @@ describe("renderHead", () => {
     expect(html).toContain('property="og:site_name" content="Web2Wireframe"');
     expect(html).toContain('property="og:type" content="website"');
     expect(html).toContain('name="twitter:card" content="summary_large_image"');
-    expect(html).toContain('property="og:url" content="https://web2wireframe.design/test"');
+    expect(html).toContain('property="og:url" content="https://www.web2wireframe.design/test"');
   });
 
   it("falls back ogTitle/ogDescription to title/description when unset", () => {
@@ -47,7 +47,7 @@ describe("renderHead", () => {
   it("uses DEFAULT_OG_IMAGE when ogImage is unset", () => {
     const html = renderHead(baseConfig);
     expect(html).toContain(
-      'property="og:image" content="https://web2wireframe.design/og-image.png"',
+      'property="og:image" content="https://www.web2wireframe.design/og-image.png"',
     );
   });
 

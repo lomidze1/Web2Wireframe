@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { Link } from "react-router-dom";
 import { installLinks } from "../data/links";
+import { landingPages } from "../pages/Landing/landingData";
 import styles from "./Footer.module.scss";
 
 // Mirrors the browser extension's email check — blocks the Subscribe button on
@@ -71,6 +72,16 @@ const Footer = (): ReactElement => {
           {status === "error" && "Something went wrong. Try again."}
         </span>
       </div>
+      {/* Every page links to all four landing pages, so a crawler that finds
+          any page finds them too — orphaned pages don't get indexed. */}
+      <nav className={`container ${styles.useCasesRow}`} aria-label="Use cases">
+        <span className={styles.useCasesLabel}>Import methods</span>
+        {landingPages.map((page) => (
+          <Link key={page.slug} className={styles.link} to={page.slug}>
+            {page.breadcrumb}
+          </Link>
+        ))}
+      </nav>
       <div className={`container ${styles.inner}`}>
         <Link to="/" className={styles.brand}>
           Web2Wireframe

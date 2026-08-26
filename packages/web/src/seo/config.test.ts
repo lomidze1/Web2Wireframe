@@ -4,7 +4,7 @@ import { getSeoConfig, seoConfig } from "./config";
 describe("getSeoConfig", () => {
   it("returns the route-specific config for a known route", () => {
     const cfg = getSeoConfig("/pricing");
-    expect(cfg.canonical).toBe("https://web2wireframe.design/pricing");
+    expect(cfg.canonical).toBe("https://www.web2wireframe.design/pricing");
     expect(cfg.title).toContain("Pricing");
   });
 
@@ -35,7 +35,7 @@ describe("getSeoConfig", () => {
 
   it("every configured route has a canonical URL on the public domain", () => {
     for (const [, cfg] of Object.entries(seoConfig)) {
-      expect(cfg.canonical).toMatch(/^https:\/\/web2wireframe\.design/);
+      expect(cfg.canonical).toMatch(/^https:\/\/www\.web2wireframe\.design/);
     }
   });
 

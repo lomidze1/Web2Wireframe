@@ -8,4 +8,4 @@ Disallow: /checkout/
 Disallow: /renew
 Disallow: /signin
 
-Sitemap: https://web2wireframe.design/sitemap.xml
+Sitemap: https://www.web2wireframe.design/sitemap.xml

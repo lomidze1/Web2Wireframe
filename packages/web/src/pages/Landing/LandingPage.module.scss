@@ -1,0 +1,338 @@
+/* Keyword landing pages — Classical layout, same vocabulary as How it works. */
+
+.page {
+  padding-top: 76px;
+  padding-bottom: 96px;
+}
+
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+  margin-bottom: 18px;
+}
+
+.head {
+  max-width: 62ch;
+  margin-bottom: 76px;
+}
+
+.title {
+  font-weight: 400;
+  font-size: 54px;
+  line-height: 1.06;
+  margin: 0 0 20px;
+  text-wrap: pretty;
+  color: var(--color-text);
+}
+
+.lead {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--color-neutral-800);
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.sectionTitle {
+  font-weight: 400;
+  font-size: 38px;
+  margin: 0 0 30px;
+  color: var(--color-text);
+  text-wrap: pretty;
+}
+
+/* — intro — */
+.intro {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 48px;
+  padding-bottom: 76px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.introTitle {
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 1.15;
+  margin: 0;
+  color: var(--color-text);
+  text-wrap: pretty;
+}
+
+.introBody {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.introBody p {
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+/* — value points — */
+.points {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  padding-top: 76px;
+}
+
+/* — steps — */
+.steps {
+  padding-top: 84px;
+}
+
+.stepList {
+  display: flex;
+  flex-direction: column;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 80px 1fr 1fr;
+  gap: 40px;
+  padding: 30px 0;
+  border-top: 1px solid var(--color-divider);
+  align-items: start;
+}
+
+.stepNumeral {
+  font-family: var(--font-heading);
+  font-size: 40px;
+  color: var(--color-accent);
+  font-feature-settings: "tnum";
+  line-height: 0.9;
+}
+
+.stepTitle {
+  font-size: 27px;
+  font-weight: 400;
+  line-height: 1.2;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.stepBody {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+/* — honest limits — */
+.limits {
+  padding-top: 84px;
+}
+
+.limitsPanel {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 40px 44px;
+  background: var(--color-neutral-100);
+}
+
+.limitsTitle {
+  font-weight: 400;
+  font-size: 32px;
+  margin: 0 0 14px;
+  color: var(--color-text);
+}
+
+.limitsBody {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--color-neutral-700);
+  margin: 0 0 18px;
+  max-width: 68ch;
+}
+
+.limitsList {
+  margin: 0 0 18px;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--color-neutral-700);
+  max-width: 74ch;
+}
+
+.limitsList::marker {
+  color: var(--color-accent);
+}
+
+.limitsNote {
+  font-family: var(--font-heading);
+  font-size: 19px;
+  line-height: 1.4;
+  margin: 0;
+  color: var(--color-text);
+  padding-top: 18px;
+  border-top: 1px solid var(--color-divider);
+}
+
+/* — FAQ — */
+.faq {
+  padding-top: 84px;
+}
+
+.faqList {
+  display: flex;
+  flex-direction: column;
+}
+
+.faqItem {
+  padding: 26px 0;
+  border-top: 1px solid var(--color-divider);
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 40px;
+  align-items: start;
+}
+
+.faqQuestion {
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.25;
+  margin: 0;
+  color: var(--color-text);
+  text-wrap: pretty;
+}
+
+.faqAnswer {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--color-neutral-700);
+  margin: 0;
+}
+
+/* — cross-links to the other landing pages — */
+.related {
+  padding-top: 84px;
+}
+
+.relatedGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 22px;
+}
+
+.relatedCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-4);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.relatedCard:hover {
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.relatedLabel {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 19px;
+  line-height: 1.2;
+  color: var(--color-accent-700);
+}
+
+.relatedNote {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-neutral-700);
+}
+
+/* — closing panel — */
+.closing {
+  padding-top: 84px;
+}
+
+.closingPanel {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  padding: 40px 44px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+  background: var(--color-neutral-100);
+}
+
+.closingLine {
+  font-family: var(--font-heading);
+  font-size: 27px;
+  font-weight: 400;
+  margin: 0;
+  flex: 1;
+  min-width: 260px;
+  color: var(--color-text);
+}
+
+/* — responsive — */
+@media (max-width: 1000px) {
+  .title {
+    font-size: 42px;
+  }
+
+  .sectionTitle {
+    font-size: 32px;
+  }
+
+  .intro,
+  .faqItem {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .points {
+    grid-template-columns: 1fr;
+  }
+
+  .relatedGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .step {
+    grid-template-columns: 56px 1fr;
+    gap: 20px 24px;
+  }
+
+  .stepBody {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding-top: 48px;
+  }
+
+  .title {
+    font-size: 34px;
+  }
+
+  .relatedGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .limitsPanel,
+  .closingPanel {
+    padding: 28px 24px;
+  }
+}

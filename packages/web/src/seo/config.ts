@@ -9,6 +9,7 @@ import {
   websiteSchema,
 } from "./schemas";
 import { docsNavigation } from "../pages/Docs/data/docsStructure";
+import { landingPages } from "../pages/Landing/landingData";
 
 /**
  * S-C3: per-page SEO copy for the 16 docs sub-routes. Audit-suggested
@@ -123,6 +124,32 @@ function buildDocsSeoEntries(): Record<string, SeoConfig> {
         ],
       };
     }
+  }
+  return entries;
+}
+
+/**
+ * SEO entries for the four keyword landing pages. Title, description and the
+ * FAQ text all come from `landingData` — the same objects the pages render —
+ * so the FAQPage structured data can never describe copy the page doesn't
+ * actually show, which is what Google penalises.
+ */
+function buildLandingSeoEntries(): Record<string, SeoConfig> {
+  const entries: Record<string, SeoConfig> = {};
+  for (const page of landingPages) {
+    entries[page.slug] = {
+      title: page.seoTitle,
+      description: page.seoDescription,
+      canonical: `${SITE_URL}${page.slug}`,
+      ogType: "article",
+      jsonLd: [
+        faqSchema(page.faq),
+        breadcrumbSchema([
+          { name: "Home", url: "/" },
+          { name: page.breadcrumb, url: page.slug },
+        ]),
+      ],
+    };
   }
   return entries;
 }
@@ -262,6 +289,7 @@ export const seoConfig: Record<string, SeoConfig> = {
     ogType: "website",
     noindex: true,
   },
+  ...buildLandingSeoEntries(),
   // S-C3: spread the 16 generated docs entries here so a missed lookup
   // falls back to the home page only when the route truly isn't a docs page.
   ...buildDocsSeoEntries(),

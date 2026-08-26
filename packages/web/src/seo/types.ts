@@ -17,6 +17,12 @@ export interface SeoConfig {
   noindex?: boolean;
 }
 
-export const SITE_URL = "https://web2wireframe.design";
+/**
+ * The host that actually serves the site. Vercel serves `www` and issues a
+ * 308 from the bare domain, so canonicals, og:url, JSON-LD and the sitemap
+ * all have to be `www` — pointing them at the bare domain would make every
+ * one of them a redirect, and Google already has `www` in its index.
+ */
+export const SITE_URL = "https://www.web2wireframe.design";
 export const SITE_NAME = "Web2Wireframe";
 export const DEFAULT_OG_IMAGE = `${SITE_URL}/og-image.png`;
