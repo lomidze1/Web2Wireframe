@@ -38,6 +38,12 @@ export function isPlaceholderTree(tree: unknown): boolean {
 export interface PrePassOptions {
   layoutMode: "absolute" | "autoLayout";
   interactionMode: "none" | "variants";
+  /** h2d parity: true = legacy tag#id / tag.class layer names;
+   *  false/absent (default) = semantic two-stage naming. */
+  htmlLayerNames?: boolean;
+  /** true = promote block containers whose rects prove a horizontal row to
+   *  HORIZONTAL auto-layout; false/absent (default) = today's behaviour. */
+  geometryRows?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,6 +70,8 @@ export function prePassConvertFrames(
         frameData.tree = convertW2WToWireframe(capturedFrame, {
           layoutMode: options.layoutMode,
           interactionMode: options.interactionMode,
+          htmlLayerNames: options.htmlLayerNames === true,
+          geometryRows: options.geometryRows === true,
         });
       } catch (err) {
         logger.warn("Pre-pass tree conversion failed", { error: err });

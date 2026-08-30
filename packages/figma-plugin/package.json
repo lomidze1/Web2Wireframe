@@ -38,6 +38,13 @@
     "permissions": [
       "currentuser"
     ],
+    "relaunchButtons": {
+      "open": {
+        "name": "Open Web2Wireframe",
+        "main": "src/main.ts",
+        "ui": "src/ui/index.tsx"
+      }
+    },
     "networkAccess": {
       "allowedDomains": [
         "https://api.web2wireframe.design"

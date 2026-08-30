@@ -27,11 +27,14 @@ export interface RebindResultInfo {
 interface RebindFontsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Text layers on the current page still carrying a substituted font. */
+  /** Text layers still carrying a substituted font, in the scope Re-apply
+   *  will act on — the selection when it holds any, the page otherwise. */
   count: number;
-  /** How many of those layers fall inside the current Figma selection. When
-   *  > 0, Re-apply targets the selection, so the modal says so. */
+  /** How many layers fall inside the current Figma selection. When > 0,
+   *  Re-apply targets the selection and `count` is already scoped to it. */
   selectionCount?: number;
+  /** Page-wide total, for the "N of M on this page" line while scoped. */
+  pageCount?: number;
   /** Families those layers are waiting for (from the sandbox's
    *  `rebindable-count` message). */
   missingFonts: string[];
@@ -96,6 +99,7 @@ export default function RebindFontsModal({
   onClose,
   count,
   selectionCount = 0,
+  pageCount = 0,
   missingFonts,
   layers = [],
   onSelectLayer,
@@ -186,8 +190,9 @@ export default function RebindFontsModal({
               )}
               {scopedToSelection && (
                 <div class={local.rebindFontList}>
-                  Your selection holds{" "}
-                  <strong class={local.rebindSelCount}>{selectionCount}</strong> of these —
+                  Scoped to your selection —{" "}
+                  <strong class={local.rebindSelCount}>{selectionCount}</strong>
+                  {pageCount > selectionCount ? ` of ${pageCount} on this page` : ""}.
                   Re-apply will target the selection.
                 </div>
               )}

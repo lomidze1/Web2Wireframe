@@ -147,6 +147,9 @@ describe("flex-wrap guard (nodes.ts)", () => {
   it("keeps the subtree when a block container carries a leftover flex-wrap", async () => {
     const wf = convertW2WToWireframe(blockWithLeftoverFlexWrap() as never, {
       layoutMode: "autoLayout",
+      // htmlLayerNames: rendered SceneNodes only carry `name`, and this test
+      // uses DOM-derived names as tracers for subtree survival.
+      htmlLayerNames: true,
     }) as WireframeNode;
 
     // Precondition: the converter really does emit NONE + wrap here.

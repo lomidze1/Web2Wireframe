@@ -15,11 +15,12 @@ import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
+import * as perf from "../../../../utils/perf";
 import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import SettingsPanel from "../../../components/settingsPanel";
 import { buildFontDownloads, buildFontRealNames, enrichFontsFromAssets } from "../../../../utils/fontDownload";
-import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
+import { buildFontDeclaredCuts, buildVariableFontFamilies, type FontCut } from "../../../../utils/fontUtils";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -436,6 +437,7 @@ export default function AreaSelection() {
 
     // Transform text content based on textMode (lorem, semantic, or website)
     // This must happen BEFORE converting to wireframe nodes
+    const transformStartedAt = Date.now();
     const transformedFrames = transformFramesData(
       captureResult.frames as unknown as Parameters<typeof transformFramesData>[0],
       {
@@ -490,6 +492,8 @@ export default function AreaSelection() {
       }
     }
 
+    perf.mark("ui.transform", Date.now() - transformStartedAt);
+
     // Send to Figma main thread with all options from inline settings
     renderingProgressRef.current = { step: "Preparing wireframe data…", percent: 0 };
     parent.postMessage(
@@ -509,8 +513,16 @@ export default function AreaSelection() {
             textMode: settings.localTextMode,
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            htmlLayerNames: config.htmlLayerNames,
+            geometryRows: config.geometryRows,
             fontRealNames: buildFontRealNames(capturedFonts),
             fontDeclaredCuts: buildFontDeclaredCuts(capturedFonts),
+            fontVariableFamilies: Array.from(buildVariableFontFamilies(capturedFonts)),
+            // Dev profiler (stripped in production): `sentAt` prices the
+            // structured clone of this payload, `perfUi` carries the iframe's
+            // own stage timings so the sandbox prints one combined table.
+            sentAt: __W2W_DEV_LOG__ ? Date.now() : undefined,
+            perfUi: perf.handoff(),
           },
         },
       },
@@ -558,6 +570,7 @@ export default function AreaSelection() {
 
     try {
       // 1. Read file as ArrayBuffer
+      const decodeStartedAt = Date.now();
       const arrayBuffer = await fileDataRef.current.arrayBuffer();
       const fileBytes = new Uint8Array(arrayBuffer);
 
@@ -589,6 +602,8 @@ export default function AreaSelection() {
         );
       }
 
+      perf.mark("ui.decodeW2W", Date.now() - decodeStartedAt);
+
       // Convert to unified multi-frame format (handles both old single-viewport and new multi-frame format)
       const unifiedResult = toUnifiedFormat(rawData);
       if (!unifiedResult) {
@@ -602,7 +617,7 @@ export default function AreaSelection() {
       // after a successful decode so an invalid file never consumes a slot.
       // Forward the decoded metadata so the server can attribute the import in
       // the admin history (the .w2w file itself never leaves the client).
-      const response = await fetch(`${API_BASE_URL}/api/import-w2w-file`, {
+      const response = await perf.timed("ui.fetch", () => fetch(`${API_BASE_URL}/api/import-w2w-file`, {
         method: "POST",
         headers: {
           Authorization: authHeader(),
@@ -621,7 +636,7 @@ export default function AreaSelection() {
           cssVariablesMode: settings.localCssVariablesMode,
           layoutMode: settings.localLayoutMode,
         }),
-      });
+      }));
 
       const { isAuthExpired } = await import("../../../shared/authEvents");
       if (isAuthExpired(response)) return;

@@ -36,7 +36,9 @@ function makeFrame(overrides: Record<string, unknown> = {}): Record<string, unkn
 function findByClass(node: unknown, cls: string): Record<string, unknown> | null {
   if (!node || typeof node !== 'object') return null;
   const obj = node as Record<string, unknown>;
-  if (typeof obj.name === 'string' && obj.name.includes(cls)) return obj;
+  // Layer names are semantic now ("Background", "Overlay") — match on the
+  // preserved className field instead of the incidental DOM-derived name.
+  if (typeof obj.className === 'string' && obj.className.includes(cls)) return obj;
   for (const c of (obj.children as unknown[]) ?? []) {
     const hit = findByClass(c, cls);
     if (hit) return hit;

@@ -189,6 +189,55 @@ describe("sortChildrenForStacking", () => {
     expect(sorted).toBe(children);
   });
 
+  // --- The hoist needs in-flow content to sit behind ---
+
+  /**
+   * stripe.com bento card: EVERY child is absolutely positioned. DOM order is
+   * [__border (opaque, no children), __inner (holds the artwork)], and the
+   * browser paints them in exactly that order.
+   *
+   * Hoisting `__inner` — it is image-only, so Step 1 matched it — put the
+   * opaque `__border` on top and buried the artwork under a flat #E5EDF5 box.
+   * With no in-flow sibling there is nothing for a background layer to sit
+   * behind, so DOM order is the only correct paint order.
+   */
+  it("absolute-only siblings keep DOM order (nothing to sit behind)", () => {
+    const children = [
+      makeNode("border", { position: "absolute" }),
+      makeNode("inner", {
+        position: "absolute",
+        children: [makeNode("img", { type: "placeholder", isPlaceholder: true })],
+      }),
+    ];
+    const sorted = sortChildrenForStacking(children, "VERTICAL");
+    expect(sorted.map(c => c.name)).toEqual(["border", "inner"]);
+  });
+
+  it("one in-flow sibling is enough to re-enable the hoist", () => {
+    const children = [
+      makeNode("border", { position: "absolute" }),
+      makeNode("caption", { position: "relative" }),
+      makeNode("inner", {
+        position: "absolute",
+        children: [makeNode("img", { type: "placeholder", isPlaceholder: true })],
+      }),
+    ];
+    const sorted = sortChildrenForStacking(children, "VERTICAL");
+    expect(sorted.map(c => c.name)).toEqual(["inner", "border", "caption"]);
+  });
+
+  it("a fixed sibling is out of flow too, so it does not re-enable the hoist", () => {
+    const children = [
+      makeNode("overlay", { position: "fixed" }),
+      makeNode("inner", {
+        position: "absolute",
+        children: [makeNode("img", { type: "placeholder", isPlaceholder: true })],
+      }),
+    ];
+    const sorted = sortChildrenForStacking(children, "VERTICAL");
+    expect(sorted.map(c => c.name)).toEqual(["overlay", "inner"]);
+  });
+
   // --- Combined: abs images + z-index in NONE mode ---
 
   it("combined: abs images move first, then z-index sorting in NONE mode", () => {

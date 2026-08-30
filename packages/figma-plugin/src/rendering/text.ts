@@ -8,6 +8,8 @@ import type {
   RenderContext,
   TextSegment,
 } from "../types";
+import * as perf from "../utils/perf";
+import { loadFontCached } from "./fontLoader";
 
 /**
  * Determine the text color for FILLR wireframe lines mode.
@@ -173,6 +175,275 @@ export function trimLoremToFitLineCount(
 }
 
 /**
+ * Slack added to a text node's fixed width when resizing (h2d parity,
+ * main-rawbundle.beautified.js:17634-17637): Figma measures in subpixels, so
+ * a box set to exactly the measured width can re-wrap the last word.
+ */
+export const TEXT_RESIZE_SLACK = 0.2;
+
+/**
+ * Rewrite trailing regular spaces (U+0020) to NBSP (U+00A0). Figma collapses
+ * trailing spaces on width-hugging (WIDTH_AND_HEIGHT) text, which shrinks the
+ * box vs the browser's; h2d does the same rewrite. Same-length replacement so
+ * styled-range indices stay valid.
+ */
+export function protectTrailingSpaces(textNode: { characters: string }): void {
+  const chars = textNode.characters;
+  const replaced = chars.replace(/ +$/, (m) => "\u00A0".repeat(m.length));
+  if (replaced !== chars) {
+    textNode.characters = replaced;
+  }
+}
+
+/**
+ * Binary-search the largest fontSize (≤ original) whose rendered ink fits the
+ * browser-captured box (h2d parity: their _u/X5/Y5 bisection converges to
+ * 0.2px between fontSize/2 and fontSize). The caller supplies `fits`, which
+ * applies a candidate size to a measurable text node and reports whether the
+ * rendered bounds fit the captured box.
+ *
+ * Returns:
+ *   - the original size when it already fits (single probe),
+ *   - the largest known-fitting size once the interval is ≤ 0.2px,
+ *   - null when even the lower bound — max(8, original/2) — does not fit
+ *     (caller falls back to truncation), or when the original size is not a
+ *     finite number (mixed-range figma.mixed symbol).
+ *
+ * Bounded: at most 20 bisection probes (+2 for the endpoints).
+ */
+export function bisectFontSizeToFit(
+  originalFontSize: number,
+  fits: (fontSize: number) => boolean,
+): number | null {
+  if (!Number.isFinite(originalFontSize)) return null;
+  if (fits(originalFontSize)) return originalFontSize;
+
+  let lo = Math.max(8, originalFontSize / 2);
+  if (lo >= originalFontSize) return null; // no room below the floor
+  if (!fits(lo)) return null;
+
+  let hi = originalFontSize;
+  for (let i = 0; i < 20 && hi - lo > 0.2; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+/**
+ * Re-apply per-range font sizes scaled by `factor` so mixed-size runs stay
+ * proportional when the node's base fontSize is bisected. Setting the base
+ * fontSize clobbers every range to that value, so the recorded ranges must be
+ * replayed after each base change. 8px floor matches the search's own floor.
+ */
+export function scaleSegmentRangeFontSizes(
+  textNode: { setRangeFontSize(start: number, end: number, size: number): void },
+  ranges: Array<{ start: number; end: number; fontSize: number }>,
+  factor: number,
+): void {
+  for (const r of ranges) {
+    textNode.setRangeFontSize(r.start, r.end, Math.max(8, r.fontSize * factor));
+  }
+}
+
+/**
+ * Clamp a character range to what the node actually holds.
+ *
+ * Every `setRange*` call is bounds-checked through here: an out-of-range call
+ * THROWS, and the throw propagates out of createTextNode — losing the whole
+ * text node over one decorative attribute. Returns null for an empty range.
+ */
+export function safeRange(
+  textNode: { characters: string },
+  start: number,
+  end: number,
+): { start: number; end: number } | null {
+  const len = textNode.characters.length;
+  const s = Math.max(0, Math.min(Math.floor(start), len));
+  const e = Math.max(0, Math.min(Math.floor(end), len));
+  return e > s ? { start: s, end: e } : null;
+}
+
+/**
+ * Do two CSS line-height values land on the same Figma LineHeight? Compares
+ * after normalization so `24` and `"24px"` — the same value written two ways —
+ * do not look like an override worth a range call.
+ */
+export function figmaLineHeightsEqual(
+  a: number | string | undefined,
+  b: number | string | undefined,
+): boolean {
+  const la = parseFigmaLineHeight(a);
+  const lb = parseFigmaLineHeight(b);
+  if (la.unit !== lb.unit) return false;
+  if (la.unit === "AUTO" || lb.unit === "AUTO") return true;
+  return Math.abs((la as { value: number }).value - (lb as { value: number }).value) < 0.01;
+}
+
+/**
+ * Apply the per-range typography collected during the segment walk.
+ *
+ * Runs at the very end of createTextNode (see applyDeferredTextStyles): the
+ * node-level letterSpacing / textCase / lineHeight setters and any linked
+ * TextStyle all cover EVERY character, so anything applied earlier would be
+ * silently overwritten.
+ *
+ * Each setter is wrapped: an older Figma API without one, or a font that
+ * refuses a value, must degrade to a no-op rather than take down the node.
+ */
+export function applyPendingRangeTypography(
+  textNode: TextNode,
+  entries: Array<{
+    start: number;
+    end: number;
+    letterSpacing?: number;
+    textCase?: NonNullable<TextSegment["textCase"]>;
+    lineHeight?: number | string;
+    decorationStyle?: "SOLID" | "DOTTED" | "WAVY";
+    decorationColor?: string;
+  }>,
+): void {
+  if (entries.length === 0) return;
+
+  const api = textNode as unknown as {
+    setRangeLetterSpacing?: (s: number, e: number, v: LetterSpacing) => void;
+    setRangeLineHeight?: (s: number, e: number, v: LineHeight) => void;
+    setRangeTextCase?: (s: number, e: number, v: string) => void;
+    setRangeTextDecorationStyle?: (s: number, e: number, v: string) => void;
+    setRangeTextDecorationColor?: (s: number, e: number, v: unknown) => void;
+  };
+
+  for (const entry of entries) {
+    const r = safeRange(textNode, entry.start, entry.end);
+    if (!r) continue;
+
+    if (entry.letterSpacing !== undefined && typeof api.setRangeLetterSpacing === "function") {
+      try {
+        api.setRangeLetterSpacing.call(textNode, r.start, r.end, {
+          value: entry.letterSpacing,
+          unit: "PIXELS",
+        });
+      } catch {
+        // Range keeps the node-level tracking.
+      }
+    }
+
+    if (entry.textCase && typeof api.setRangeTextCase === "function") {
+      try {
+        api.setRangeTextCase.call(textNode, r.start, r.end, entry.textCase);
+      } catch {
+        // Figma refuses SMALL_CAPS on fonts without the feature (h2d guards
+        // the same way) — uppercase is the closest thing that always renders.
+        if (entry.textCase === "SMALL_CAPS") {
+          try {
+            api.setRangeTextCase.call(textNode, r.start, r.end, "UPPER");
+          } catch {
+            // Give up on this range rather than the node.
+          }
+        }
+      }
+    }
+
+    if (entry.lineHeight !== undefined && typeof api.setRangeLineHeight === "function") {
+      try {
+        api.setRangeLineHeight.call(textNode, r.start, r.end, parseFigmaLineHeight(entry.lineHeight));
+      } catch {
+        // Range keeps the node-level line height.
+      }
+    }
+
+    // Decoration detail. Figma throws when the range is a strikethrough or
+    // undecorated (h2d guards the same way), so entries only ever reach here
+    // for runs the caller already decorated with UNDERLINE.
+    if (entry.decorationStyle && typeof api.setRangeTextDecorationStyle === "function") {
+      try {
+        api.setRangeTextDecorationStyle.call(textNode, r.start, r.end, entry.decorationStyle);
+      } catch {
+        // Decorative — never fail the node.
+      }
+    }
+    if (entry.decorationColor && typeof api.setRangeTextDecorationColor === "function") {
+      const parsed = cssColorToFigmaRGB(entry.decorationColor);
+      if (parsed) {
+        try {
+          api.setRangeTextDecorationColor.call(textNode, r.start, r.end, {
+            value: { type: "SOLID", color: parsed.color, opacity: parsed.opacity },
+          });
+        } catch {
+          // Decorative — never fail the node.
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Rescale a text node's visual metrics to match a CSS scale transform.
+ *
+ * The captured box is the AABB of the *transformed* element, so a scaled node
+ * already renders at the scaled size — but `getComputedStyle().fontSize` is the
+ * untransformed value (CSS transforms do not change computed font-size). Left
+ * alone, a `scale(1.5)` heading gets a 1.5x box with 1.0x glyphs.
+ *
+ * `sx` drives the glyph size and letter-spacing (horizontal metrics), `sy` the
+ * line height. Only PIXELS units are touched — PERCENT and AUTO are relative to
+ * fontSize and therefore already scale with it.
+ *
+ * MUST run after createTextNode has fully returned: applyDeferredTextStyles()
+ * links TextStyles that overwrite fontSize, lineHeight and letterSpacing, and
+ * the font-size bisection measures against the unscaled captured box. Both
+ * would clobber a rescale applied mid-flight.
+ */
+export function rescaleTextMetrics(textNode: TextNode, sx: number, sy: number): void {
+  if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+  if (sx <= 0 || sy <= 0) return;
+  if (Math.abs(sx - 1) < 1e-3 && Math.abs(sy - 1) < 1e-3) return;
+
+  // Per-range first: every run is rescaled from its own recorded size, so mixed
+  // runs stay proportional. Reading the segments back beats threading the
+  // converter's range list out of createTextNode, and it also picks up ranges a
+  // linked TextStyle introduced.
+  try {
+    const segments = textNode.getStyledTextSegments(["fontSize"]) as Array<{
+      start: number;
+      end: number;
+      fontSize?: number;
+    }>;
+    for (const seg of segments) {
+      // A range with no fontSize is left alone rather than given an invented one.
+      if (typeof seg.fontSize !== "number" || !Number.isFinite(seg.fontSize)) continue;
+      textNode.setRangeFontSize(seg.start, seg.end, Math.max(8, seg.fontSize * sx));
+    }
+  } catch {
+    // figma.mixed, a locked node, or a stub without the range API — the node
+    // keeps its unscaled glyphs, which is strictly better than losing it.
+  }
+
+  try {
+    const lh = textNode.lineHeight;
+    // A `figma.mixed` symbol fails this guard, which is what we want.
+    if (typeof lh === "object" && lh !== null && (lh as LineHeight).unit === "PIXELS") {
+      textNode.lineHeight = { value: (lh as { value: number }).value * sy, unit: "PIXELS" };
+    }
+  } catch {
+    // Non-fatal.
+  }
+
+  try {
+    const ls = textNode.letterSpacing;
+    if (typeof ls === "object" && ls !== null && (ls as LetterSpacing).unit === "PIXELS") {
+      textNode.letterSpacing = { value: (ls as { value: number }).value * sx, unit: "PIXELS" };
+    }
+  } catch {
+    // Non-fatal.
+  }
+}
+
+/**
  * Apply CSS lineHeight (string or number) to a Figma text node. Mirrors the
  * inline logic at text.ts:880-906 but callable from the FILLR multi-line
  * branch where we need lineHeight for Figma's vertical stacking to match
@@ -213,46 +484,29 @@ import {
   getSmartTextColor,
 } from "./colors";
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
+import { recordWarning } from "./diagnostics";
 import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, fontCutExactStyles, isItalicStyle, orderStylesByProximity, parseStyleName } from "./styles";
 import { declaresCut, isIconFont, isPuaOnlyText, stripFontStyleSuffix } from "../utils/fontUtils";
 import { isServerFallbackFamily, ORIGINAL_CUT_PLUGIN_KEY } from "./rebindFonts";
+import {
+  getInstalledStylesFor,
+  hasFontIndex,
+  isEmojiFamilyName,
+  isSameFamilyName,
+  normalizeFamilyKey,
+  refineRequestFromPostScript,
+  resolveInstalledCandidates,
+  resolveInstalledCut,
+} from "./fontIndex";
+
+/** How many ranked index candidates a family resolution will try to load
+ *  before falling back to the style ladder. Figma lists fonts it cannot load,
+ *  so the best match is not always loadable; the cap keeps a pathological
+ *  family from issuing hundreds of rejected loads per text node. */
+const MAX_INDEX_CANDIDATES = 12;
 
 /** Extra font styles to try for icon fonts (FA uses "Solid", "Brands", etc.) */
 const ICON_FONT_EXTRA_STYLES = ["Solid", "Brands", "Regular", "Bold", "Light", "Thin"];
-
-// ============================================================================
-// Installed-font lookup (same-family style rescue)
-// ============================================================================
-
-// listAvailableFontsAsync result cached per figma global — one fetch per
-// plugin session (tests install a fresh mock, so they get a fresh cache).
-// Slightly stale after a mid-session font install is fine: Step 1's direct
-// loadFontAsync still picks up newly installed cuts; only the last-resort
-// same-family lookup reads this list.
-const installedFontsCache = new WeakMap<object, Promise<Map<string, string[]>>>();
-
-async function getInstalledStylesFor(family: string): Promise<string[]> {
-  try {
-    if (typeof figma.listAvailableFontsAsync !== "function") return [];
-    const key = figma as unknown as object;
-    let cached = installedFontsCache.get(key);
-    if (!cached) {
-      cached = figma.listAvailableFontsAsync().then((fonts) => {
-        const map = new Map<string, string[]>();
-        for (const f of fonts) {
-          const list = map.get(f.fontName.family);
-          if (list) list.push(f.fontName.style);
-          else map.set(f.fontName.family, [f.fontName.style]);
-        }
-        return map;
-      });
-      installedFontsCache.set(key, cached);
-    }
-    return (await cached).get(family) ?? [];
-  } catch {
-    return [];
-  }
-}
 
 // ============================================================================
 // Text Segment Collection
@@ -278,8 +532,17 @@ export function collectTextSegments(node: WireframeNode): TextSegment[] {
       fontFamily: seg.fontFamily,
       fontFamilyList: seg.fontFamilyList,
       isLink: seg.isLink,
+      href: seg.href,
+      letterSpacing: seg.letterSpacing,
+      textCase: seg.textCase,
+      lineHeight: seg.lineHeight,
+      textDecorationStyle: seg.textDecorationStyle,
+      textDecorationColor: seg.textDecorationColor,
       tag: seg.tag,
       textDecoration: seg.textDecoration,
+      // The font this run actually rendered with — refines its weight,
+      // stretch and slant at resolution time.
+      platformPostScript: seg.platformPostScript ?? node.platformPostScript,
     }));
   }
 
@@ -302,6 +565,7 @@ export function collectTextSegments(node: WireframeNode): TextSegment[] {
       fontWeight: node.fontWeight || 400,
       fontSize: node.fontSize || 14,
       textDecoration: getTextDecoration(node.computedStyles),
+      platformPostScript: node.platformPostScript,
     });
   }
 
@@ -451,6 +715,24 @@ async function linkTextStyleIfApplicable(
   }
 }
 
+/**
+ * Does a space have to be invented between two adjacent segments?
+ *
+ * The extractor hands us runs whose boundary whitespace the browser collapsed
+ * away, so a separator is normally restored here. Segments produced by the
+ * inline run merge (rendering/textRunMerge.ts) already carry every separator
+ * the browser painted — inventing another one there would shift every glyph
+ * after it, which is exactly what `exactSegments` forbids.
+ */
+function needsSeparator(
+  node: Pick<WireframeNode, "exactSegments">,
+  prevText: string,
+  text: string,
+): boolean {
+  if (node.exactSegments) return false;
+  return !/\s$/.test(prevText) && !/^\s/.test(text);
+}
+
 // ============================================================================
 // Text Node Creation
 // ============================================================================
@@ -460,6 +742,17 @@ async function linkTextStyleIfApplicable(
  * Handles font loading, range-specific styling, and text alignment
  */
 export async function createTextNode(
+  node: WireframeNode,
+  fontFamily: string,
+  context?: RenderContext
+): Promise<TextNode | null> {
+  if (!__W2W_DEV_LOG__) return createTextNodeInner(node, fontFamily, context);
+  return perf.timed("node.text", () =>
+    createTextNodeInner(node, fontFamily, context)
+  );
+}
+
+async function createTextNodeInner(
   node: WireframeNode,
   fontFamily: string,
   context?: RenderContext
@@ -493,20 +786,17 @@ export async function createTextNode(
   // FILLR only has Regular style, so force all weights to Regular
   if (context?.fontMode === "lines") {
     const fillrFont = "FILLR";
-    try {
-      await figma.loadFontAsync({ family: fillrFont, style: "Regular" });
-    } catch {
+    if (!(await loadFontCached(fillrFont, "Regular"))) {
       // FILLR not installed — fall back to Inter
-      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+      await loadFontCached("Inter", "Regular");
     }
 
     textNode.fontName = { family: fillrFont, style: "Regular" };
 
     const fullText = segments.length > 1
       ? segments.map((s, i) => {
-          if (i > 0) {
-            const prev = segments[i - 1].text;
-            if (!/\s$/.test(prev) && !/^\s/.test(s.text)) return " " + s.text;
+          if (i > 0 && needsSeparator(node, segments[i - 1].text, s.text)) {
+            return " " + s.text;
           }
           return s.text;
         }).join("")
@@ -588,6 +878,11 @@ export async function createTextNode(
     const align = (node.textAlign || "left").toUpperCase();
     if (align === "CENTER") textNode.textAlignHorizontal = "CENTER";
     else if (align === "RIGHT") textNode.textAlignHorizontal = "RIGHT";
+    // LEFT, JUSTIFY and empty land here. CSS logical `start`/`end` must NOT:
+    // the converter resolves them against `direction` (resolveTextAlign in
+    // css-converter.ts) before this point. If one ever reaches this branch it
+    // renders left-aligned regardless of direction — that is a converter bug,
+    // not something to paper over here.
     else textNode.textAlignHorizontal = "LEFT";
 
     return textNode;
@@ -626,14 +921,12 @@ export async function createTextNode(
   const fallbackList = (context?.fontMode === "website" && node.fontFamilyList) || [];
 
   // Helper: try loading a font with a specific style
-  const tryLoad = async (family: string, style: string): Promise<boolean> => {
-    try {
-      await figma.loadFontAsync({ family, style });
-      return true;
-    } catch {
-      return false;
-    }
-  };
+  const loadOne = (family: string, style: string): Promise<boolean> =>
+    loadFontCached(family, style);
+  const tryLoad = async (family: string, style: string): Promise<boolean> =>
+    __W2W_DEV_LOG__
+      ? perf.timed("node.font", () => loadOne(family, style), true)
+      : loadOne(family, style);
 
   // Helper: try a family with multiple styles, return first that works
   const tryLoadWithStyles = async (family: string, styles: string[]): Promise<string | null> => {
@@ -641,6 +934,78 @@ export async function createTextNode(
       if (await tryLoad(family, style)) return style;
     }
     return null;
+  };
+
+  // The node's own cut, as the CSS declared it and as the font that actually
+  // rendered reports it. `platformPostScript` is the only channel through
+  // which a variable font's resolved axes or a non-obvious cut name reach us
+  // — the CSS carries neither font-stretch nor font-variation-settings.
+  const nodeItalic = isItalicStyle(node.fontStyle);
+  const nodeRequest = refineRequestFromPostScript(
+    { family: "", weight: node.fontWeight, italic: nodeItalic },
+    node.platformPostScript,
+  );
+
+  /**
+   * A segment's cut, refined the same way the node's is. Without this the
+   * per-segment style would be re-derived from the CSS weight alone and
+   * overwrite a node font that the PostScript name had corrected.
+   */
+  const segmentRequest = (seg: TextSegment) =>
+    refineRequestFromPostScript(
+      {
+        family: "",
+        weight: seg.fontWeight ?? node.fontWeight,
+        italic: isItalicStyle(seg.fontStyle) || nodeItalic,
+      },
+      seg.platformPostScript ?? node.platformPostScript,
+    );
+
+  /**
+   * Ask the installed-font index for the cut of `family` closest to the
+   * request, then load exactly that one — instead of throwing a dozen guessed
+   * style names at `loadFontAsync` and catching the rejections.
+   *
+   * Falls back to the guess ladder when the index can't answer (no
+   * `listAvailableFontsAsync`, or the matched cut refuses to load), so this is
+   * strictly additive: anything that resolved before still resolves.
+   */
+  // Emoji and text families are partitioned by what the RUN asks for, not by
+  // the candidate family: an emoji font sitting in a CSS fallback stack must
+  // never render a text run, however far down the ladder we get.
+  const runWantsEmoji = isEmojiFamilyName(node.fontFamily || targetFont);
+
+  const resolveFamilyCut = async (
+    family: string,
+    fallbackStyles: string[],
+    opts: { exact?: boolean; weight?: number; italic?: boolean } = {},
+  ): Promise<{ family: string; style: string } | null> => {
+    if (!family) return null;
+    if (!runWantsEmoji && isEmojiFamilyName(family)) return null;
+    // Walk the ranked candidates rather than trusting the single best. Figma
+    // lists fonts it cannot load — stripe.com's Söhne appears both as the
+    // loadable "S?hne VF" and as a "Söhne VF" whose every load throws — and
+    // both share one normalized key. Stopping at the winner drops the run to
+    // Inter while a real cut of the same face waits one place down.
+    const candidates = await resolveInstalledCandidates({
+      family,
+      weight: opts.weight ?? nodeRequest.weight,
+      stretch: nodeRequest.stretch,
+      italic: opts.italic ?? nodeRequest.italic,
+      exact: opts.exact,
+      allowEmoji: runWantsEmoji,
+    });
+    for (const hit of candidates.slice(0, MAX_INDEX_CANDIDATES)) {
+      if (await tryLoad(hit.family, hit.style)) {
+        return { family: hit.family, style: hit.style };
+      }
+    }
+    // `exact` has no ladder equivalent that can be trusted — the caller only
+    // switches families on an exact hit, and the ladder's nearest-cut
+    // semantics would turn that into a near miss.
+    if (opts.exact && hasFontIndex()) return null;
+    const style = await tryLoadWithStyles(family, fallbackStyles);
+    return style ? { family, style } : null;
   };
 
   // Build list of styles to try (icon fonts get extra FA-specific styles).
@@ -674,10 +1039,10 @@ export async function createTextNode(
         : fontStyles;
       const origFamilies = Array.from(new Set([realName, node.fontFamily]));
       for (const fam of origFamilies) {
-        const oStyle = await tryLoadWithStyles(fam, origStyles);
-        if (oStyle) {
-          usedFontFamily = fam;
-          mainFontStyle = oStyle;
+        const hit = await resolveFamilyCut(fam, origStyles);
+        if (hit) {
+          usedFontFamily = hit.family;
+          mainFontStyle = hit.style;
           loaded = true;
           break;
         }
@@ -726,15 +1091,17 @@ export async function createTextNode(
     const realName = context.fontRealNames?.[node.fontFamily];
     if (realName && realName !== node.fontFamily) {
       const exact = fontCutExactStyles(node.fontWeight, isItalicStyle(node.fontStyle));
-      const ownStyle = await tryLoadWithStyles(targetFont, exact);
-      if (ownStyle) {
-        mainFontStyle = ownStyle;
+      const own = await resolveFamilyCut(targetFont, exact, { exact: true });
+      if (own) {
+        usedFontFamily = own.family;
+        mainFontStyle = own.style;
         loaded = true;
+        resolvedViaRealFamily = own.family !== targetFont;
       } else {
-        const realStyle = await tryLoadWithStyles(realName, exact);
-        if (realStyle) {
-          usedFontFamily = realName;
-          mainFontStyle = realStyle;
+        const real = await resolveFamilyCut(realName, exact, { exact: true });
+        if (real) {
+          usedFontFamily = real.family;
+          mainFontStyle = real.style;
           loaded = true;
           resolvedViaRealFamily = true;
         }
@@ -743,9 +1110,10 @@ export async function createTextNode(
   }
 
   // Step 1: Try target font with all style variants
-  const foundStyle = loaded ? null : await tryLoadWithStyles(targetFont, allStylesToTry);
-  if (foundStyle) {
-    mainFontStyle = foundStyle;
+  const found = loaded ? null : await resolveFamilyCut(targetFont, allStylesToTry);
+  if (found) {
+    usedFontFamily = found.family;
+    mainFontStyle = found.style;
     loaded = true;
   }
 
@@ -756,10 +1124,10 @@ export async function createTextNode(
       const strippedStyles = isIcon
         ? Array.from(new Set([stripped.style, ...allStylesToTry]))
         : [stripped.style, ...fontStyles];
-      const sFoundStyle = await tryLoadWithStyles(stripped.family, strippedStyles);
-      if (sFoundStyle) {
-        usedFontFamily = stripped.family;
-        mainFontStyle = sFoundStyle;
+      const sFound = await resolveFamilyCut(stripped.family, strippedStyles);
+      if (sFound) {
+        usedFontFamily = sFound.family;
+        mainFontStyle = sFound.style;
         loaded = true;
       }
     }
@@ -773,10 +1141,10 @@ export async function createTextNode(
       const otherVersions = version === "6" ? ["5"] : version === "5" ? ["6"] : [];
       for (const v of otherVersions) {
         const altFamily = `${prefix}${v}${suffix}`;
-        const vFoundStyle = await tryLoadWithStyles(altFamily, allStylesToTry);
-        if (vFoundStyle) {
-          usedFontFamily = altFamily;
-          mainFontStyle = vFoundStyle;
+        const vFound = await resolveFamilyCut(altFamily, allStylesToTry);
+        if (vFound) {
+          usedFontFamily = vFound.family;
+          mainFontStyle = vFound.style;
           loaded = true;
           break;
         }
@@ -819,12 +1187,12 @@ export async function createTextNode(
         node.fontWeight,
         isItalicStyle(node.fontStyle),
       );
-      const rFoundStyle = await tryLoadWithStyles(fam, ordered);
-      if (rFoundStyle) {
-        usedFontFamily = fam;
-        mainFontStyle = rFoundStyle;
+      const rFound = await resolveFamilyCut(fam, ordered);
+      if (rFound) {
+        usedFontFamily = rFound.family;
+        mainFontStyle = rFound.style;
         loaded = true;
-        rescuedViaRealFamily = fam === realName;
+        rescuedViaRealFamily = rFound.family === realName;
         break;
       }
     }
@@ -834,10 +1202,10 @@ export async function createTextNode(
   if (!loaded && !isIcon) {
     for (const fallback of fallbackList) {
       if (fallback === targetFont) continue;
-      const fFoundStyle = await tryLoadWithStyles(fallback, fontStyles);
-      if (fFoundStyle) {
-        usedFontFamily = fallback;
-        mainFontStyle = fFoundStyle;
+      const fFound = await resolveFamilyCut(fallback, fontStyles);
+      if (fFound) {
+        usedFontFamily = fFound.family;
+        mainFontStyle = fFound.style;
         loaded = true;
         break;
       }
@@ -846,10 +1214,10 @@ export async function createTextNode(
 
   // Step 5: Try popup choice font (non-icon fonts only)
   if (!loaded && fontFamily !== targetFont && !isIcon) {
-    const cFoundStyle = await tryLoadWithStyles(fontFamily, fontStyles);
-    if (cFoundStyle) {
-      usedFontFamily = fontFamily;
-      mainFontStyle = cFoundStyle;
+    const cFound = await resolveFamilyCut(fontFamily, fontStyles);
+    if (cFound) {
+      usedFontFamily = cFound.family;
+      mainFontStyle = cFound.style;
       loaded = true;
     }
   }
@@ -858,12 +1226,13 @@ export async function createTextNode(
   // heading must not collapse to Inter Regular; Inter ships every cut).
   if (!loaded) {
     usedFontFamily = "Inter";
-    const interStyle = await tryLoadWithStyles("Inter", fontStyles);
-    if (interStyle) {
-      mainFontStyle = interStyle;
+    const inter = await resolveFamilyCut("Inter", fontStyles);
+    if (inter) {
+      usedFontFamily = inter.family;
+      mainFontStyle = inter.style;
     } else {
       mainFontStyle = "Regular";
-      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+      await loadFontCached("Inter", "Regular");
     }
   }
 
@@ -873,15 +1242,14 @@ export async function createTextNode(
   } catch {
     const stripped = stripFontStyleSuffix(usedFontFamily);
     let recovered = false;
-    if (stripped) {
+    if (stripped && (await loadFontCached(stripped.family, stripped.style))) {
       try {
-        await figma.loadFontAsync({ family: stripped.family, style: stripped.style });
         textNode.fontName = { family: stripped.family, style: stripped.style };
         recovered = true;
       } catch { /* suffix stripping didn't help */ }
     }
     if (!recovered) {
-      await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+      await loadFontCached("Inter", "Regular");
       textNode.fontName = { family: "Inter", style: "Regular" };
     }
   }
@@ -914,7 +1282,7 @@ export async function createTextNode(
   if (
     context?.fontMode === "website" &&
     node.fontFamily &&
-    usedFontFamily !== node.fontFamily &&
+    !isSameFamilyName(usedFontFamily, node.fontFamily) &&
     !resolvedViaRealFamily &&
     !rescuedViaRealFamily
   ) {
@@ -928,7 +1296,13 @@ export async function createTextNode(
     // No marker for Linux server fallback families (Liberation Sans,
     // Noto * CJK …) — they're never in the download ZIP, so a marker naming
     // them would strand the Re-apply modal on an un-installable font.
-    if (markerName && markerName !== usedFontFamily && !isServerFallbackFamily(markerName)) {
+    // NORMALIZED: Figma renders a family under a spelling of its own — Söhne
+    // installs as "S?hne VF" while its real SFNT name is "Söhne VF". The run
+    // already shows the wanted font; a marker here would file a resolved layer
+    // as "still showing Inter" (386 of them on one stripe.com import).
+    const markerIsWhatWeDrew =
+      !!markerName && isSameFamilyName(markerName, usedFontFamily);
+    if (markerName && !markerIsWhatWeDrew && !isServerFallbackFamily(markerName)) {
       try {
         textNode.setPluginData("w2w_original_font", markerName);
         stampedFamilyMarker = true;
@@ -936,6 +1310,17 @@ export async function createTextNode(
         // setPluginData unavailable in some test environments; non-fatal.
       }
     }
+    // Report the substitution. The marker above makes it RECOVERABLE (install
+    // the font, hit Re-apply); this makes it VISIBLE — until now the swap was
+    // silent, so a page rendered entirely in Inter looked intentional.
+    // Only a REAL substitution is worth reporting: drawing the wanted font
+    // under Figma's own spelling is a success, not a warning.
+    if (!markerIsWhatWeDrew) recordWarning(context, {
+      category: "typography",
+      message: `Font "${node.fontFamily}" not available — rendered with "${usedFontFamily}"`,
+      nodeId: textNode.id,
+      layerName: textNode.name || node.name,
+    });
   }
 
   // Cut-level marker: the family landed correctly but the WEIGHT didn't — a
@@ -956,11 +1341,19 @@ export async function createTextNode(
   ) {
     const realName = context.fontRealNames?.[node.fontFamily];
     const familyIsRight =
-      usedFontFamily === node.fontFamily || usedFontFamily === realName;
+      isSameFamilyName(usedFontFamily, node.fontFamily) ||
+      (!!realName && isSameFamilyName(usedFontFamily, realName));
+    // A variable family covers its whole range from one file: Figma exposes
+    // named instances ("Buch"), never a Light or a Medium, so a near-weight
+    // draw is the best that exists. Marking it pending promises a Re-apply no
+    // install can satisfy — the modal would never close (stripe.com sohne-var).
+    const isVariableFamily =
+      context.fontVariableFamilies?.includes(node.fontFamily) === true;
     const wantItalic = isItalicStyle(node.fontStyle);
     const applied = parseStyleName(mainFontStyle);
     if (
       familyIsRight &&
+      !isVariableFamily &&
       (applied.weight !== node.fontWeight || applied.italic !== wantItalic) &&
       declaresCut(context.fontDeclaredCuts?.[node.fontFamily], {
         weight: node.fontWeight,
@@ -980,6 +1373,15 @@ export async function createTextNode(
       } catch {
         // setPluginData unavailable in some test environments; non-fatal.
       }
+      // Right family, wrong cut — a 600 heading wearing the family's Bold.
+      // Reported separately from a family swap: the fix is a different file,
+      // not a different font.
+      recordWarning(context, {
+        category: "typography",
+        message: `Weight ${node.fontWeight}${wantItalic ? " italic" : ""} of "${node.fontFamily}" not installed — rendered as "${mainFontStyle}"`,
+        nodeId: textNode.id,
+        layerName: textNode.name || node.name,
+      });
     }
   }
 
@@ -992,12 +1394,36 @@ export async function createTextNode(
   const loadedStylesForUsedFont = new Set<string>([mainFontStyle]);
   const uniqueWeights: number[] = [];
   const seenWeights = new Set<number>();
-  for (const w of [node.fontWeight, ...segments.map((s) => s.fontWeight)]) {
+  for (const w of [
+    nodeRequest.weight ?? node.fontWeight,
+    ...segments.map((s) => segmentRequest(s).weight ?? s.fontWeight),
+  ]) {
     if (seenWeights.has(w)) continue;
     seenWeights.add(w);
     uniqueWeights.push(w);
   }
+  const indexedPreload = hasFontIndex();
   for (const w of uniqueWeights) {
+    if (indexedPreload) {
+      // One lookup, one load. The old loop threw every candidate spelling at
+      // loadFontAsync for every weight of every text node.
+      const hit = await resolveInstalledCut({
+        family: usedFontFamily,
+        weight: w,
+        stretch: nodeRequest.stretch,
+        italic: nodeRequest.italic,
+        allowEmoji: runWantsEmoji,
+      });
+      if (
+        hit &&
+        hit.family === usedFontFamily &&
+        !loadedStylesForUsedFont.has(hit.style) &&
+        (await tryLoad(usedFontFamily, hit.style))
+      ) {
+        loadedStylesForUsedFont.add(hit.style);
+      }
+      continue;
+    }
     for (const style of fontWeightToStyleCandidates(w)) {
       if (loadedStylesForUsedFont.has(style)) continue;
       if (await tryLoad(usedFontFamily, style)) {
@@ -1013,13 +1439,8 @@ export async function createTextNode(
     fullText = segments
       .map((s, i) => {
         const text = s.text;
-        if (i > 0) {
-          const prevText = segments[i - 1].text;
-          const prevEndsWithSpace = /\s$/.test(prevText);
-          const thisStartsWithSpace = /^\s/.test(text);
-          if (!prevEndsWithSpace && !thisStartsWithSpace) {
-            return " " + text;
-          }
+        if (i > 0 && needsSeparator(node, segments[i - 1].text, text)) {
+          return " " + text;
         }
         return text;
       })
@@ -1036,6 +1457,39 @@ export async function createTextNode(
   // Deferred per-range TextStyle links (multi-segment only).
   // Applied AFTER lineHeight/letterSpacing to prevent Figma from detaching styles.
   const pendingTextStyleLinks: Array<{ startIdx: number; endIdx: number; styleId: string; textDecoration?: string }> = [];
+
+  // Per-range typography (letterSpacing / textCase / lineHeight) and
+  // decoration detail. Collected here, applied at the very end: the node-level
+  // setters for all three run AFTER this loop and cover every character, and a
+  // linked TextStyle would overwrite them again.
+  const pendingRangeTypography: Array<{
+    start: number;
+    end: number;
+    letterSpacing?: number;
+    textCase?: NonNullable<TextSegment["textCase"]>;
+    lineHeight?: number | string;
+    decorationStyle?: "SOLID" | "DOTTED" | "WAVY";
+    decorationColor?: string;
+  }> = [];
+
+  // Hyperlinks. One link covering every run is the whole-node case (cheaper,
+  // and what a plain `<a>text</a>` produces); several different links — or one
+  // link next to unlinked text — need a range each, because the node-level
+  // setter paints the link over EVERY character.
+  const segmentHrefs = new Set(segments.map((s) => s.href).filter(Boolean) as string[]);
+  const useRangeHyperlinks =
+    segments.length > 1 &&
+    (segmentHrefs.size > 1 || (segmentHrefs.size === 1 && segments.some((s) => !s.href)));
+  // A run inside an <a> knows the URL even when the node itself doesn't.
+  const nodeHyperlinkHref =
+    node.href ?? (!useRangeHyperlinks && segmentHrefs.size === 1
+      ? Array.from(segmentHrefs)[0]
+      : undefined);
+
+  // Per-range font sizes recorded for the fontSize bisection below: setting
+  // the node's base fontSize clobbers every range, so the search replays
+  // these scaled by the same factor to keep mixed-size runs proportional.
+  const appliedRangeFontSizes: Array<{ start: number; end: number; fontSize: number }> = [];
 
   // Apply range-specific styling if there are multiple segments
   if (segments.length > 1) {
@@ -1084,13 +1538,8 @@ export async function createTextNode(
 
       // Account for added separator space between segments
       let addedSeparator = 0;
-      if (segIdx > 0) {
-        const prevText = segments[segIdx - 1].text;
-        const prevEndsWithSpace = /\s$/.test(prevText);
-        const thisStartsWithSpace = /^\s/.test(segment.text);
-        if (!prevEndsWithSpace && !thisStartsWithSpace) {
-          addedSeparator = 1;
-        }
+      if (segIdx > 0 && needsSeparator(node, segments[segIdx - 1].text, segment.text)) {
+        addedSeparator = 1;
       }
 
       const startIdx = charIndex + addedSeparator;
@@ -1316,9 +1765,8 @@ export async function createTextNode(
       } catch {
         // Try with suffix stripping as last resort
         const stripped = stripFontStyleSuffix(resolvedSegFont);
-        if (stripped) {
+        if (stripped && (await loadFontCached(stripped.family, stripped.style))) {
           try {
-            await figma.loadFontAsync({ family: stripped.family, style: stripped.style });
             textNode.setRangeFontName(startIdx, endIdx, { family: stripped.family, style: stripped.style });
           } catch { /* keep default */ }
         }
@@ -1349,11 +1797,9 @@ export async function createTextNode(
       }
 
       if (segment.fontSize && segment.fontSize !== node.fontSize) {
-        textNode.setRangeFontSize(
-          startIdx,
-          endIdx,
-          Math.max(segment.fontSize, 8)
-        );
+        const rangeSize = Math.max(segment.fontSize, 8);
+        textNode.setRangeFontSize(startIdx, endIdx, rangeSize);
+        appliedRangeFontSizes.push({ start: startIdx, end: endIdx, fontSize: rangeSize });
       }
 
       // Collect pending TextStyle links (applied after lineHeight/letterSpacing)
@@ -1389,6 +1835,73 @@ export async function createTextNode(
             // Keep default
           }
         }
+      }
+
+      // This run's own link (h2d parity) — three links in a paragraph get
+      // three ranges instead of the node-level setter's single winner.
+      if (useRangeHyperlinks && segment.href) {
+        const r = safeRange(textNode, startIdx, endIdx);
+        const setRangeHyperlink = (textNode as unknown as {
+          setRangeHyperlink?: (s: number, e: number, v: HyperlinkTarget | null) => void;
+        }).setRangeHyperlink;
+        if (r && typeof setRangeHyperlink === "function") {
+          try {
+            setRangeHyperlink.call(textNode, r.start, r.end, {
+              type: "URL",
+              value: segment.href,
+            });
+          } catch {
+            // Figma rejected the URL — keep the run, drop the link.
+          }
+        }
+      }
+
+      // Per-run typography, but only where it actually differs from the node —
+      // these properties inherit in CSS, so most runs report their host's value
+      // and setting them again would be pure overhead.
+      const segLetterSpacing =
+        typeof segment.letterSpacing === "number" &&
+        segment.letterSpacing !== (node.letterSpacing || 0)
+          ? segment.letterSpacing
+          : undefined;
+      const segTextCase =
+        segment.textCase && segment.textCase !== (node.textCase ?? "ORIGINAL")
+          ? segment.textCase
+          : undefined;
+      const segLineHeight =
+        segment.lineHeight !== undefined &&
+        !figmaLineHeightsEqual(segment.lineHeight, node.lineHeight)
+          ? segment.lineHeight
+          : undefined;
+
+      // Underline detail. Gated on the run being an UNDERLINE: Figma throws
+      // when style/colour are set on a strikethrough or an undecorated range
+      // (h2d guards the same way).
+      const segUnderlined = segment.textDecoration === "underline";
+      const segDecorationStyle =
+        segUnderlined && segment.textDecorationStyle &&
+        segment.textDecorationStyle !== node.textDecorationStyle
+          ? segment.textDecorationStyle
+          : undefined;
+      const segDecorationColor =
+        segUnderlined && segment.textDecorationColor &&
+        segment.textDecorationColor !== node.textDecorationColor
+          ? segment.textDecorationColor
+          : undefined;
+
+      if (
+        segLetterSpacing !== undefined || segTextCase || segLineHeight !== undefined ||
+        segDecorationStyle || segDecorationColor
+      ) {
+        pendingRangeTypography.push({
+          start: startIdx,
+          end: endIdx,
+          letterSpacing: segLetterSpacing,
+          textCase: segTextCase,
+          lineHeight: segLineHeight,
+          decorationStyle: segDecorationStyle,
+          decorationColor: segDecorationColor,
+        });
       }
     }
 
@@ -1449,12 +1962,21 @@ export async function createTextNode(
     // Resolve via candidates so Semibold/Bold/etc. preferred, with fallback
     // when the font lacks the preferred style. Only override if the resolved
     // style truly differs from mainFontStyle (and is actually loaded).
-    const segCandidates = fontWeightToStyleCandidates(segment.fontWeight);
+    const segReq = segmentRequest(segment);
     let segStyle = mainFontStyle;
-    for (const c of segCandidates) {
-      if (loadedStylesForUsedFont.has(c)) {
-        segStyle = c;
-        break;
+    const segHit = await resolveInstalledCut({
+      ...segReq,
+      family: usedFontFamily,
+      allowEmoji: runWantsEmoji,
+    });
+    if (segHit && segHit.family === usedFontFamily && loadedStylesForUsedFont.has(segHit.style)) {
+      segStyle = segHit.style;
+    } else {
+      for (const c of fontWeightToStyleCandidates(segReq.weight ?? segment.fontWeight)) {
+        if (loadedStylesForUsedFont.has(c)) {
+          segStyle = c;
+          break;
+        }
       }
     }
     if (segStyle !== mainFontStyle) {
@@ -1477,13 +1999,15 @@ export async function createTextNode(
   }
 
   // Text alignment
+  // Physical values only. CSS logical `start`/`end` are resolved against the
+  // element's `direction` in the converter (resolveTextAlign in
+  // css-converter.ts), so they never reach here — mapping them again would
+  // re-encode the left-to-right assumption this map used to carry.
   const alignMap: Record<string, "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED"> = {
     left: "LEFT",
     center: "CENTER",
     right: "RIGHT",
     justify: "JUSTIFIED",
-    start: "LEFT",
-    end: "RIGHT",
   };
   textNode.textAlignHorizontal = alignMap[node.textAlign] || "LEFT";
 
@@ -1530,8 +2054,11 @@ export async function createTextNode(
     }
   }
 
-  // Geometry-derived vertical ink alignment (converter set it only when the
-  // browser painted the text centered/bottom inside a taller element box).
+  // Geometry-derived vertical ink alignment. The converter emits CENTER both
+  // for text painted centered inside a taller box AND as the default when the
+  // node box equals the measured ink box (h2d parity — cancels substituted-
+  // font ascent drift), BOTTOM for bottom-hugging ink. Unset = taller box
+  // with top-hugging ink → keep Figma's default TOP.
   if (node.textAlignVertical) {
     textNode.textAlignVertical = node.textAlignVertical;
   }
@@ -1593,10 +2120,12 @@ export async function createTextNode(
     }
   }
 
-  // Captured <a href> → clickable hyperlink (h2d parity).
-  if (node.href) {
+  // Captured <a href> → clickable hyperlink (h2d parity). Skipped once the
+  // runs carry their own links: this setter covers the whole node and would
+  // overwrite every range set above.
+  if (nodeHyperlinkHref && !useRangeHyperlinks) {
     try {
-      textNode.hyperlink = { type: "URL", value: node.href };
+      textNode.hyperlink = { type: "URL", value: nodeHyperlinkHref };
     } catch {
       // Invalid URL for Figma — keep the text without a link.
     }
@@ -1645,6 +2174,9 @@ export async function createTextNode(
     }
     // Whole-node link (single-segment text)
     await linkTextStyleIfApplicable(textNode, node, segments, usedFontFamily, context);
+    // Per-range typography LAST: a linked TextStyle carries its own
+    // lineHeight/letterSpacing and would overwrite the ranges otherwise.
+    applyPendingRangeTypography(textNode, pendingRangeTypography);
   };
 
   // Special cases: always HUG
@@ -1654,6 +2186,9 @@ export async function createTextNode(
   const isBlock = isBlockLevelElement(node);
   if (!isBlock && (node.layoutSizingHorizontal === "HUG" || isSingleChar || isVeryNarrow || isInlineElement)) {
     textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+    // Figma collapses trailing spaces on width-hugging text, shrinking the
+    // box vs the browser's — rewrite them to NBSP (h2d parity).
+    protectTrailingSpaces(textNode);
     await applyDeferredTextStyles();
     return textNode;
   }
@@ -1714,7 +2249,7 @@ export async function createTextNode(
   if (Math.abs(widthDiff) <= 1) {
     // Same width (within 1px tolerance)
     // Use HUG's width as FIXED, browser's height as FIXED
-    textNode.resize(hugWidth, browserHeight);
+    textNode.resize(hugWidth + TEXT_RESIZE_SLACK, browserHeight);
     textNode.textAutoResize = "NONE";
   } else if (widthDiff > 1) {
     // Text is WIDER in Figma than browser (font metrics differ)
@@ -1723,7 +2258,7 @@ export async function createTextNode(
       // Multi-line text — check if hugWidth is close or fits in parent
       if (Math.abs(hugWidth - browserWidth) <= 1) {
         // Font metrics nearly identical — use hugWidth
-        textNode.resize(hugWidth, browserHeight);
+        textNode.resize(hugWidth + TEXT_RESIZE_SLACK, browserHeight);
       // } else if (hugWidth > browserWidth && parentWMulti > 0 && hugWidth <= parentWMulti) {
       //   // Plugin font wider but fits in parent — use hugWidth to prevent wrapping
       //   // DISABLED: This caused block elements (li, p) to use Figma's HUG width (~328px)
@@ -1731,7 +2266,7 @@ export async function createTextNode(
       //   textNode.resize(hugWidth, browserHeight);
       } else {
         // hugWidth too large or no parent info — use browser dimensions
-        textNode.resize(browserWidth, browserHeight);
+        textNode.resize(browserWidth + TEXT_RESIZE_SLACK, browserHeight);
       }
       textNode.textAutoResize = "NONE";
     } else {
@@ -1741,44 +2276,51 @@ export async function createTextNode(
       if (parentW > 0 && hugWidth <= parentW) {
         // HUG fits within parent container — use HUG width (no truncation needed)
         // This prevents unnecessary text wrapping when plugin font is slightly wider
-        textNode.resize(hugWidth, browserHeight);
+        textNode.resize(hugWidth + TEXT_RESIZE_SLACK, browserHeight);
         textNode.textAutoResize = "NONE";
       } else {
-        // HUG exceeds parent OR no parent info: try font-size reduction (max 1px)
-        let adjusted = false;
-        const newFontSize = originalFontSize - 1;
-
-        if (newFontSize >= 8) {
-          textNode.fontSize = newFontSize;
-          textNode.textAutoResize = "WIDTH_AND_HEIGHT";
-
-          const newHugWidth = textNode.width;
-          const newHugHeight = textNode.height;
-
-          // Check if now fits within browser width (1px tolerance)
-          if (newHugWidth <= browserWidth + 1) {
-            textNode.resize(Math.max(newHugWidth, browserWidth), browserHeight);
-            textNode.textAutoResize = "NONE";
-            adjusted = true;
-          } else if (parentW > 0 && newHugWidth <= parentW) {
-            // After reduction, fits within parent — accept it
-            textNode.resize(newHugWidth, browserHeight);
-            textNode.textAutoResize = "NONE";
-            adjusted = true;
-          } else {
-            // Check if still renders as ~1 line
-            const heightRatio = newHugHeight / browserHeight;
-            if (heightRatio <= 1.3) {
-              textNode.resize(newHugWidth, browserHeight);
-              textNode.textAutoResize = "NONE";
-              adjusted = true;
-            }
-          }
+        // HUG exceeds parent OR no parent info: binary-search fontSize until
+        // the rendered ink fits the captured box (h2d parity — bisection
+        // between fontSize/2 and fontSize, 0.2px convergence). A substituted
+        // font that renders ~8% wider now shrinks by the exact factor needed
+        // and keeps every word, instead of truncating with an ellipsis.
+        //
+        // Inside auto layout the parent would stretch/shrink the node during
+        // measurement, so probe a clone off to the side and replay the winner
+        // (h2d does the same). createTextNode currently runs before
+        // appendChild, so the clone path is a safety net.
+        const parent = textNode.parent;
+        const inAutoLayout =
+          !!parent && "layoutMode" in parent && parent.layoutMode !== "NONE";
+        const probe = inAutoLayout ? textNode.clone() : textNode;
+        let winningSize: number | null = null;
+        try {
+          winningSize = bisectFontSizeToFit(originalFontSize, (fs) => {
+            probe.fontSize = fs; // clobbers ranges — replayed just below
+            scaleSegmentRangeFontSizes(probe, appliedRangeFontSizes, fs / originalFontSize);
+            probe.textAutoResize = "WIDTH_AND_HEIGHT";
+            return (
+              probe.width <= browserWidth + 1 &&
+              probe.height <= browserHeight * 1.1
+            );
+          });
+        } finally {
+          if (probe !== textNode) probe.remove();
         }
 
-        if (!adjusted) {
-          // Font-size reduction didn't help → restore and truncate
-          textNode.fontSize = originalFontSize;
+        if (winningSize !== null) {
+          textNode.fontSize = winningSize;
+          scaleSegmentRangeFontSizes(textNode, appliedRangeFontSizes, winningSize / originalFontSize);
+          textNode.textAutoResize = "WIDTH_AND_HEIGHT";
+          const fittedWidth = textNode.width;
+          textNode.resize(Math.max(fittedWidth, browserWidth) + TEXT_RESIZE_SLACK, browserHeight);
+          textNode.textAutoResize = "NONE";
+        } else {
+          // Even the lower bound doesn't fit → restore and truncate (last resort)
+          if (Number.isFinite(originalFontSize)) {
+            textNode.fontSize = originalFontSize;
+            scaleSegmentRangeFontSizes(textNode, appliedRangeFontSizes, 1);
+          }
           textNode.resize(browserWidth, browserHeight);
           textNode.textAutoResize = "NONE";
           textNode.textTruncation = "ENDING";
@@ -1796,10 +2338,10 @@ export async function createTextNode(
       // Block elements: browserWidth is the container width, not text width.
       // Keeping it preserves text-align behavior and correct line wrapping.
       // Non-left-aligned text: needs container width for proper positioning.
-      textNode.resize(browserWidth, browserHeight);
+      textNode.resize(browserWidth + TEXT_RESIZE_SLACK, browserHeight);
     } else {
       // Inline/flex elements: HUG width is more accurate
-      textNode.resize(hugWidth, browserHeight);
+      textNode.resize(hugWidth + TEXT_RESIZE_SLACK, browserHeight);
     }
     textNode.textAutoResize = "NONE";
   }
@@ -1915,6 +2457,8 @@ export async function createTextWithBackground(
     const { paints, weight, individualWeights, style } = convertStrokesToFigma(
       node.strokes,
       context,
+      node.width,
+      node.height,
     );
     if (paints.length > 0) {
       frame.strokes = paints;

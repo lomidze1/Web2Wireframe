@@ -151,7 +151,11 @@ describe("css-converter: inline flow (Fix A — all-inline block)", () => {
     expect(result.children[2].x).toBe(80);
   });
 
-  it("Test 3 — Pure text children in a div: HORIZONTAL with 3 text nodes in order", () => {
+  // Superseded by the inline run merge (rendering/textRunMerge.ts): three bare
+  // text children painted flush ARE one continuous string in the browser, so
+  // they now render as one TEXT node. Order is still what this pins — it is
+  // now read off the merged characters instead of the child list.
+  it("Test 3 — Pure text children in a div: merged into one run, in order", () => {
     const div = makeFrame({
       tag: 'div',
       x: 0, y: 0, width: 300, height: 14,
@@ -167,8 +171,10 @@ describe("css-converter: inline flow (Fix A — all-inline block)", () => {
     const result = convertW2WToWireframe(div as any, { layoutMode: 'autoLayout' });
 
     expect(result.layoutMode).toBe('HORIZONTAL');
-    expect(result.children).toHaveLength(3);
-    expect(result.children.map(c => c.textContent)).toEqual(['a', 'b', 'c']);
+    expect(result.children).toHaveLength(1);
+    // Contiguous runs: no separator invented, so the glyphs sit where they did.
+    expect(result.children[0].textContent).toBe('abc');
+    expect(result.children[0].styledSegments!.map(s => s.text)).toEqual(['a', 'b', 'c']);
   });
 
   it("Test 4 — Single inline child in a div: HORIZONTAL with 1 child", () => {

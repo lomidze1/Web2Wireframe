@@ -103,6 +103,155 @@ export function computeCoverCropTransform(
 }
 
 /**
+ * h2d-style background paint layout (port of `qL` app.js:66322 / `LL`
+ * app.js:66562): compute the PAINTED image size from background-size, decide
+ * TILE vs CROP from background-repeat, and for CROP resolve
+ * background-position against the overflow on each axis.
+ *
+ * Returns null when the inputs cannot be resolved (degenerate sizes,
+ * calc()/unknown units) — callers keep their legacy FILL/FIT behavior then.
+ */
+export type BackgroundLayout =
+  | { mode: "TILE"; scalingFactor: number }
+  | { mode: "CROP"; transform: CropTransform };
+
+/** Painted size of one axis-value token: px/% resolve, `auto` defers. */
+function parseSizeComponent(token: string, boxAxis: number): number | "auto" | null {
+  if (token === "auto") return "auto";
+  const m = token.match(/^(-?[\d.]+)(px|%)?$/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (!isFinite(n) || n < 0) return null;
+  return m[2] === "%" ? (n / 100) * boxAxis : n;
+}
+
+/**
+ * One background-position axis component → the image's pixel offset inside
+ * the box. Percentages (and keywords) use CSS % semantics: the p% point of
+ * the image aligns with the p% point of the box → offset = p·(box − painted).
+ */
+function parsePositionComponent(
+  token: string,
+  boxAxis: number,
+  paintedAxis: number,
+): number | null {
+  const keywords: Record<string, number> = {
+    left: 0, top: 0, center: 0.5, right: 1, bottom: 1,
+  };
+  if (token in keywords) return keywords[token] * (boxAxis - paintedAxis);
+  const m = token.match(/^(-?[\d.]+)(px|%)?$/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (!isFinite(n)) return null;
+  if (m[2] === "%") return (n / 100) * (boxAxis - paintedAxis);
+  return n; // px (and bare numbers, which computed styles emit as px)
+}
+
+export function computeBackgroundLayout(
+  naturalW: number,
+  naturalH: number,
+  boxW: number,
+  boxH: number,
+  cssSize: string | undefined,
+  cssRepeat: string | undefined,
+  cssPosition: string | undefined,
+): BackgroundLayout | null {
+  if (naturalW <= 0 || naturalH <= 0 || boxW <= 0 || boxH <= 0) return null;
+
+  // --- 1. Painted size from background-size --------------------------------
+  const size = (cssSize ?? "auto").trim().toLowerCase();
+  let paintedW: number;
+  let paintedH: number;
+  if (size === "cover" || size === "contain" || size === "scale-down") {
+    let scale = size === "cover"
+      ? Math.max(boxW / naturalW, boxH / naturalH)
+      : Math.min(boxW / naturalW, boxH / naturalH);
+    if (size === "scale-down") scale = Math.min(1, scale);
+    paintedW = naturalW * scale;
+    paintedH = naturalH * scale;
+  } else {
+    const tokens = size === "" || size === "auto" ? ["auto"] : size.split(/\s+/);
+    if (tokens.length > 2) return null;
+    const w = parseSizeComponent(tokens[0], boxW);
+    const h = parseSizeComponent(tokens[1] ?? "auto", boxH);
+    if (w === null || h === null) return null;
+    if (w === "auto" && h === "auto") {
+      paintedW = naturalW;
+      paintedH = naturalH;
+    } else if (h === "auto") {
+      paintedW = w as number;
+      paintedH = (w as number) * (naturalH / naturalW);
+    } else if (w === "auto") {
+      paintedH = h as number;
+      paintedW = (h as number) * (naturalW / naturalH);
+    } else {
+      paintedW = w as number;
+      paintedH = h as number;
+    }
+  }
+  if (paintedW <= 0 || paintedH <= 0) return null;
+
+  // --- 2. TILE vs CROP from background-repeat ------------------------------
+  // Figma TILE always repeats BOTH axes at one uniform scalingFactor, so it
+  // is only faithful when the CSS repetition really is two-axis (or the
+  // non-repeating axis has no room to repeat into).
+  const rep = (cssRepeat ?? "repeat").trim().toLowerCase();
+  const repToken = (t: string) => t === "repeat" || t === "space" || t === "round";
+  let repX: boolean;
+  let repY: boolean;
+  if (rep === "repeat-x") { repX = true; repY = false; }
+  else if (rep === "repeat-y") { repX = false; repY = true; }
+  else {
+    const parts = rep === "" ? ["repeat"] : rep.split(/\s+/);
+    repX = repToken(parts[0]);
+    repY = repToken(parts[1] ?? parts[0]);
+  }
+
+  const proportional =
+    Math.abs(paintedW / naturalW - paintedH / naturalH) < 1e-3;
+  const tolerance = 1; // px — computed styles carry rounding noise
+  let tile = false;
+  if (repX && repY) {
+    tile = proportional && (boxW > paintedW + tolerance || boxH > paintedH + tolerance);
+  } else if (repX) {
+    tile = proportional && Math.abs(paintedH - boxH) <= tolerance;
+  } else if (repY) {
+    tile = proportional && Math.abs(paintedW - boxW) <= tolerance;
+  }
+  if (tile) {
+    return { mode: "TILE", scalingFactor: paintedW / naturalW };
+  }
+
+  // --- 3. CROP transform from background-position --------------------------
+  // Normalized image coords: [[boxW/paintedW, 0, tx], [0, boxH/paintedH, ty]]
+  // where tx = −(image offset in box)/painted. Fractions may exceed 1 — that
+  // is exactly how an image smaller than the box stays unstretched.
+  const pos = (cssPosition ?? "0% 0%").trim().toLowerCase();
+  const posTokens = pos === "" ? ["0%", "0%"] : pos.split(/\s+/);
+  if (posTokens.length > 2) return null; // 3/4-value edge-offset syntax
+  let xToken = posTokens[0];
+  let yToken = posTokens[1] ?? "center";
+  // Keyword order is free in CSS ("bottom right"): swap when the first token
+  // is y-only and/or the second is x-only.
+  const isYOnly = (t: string) => t === "top" || t === "bottom";
+  const isXOnly = (t: string) => t === "left" || t === "right";
+  if (isYOnly(xToken) || (isXOnly(yToken) && !isXOnly(xToken))) {
+    const tmp = xToken; xToken = yToken; yToken = tmp;
+  }
+  const offsetX = parsePositionComponent(xToken, boxW, paintedW);
+  const offsetY = parsePositionComponent(yToken, boxH, paintedH);
+  if (offsetX === null || offsetY === null) return null;
+
+  return {
+    mode: "CROP",
+    transform: [
+      [boxW / paintedW, 0, -offsetX / paintedW],
+      [0, boxH / paintedH, -offsetY / paintedH],
+    ],
+  };
+}
+
+/**
  * Parse one CSS background-position / object-position value into fractional
  * coordinates. Supports keywords and percentages — the forms that carry
  * authoring intent. Pixel offsets return null (they need image-and-container

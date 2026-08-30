@@ -210,6 +210,10 @@ async function renderGlinc(): Promise<MockNode> {
   const tree = convertW2WToWireframe(makeGlincBody() as any, {
     layoutMode: "autoLayout",
     interactionMode: "none",
+    // htmlLayerNames: spacer/promotion assertions trace subtrees by their
+    // DOM-derived names ("header", "__w2w-pseudo-*") after render, where
+    // only `name` survives on the SceneNode.
+    htmlLayerNames: true,
   });
   const frameData = {
     viewportWidth: 1440,

@@ -174,10 +174,12 @@ describe("createNodeInFigma keeps DOM order for block containers in autoLayout m
     const container = makeNode("div#tygh_main_container", {
       layoutMode: "NONE", // plain display:block container
       height: 9600,
+      // Stacked y-coords as captured — a NONE container only keeps the
+      // VERTICAL fallback when its child rects really form a stack.
       children: [
-        makeNode("div.tygh-header", { zIndex: 5, height: 140 }),
-        makeNode("div.tygh-content", { height: 9200 }),
-        makeNode("div#tygh_footer", { height: 260 }),
+        makeNode("div.tygh-header", { zIndex: 5, y: 0, height: 140 }),
+        makeNode("div.tygh-content", { y: 140, height: 9200 }),
+        makeNode("div#tygh_footer", { y: 9340, height: 260 }),
       ],
     });
 

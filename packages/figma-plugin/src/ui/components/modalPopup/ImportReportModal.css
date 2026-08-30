@@ -1,0 +1,92 @@
+/* Import report — the post-import warning list. Shape mirrors the Re-apply
+   modal: a lead sentence, then one accordion group per category, each row a
+   link that selects the offending layer on canvas. */
+.reportContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Lead line — what happened, in one sentence. */
+.reportLead {
+  font-size: var(--font-md);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.reportLead strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* Per-group count badge in the accordion summary. */
+.reportGroupCount {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--accent);
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+/* One warning. The layer name is the click target; the message sits under it
+   so the user knows what went wrong before jumping to the canvas. */
+.reportRow {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 0;
+}
+
+.reportRow + .reportRow {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Clickable layer name — same affordance as the Re-apply modal's layer rows. */
+.reportLayerLink {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-sm);
+  font-family: var(--font-mono, monospace);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.reportLayerLink:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--accent);
+}
+
+/* Same slot, but the node never came into existence — nothing to select. */
+.reportLayerPlain {
+  display: block;
+  padding: 3px 6px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reportMessage {
+  padding: 0 6px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* "…and N more" — warnings dropped past the collector's cap. */
+.reportOverflow {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+}

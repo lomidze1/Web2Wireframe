@@ -92,19 +92,33 @@ describe("fontWeightToStyleCandidates — fallback chain", () => {
     expect(lastSemibold).toBeLessThan(c.indexOf("Bold"));
   });
 
-  it("600 prefers Medium over Bold when no Semibold variant available", () => {
-    // Perceptual closeness: lighter neighbour beats heavier neighbour.
-    // Going heavier (Bold) overshoots; Medium reads truer to the source.
+  it("600 prefers Bold over Medium when no Semibold variant available", () => {
+    // CSS Fonts Level 4: above 500 the fallback ASCENDS first. This used to
+    // prefer the lighter neighbour on a perceptual argument, which rendered
+    // every 600 heading on a Semibold-less family a full step too light.
     const c = fontWeightToStyleCandidates(600);
-    expect(c.indexOf("Medium")).toBeLessThan(c.indexOf("Bold"));
+    expect(c.indexOf("Bold")).toBeLessThan(c.indexOf("Medium"));
   });
 
-  it("700 falls back to Semibold (with spellings) before ExtraBold", () => {
+  it("700 falls back to ExtraBold before Semibold", () => {
+    // Same spec rule: 700 → 800 → 900 → 600 → 500 …
     const c = fontWeightToStyleCandidates(700);
     expect(c[0]).toBe("Bold");
     expect(c).toContain("Semibold");
     expect(c).toContain("SemiBold");
-    expect(c.indexOf("Semibold")).toBeLessThan(c.indexOf("ExtraBold"));
+    expect(c.indexOf("ExtraBold")).toBeLessThan(c.indexOf("Semibold"));
+  });
+
+  it("400 and 500 keep the spec's 400↔500 special case", () => {
+    const c400 = fontWeightToStyleCandidates(400);
+    expect(c400.indexOf("Medium")).toBeLessThan(c400.indexOf("Light"));
+    const c500 = fontWeightToStyleCandidates(500);
+    expect(c500.indexOf("Regular")).toBeLessThan(c500.indexOf("Semibold"));
+  });
+
+  it("below 400 still descends first", () => {
+    const c = fontWeightToStyleCandidates(200);
+    expect(c.indexOf("Thin")).toBeLessThan(c.indexOf("Light"));
   });
 
   it("400 (Regular) includes Normal/Book aliases", () => {

@@ -15,7 +15,7 @@ import type { WireframeFrame, WireframeNode } from "../../../../types";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
-import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
+import { buildFontDeclaredCuts, buildVariableFontFamilies, type FontCut } from "../../../../utils/fontUtils";
 import HtmlWarningModal from "../../../components/modalPopup/HtmlWarningModal";
 import RenderingLoader, {
   type RenderingProgress,
@@ -44,6 +44,7 @@ interface RenderData {
   layoutMode: "autoLayout" | "absolute";
   fontRealNames?: Record<string, string>;
   fontDeclaredCuts?: Record<string, FontCut[]>;
+  fontVariableFamilies?: string[];
 }
 
 export default function HTML() {
@@ -151,8 +152,11 @@ export default function HTML() {
             layoutMode: data.layoutMode,
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            htmlLayerNames: config.htmlLayerNames,
+            geometryRows: config.geometryRows,
             fontRealNames: data.fontRealNames,
             fontDeclaredCuts: data.fontDeclaredCuts,
+            fontVariableFamilies: data.fontVariableFamilies,
           },
         },
       },
@@ -284,6 +288,7 @@ export default function HTML() {
         layoutMode: settings.localLayoutMode,
         fontRealNames: buildFontRealNames(data.fonts),
         fontDeclaredCuts: buildFontDeclaredCuts(data.fonts),
+        fontVariableFamilies: Array.from(buildVariableFontFamilies(data.fonts)),
       };
 
       sendToFigma(renderData, settings.localCssVariablesMode);

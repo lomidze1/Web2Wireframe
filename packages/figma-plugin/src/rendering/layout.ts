@@ -155,8 +155,12 @@ export function cssJustifyToFigma(
     right: "MAX",
     center: "CENTER",
     "space-between": "SPACE_BETWEEN",
-    "space-around": "SPACE_BETWEEN", // Figma approximation
-    "space-evenly": "SPACE_BETWEEN", // Figma approximation
+    // Figma's SPACE_BETWEEN pins the first/last child to the edges, but CSS
+    // space-around/evenly keep edge gaps too — mapping them there deleted the
+    // edge spacing (nav bars, footers, tab strips). h2d keeps these MIN; the
+    // real gaps come from measured itemSpacing/padding (css-converter).
+    "space-around": "MIN",
+    "space-evenly": "MIN",
     normal: "MIN",
   };
   const mapped = map[justify] || "MIN";
@@ -272,6 +276,41 @@ export function cssJustifyToGridChild(justify: string | undefined): GridChildAli
   return GRID_ALIGN_MAP[justify] || "STRETCH";
 }
 
+/** Global geometry epsilon — h2d's `fe`, as in css-converter/treeSimplify. */
+const GRID_ALIGN_EPSILON = 0.51;
+
+/**
+ * Recover a grid child's cell alignment from where the browser actually put
+ * it, for the axis CSS cannot tell us about.
+ *
+ * `justify-items` — the property that centres an item horizontally in its
+ * cell — is not part of the capture, so `place-items: center` reaches us as
+ * `align-items: center` alone and the horizontal half is lost (glinc.io's
+ * 64x64 `.iconWrap` put its 32x32 icon at x=1 instead of x=16). The measured
+ * insets say it plainly: equal gaps on both sides is a centred item.
+ *
+ * Returns null whenever the geometry does not name one alignment — the
+ * caller then keeps whatever CSS said.
+ */
+export function inferGridChildAlign(
+  offsetStart: number,
+  childSize: number,
+  cellSize: number,
+): "CENTER" | "MAX" | null {
+  const endGap = cellSize - offsetStart - childSize;
+  // Overhanging or degenerate geometry describes no alignment.
+  if (offsetStart < -GRID_ALIGN_EPSILON || endGap < -GRID_ALIGN_EPSILON) return null;
+  const hasStart = offsetStart > GRID_ALIGN_EPSILON;
+  const hasEnd = endGap > GRID_ALIGN_EPSILON;
+  if (hasStart && hasEnd) {
+    return Math.abs(offsetStart - endGap) <= GRID_ALIGN_EPSILON ? "CENTER" : null;
+  }
+  // Pinned to the far edge. A child at the start needs no override: MIN is
+  // what a non-stretching grid item does by default.
+  if (hasStart) return "MAX";
+  return null;
+}
+
 /**
  * Use text-align as fallback for frame alignment when no explicit
  * justify-content/align-items is set. In CSS, text-align on a block
@@ -319,7 +358,61 @@ export function needsMarginWrapper(
   margin: { top: number; right: number; bottom: number; left: number } | undefined
 ): boolean {
   if (!margin) return false;
-  return margin.top > 0 || margin.right > 0 || margin.bottom > 0 || margin.left > 0;
+  // Non-zero, not merely positive. A NEGATIVE margin is the "bleed out of a
+  // padded container" idiom (stripe.com uses it on 17 nodes), and it needs a
+  // wrapper just as much — see the positional branch in createMarginWrapper.
+  return margin.top !== 0 || margin.right !== 0 || margin.bottom !== 0 || margin.left !== 0;
+}
+
+/** Smallest width/height Figma accepts on a frame. */
+const FIGMA_MIN_SIZE = 0.01;
+
+/**
+ * Build the margin box for a child that BLEEDS — one whose margin pulls it
+ * outside its own slot (`margin: 0 -15px`, `margin-top: -60px`).
+ *
+ * Figma rejects negative padding, so the offset has to be expressed as
+ * position instead: a `layoutMode: "NONE"` frame sized to the margin box, with
+ * the child placed at the margin offset inside it. Same arithmetic as the
+ * padding wrapper below — `childSize + leadingMargin + trailingMargin` — only
+ * in the one form Figma will accept below zero. h2d does exactly this.
+ *
+ * No `layoutSizing*` is set: those setters are invalid on a frame that has
+ * neither auto layout of its own nor an auto-layout parent yet, and Figma
+ * treats a NONE frame as FIXED anyway. The bleed's own width survives because
+ * css-converter's `hasNegativeInlineMargin` gate already pinned the child to
+ * FIXED, so `applyChildInAutoLayout` never stretches the wrapper.
+ *
+ * A margin box of exactly zero is kept, floored at Figma's 0.01 minimum: it
+ * means the browser gave the element no space on that axis while still
+ * painting it, which is stripe.com's `div.divider-container` — 1264x120 with
+ * `margin: -60px -16px` inside a parent measuring 0px tall. Only a box that
+ * goes NEGATIVE returns null: that would need the element to pull its
+ * following siblings past its own start, and Figma has no negative space to
+ * express it with. The caller then appends the child bare, as before.
+ */
+function createBleedWrapper(
+  child: WireframeNode,
+  childNode: SceneNode,
+  margin: { top: number; right: number; bottom: number; left: number },
+): FrameNode | null {
+  const width = childNode.width + margin.left + margin.right;
+  const height = childNode.height + margin.top + margin.bottom;
+  if (width < 0 || height < 0) return null;
+
+  const wrapper = figma.createFrame();
+  wrapper.name = `${child.name}:margin`;
+  wrapper.fills = [];
+  // The whole point is that the child paints outside this box.
+  wrapper.clipsContent = false;
+  wrapper.layoutMode = "NONE";
+  wrapper.resize(Math.max(width, FIGMA_MIN_SIZE), Math.max(height, FIGMA_MIN_SIZE));
+
+  wrapper.appendChild(childNode);
+  childNode.x = margin.left;
+  childNode.y = margin.top;
+
+  return wrapper;
 }
 
 /**
@@ -327,14 +420,23 @@ export function needsMarginWrapper(
  * The wrapper uses auto layout with HUG sizing — the parent determines
  * whether to FILL/STRETCH via applyChildInAutoLayout.
  * The inner child FILLs the wrapper so it expands within the padded area.
+ *
+ * A margin with any negative side takes the positional route instead — see
+ * {@link createBleedWrapper} — and may return null when the margin box
+ * collapses.
  */
 export function createMarginWrapper(
   child: WireframeNode,
   childNode: SceneNode,
   parentLayoutMode: "HORIZONTAL" | "VERTICAL" | "NONE",
   textMode?: string
-): FrameNode {
+): FrameNode | null {
   const margin = child.margin!;
+
+  if (margin.top < 0 || margin.right < 0 || margin.bottom < 0 || margin.left < 0) {
+    return createBleedWrapper(child, childNode, margin);
+  }
+
   const wrapper = figma.createFrame();
 
   wrapper.name = `${child.name}:margin`;
@@ -346,11 +448,12 @@ export function createMarginWrapper(
   wrapper.layoutSizingHorizontal = "HUG";
   wrapper.layoutSizingVertical = "HUG";
 
-  // Margin → padding conversion (clamp to 0 — Figma rejects negative padding)
-  wrapper.paddingTop = Math.max(0, margin.top);
-  wrapper.paddingRight = Math.max(0, margin.right);
-  wrapper.paddingBottom = Math.max(0, margin.bottom);
-  wrapper.paddingLeft = Math.max(0, margin.left);
+  // Margin → padding conversion. Every side is >= 0 here: the negative case
+  // took the positional route above.
+  wrapper.paddingTop = margin.top;
+  wrapper.paddingRight = margin.right;
+  wrapper.paddingBottom = margin.bottom;
+  wrapper.paddingLeft = margin.left;
 
   wrapper.primaryAxisAlignItems = "MIN";
   wrapper.counterAxisAlignItems = "MIN";
@@ -409,6 +512,65 @@ export function createMarginWrapper(
   }
 
   return wrapper;
+}
+
+// ============================================================================
+// Grow Eligibility (exact-fit gate)
+// ============================================================================
+
+/** Sub-pixel slack, matching geometrySupportsVerticalStack in nodes.ts. */
+const FIT_EPSILON = 0.51;
+
+/**
+ * May the growing children of this container actually grow in Figma?
+ *
+ * CSS resolves `flex-grow` against the space left on ONE line; Figma's
+ * `layoutGrow = 1` divides the whole container between the growing children.
+ * The two agree only when the measured children already fill the container —
+ * otherwise Figma hands out space CSS never gave, squeezing every child.
+ *
+ * stripe.com's bento is the case: six cards measuring 816/400/400/400/400/1232
+ * all declare `flex: 1 1 …` inside a 1232px row, because they wrap onto three
+ * lines. Honouring grow packed them onto one line at 191.67px each.
+ *
+ * Mirrors h2d's `Hq`: the run must fit exactly, and the grow candidates must
+ * all be the same size — otherwise Figma would even out proportions the
+ * browser had set differently.
+ */
+export function growFitsContainer(opts: {
+  /** Container's main-axis length. */
+  parentLength: number;
+  /** Main-axis padding before the first child. */
+  paddingStart: number;
+  /** Main-axis padding after the last child. */
+  paddingEnd: number;
+  /** Measured main-axis length of each in-flow child, in order. */
+  childLengths: number[];
+  itemSpacing: number;
+  /** Indices into childLengths of the children carrying layoutGrow === 1. */
+  growIndices: number[];
+}): boolean {
+  const { parentLength, paddingStart, paddingEnd, childLengths, itemSpacing, growIndices } = opts;
+
+  if (childLengths.length === 0) return true;
+
+  const content =
+    childLengths.reduce((sum, len) => sum + len, 0) +
+    (childLengths.length - 1) * itemSpacing;
+
+  if (Math.abs(paddingStart + paddingEnd + content - parentLength) > FIT_EPSILON) {
+    return false;
+  }
+
+  // Figma gives every grow child the same share, so differently sized
+  // candidates would come out equal — a proportion the page never showed.
+  const candidates = growIndices.map((i) => childLengths[i]).filter((len) => len !== undefined);
+  if (candidates.length > 1) {
+    const first = candidates[0];
+    if (candidates.some((len) => Math.abs(len - first) > FIT_EPSILON)) return false;
+  }
+
+  return true;
 }
 
 // ============================================================================

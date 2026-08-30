@@ -21,9 +21,11 @@
 import { showUI } from "@create-figma-plugin/utilities";
 import { installDevLogger } from "./utils/devLogger";
 import { logger } from "./utils/logger";
+import * as perf from "./utils/perf";
 import { errorHandler, ErrorCode } from "./utils/errorHandler";
 import type {
   WireframeFrame,
+  WireframeNode,
   RenderContext,
   FontMapping,
   RenderWireframeData,
@@ -38,7 +40,14 @@ import {
   createWireframeFrame,
 } from "./rendering";
 import { convertW2WToWireframe } from "./rendering/css-converter";
+import { resetFontFailures } from "./rendering/fontLoader";
 import { extractHostname } from "./rendering/hostname";
+import {
+  createAnchorScope,
+  resolveAnchorReactions,
+  registerFlowStartingPoints,
+} from "./rendering/anchorLinks";
+import { buildNotifySummary, buildRelaunchSummary } from "./rendering/diagnostics";
 import {
   collectAllFonts,
   collectFontUsage,
@@ -57,8 +66,21 @@ import {
 import {
   rebindOriginalFonts,
   collectTextNodesIn,
-  countRebindableNodes,
+  buildRebindableCountPayload,
 } from "./rendering/rebindFonts";
+
+/**
+ * Dev profiler helper: tally the converted tree by node type so the stage
+ * timings can be read as ms/node. Walk-only — it never touches the render
+ * path, so it stays out of the hot loop.
+ */
+function countTreeNodes(node: WireframeNode | null | undefined): void {
+  if (!node) return;
+  perf.count("nodes", 1);
+  if (node.type === "text") perf.count("textNodes", 1);
+  else if (node.type === "placeholder") perf.count("imageNodes", 1);
+  for (const child of node.children || []) countTreeNodes(child);
+}
 
 // ============================================================================
 // Main Plugin Function
@@ -78,6 +100,10 @@ export default function () {
     autoOriginal: FontMapping;
   } | null = null;
 
+  // Dev profiler: wall-clock start of the current import, so the stage table
+  // can be compared against the time the user actually waited.
+  let renderStartedAt = 0;
+
   // Count text nodes on the current page still awaiting original-font re-apply
   // (they carry a non-empty `w2w_original_font` marker — imported with a
   // substituted font). The UI uses this to conditionally show the
@@ -87,29 +113,22 @@ export default function () {
       const pageNodes = figma.currentPage.findAll(
         (n) => n.type === "TEXT",
       ) as TextNode[];
-      const page = countRebindableNodes(pageNodes);
 
-      // Scope to the current selection too, so the footer button can offer a
-      // "Re-apply to selection" action. The rebind handler already honours the
-      // same selection-or-page scope, so the label matches what will happen.
+      // Scope to the current selection, so every number the modal shows —
+      // header count, per-font list, button label — describes what Re-apply
+      // will actually touch. The rebind handler honours the same
+      // selection-or-page scope.
       const selection = figma.currentPage.selection;
-      const selectionCount =
+      const selectionNodes =
         selection.length > 0
-          ? countRebindableNodes(
-              collectTextNodesIn(selection as unknown as SceneNode[]),
-            ).count
-          : 0;
+          ? collectTextNodesIn(selection as unknown as SceneNode[])
+          : [];
 
       figma.ui.postMessage({
         type: "rebindable-count",
-        data: {
-          count: page.count,
-          families: page.families,
-          selectionCount,
-          // Per-layer detail so the modal can render a clickable per-font
-          // list ("h1.u-text" → select & zoom).
-          layers: page.layers,
-        },
+        // Per-layer detail rides along so the modal can render a clickable
+        // per-font list ("h1.u-text" → select & zoom).
+        data: buildRebindableCountPayload(pageNodes, selectionNodes),
       });
     } catch {
       // Page scan can fail on unusual/huge docs — non-fatal, just skip.
@@ -172,8 +191,33 @@ export default function () {
       }
       return;
     }
+    // A row in the post-import report was clicked. Same behaviour as
+    // select-rebind-layer above, but any SceneNode qualifies — the report
+    // links to frames and images too, not only text.
+    if (msg.type === "select-import-warning-layer") {
+      const nodeId: unknown = msg.data?.nodeId;
+      if (typeof nodeId !== "string") return;
+      try {
+        const node =
+          typeof figma.getNodeByIdAsync === "function"
+            ? await figma.getNodeByIdAsync(nodeId)
+            : figma.getNodeById(nodeId);
+        if (node && "visible" in node) {
+          figma.currentPage.selection = [node as SceneNode];
+          figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
+        } else {
+          figma.notify("Layer no longer exists");
+        }
+      } catch {
+        figma.notify("Layer no longer exists");
+      }
+      return;
+    }
     // Handle font fallback choice from popup
     if (msg.type === "font-fallback-choice") {
+      // The user may have just installed the downloaded fonts — stale
+      // failure entries would keep steering this render to fallbacks.
+      resetFontFailures();
       if (pendingRenderData) {
         const { executeRender, autoOriginal } = pendingRenderData;
         const fontMapping: FontMapping = msg.data.fontMapping || {};
@@ -204,7 +248,26 @@ export default function () {
     // Handle render-wireframe message
     if (msg.type === "render-wireframe") {
       try {
+      // Fonts may have been installed since the last import — let failed
+      // loadFontAsync probes retry (successes stay cached; see fontLoader.ts).
+      resetFontFailures();
       const data = msg.data as RenderWireframeData;
+
+      // Dev profiler: the UI iframe and this sandbox are separate realms with
+      // separate perf tables, so the UI ships its rows with the message and we
+      // replay them here. `sentAt` closes the one gap neither side can time on
+      // its own — the postMessage structured clone of a multi-MB payload.
+      if (__W2W_DEV_LOG__) {
+        perf.reset();
+        renderStartedAt = Date.now();
+        if (typeof data.sentAt === "number") {
+          perf.mark("ui.bridge", Date.now() - data.sentAt);
+        }
+        for (const [label, ms] of Object.entries(data.perfUi || {})) {
+          perf.mark(label, ms);
+        }
+        perf.count("frames", data.frames?.length || 0);
+      }
       const {
         frames,
         sourceUrl,
@@ -218,6 +281,8 @@ export default function () {
         textMode,
         assetMode,
         interactionMode,
+        htmlLayerNames,
+        geometryRows,
       } = data;
 
       // Default colors if not provided
@@ -248,39 +313,18 @@ export default function () {
       // net but is now a no-op for content-script-format frames (its
       // guard checks isPlaceholderTree, so populated trees are skipped).
       // ----------------------------------------------------------------------
-      prePassConvertFrames(frames as Parameters<typeof prePassConvertFrames>[0], {
-        layoutMode: (layoutMode || "autoLayout") as "absolute" | "autoLayout",
-        interactionMode: (interactionMode || "none") as "none" | "variants",
-      });
+      perf.timedSync("prePassConvert", () =>
+        prePassConvertFrames(frames as Parameters<typeof prePassConvertFrames>[0], {
+          layoutMode: (layoutMode || "autoLayout") as "absolute" | "autoLayout",
+          interactionMode: (interactionMode || "none") as "none" | "variants",
+          htmlLayerNames: htmlLayerNames === true,
+          geometryRows: geometryRows === true,
+        })
+      );
 
-      // TEMP GRID DIAGNOSTIC — remove after debugging paco.me grid placement.
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const root: any = frames[0]?.tree;
-        let total = 0;
-        let gridCount = 0;
-        const gridLines: string[] = [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const walk = (n: any) => {
-          if (!n) return;
-          total++;
-          if (n.layoutMode === "GRID") {
-            gridCount++;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const kids = (n.children || [])
-              .map((c: any) => `${c.tag}(gcs=${c.gridColumnStart},w=${Math.round(c.width)})`)
-              .join(", ");
-            gridLines.push(`<${n.tag}> cols="${n.gridTemplateColumns}" gap=${n.gridColumnGap} kids=[${kids}]`);
-          }
-          (n.children || []).forEach(walk);
-        };
-        walk(root);
-        logger.info(
-          `[GRID-DIAG] layoutModeOpt=${layoutMode} format=${frames[0]?.capturedData ? "W2W" : "legacy"} total=${total} gridNodes=${gridCount} rootTag=${root?.tag} rootLayout=${root?.layoutMode}`
-        );
-        gridLines.slice(0, 25).forEach((l) => logger.info("[GRID-DIAG] " + l));
-      } catch (e) {
-        logger.warn("[GRID-DIAG] failed", { e: String(e) });
+      // Payload size, so the timings below can be read as ms/node.
+      if (__W2W_DEV_LOG__) {
+        for (const f of frames) countTreeNodes(f?.tree);
       }
 
       // Determine font family based on fontMode
@@ -375,6 +419,8 @@ export default function () {
             frameData.tree = convertW2WToWireframe(capturedFrame, {
               layoutMode: (layoutMode || 'autoLayout') as 'absolute' | 'autoLayout',
               interactionMode: interactionMode || 'none',
+              htmlLayerNames: htmlLayerNames === true,
+              geometryRows: geometryRows === true,
             });
           } catch (err) {
             logger.warn("Pre-pass tree conversion failed", { error: err });
@@ -398,9 +444,8 @@ export default function () {
             // Nest plugin styles under `{hostname}/Plugin` so multi-site
             // imports in Plugin Colors mode don't collide (e.g. importing
             // Tesla then Apple no longer overwrites `--accent`).
-            const pluginStyleMap = await createPluginColorStyles(
-              colors,
-              `${derivedHostname}/Plugin`,
+            const pluginStyleMap = await perf.timed("colorStyles", () =>
+              createPluginColorStyles(colors, `${derivedHostname}/Plugin`)
             );
             logger.info("Created plugin color styles", {
               styleCount: pluginStyleMap.size,
@@ -425,10 +470,8 @@ export default function () {
           figma.notify("Creating website color styles…", { timeout: 1500 });
 
           try {
-            const result = await createUnifiedWebsiteColorStyles(
-              frames,
-              cssVariables || [],
-              derivedHostname
+            const result = await perf.timed("colorStyles", () =>
+              createUnifiedWebsiteColorStyles(frames, cssVariables || [], derivedHostname)
             );
             logger.info("Created unified website color styles", {
               colorStyleCount: result.colorStyleMap.size,
@@ -485,7 +528,7 @@ export default function () {
         });
 
         // Send to UI for conversion and wait for response
-        const convertedAssets = await new Promise<Array<{ url: string; dataUri: string; frameIdx: number }>>((resolve) => {
+        const convertedAssets = await perf.timed("assetsConvert", () => new Promise<Array<{ url: string; dataUri: string; frameIdx: number }>>((resolve) => {
           // Temporarily add handler (will be overridden by next onmessage call)
           const origHandler = figma.ui.onmessage;
           figma.ui.onmessage = (msg) => {
@@ -504,7 +547,7 @@ export default function () {
 
           // Timeout after 30s
           setTimeout(() => resolve([]), 30000);
-        });
+        }));
 
         // Merge converted assets
         for (const converted of convertedAssets) {
@@ -549,6 +592,7 @@ export default function () {
         originalFontNames,
         fontRealNames: data.fontRealNames,
         fontDeclaredCuts: data.fontDeclaredCuts,
+        fontVariableFamilies: data.fontVariableFamilies,
         assetMode: assetMode || "placeholders",
         assetsMap,
         interactionMode: interactionMode || "none",
@@ -568,10 +612,8 @@ export default function () {
       // for clean wireframes.
       if (variableMode === "styles") {
         try {
-          const effectStyleMap = await createEffectStyles(
-            frames,
-            derivedHostname,
-            effectiveColorMode
+          const effectStyleMap = await perf.timed("otherStyles", () =>
+            createEffectStyles(frames, derivedHostname, effectiveColorMode)
           );
           renderContext.effectStyleMap = effectStyleMap;
           logger.info("Created effect styles", {
@@ -593,12 +635,14 @@ export default function () {
         });
 
         try {
-          const textStyleMap = await createTextStyles(
-            frames,
-            fontFamily,
-            effectiveFontMode,
-            originalFontNames,
-            derivedHostname
+          const textStyleMap = await perf.timed("otherStyles", () =>
+            createTextStyles(
+              frames,
+              fontFamily,
+              effectiveFontMode,
+              originalFontNames,
+              derivedHostname
+            )
           );
           renderContext.textStyleMap = textStyleMap;
           logger.info("Created text styles", {
@@ -613,7 +657,9 @@ export default function () {
       // get promoted to a reusable GridStyle. Nested sub-grids remain inline.
       if (variableMode === "styles") {
         try {
-          const gridStyleMap = await createGridStyles(frames, derivedHostname);
+          const gridStyleMap = await perf.timed("otherStyles", () =>
+            createGridStyles(frames, derivedHostname)
+          );
           renderContext.gridStyleMap = gridStyleMap;
           logger.info("Created grid styles", {
             styleCount: gridStyleMap.size,
@@ -654,7 +700,9 @@ export default function () {
       ) {
         try {
           const { buildIconLibrary } = await import("./rendering/svgLibrary");
-          const iconLib = await buildIconLibrary(frames, { componentIndex: 1 });
+          const iconLib = await perf.timed("iconLibrary", () =>
+            buildIconLibrary(frames, { componentIndex: 1 })
+          );
           if (iconLib) {
             renderContext.iconLibrary = iconLib;
             renderContext.componentWrappers!.push(iconLib.wrapper);
@@ -683,9 +731,8 @@ export default function () {
           // Sequential index continues after the icon library (so icons are
           // Component 1 and hover sets follow as Component 2, 3, …).
           const startIndex = renderContext.iconLibrary ? 2 : 1;
-          const registry = await buildHoverMasterRegistry(
-            frames,
-            renderContext,
+          const registry = await perf.timed("hoverRegistry", () =>
+            buildHoverMasterRegistry(frames, renderContext),
           );
           renderContext.hoverMasterRegistry = registry;
           // Phase C (h2d-parity): collect "Component N" wrapper FRAMEs (with
@@ -752,12 +799,21 @@ export default function () {
             frameData.assets = { ...frameData.assets, ...assetMap };
           }
 
-          const wireframeFrame = await createWireframeFrame(
-            frameData,
-            sourceUrl,
-            renderContext,
-            i
-          );
+          // Same-page `#anchor` wiring, scoped to THIS viewport frame: desktop
+          // and mobile captures both contain `id="faq"`, and a shared map would
+          // wire the mobile nav to the desktop section.
+          const anchorScope = createAnchorScope();
+          renderContext.anchorScope = anchorScope;
+          let wireframeFrame: FrameNode;
+          try {
+            wireframeFrame = await perf.timed("createWireframeFrame", () =>
+              createWireframeFrame(frameData, sourceUrl, renderContext, i)
+            );
+          } finally {
+            renderContext.anchorScope = undefined;
+          }
+          // Node ids only exist once rendered, so the hashes resolve now.
+          await perf.timed("anchorReactions", () => resolveAnchorReactions(anchorScope));
           createdFrames.push(wireframeFrame);
 
           figma.ui.postMessage({
@@ -783,7 +839,6 @@ export default function () {
           },
         });
 
-        // Create Section
         const section = figma.createSection();
 
         // Same extractHostname used for style-prefix — keeps section name
@@ -833,9 +888,25 @@ export default function () {
           maxHeight + sectionPadding * 2
         );
 
+        // Give Presentation mode a way in — one starting point per viewport.
+        // Runs after the frames are parented into the Section so the flows
+        // point at nodes that are settled on the page.
+        registerFlowStartingPoints(createdFrames);
+
         const viewport = figma.viewport.center;
         section.x = viewport.x - section.width / 2;
         section.y = viewport.y - section.height / 2;
+
+        // Stamp the import's state onto the Section itself, so months later
+        // the canvas still says what happened — Figma shows the summary under
+        // the plugin's relaunch button in the right-hand panel.
+        try {
+          section.setRelaunchData({
+            open: buildRelaunchSummary(renderContext.renderStats?.warnings),
+          });
+        } catch {
+          // setRelaunchData is unavailable in some hosts/tests — never fatal.
+        }
 
         const selectionTarget: SceneNode[] = [section];
 
@@ -895,10 +966,8 @@ export default function () {
         try {
           const { collectRenderOrphans } = await import("./rendering/orphanSweep");
           const keepIds = new Set(selectionTarget.map((n) => n.id));
-          const orphans = collectRenderOrphans(
-            figma.currentPage.children,
-            preexistingPageIds,
-            keepIds,
+          const orphans = perf.timedSync("orphanSweep", () =>
+            collectRenderOrphans(figma.currentPage.children, preexistingPageIds, keepIds),
           );
           for (const orphan of orphans) {
             try { orphan.remove(); } catch { /* non-fatal */ }
@@ -934,18 +1003,40 @@ export default function () {
           }
         );
 
-        // Surface silently-dropped subtrees. Without this a partially-lost
-        // import is indistinguishable from a perfect one (prod logger is a
-        // no-op, so the per-child catch messages never reach anyone).
-        const droppedNodes = renderContext.renderStats?.droppedNodes;
-        if (droppedNodes && droppedNodes.length > 0) {
-          logger.warn("Dropped nodes during render", {
-            count: droppedNodes.length,
-            samples: droppedNodes.slice(0, 20),
+        // Surface everything that quietly degraded: lost subtrees, substituted
+        // fonts, images and SVGs replaced by placeholders. Without this a
+        // partially-lost import is indistinguishable from a perfect one (the
+        // prod logger is a no-op, so none of it reaches anyone). The toast is
+        // the headline; the report modal in the UI carries the clickable list.
+        const warnings = renderContext.renderStats?.warnings ?? [];
+        const warningOverflow = renderContext.renderStats?.warningOverflow ?? 0;
+        if (warnings.length > 0) {
+          logger.warn("Import produced warnings", {
+            count: warnings.length,
+            overflow: warningOverflow,
+            samples: warnings.slice(0, 20),
           });
-          figma.notify(
-            `⚠️ ${droppedNodes.length} element(s) could not be rendered and were skipped`,
-            { timeout: 5000 }
+          figma.notify(`⚠️ ${buildNotifySummary(warnings)}`, { timeout: 5000 });
+        }
+
+        // Hand the list to the UI, which holds the report; the sandbox keeps
+        // the node ids so a click can come back as select-import-warning-layer.
+        figma.ui.postMessage({
+          type: "import-report",
+          data: { warnings, overflow: warningOverflow },
+        });
+
+        // Dev profiler: one table per import, out through the dev-log bridge.
+        // Gated at the call site so the `[w2w-perf]` sentinel never reaches a
+        // production bundle (scripts/build-prod.mjs greps for it).
+        if (__W2W_DEV_LOG__) {
+          const wall = Date.now() - renderStartedAt;
+          logger.info(
+            perf.report() +
+              "\n  " +
+              "WALL-CLOCK (since message)".padEnd(28) +
+              String(wall).padStart(8) +
+              "ms"
           );
         }
 
@@ -1025,10 +1116,13 @@ export default function () {
         const fontUsage = collectFontUsage(frames);
         // The real-name map goes in too: a cut is only truly missing when
         // neither the CSS family nor its real (SFNT) family ships it.
-        const { missing, missingCuts: rawMissingCuts } = await checkFontsAvailability(
-          allFonts,
-          fontUsage,
-          data.fontRealNames || {},
+        const { missing, missingCuts: rawMissingCuts } = await perf.timed("checkFonts", () =>
+          checkFontsAvailability(
+            allFonts,
+            fontUsage,
+            data.fontRealNames || {},
+            new Set(data.fontVariableFamilies || []),
+          ),
         );
         // A cut is only worth offering when some @font-face actually declares
         // a matching face — telex.ge fakes bold from one 400 file, and the

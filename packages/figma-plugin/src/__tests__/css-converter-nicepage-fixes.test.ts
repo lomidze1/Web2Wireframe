@@ -274,9 +274,14 @@ describe("same-row inline TEXT runs merge with styledSegments", () => {
         }),
       ],
     }));
-    // Contiguous different-font runs stay separate nodes (existing behavior)
-    expect(findNode(root, n => n.type === 'text' && n.textContent === 'Web2')).not.toBeNull();
-    expect(findNode(root, n => n.type === 'text' && n.textContent === 'Wireframe')).not.toBeNull();
+    // The inline run merge (rendering/textRunMerge.ts) now joins contiguous
+    // runs too — but ONLY by concatenating them: no space is invented, so the
+    // glyphs stay exactly where the browser painted them. Each run keeps its
+    // own font as a range, which is what used to require separate nodes.
+    const merged = findNode(root, n => n.type === 'text' && n.textContent === 'Web2Wireframe');
+    expect(merged).not.toBeNull();
+    expect(merged!.styledSegments!.map(s => s.text)).toEqual(['Web2', 'Wireframe']);
+    expect(findNode(root, n => n.type === 'text' && n.textContent === 'Web2 Wireframe')).toBeNull();
   });
 
   it("keeps runs on different rows separate (no false row merge)", () => {
@@ -316,7 +321,7 @@ describe("invisible spacer pseudo frames are dropped", () => {
         makeFrame({ tag: 'div', x: 0, y: 0, width: 64, height: 32, styles: { display: 'block', backgroundColor: 'rgb(0,0,0)' } }),
       ],
     }));
-    const pseudo = findNode(root, n => (n.name || '').includes('pseudo'));
+    const pseudo = findNode(root, n => (n.className || '').includes('pseudo'));
     expect(pseudo).toBeNull();
   });
 
@@ -331,7 +336,7 @@ describe("invisible spacer pseudo frames are dropped", () => {
         }),
       ],
     }));
-    const pseudo = findNode(root, n => (n.name || '').includes('pseudo'));
+    const pseudo = findNode(root, n => (n.className || '').includes('pseudo'));
     expect(pseudo).not.toBeNull();
   });
 });

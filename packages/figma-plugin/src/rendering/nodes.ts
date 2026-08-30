@@ -7,8 +7,12 @@ import type {
   WireframeNode,
   WireframeFrame,
   RenderContext,
+  CssTransform,
 } from "../types";
 import { logger } from "../utils/logger";
+import * as perf from "../utils/perf";
+import { loadFontCached } from "./fontLoader";
+import { registerAnchorNode } from "./anchorLinks";
 import {
   hexToFigmaRGB,
   cssColorToFigmaRGB,
@@ -21,8 +25,10 @@ import {
   getPluginColorForRole,
 } from "./colors";
 import { parseGradient } from "./gradients";
+import { parseInsetClipPath, insetClips, intersectRadii } from "./clipPath";
 import {
   applyCornerRadii,
+  getCornerRadii,
   inferAxisConstraint,
   cssJustifyToFigma,
   cssAlignToFigma,
@@ -33,6 +39,8 @@ import {
   createMarginWrapper,
   cssAlignToGridChild,
   cssJustifyToGridChild,
+  inferGridChildAlign,
+  growFitsContainer,
 } from "./layout";
 import {
   convertFillsToPaints,
@@ -40,13 +48,15 @@ import {
   convertEffectsToFigma,
   mapCSSBlendMode,
 } from "./fills";
+import { recordWarning } from "./diagnostics";
 import {
   linkEffectStyleIfAvailable,
   linkFillStyleIfAvailable,
   linkGridStyleIfAvailable,
   linkStrokeStyleIfAvailable,
 } from "./styles";
-import { createTextNode, createTextWithBackground } from "./text";
+import { createTextNode, createTextWithBackground, rescaleTextMetrics } from "./text";
+import { enforceMeasuredLineCount } from "./textLineGuard";
 import { createPlaceholder } from "./placeholders";
 import { createRealImage } from "./realImages";
 import { extractHostname } from "./hostname";
@@ -70,6 +80,19 @@ export { mapCSSBlendMode };
  * Apply fill to a frame with optional style linking (legacy support)
  */
 async function applyFillToFrame(
+  frame: FrameNode,
+  color: string,
+  context: RenderContext,
+  tag?: string,
+  className?: string
+): Promise<void> {
+  if (!__W2W_DEV_LOG__) return applyFillToFrameInner(frame, color, context, tag, className);
+  return perf.timed("node.fills", () =>
+    applyFillToFrameInner(frame, color, context, tag, className)
+  );
+}
+
+async function applyFillToFrameInner(
   frame: FrameNode,
   color: string,
   context: RenderContext,
@@ -118,6 +141,18 @@ async function applyFillToFrame(
  * Apply stroke to a frame with optional style linking (legacy support)
  */
 async function applyStrokeToFrame(
+  frame: FrameNode,
+  color: string,
+  strokeWeight: number,
+  context: RenderContext
+): Promise<void> {
+  if (!__W2W_DEV_LOG__) return applyStrokeToFrameInner(frame, color, strokeWeight, context);
+  return perf.timed("node.fills", () =>
+    applyStrokeToFrameInner(frame, color, strokeWeight, context)
+  );
+}
+
+async function applyStrokeToFrameInner(
   frame: FrameNode,
   color: string,
   strokeWeight: number,
@@ -176,6 +211,214 @@ export function shouldUseAutoLayout(
   return !!nodeLayoutMode && nodeLayoutMode !== "NONE";
 }
 
+/**
+ * Can these children's captured rects be reproduced by a VERTICAL stack?
+ *
+ * The VERTICAL fallback for block containers (layoutMode "NONE") is only an
+ * assumption — h2d derives the axis from measured geometry (`U8`) and emits NO
+ * auto-layout when the rects contradict it. Overlapping children (badge over
+ * avatar, layered hero sections) and side-by-side children (floats the
+ * converter's inference missed) restack into a column if we force VERTICAL, so
+ * such containers must stay plain frames with captured x/y instead.
+ *
+ * Out-of-flow (absolute/fixed) and zero-size children don't participate in the
+ * stack and are ignored. 0.51px is the global geometry epsilon (h2d's `fe`).
+ */
+/**
+ * Hide ABSOLUTE-positioned children while auto-layout props are applied to
+ * their parent — port of h2d's `Eh` (main-rawbundle.beautified.js:17623-17626).
+ *
+ * Figma's hug sizing still measures absolutely-positioned children while
+ * layout props are being written, so the parent computes the wrong size.
+ * Snapshot each absolute child's x/y/size/visibility, hide it, run the prop
+ * application, then restore everything — hidden children are ignored by
+ * auto-layout, so the measurement only sees the real flow content.
+ */
+export function withAbsoluteChildrenHidden(
+  frame: FrameNode,
+  fn: () => void
+): void {
+  const saved: Array<{
+    node: SceneNode;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    visible: boolean;
+  }> = [];
+  const kids: readonly SceneNode[] = "children" in frame ? frame.children : [];
+  for (const c of kids) {
+    if (
+      "layoutPositioning" in c &&
+      (c as FrameNode).layoutPositioning === "ABSOLUTE"
+    ) {
+      saved.push({
+        node: c,
+        x: c.x,
+        y: c.y,
+        width: c.width,
+        height: c.height,
+        visible: c.visible,
+      });
+      c.visible = false;
+    }
+  }
+  try {
+    fn();
+  } finally {
+    for (const s of saved) {
+      s.node.visible = s.visible;
+      s.node.x = s.x;
+      s.node.y = s.y;
+      if (s.node.width !== s.width || s.node.height !== s.height) {
+        const resizable = s.node as SceneNode & {
+          resizeWithoutConstraints?: (w: number, h: number) => void;
+          resize?: (w: number, h: number) => void;
+        };
+        if (typeof resizable.resizeWithoutConstraints === "function") {
+          resizable.resizeWithoutConstraints(s.width, s.height);
+        } else if (typeof resizable.resize === "function") {
+          resizable.resize(s.width, s.height);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Post-layout size guard — port of h2d's `nS`
+ * (main-rawbundle.beautified.js:17694-17698).
+ *
+ * After auto-layout is applied, a frame can settle narrower/shorter than the
+ * size captured from the browser (hug sizing measuring less content than the
+ * page really had). Nothing detected that, so containers silently shrank —
+ * the most common "the layout collapsed" complaint. When the frame came out
+ * smaller by more than the 10px tolerance, pin the counter axis with
+ * `minWidth` (VERTICAL) / `minHeight` (HORIZONTAL) at the captured value.
+ * Never lowers a larger CSS-derived min already on the frame.
+ */
+export function applyCapturedMinSize(
+  frame: FrameNode,
+  capturedWidth: number,
+  capturedHeight: number
+): void {
+  if (frame.layoutMode === "VERTICAL" && frame.width + 10 <= capturedWidth) {
+    frame.minWidth = Math.max(frame.minWidth ?? 0, capturedWidth);
+  } else if (
+    frame.layoutMode === "HORIZONTAL" &&
+    frame.height + 10 <= capturedHeight
+  ) {
+    frame.minHeight = Math.max(frame.minHeight ?? 0, capturedHeight);
+  }
+}
+
+/**
+ * Do the captured children all sit inside a single horizontal band?
+ *
+ * Figma's HORIZONTAL auto-layout has one row unless `layoutWrap: WRAP` applies.
+ * When the browser broke the children across several rows, packing them onto
+ * one line squeezes every child and strands the captured height (stripe.com's
+ * bento: 1510px of 1834px left empty).
+ *
+ * This is h2d's `U8` horizontal test: every in-flow child must fall within the
+ * TALLEST child's vertical span. Testing against the tallest child — rather
+ * than pairwise overlap — keeps legitimate rows whose items differ in height,
+ * and only rejects content that genuinely wrapped.
+ */
+/**
+ * Can Figma's `layoutWrap: WRAP` actually reproduce the captured rows?
+ *
+ * WRAP packs children onto lines greedily against the container width, so a
+ * child WIDER than the container forces a break the browser never made and
+ * every following row shifts. stripe.com's bento row captured 1230px while its
+ * `width: 100%` card measures 1232 — two pixels that turned the page's
+ * 2 + 3 + 1 grid into 1 + 2 + 2 + 1 with 692px of overflow.
+ *
+ * When the widths cannot work out, absolute placement from the captured x/y is
+ * the honest answer (and the one h2d gives), regardless of where the 2px went.
+ */
+export function wrapFitsChildren(
+  width: number,
+  children: WireframeNode[]
+): boolean {
+  return children.every(
+    (c) =>
+      c.position === "absolute" ||
+      c.position === "fixed" ||
+      c.width <= width + 0.51
+  );
+}
+
+export function geometryFormsSingleRow(children: WireframeNode[]): boolean {
+  const flow = children.filter(
+    (c) =>
+      c.position !== "absolute" &&
+      c.position !== "fixed" &&
+      c.width > 0.5 &&
+      c.height > 0.5
+  );
+  if (flow.length < 2) return true;
+
+  const tallest = flow.reduce((best, c) => (c.height > best.height ? c : best));
+  const top = tallest.y;
+  const bottom = tallest.y + tallest.height;
+  return flow.every(
+    (c) => c.y >= top - 0.51 && c.y + c.height <= bottom + 0.51
+  );
+}
+
+/**
+ * Resolve `growFitsContainer` for one already-configured auto-layout frame.
+ *
+ * Returns undefined when the question does not apply (no horizontal/vertical
+ * auto-layout), which callers read as "allowed".
+ */
+function evaluateGrowEligibility(
+  frame: FrameNode,
+  children: WireframeNode[]
+): boolean | undefined {
+  const horizontal = frame.layoutMode === "HORIZONTAL";
+  if (!horizontal && frame.layoutMode !== "VERTICAL") return undefined;
+
+  const flow = children.filter(
+    (c) => c.position !== "absolute" && c.position !== "fixed"
+  );
+  if (flow.length === 0) return undefined;
+
+  const growIndices: number[] = [];
+  flow.forEach((c, i) => {
+    if (c.layoutGrow === 1) growIndices.push(i);
+  });
+  if (growIndices.length === 0) return undefined;
+
+  return growFitsContainer({
+    parentLength: horizontal ? frame.width : frame.height,
+    paddingStart: horizontal ? frame.paddingLeft : frame.paddingTop,
+    paddingEnd: horizontal ? frame.paddingRight : frame.paddingBottom,
+    childLengths: flow.map((c) => (horizontal ? c.width : c.height)),
+    itemSpacing: frame.itemSpacing || 0,
+    growIndices,
+  });
+}
+
+export function geometrySupportsVerticalStack(
+  children: WireframeNode[]
+): boolean {
+  const flow = children
+    .filter(
+      (c) =>
+        c.position !== "absolute" &&
+        c.position !== "fixed" &&
+        c.width > 0.5 &&
+        c.height > 0.5
+    )
+    .sort((a, b) => a.y - b.y);
+  for (let i = 1; i < flow.length; i++) {
+    if (flow[i].y < flow[i - 1].y + flow[i - 1].height - 0.51) return false;
+  }
+  return true;
+}
+
 // ============================================================================
 // Recursive Node Creation
 // ============================================================================
@@ -194,6 +437,11 @@ export const MAX_RENDER_DEPTH = 40;
  * the logger is a no-op — without this record, a partially-lost import is
  * indistinguishable from a perfect one. main.ts surfaces the count via
  * figma.notify after rendering.
+ *
+ * Feeds two sinks: the legacy `droppedNodes` list (unchanged shape) and the
+ * categorised warning report, where a lost subtree is the `fatal` bucket.
+ * The node itself never came into existence, so there is no id to link to —
+ * the layer name is all the report can offer here.
  */
 export function recordDroppedNode(
   context: RenderContext,
@@ -201,10 +449,14 @@ export function recordDroppedNode(
   err: unknown
 ): void {
   if (!context.renderStats) return;
+  const layerName = name || "(unnamed)";
+  const reason = err instanceof Error ? err.message : String(err);
   if (!context.renderStats.droppedNodes) context.renderStats.droppedNodes = [];
-  context.renderStats.droppedNodes.push({
-    name: name || "(unnamed)",
-    error: err instanceof Error ? err.message : String(err),
+  context.renderStats.droppedNodes.push({ name: layerName, error: reason });
+  recordWarning(context, {
+    category: "fatal",
+    message: `Could not be rendered — skipped (${reason})`,
+    layerName,
   });
 }
 
@@ -220,6 +472,17 @@ export function recordDroppedNode(
  * {@link applyPaintDecorations}.
  */
 export function applySharedDecorations(
+  target: SceneNode | null,
+  node: WireframeNode,
+  context: RenderContext
+): void {
+  if (!__W2W_DEV_LOG__) return applySharedDecorationsInner(target, node, context);
+  perf.timedSync("node.decorations", () =>
+    applySharedDecorationsInner(target, node, context)
+  );
+}
+
+function applySharedDecorationsInner(
   target: SceneNode | null,
   node: WireframeNode,
   context: RenderContext
@@ -297,10 +560,23 @@ export function applyPaintDecorations(
   node: WireframeNode,
   context: RenderContext
 ): void {
+  if (!__W2W_DEV_LOG__) return applyPaintDecorationsInner(frame, node, context);
+  perf.timedSync("node.decorations", () =>
+    applyPaintDecorationsInner(frame, node, context)
+  );
+}
+
+function applyPaintDecorationsInner(
+  frame: FrameNode,
+  node: WireframeNode,
+  context: RenderContext
+): void {
   if (node.strokes && node.strokes.length > 0) {
     const { paints, weight, individualWeights, style } = convertStrokesToFigma(
       node.strokes,
-      context
+      context,
+      node.width,
+      node.height
     );
     if (paints.length > 0) {
       frame.strokes = paints;
@@ -332,6 +608,57 @@ export function applyPaintDecorations(
  * that the browser painted. Passing the node's own overflow — `undefined`
  * for the common case — turns that off.
  */
+/**
+ * Attach an ON_CLICK → URL prototype reaction, MERGING with whatever the node
+ * already carries. hoverConsolidation puts ON_HOVER reactions on some of these
+ * same nodes; assigning would silently delete the hover prototype.
+ */
+export async function attachLinkReaction(
+  target: SceneNode,
+  url: string,
+): Promise<void> {
+  if (!__W2W_DEV_LOG__) return attachLinkReactionInner(target, url);
+  return perf.timed("node.link", () => attachLinkReactionInner(target, url));
+}
+
+async function attachLinkReactionInner(
+  target: SceneNode,
+  url: string,
+): Promise<void> {
+  try {
+    const holder = target as unknown as {
+      reactions?: readonly Reaction[];
+      setReactionsAsync?: (r: Reaction[]) => Promise<void>;
+    };
+    const existing: Reaction[] = Array.isArray(holder.reactions) ? [...holder.reactions] : [];
+    // Re-rendering the same link (or a hover variant sharing the frame) must
+    // not stack duplicate click targets.
+    const alreadyLinked = existing.some((r) =>
+      (r.actions ?? []).some(
+        (a) => (a as { type?: string; url?: string }).type === "URL"
+          && (a as { url?: string }).url === url,
+      ),
+    );
+    if (alreadyLinked) return;
+
+    const reactions = [
+      ...existing,
+      {
+        trigger: { type: "ON_CLICK" },
+        actions: [{ type: "URL", url }],
+      },
+    ] as unknown as Reaction[];
+
+    if (typeof holder.setReactionsAsync === "function") {
+      await holder.setReactionsAsync(reactions);
+    } else {
+      (target as unknown as { reactions: Reaction[] }).reactions = reactions;
+    }
+  } catch {
+    // A prototype link is a nice-to-have — never fail the node over it.
+  }
+}
+
 export function cssOverflowClips(overflow: string | undefined): boolean {
   return overflow === "hidden" || overflow === "scroll" || overflow === "auto";
 }
@@ -354,7 +681,33 @@ export function dashPatternForStyle(
 /**
  * Recursively create Figma nodes from tree structure
  */
+/**
+ * Single choke point for anchor bookkeeping.
+ *
+ * Every node — TEXT, hover instance, pseudo-state default, plain frame — leaves
+ * the renderer through here, so registering the (WireframeNode, SceneNode) pair
+ * in this wrapper covers all of them without a second walk of the tree.
+ *
+ * A no-op when `context.anchorScope` is absent, which is exactly what keeps the
+ * off-canvas hover-master renders (buildHoverMasterRegistry runs BEFORE the
+ * frame loop sets a scope) out of the map.
+ */
 export async function createNodeInFigma(
+  node: WireframeNode,
+  context: RenderContext,
+  depth: number = 0
+): Promise<SceneNode | null> {
+  // Dev profiler: how many nodes actually reach Figma (the tree count includes
+  // nodes the renderer drops), so ms/node has the right denominator.
+  if (__W2W_DEV_LOG__) perf.count("renderedNodes", 1);
+  const created = await createNodeInFigmaInner(node, context, depth);
+  if (created && context.anchorScope) {
+    registerAnchorNode(context.anchorScope, node, created);
+  }
+  return created;
+}
+
+async function createNodeInFigmaInner(
   node: WireframeNode,
   context: RenderContext,
   depth: number = 0
@@ -496,9 +849,37 @@ export async function createNodeInFigma(
     (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") &&
     node.layoutMode === "VERTICAL";
 
+  // A block container (layoutMode "NONE") only gets the VERTICAL fallback when
+  // the captured child rects actually form a stack — otherwise the frame stays
+  // without auto-layout and children keep their captured x/y (the absolute
+  // branch below), matching h2d's geometry-first behavior.
+  const noneStackRejected =
+    (!node.layoutMode || node.layoutMode === "NONE") &&
+    !geometrySupportsVerticalStack(node.children || []);
+
+  // A HORIZONTAL container whose captured children span several rows can only
+  // be reproduced if Figma will wrap them. When WRAP is unavailable (see the
+  // `layoutWrap` conditions below) one row would flatten the whole 2-D layout,
+  // so fall back to absolute placement where the captured x/y already hold it.
+  const wrapWillApply =
+    (node.flexWrap === "wrap" || node.flexWrap === "wrap-reverse") &&
+    node.layoutSizingHorizontal !== "HUG" &&
+    // WRAP only earns precedence over the geometry veto when it can actually
+    // rebuild the captured rows — see wrapFitsChildren.
+    wrapFitsChildren(node.width, node.children || []);
+
+  const rowBandRejected =
+    node.layoutMode === "HORIZONTAL" &&
+    !wrapWillApply &&
+    (node.children?.length ?? 0) >= 2 &&
+    !geometryFormsSingleRow(node.children || []);
+
   // Apply Auto Layout: global autoLayout mode OR node has its own layout (e.g. card with VERTICAL)
   const useAutoLayout =
-    shouldUseAutoLayout(context.layoutMode, node.layoutMode) && !isColumnWrap;
+    shouldUseAutoLayout(context.layoutMode, node.layoutMode) &&
+    !isColumnWrap &&
+    !noneStackRejected &&
+    !rowBandRejected;
   const isGrid = node.layoutMode === "GRID" && context.layoutMode !== "absolute";
 
   let gridApplied = false;
@@ -616,7 +997,8 @@ export async function createNodeInFigma(
       node.fills,
       context,
       node.tag,
-      node.className
+      node.className,
+      { id: frame.id, name: frame.name || node.name }
     );
     if (paints.length > 0) {
       frame.fills = paints;
@@ -662,6 +1044,8 @@ export async function createNodeInFigma(
     const { paints, weight, individualWeights, style } = convertStrokesToFigma(
       node.strokes,
       context,
+      node.width,
+      node.height,
     );
     if (paints.length > 0) {
       frame.strokes = paints;
@@ -697,6 +1081,26 @@ export async function createNodeInFigma(
         frame.effects = figmaEffects;
       }
     }
+
+    // h2d `yD` (app.js:47021): a shadow on a fill-less frame has nothing to
+    // cast from — Figma silently drops it (every shadow on a transparent
+    // wrapper). Inject a nearly-invisible fill so the shadow rasterizes.
+    // Plugin-colors mode strips shadows entirely, so no ghost fill there.
+    const hasShadowEffect =
+      context.colorMode !== "plugin" &&
+      node.effects.some(
+        (e) =>
+          e.visible && (e.type === "DROP_SHADOW" || e.type === "INNER_SHADOW")
+      );
+    if (
+      hasShadowEffect &&
+      Array.isArray(frame.fills) &&
+      frame.fills.length === 0
+    ) {
+      frame.fills = [
+        { type: "SOLID", color: { r: 1, g: 1, b: 1 }, opacity: 0.002 },
+      ];
+    }
   }
 
   // Apply border radius (per-corner — asymmetric CSS radii stay asymmetric)
@@ -708,6 +1112,41 @@ export async function createNodeInFigma(
 
   // Clips content based on CSS overflow
   frame.clipsContent = cssOverflowClips(node.overflow);
+
+  // Prototype scroll direction, per frame (h2d parity) — a horizontal
+  // carousel or a wide code block imported fine but could not be scrolled to
+  // in Presentation mode while only the root was scrollable. Gated on
+  // clipsContent: a direction on a non-clipping frame is a Figma no-op that
+  // only adds noise to the prototype panel.
+  if (frame.clipsContent && node.scrollDirection) {
+    frame.overflowDirection = node.scrollDirection;
+  }
+
+  // CSS clip-path: inset() — an axis-aligned rounded rectangle, which Figma
+  // draws with clipsContent + cornerRadius. No mask node: a Figma mask is a
+  // SIBLING, so it would take an auto-layout slot and disturb the child
+  // stacking order sortChildrenForStacking just established.
+  //
+  // Runs AFTER the overflow line on purpose — a clip-path can only ADD
+  // clipping, never undo `overflow: hidden`. Every unsupported shape parses to
+  // null, and the whole block is guarded, so any failure degrades to the
+  // unclipped rectangle this rendered before rather than losing the node.
+  const insetClip = parseInsetClipPath(node.clipPath, node.width, node.height);
+  if (insetClip && !insetClip.isNoOp) {
+    try {
+      if (insetClip.radius !== null) {
+        applyCornerRadii(
+          frame,
+          intersectRadii(getCornerRadii(node.borderRadius), insetClip.radius),
+          node.width,
+          node.height
+        );
+      }
+      if (insetClips(insetClip)) frame.clipsContent = true;
+    } catch {
+      // Best-effort: leave the frame unclipped.
+    }
+  }
 
   // FIX 4: tag frames that have their own hover diff via pluginData.
   // This survives Figma's `clone()` when creating variant components, so
@@ -739,11 +1178,20 @@ export async function createNodeInFigma(
     const currentBgColor = getDominantColorFromPaints(frame.fills as Paint[]);
     const effectiveParentBg = currentBgColor || context.parentBackgroundColor;
 
+    // `flex-grow` only licenses Figma's layoutGrow when the measured children
+    // already fill this frame — otherwise Figma redistributes space CSS never
+    // handed out and squeezes every child (stripe.com's bento, 191.67px each).
+    // Read the values actually applied to the frame, not the CSS ones.
+    const growEligible = parentHasAutoLayout
+      ? evaluateGrowEligibility(frame, node.children)
+      : undefined;
+
     // Create child context with parent background and width tracking
     const childContext: RenderContext = {
       ...context,
       parentBackgroundColor: effectiveParentBg,
       parentWidth: node.width,
+      growEligible,
     };
 
     // Sort grid children by position for correct auto-placement
@@ -828,15 +1276,43 @@ export async function createNodeInFigma(
               if (typeof rowSpan === 'number' && rowSpan > 1) {
                 gridChild.gridRowSpan = rowSpan;
               }
-              // Apply grid cell alignment from parent's CSS
+              // Apply grid cell alignment from parent's CSS. `STRETCH` means
+              // CSS said nothing (it is the map's fallback), so a single-child
+              // grid falls back to the measured insets — `justify-items`, the
+              // property that centres an item horizontally, is not part of the
+              // capture at all, and `place-items: center` reaches us as
+              // `align-items` alone (glinc.io's 64x64 icon box).
+              //
+              // Only a single child gets the geometric read: with one item the
+              // cell IS the content box, whereas naming a cell in a multi-track
+              // grid would need track sizes we do not carry — and there CSS's
+              // default stretch is already right.
+              const soleGridChild = node.children.length === 1;
+              const contentWidth = node.width - node.padding.left - node.padding.right;
+              const contentHeight = node.height - node.padding.top - node.padding.bottom;
+
               const vertAlign = cssAlignToGridChild(node.alignItems);
               if (vertAlign !== "STRETCH") {
                 gridChild.gridChildVerticalAlign = vertAlign;
+              } else if (soleGridChild) {
+                const measured = inferGridChildAlign(
+                  child.y - node.padding.top,
+                  child.height,
+                  contentHeight,
+                );
+                if (measured) gridChild.gridChildVerticalAlign = measured;
               }
-              // Horizontal cell alignment from CSS justify-items
+
               const horizAlign = cssJustifyToGridChild(node.justifyContent);
               if (horizAlign !== "STRETCH") {
                 gridChild.gridChildHorizontalAlign = horizAlign;
+              } else if (soleGridChild) {
+                const measured = inferGridChildAlign(
+                  child.x - node.padding.left,
+                  child.width,
+                  contentWidth,
+                );
+                if (measured) gridChild.gridChildHorizontalAlign = measured;
               }
             } catch (err) {
               // Grid span/alignment uses Symbol proxies — log so regressions are visible.
@@ -860,7 +1336,7 @@ export async function createNodeInFigma(
             // scrolled during capture, not their natural flow position.
             // Figma has no scroll, so sticky = natural flow position.
             childNode.y = child.position === "sticky" ? 0 : child.y;
-            applyStaticRotation(childNode, child, childNode.x, childNode.y);
+            applyCssTransform(childNode, child, childNode.x, childNode.y);
           }
         }
       } catch (err) {
@@ -885,16 +1361,15 @@ export async function createNodeInFigma(
   ) {
     try {
       const textNode = figma.createText();
-      await figma.loadFontAsync({
-        family: context.fontFamily,
-        style: "Regular",
-      });
+      if (!(await loadFontCached(context.fontFamily, "Regular"))) {
+        throw new Error(`Font unavailable: ${context.fontFamily} Regular`);
+      }
 
       // Set fontName BEFORE characters — createText() defaults to "Inter Regular",
       // but we loaded context.fontFamily. Must switch font first to avoid unloaded font error.
       textNode.fontName = { family: context.fontFamily, style: "Regular" };
       textNode.characters = node.textContent;
-      textNode.name = node.textContent.substring(0, 20);
+      textNode.name = node.name || node.textContent.substring(0, 20);
       textNode.fontSize = node.fontSize || 16;
 
       // Apply text color
@@ -979,6 +1454,12 @@ export async function createNodeInFigma(
     }
   }
 
+  // Children (and any textContent) are in — hug sizing has settled, so check
+  // the frame didn't come out smaller than the browser measured it.
+  if (useAutoLayout && !gridApplied) {
+    applyCapturedMinSize(frame, node.width, node.height);
+  }
+
   // Pseudo-state variants: convert to ComponentSet if enabled.
   // FIX 4: also trigger when descendants carry their own hover diffs, even
   // if the current node's own diff is empty (parent-hover → child case).
@@ -1053,6 +1534,7 @@ export async function createNodeInFigma(
             }
 
             if (context.renderStats) context.renderStats.hoverCacheHits += 1;
+            if (node.linkReactionUrl) await attachLinkReaction(instance, node.linkReactionUrl);
             return instance;
           }
         }
@@ -1086,6 +1568,7 @@ export async function createNodeInFigma(
         if (context.renderStats) context.renderStats.hoverCacheMisses += 1;
         context.componentSets?.push(componentSet);
       }
+      if (node.linkReactionUrl) await attachLinkReaction(defaultInstance, node.linkReactionUrl);
       return defaultInstance;
     } catch (err) {
       if (context.renderStats) context.renderStats.pseudoErrors += 1;
@@ -1124,6 +1607,13 @@ export async function createNodeInFigma(
     } catch {
       // Non-fatal — cursor:pointer is a nice-to-have, never block render.
     }
+  }
+
+  // Non-text link (logo, icon, image card): the frame IS the click target.
+  // Runs after the cursor:pointer block above, which assigns `reactions`
+  // wholesale — merging first would lose the click-through.
+  if (node.linkReactionUrl) {
+    await attachLinkReaction(frame, node.linkReactionUrl);
   }
 
   return frame;
@@ -1183,29 +1673,140 @@ export function computeRotatedPlacement(
   };
 }
 
+/** Smallest scale factor we will divide by / emit a matrix for. */
+const MIN_SCALE = 1e-3;
+
+export interface TransformPlacement {
+  /** Node size with the transform's scale baked in (Figma matrices cannot scale). */
+  width: number;
+  height: number;
+  /** Unit-axis 2x3 matrix for `node.relativeTransform`. */
+  transform: Transform;
+  /** Axis scale factors, for scaling min/max constraints and text metrics. */
+  scaleX: number;
+  scaleY: number;
+}
+
 /**
- * Apply a WireframeNode's static CSS rotation to an already-positioned Figma
- * node. No-ops when the node has no rotation or the geometry is degenerate.
- * `baseX`/`baseY` are the coordinates where the AABB was placed.
+ * Recover a transformed element's Figma placement from its captured AABB.
+ *
+ * getBoundingClientRect returns the axis-aligned bounding box of the
+ * transformed element, so (aabbW, aabbH) are projected dimensions. With
+ * M = [[a, c], [b, d]] the untransformed box (w, h) satisfies
+ *
+ *   W = w·|a| + h·|c|          det = |a|·|d| − |b|·|c|
+ *   H = w·|b| + h·|d|    →     w = (W·|d| − H·|c|) / det
+ *                              h = (H·|a| − W·|b|) / det
+ *
+ * (For pure rotation det collapses to cos2θ and this is exactly
+ * computeRotatedPlacement; for pure scale it is w = W/scaleX.)
+ *
+ * The transformed box's edge vectors are then Xv = (a·w, b·w) and
+ * Yv = (c·h, d·h). Figma requires `relativeTransform` to have UNIT axes, so we
+ * split them: their LENGTHS become the node's width/height, and their
+ * DIRECTIONS become the matrix. Translation is whatever makes the resulting
+ * parallelogram's bounding box land back on the captured AABB — which is why
+ * transform-origin plays no part (see the css-converter header for the proof).
+ *
+ * Returns null when the system is unsolvable (the degenerate ~45° case) or the
+ * matrix is collapsed — callers keep the upright AABB rendering then.
  */
-function applyStaticRotation(
+export function computeTransformPlacement(
+  aabbX: number,
+  aabbY: number,
+  aabbW: number,
+  aabbH: number,
+  t: CssTransform,
+): TransformPlacement | null {
+  const { a, b, c, d } = t;
+  if (![a, b, c, d].every(Number.isFinite)) return null;
+
+  const det = Math.abs(a) * Math.abs(d) - Math.abs(b) * Math.abs(c);
+  if (Math.abs(det) < 0.1) return null; // unsolvable near 45°
+
+  const w = (aabbW * Math.abs(d) - aabbH * Math.abs(c)) / det;
+  const h = (aabbH * Math.abs(a) - aabbW * Math.abs(b)) / det;
+  if (!isFinite(w) || !isFinite(h) || w < 1 || h < 1) return null;
+
+  // Edge vectors of the rendered parallelogram.
+  const xvX = a * w, xvY = b * w;
+  const yvX = c * h, yvY = d * h;
+
+  const width = Math.hypot(xvX, xvY);
+  const height = Math.hypot(yvX, yvY);
+  const scaleX = Math.hypot(a, b);
+  const scaleY = Math.hypot(c, d);
+  if (scaleX < MIN_SCALE || scaleY < MIN_SCALE) return null;
+  if (width < MIN_SCALE || height < MIN_SCALE) return null;
+
+  // Min corner of the parallelogram relative to the node's own origin.
+  const minX = Math.min(0, xvX, yvX, xvX + yvX);
+  const minY = Math.min(0, xvY, yvY, xvY + yvY);
+
+  return {
+    width,
+    height,
+    scaleX,
+    scaleY,
+    transform: [
+      [a / scaleX, c / scaleY, aabbX - minX],
+      [b / scaleX, d / scaleY, aabbY - minY],
+    ],
+  };
+}
+
+/**
+ * Axis scale factors of a transform, for converting CSS lengths into the node's
+ * rendered space. The captured width/height are the AABB of the *transformed*
+ * element, so they already carry the scale — but CSS min/max lengths do not.
+ * Without this a `scale(1.2)` box gets a 120px width and a 100px minWidth.
+ *
+ * Always positive (a mirror scales by 1, it does not shrink), and falls back to
+ * 1 for a collapsed or non-finite matrix so a bad transform can never zero out
+ * a constraint.
+ */
+export function cssBoundScales(t: CssTransform | undefined): { sx: number; sy: number } {
+  if (!t) return { sx: 1, sy: 1 };
+  const sx = Math.hypot(t.a, t.b);
+  const sy = Math.hypot(t.c, t.d);
+  return {
+    sx: Number.isFinite(sx) && sx >= MIN_SCALE ? sx : 1,
+    sy: Number.isFinite(sy) && sy >= MIN_SCALE ? sy : 1,
+  };
+}
+
+/**
+ * Apply a WireframeNode's static CSS transform to an already-positioned Figma
+ * node. No-ops when the node has no transform or the geometry is degenerate.
+ * `baseX`/`baseY` are the coordinates where the AABB was placed.
+ *
+ * Never sets `.rotation` afterwards: that setter rewrites m00/m01/m10/m11 and
+ * would destroy any skew we just wrote.
+ */
+export function applyCssTransform(
   childNode: SceneNode,
   child: WireframeNode,
   baseX: number,
   baseY: number,
 ): void {
-  if (typeof child.rotation !== 'number') return;
-  const placement = computeRotatedPlacement(baseX, baseY, child.width, child.height, child.rotation);
+  if (!child.transform) return;
+  const placement = computeTransformPlacement(baseX, baseY, child.width, child.height, child.transform);
   if (!placement) return;
   try {
+    // Glyphs first: the captured fontSize is untransformed, so a scaled text
+    // node would otherwise render full-size type in a scaled box. Done before
+    // the resize so the resize has the final say on the box.
+    if (childNode.type === "TEXT") {
+      rescaleTextMetrics(childNode, placement.scaleX, placement.scaleY);
+    }
     if ('resize' in childNode) {
       (childNode as FrameNode).resize(Math.max(placement.width, 1), Math.max(placement.height, 1));
     }
-    (childNode as FrameNode).rotation = placement.figmaRotation;
-    childNode.x = placement.x;
-    childNode.y = placement.y;
+    (childNode as FrameNode).relativeTransform = placement.transform;
   } catch {
-    // Rotation is best-effort — never break the render for it.
+    // Transforms are best-effort — never break the render for one. A wrong
+    // transform is a visual bug; a thrown one loses the whole subtree through
+    // the per-child catch.
   }
 }
 
@@ -1226,6 +1827,10 @@ function applyChildInAutoLayout(
 ): void {
   // Absolute/fixed: position directly, no wrapper
   if (child.position === "absolute" || child.position === "fixed") {
+    // Hidden during the append → ABSOLUTE transition so the parent's hug
+    // sizing never measures the child in normal flow (h2d `Eh` behavior).
+    const wasVisible = childNode.visible;
+    childNode.visible = false;
     parentFrame.appendChild(childNode);
     if ("layoutPositioning" in childNode) {
       (childNode as FrameNode | TextNode).layoutPositioning = "ABSOLUTE";
@@ -1246,7 +1851,11 @@ function applyChildInAutoLayout(
         // Constraints unsupported on this node type — keep defaults.
       }
     }
-    applyStaticRotation(childNode, child, child.x, child.y);
+    applyCssTransform(childNode, child, child.x, child.y);
+    if (childNode.type === "TEXT") {
+      enforceMeasuredLineCount(childNode as TextNode, child);
+    }
+    childNode.visible = wasVisible;
     return;
   }
 
@@ -1268,15 +1877,19 @@ function applyChildInAutoLayout(
   // Enforces the CSS constraint regardless of downstream FILL/HUG decisions
   // (e.g. createMarginWrapper forces TEXT children to FILL, which would
   // otherwise stretch a max-width:265px paragraph to its parent's 635px).
+  // CSS lengths are untransformed; the node's size is the scaled AABB.
+  const { sx: boundSx, sy: boundSy } = cssBoundScales(child.transform);
+
   if (typeof child.cssMaxWidth === "number" && child.cssMaxWidth > 0) {
-    const wrapperMaxW = child.cssMaxWidth
+    const maxW = child.cssMaxWidth * boundSx;
+    const wrapperMaxW = maxW
       + (child.margin?.left || 0)
       + (child.margin?.right || 0);
     if (wrapper && "maxWidth" in wrapper) {
       wrapper.maxWidth = wrapperMaxW;
     }
     if ("maxWidth" in childNode) {
-      (childNode as FrameNode | TextNode).maxWidth = child.cssMaxWidth;
+      (childNode as FrameNode | TextNode).maxWidth = maxW;
     }
   }
 
@@ -1285,14 +1898,18 @@ function applyChildInAutoLayout(
   // These keep the imported layout behaving like the source CSS when the
   // designer edits content (a min-height hero holds its floor when its text
   // shrinks; a FILL child can't collapse below its CSS min-width).
+  // Math.max: applyCapturedMinSize may already have pinned a larger
+  // captured-size floor on this frame — the CSS value must not lower it.
   if (typeof child.cssMinWidth === "number" && child.cssMinWidth > 0) {
     if ("minWidth" in childNode) {
-      (childNode as FrameNode | TextNode).minWidth = child.cssMinWidth;
+      const fc = childNode as FrameNode | TextNode;
+      fc.minWidth = Math.max(fc.minWidth ?? 0, child.cssMinWidth * boundSx);
     }
   }
   if (typeof child.cssMinHeight === "number" && child.cssMinHeight > 0) {
     if ("minHeight" in childNode) {
-      (childNode as FrameNode | TextNode).minHeight = child.cssMinHeight;
+      const fc = childNode as FrameNode | TextNode;
+      fc.minHeight = Math.max(fc.minHeight ?? 0, child.cssMinHeight * boundSy);
     }
   }
   if (
@@ -1302,7 +1919,7 @@ function applyChildInAutoLayout(
     (typeof child.cssMinHeight !== "number" || child.cssMaxHeight >= child.cssMinHeight)
   ) {
     if ("maxHeight" in childNode) {
-      (childNode as FrameNode | TextNode).maxHeight = child.cssMaxHeight;
+      (childNode as FrameNode | TextNode).maxHeight = child.cssMaxHeight * boundSy;
     }
   }
 
@@ -1318,90 +1935,92 @@ function applyChildInAutoLayout(
     const target = wrapper || (childNode as FrameNode);
     const frameChild = childNode as FrameNode;
 
-    // layoutGrow
-    if (child.layoutGrow === 1) {
-      target.layoutGrow = 1;
-    }
+    // Absolute descendants must not be measured while these layout props are
+    // applied (h2d `Eh`) — hug sizing counts them otherwise.
+    withAbsoluteChildrenHidden(frameChild, () => {
+      // `flex-grow` is only honoured when the parent's measured children fill
+      // it exactly — otherwise Figma re-divides space the browser never gave.
+      const grows = child.layoutGrow === 1 && context.growEligible !== false;
 
-    // layoutAlign from CSS align-self
-    const selfAlign = cssAlignSelfToFigma(
-      child.alignSelf,
-      parentFrame.counterAxisAlignItems
-    );
-    const resolvedAlign = resolveChildLayoutAlign(selfAlign, child.layoutAlign);
-    if (resolvedAlign) {
-      target.layoutAlign = resolvedAlign;
-    }
+      // layoutGrow
+      if (grows) {
+        target.layoutGrow = 1;
+      }
 
-    if (isHorizontalLayout) {
-      // Main axis = horizontal
-      if (
-        child.layoutSizingHorizontal === "FILL" ||
-        child.layoutGrow === 1
-      ) {
-        if (parentFrame.layoutSizingHorizontal === "HUG") {
-          target.layoutSizingHorizontal = "HUG";
-        } else {
+      // layoutAlign from CSS align-self
+      const selfAlign = cssAlignSelfToFigma(
+        child.alignSelf,
+        parentFrame.counterAxisAlignItems
+      );
+      const resolvedAlign = resolveChildLayoutAlign(selfAlign, child.layoutAlign);
+      if (resolvedAlign) {
+        target.layoutAlign = resolvedAlign;
+      }
+
+      if (isHorizontalLayout) {
+        // Main axis = horizontal
+        if (child.layoutSizingHorizontal === "FILL" || grows) {
+          if (parentFrame.layoutSizingHorizontal === "HUG") {
+            target.layoutSizingHorizontal = "HUG";
+          } else {
+            target.layoutSizingHorizontal = "FILL";
+            if (child.horizontallyCentered && child.width < (context.parentWidth || Infinity)) {
+              target.maxWidth = child.width + (child.margin?.left || 0) + (child.margin?.right || 0);
+            }
+          }
+        } else if (
+          !wrapper &&
+          child.layoutSizingHorizontal === "HUG" &&
+          frameChild.layoutMode !== "NONE"
+        ) {
+          frameChild.layoutSizingHorizontal = "HUG";
+        }
+        // Cross axis = vertical
+        if (
+          child.layoutAlign === "STRETCH" ||
+          child.layoutSizingVertical === "FILL"
+        ) {
+          target.layoutSizingVertical = "FILL";
+        } else if (
+          !wrapper &&
+          child.layoutSizingVertical === "HUG" &&
+          frameChild.layoutMode !== "NONE"
+        ) {
+          frameChild.layoutSizingVertical = "HUG";
+        }
+      } else {
+        // Main axis = vertical
+        if (child.layoutSizingVertical === "FILL" || grows) {
+          if (parentFrame.layoutSizingVertical === "HUG") {
+            target.layoutSizingVertical = "HUG";
+          } else {
+            target.layoutSizingVertical = "FILL";
+          }
+        } else if (
+          !wrapper &&
+          child.layoutSizingVertical === "HUG" &&
+          frameChild.layoutMode !== "NONE"
+        ) {
+          frameChild.layoutSizingVertical = "HUG";
+        }
+        // Cross axis = horizontal
+        if (
+          child.layoutAlign === "STRETCH" ||
+          child.layoutSizingHorizontal === "FILL"
+        ) {
           target.layoutSizingHorizontal = "FILL";
           if (child.horizontallyCentered && child.width < (context.parentWidth || Infinity)) {
             target.maxWidth = child.width + (child.margin?.left || 0) + (child.margin?.right || 0);
           }
+        } else if (
+          !wrapper &&
+          child.layoutSizingHorizontal === "HUG" &&
+          frameChild.layoutMode !== "NONE"
+        ) {
+          frameChild.layoutSizingHorizontal = "HUG";
         }
-      } else if (
-        !wrapper &&
-        child.layoutSizingHorizontal === "HUG" &&
-        frameChild.layoutMode !== "NONE"
-      ) {
-        frameChild.layoutSizingHorizontal = "HUG";
       }
-      // Cross axis = vertical
-      if (
-        child.layoutAlign === "STRETCH" ||
-        child.layoutSizingVertical === "FILL"
-      ) {
-        target.layoutSizingVertical = "FILL";
-      } else if (
-        !wrapper &&
-        child.layoutSizingVertical === "HUG" &&
-        frameChild.layoutMode !== "NONE"
-      ) {
-        frameChild.layoutSizingVertical = "HUG";
-      }
-    } else {
-      // Main axis = vertical
-      if (
-        child.layoutSizingVertical === "FILL" ||
-        child.layoutGrow === 1
-      ) {
-        if (parentFrame.layoutSizingVertical === "HUG") {
-          target.layoutSizingVertical = "HUG";
-        } else {
-          target.layoutSizingVertical = "FILL";
-        }
-      } else if (
-        !wrapper &&
-        child.layoutSizingVertical === "HUG" &&
-        frameChild.layoutMode !== "NONE"
-      ) {
-        frameChild.layoutSizingVertical = "HUG";
-      }
-      // Cross axis = horizontal
-      if (
-        child.layoutAlign === "STRETCH" ||
-        child.layoutSizingHorizontal === "FILL"
-      ) {
-        target.layoutSizingHorizontal = "FILL";
-        if (child.horizontallyCentered && child.width < (context.parentWidth || Infinity)) {
-          target.maxWidth = child.width + (child.margin?.left || 0) + (child.margin?.right || 0);
-        }
-      } else if (
-        !wrapper &&
-        child.layoutSizingHorizontal === "HUG" &&
-        frameChild.layoutMode !== "NONE"
-      ) {
-        frameChild.layoutSizingHorizontal = "HUG";
-      }
-    }
+    });
   } else if (childNode.type === "TEXT") {
     const textChild = childNode as TextNode;
     const isMultiLine = (child.browserLineCount || 1) > 1;
@@ -1484,6 +2103,13 @@ function applyChildInAutoLayout(
         }
       }
     }
+
+    // LAST: every branch above can hand the wrap back to Figma (HEIGHT +
+    // fixed width), and Figma wraps with the font that actually resolved. If
+    // that lands on more lines than the browser measured, the box grows and
+    // overflows into the next sibling — stripe.com's stats heading gained a
+    // third line and 60px. Re-bake the measured breaks only when it happens.
+    enforceMeasuredLineCount(textChild, child);
   }
 }
 
@@ -1625,16 +2251,17 @@ export async function createWireframeFrame(
 ): Promise<FrameNode> {
   const { pluginColors, fontFamily } = context;
 
-  // Load required fonts
-  try {
-    await figma.loadFontAsync({ family: fontFamily, style: "Regular" });
-    await figma.loadFontAsync({ family: fontFamily, style: "Medium" });
-    await figma.loadFontAsync({ family: fontFamily, style: "Bold" });
-  } catch {
+  // Load required fonts — sequential on purpose, matching the old
+  // "first failure aborts to Inter" behaviour exactly.
+  const preloadOk =
+    (await loadFontCached(fontFamily, "Regular")) &&
+    (await loadFontCached(fontFamily, "Medium")) &&
+    (await loadFontCached(fontFamily, "Bold"));
+  if (!preloadOk) {
     logger.warn("Failed to load custom fonts, using Inter", { fontFamily });
-    await figma.loadFontAsync({ family: "Inter", style: "Regular" });
-    await figma.loadFontAsync({ family: "Inter", style: "Medium" });
-    await figma.loadFontAsync({ family: "Inter", style: "Bold" });
+    await loadFontCached("Inter", "Regular");
+    await loadFontCached("Inter", "Medium");
+    await loadFontCached("Inter", "Bold");
   }
 
   // Create main frame
@@ -1693,7 +2320,9 @@ export async function createWireframeFrame(
       const rootFills = convertFillsToPaints(
         frameData.tree.fills,
         context,
-        frameData.tree.tag
+        frameData.tree.tag,
+        undefined,
+        { id: wireframeFrame.id, name: wireframeFrame.name }
       );
       if (rootFills.length > 0) {
         wireframeFrame.fills = rootFills;
@@ -1722,7 +2351,15 @@ export async function createWireframeFrame(
 
   // Enable vertical scrolling on root frame so that position:fixed children
   // can be marked as "Fixed (stay in place)" via numberOfFixedChildren.
-  wireframeFrame.overflowDirection = "VERTICAL";
+  //
+  // VERTICAL is a FLOOR, not a reading of the capture: a page whose <html>
+  // declares no overflow must still scroll down, so the fallback arm is
+  // unconditional. The captured overflow can only ever widen the root to BOTH
+  // (a horizontally scrolling page); it can never narrow it to NONE or to
+  // horizontal-only, which would stop an ordinary import from scrolling.
+  const rootScroll = frameData.tree?.scrollDirection;
+  wireframeFrame.overflowDirection =
+    rootScroll === "BOTH" || rootScroll === "HORIZONTAL" ? "BOTH" : "VERTICAL";
 
   // Apply Auto Layout to root frame when in autoLayout mode
   const useAutoLayout = context.layoutMode === "autoLayout";
@@ -1801,7 +2438,7 @@ export async function createWireframeFrame(
             // Sticky elements: use y=0 (see nested comment for explanation)
             childNode.y = child.position === "sticky" ? 0 : child.y;
             wireframeFrame.appendChild(childNode);
-            applyStaticRotation(childNode, child, childNode.x, childNode.y);
+            applyCssTransform(childNode, child, childNode.x, childNode.y);
           }
         }
       } catch (err) {
@@ -1837,6 +2474,10 @@ export async function createWireframeFrame(
           insertFixedSpacer(fixedNode as FrameNode);
         }
 
+        // Hidden during the re-parent → ABSOLUTE transition so the root's
+        // HUG height never measures the fixed node in normal flow (h2d `Eh`).
+        const wasVisible = fixedNode.visible;
+        fixedNode.visible = false;
         // appendChild on an already-parented node moves it (re-parents)
         wireframeFrame.appendChild(fixedNode);
         // Set absolute positioning so it overlays at its original x/y.
@@ -1873,6 +2514,7 @@ export async function createWireframeFrame(
             // getPluginData / coordinate setters may fail in mocks
           }
         }
+        fixedNode.visible = wasVisible;
       }
       wireframeFrame.numberOfFixedChildren = fixedNodes.length;
     }
@@ -2259,14 +2901,44 @@ export function effectiveStackingLayoutMode(
 }
 
 /**
- * Out of normal flow AND explicitly stacked behind its siblings — the one case
- * where reordering a child under auto-layout is safe and necessary.
+ * The lowest z-index among the IN-FLOW siblings — but only when EVERY one of
+ * them is CSS-positioned (`relative`/`sticky`) and carries a numeric z-index.
+ * Otherwise `undefined`, meaning "no floor, leave the DOM order alone".
+ *
+ * Both halves of that guard matter:
+ *   • A z-index on a `static` child has NO effect in CSS, so telex.ge's static
+ *     `div.tygh-header` (z-index: 5) must not license any reordering.
+ *   • With a MIX of positioned and static in-flow siblings there is no single
+ *     right answer: auto layout offers only "before all in-flow" and "after
+ *     all in-flow", and an out-of-flow child can legitimately belong between
+ *     them. Guessing is worse than leaving the existing rules in charge.
  */
-function isBehindSiblings(child: WireframeNode): boolean {
-  return (
-    (child.position === "absolute" || child.position === "fixed") &&
-    (child.zIndex ?? 0) < 0
-  );
+function inFlowPositionedZFloor(children: WireframeNode[]): number | undefined {
+  let floor: number | undefined;
+  for (const child of children) {
+    if (child.position === "absolute" || child.position === "fixed") continue;
+    if (child.position !== "relative" && child.position !== "sticky") return undefined;
+    if (typeof child.zIndex !== "number") return undefined;
+    floor = floor === undefined ? child.zIndex : Math.min(floor, child.zIndex);
+  }
+  return floor;
+}
+
+/**
+ * Out of normal flow AND stacked behind its siblings — the one case where
+ * reordering a child under auto-layout is safe and necessary.
+ *
+ * "Behind" is relative, not absolute. A negative z-index always qualifies, but
+ * so does any value below `zFloor` (see {@link inFlowPositionedZFloor}):
+ * stripe.com's stats section stacks `.section-background` (absolute, z 0)
+ * under `.section-container` (relative, z 1), and reading only `z < 0` left
+ * the opaque full-bleed gradient painting over the whole section.
+ */
+function isBehindSiblings(child: WireframeNode, zFloor?: number): boolean {
+  if (child.position !== "absolute" && child.position !== "fixed") return false;
+  const z = child.zIndex ?? 0;
+  if (z < 0) return true;
+  return zFloor !== undefined && z < zFloor;
 }
 
 /**
@@ -2316,11 +2988,23 @@ export function sortChildrenForStacking(
 
   // Step 1: Move abs-positioned image-only containers to front (background layer).
   // Safe in any layout mode because abs elements are out of normal flow.
+  //
+  // The hoist only makes sense when there IS in-flow content to sit behind —
+  // its case is apple.com's tiles, where the copy is lifted by a z-index on a
+  // descendant the sibling comparison cannot see. Among purely out-of-flow
+  // siblings, DOM order is the only paint order CSS gives them, and reordering
+  // destroys it: stripe.com's bento cards stack `__border` (opaque) then
+  // `__inner` (the artwork), and hoisting `__inner` buried the artwork under a
+  // flat #E5EDF5 box.
+  const hasInFlowSibling = children.some(
+    (c) => c.position !== "absolute" && c.position !== "fixed"
+  );
+
   const bgImages: WireframeNode[] = [];
   const rest: WireframeNode[] = [];
   let hasBgImages = false;
   for (const child of children) {
-    if (child.position === "absolute" && isImageOnlySubtreeW(child)) {
+    if (hasInFlowSibling && child.position === "absolute" && isImageOnlySubtreeW(child)) {
       bgImages.push(child);
       hasBgImages = true;
     } else {
@@ -2340,16 +3024,24 @@ export function sortChildrenForStacking(
   // siblings in CSS — leaving it last paints it on top and hides them, which is
   // how stripe.com's header background covered the entire nav.
   if (parentLayoutMode !== "NONE") {
-    const behind = result.filter(isBehindSiblings);
+    const zFloor = inFlowPositionedZFloor(result);
+    const behind = result.filter((c) => isBehindSiblings(c, zFloor));
     // A background-layer container hoisted by Step 1 keeps that placement —
-    // the front sort must not drag it back to the end.
+    // the front sort must not drag it back to the end. A child already judged
+    // "behind" is excluded too: with a floor in play a positive z-index can
+    // satisfy both tests, and behind wins (it is the lower CSS layer).
     const front = result.filter(
-      (c) => isInFrontOfSiblings(c) && bgImages.indexOf(c) === -1,
+      (c) =>
+        isInFrontOfSiblings(c) &&
+        !isBehindSiblings(c, zFloor) &&
+        bgImages.indexOf(c) === -1,
     );
     if (behind.length === 0 && front.length === 0) return result;
     return [
       ...byZIndexStable(behind),
-      ...result.filter((c) => !isBehindSiblings(c) && front.indexOf(c) === -1),
+      ...result.filter(
+        (c) => !isBehindSiblings(c, zFloor) && front.indexOf(c) === -1,
+      ),
       ...byZIndexStable(front),
     ];
   }

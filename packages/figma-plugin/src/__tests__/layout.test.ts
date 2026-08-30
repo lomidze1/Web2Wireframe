@@ -12,6 +12,7 @@ import {
   applyTextAlignFallback,
   needsMarginWrapper,
   getSizingMode,
+  inferGridChildAlign,
 } from "../rendering/layout";
 
 // ============================================================================
@@ -107,10 +108,19 @@ describe("cssJustifyToFigma", () => {
     expect(cssJustifyToFigma("center")).toBe("CENTER");
   });
 
-  it("returns SPACE_BETWEEN for spacing values", () => {
+  it("returns SPACE_BETWEEN only for space-between", () => {
     expect(cssJustifyToFigma("space-between")).toBe("SPACE_BETWEEN");
-    expect(cssJustifyToFigma("space-around")).toBe("SPACE_BETWEEN");
-    expect(cssJustifyToFigma("space-evenly")).toBe("SPACE_BETWEEN");
+  });
+
+  it("maps space-around/evenly to MIN — SPACE_BETWEEN deletes their edge gaps", () => {
+    // Figma's SPACE_BETWEEN pins the first child to the start edge and the
+    // last to the end edge, but CSS space-around/evenly keep gaps at the
+    // edges too. h2d leaves these MIN: the real inter-item gap and edge
+    // spacing come from measured itemSpacing/padding (defect 4).
+    expect(cssJustifyToFigma("space-around")).toBe("MIN");
+    expect(cssJustifyToFigma("space-evenly")).toBe("MIN");
+    // reversed rows flip MIN packing to the far edge
+    expect(cssJustifyToFigma("space-around", true)).toBe("MAX");
   });
 
   it("returns MIN for undefined or unknown", () => {
@@ -338,5 +348,41 @@ describe("applyTextAlignFallback", () => {
     const frame = createMockFrame("VERTICAL");
     applyTextAlignFallback(frame, "right", "normal", "normal");
     expect(frame.counterAxisAlignItems).toBe("MAX");
+  });
+});
+
+// ============================================================================
+// inferGridChildAlign
+// ============================================================================
+
+describe("inferGridChildAlign", () => {
+  // glinc.io `.iconWrap`: 64x64 grid box, 32x32 icon, `place-items: center`.
+  // `justify-items` is not captured, so only the measured inset says CENTER.
+  it("reports CENTER when the child is inset equally from both cell edges", () => {
+    expect(inferGridChildAlign(16, 32, 64)).toBe("CENTER");
+  });
+
+  it("tolerates sub-pixel asymmetry", () => {
+    expect(inferGridChildAlign(16.2, 32, 64)).toBe("CENTER");
+  });
+
+  it("reports MAX when only the leading edge has a gap", () => {
+    expect(inferGridChildAlign(32, 32, 64)).toBe("MAX");
+  });
+
+  it("returns null when the child sits at the cell start (MIN is the default)", () => {
+    expect(inferGridChildAlign(0, 32, 64)).toBeNull();
+  });
+
+  it("returns null when the child fills the cell — nothing to infer", () => {
+    expect(inferGridChildAlign(0, 64, 64)).toBeNull();
+  });
+
+  it("returns null on inconsistent geometry (child wider than the cell)", () => {
+    expect(inferGridChildAlign(0, 80, 64)).toBeNull();
+  });
+
+  it("returns null for an unevenly inset child — not a centred or end-aligned box", () => {
+    expect(inferGridChildAlign(8, 32, 64)).toBeNull();
   });
 });

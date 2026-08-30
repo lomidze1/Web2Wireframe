@@ -20,6 +20,7 @@
 
 import type { WireframeFrame, WireframeNode } from "../types";
 import { logger } from "../utils/logger";
+import * as perf from "../utils/perf";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -147,7 +148,9 @@ export async function buildIconLibrary(
     variantIdx += 1;
     try {
       // Render the SVG to a Figma vector node, then promote to a Component.
-      const svgNode = figma.createNodeFromSvg(entry.markup) as FrameNode;
+      const svgNode = (__W2W_DEV_LOG__
+        ? perf.timedSync("node.svg", () => figma.createNodeFromSvg(entry.markup), true)
+        : figma.createNodeFromSvg(entry.markup)) as FrameNode;
       const comp = figma.createComponent();
       comp.name = `variant=${variantIdx}`;
       // Match svg dimensions on the master so instances inherit reasonable

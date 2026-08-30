@@ -12,13 +12,14 @@ import { API_BASE_URL } from "../../../shared/apiConfig";
 import { looksLikeBlockPage } from "../../../shared/blockPageDetection";
 import { requestImportTab } from "../../../shared/importTabEvents";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
+import * as perf from "../../../../utils/perf";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
 import { validateUrl } from "../../../../utils/urlValidation";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
 import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
-import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
+import { buildFontDeclaredCuts, buildVariableFontFamilies, type FontCut } from "../../../../utils/fontUtils";
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
@@ -57,6 +58,7 @@ interface RenderData {
   layoutMode: "autoLayout" | "absolute";
   fontRealNames?: Record<string, string>;
   fontDeclaredCuts?: Record<string, FontCut[]>;
+  fontVariableFamilies?: string[];
 }
 
 export default function Web() {
@@ -170,8 +172,16 @@ export default function Web() {
             layoutMode: data.layoutMode, // "autoLayout" or "absolute"
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            htmlLayerNames: config.htmlLayerNames,
+            geometryRows: config.geometryRows,
             fontRealNames: data.fontRealNames,
             fontDeclaredCuts: data.fontDeclaredCuts,
+            fontVariableFamilies: data.fontVariableFamilies,
+            // Dev profiler (stripped in production): `sentAt` prices the
+            // structured clone of this payload, `perfUi` carries the iframe's
+            // own stage timings so the sandbox prints one combined table.
+            sentAt: __W2W_DEV_LOG__ ? Date.now() : undefined,
+            perfUi: perf.handoff(),
           },
         },
       },
@@ -227,7 +237,7 @@ export default function Web() {
 
     try {
       // Call backend API
-      const response = await fetch(`${API_URL}/api/import-url`, {
+      const response = await perf.timed("ui.fetch", () => fetch(`${API_URL}/api/import-url`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -246,7 +256,7 @@ export default function Web() {
           layoutMode: settings.localLayoutMode,
           pluginColors: config.pluginColors, // Send full 6-color palette
         }),
-      });
+      }));
 
       const { isAuthExpired } = await import("../../../shared/authEvents");
       if (isAuthExpired(response)) return;
@@ -266,7 +276,7 @@ export default function Web() {
         );
       }
 
-      const data = await response.json();
+      const data = await perf.timed("ui.parseJson", () => response.json());
 
       // Store extracted fonts for font fallback download
       if (data.fonts && Array.isArray(data.fonts)) {
@@ -297,6 +307,7 @@ export default function Web() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isW2WFormat = rawFrames.length > 0 && (rawFrames[0] as any)?.tree?.type === "FRAME";
 
+      const transformStartedAt = Date.now();
       let frames: WireframeFrame[];
       if (isW2WFormat) {
         // W2W format: pass tree as capturedData, main.ts will convert via convertW2WToWireframe()
@@ -336,6 +347,7 @@ export default function Web() {
           }
         );
       }
+      perf.mark("ui.transform", Date.now() - transformStartedAt);
 
       // Prepare render data
       const renderData: RenderData = {
@@ -350,6 +362,7 @@ export default function Web() {
         layoutMode: settings.localLayoutMode,
         fontRealNames: buildFontRealNames(data.fonts),
         fontDeclaredCuts: buildFontDeclaredCuts(data.fonts),
+        fontVariableFamilies: Array.from(buildVariableFontFamilies(data.fonts)),
       };
 
       // Always use the user's configured CSS variables mode from settings

@@ -261,4 +261,75 @@ describe("css-converter: text-only wrapper preserves box CSS", () => {
       expect(margin.top + margin.right + margin.bottom + margin.left).toBe(0);
     }
   });
+  // -----------------------------------------------------------------------
+  // 7. A flex/grid wrapper establishes its own formatting context — it is a
+  //    layout container, not a text wrapper, however text-only its subtree
+  //    looks. glinc.io "what we build": the Legibly card is
+  //      <a class=card>          (grid: icon | body | arrow)
+  //        <span class=body display:flex flex-direction:column>
+  //          <span class=head><span class=name>Legibly</span></span>
+  //          <span class=desc>…</span>
+  //          <span class=tags>…</span>
+  //    Collapsing `.body` into the <a>'s text dumped five bare runs straight
+  //    into the grid frame, and Figma's grid auto-placement scattered them
+  //    across a 3x2 cell layout. The sibling Web2Wireframe card only escaped
+  //    because its "Live" badge carries a ::before dot, which makes the
+  //    subtree non-text-only by accident.
+  // -----------------------------------------------------------------------
+  it("7. <a display:grid><span display:flex column>name + tags</span></a> keeps the flex wrapper as a frame", () => {
+    const name = makeFrame({
+      tag: 'span',
+      classList: ['name'],
+      x: 0, y: 0, width: 200, height: 20,
+      quad: [0, 0, 200, 0, 200, 20, 0, 20],
+      styles: { display: 'block' },
+      children: [makeText('Legibly', { x: 0, y: 0, width: 200, height: 20 })],
+    });
+
+    // `.tags` — a flex row of padded badges, so it stays its own frame and the
+    // wrapper keeps two distinct children (the badge's padding is what makes
+    // classifyWrapper frame it, exactly as on the real card).
+    const badge = makeFrame({
+      tag: 'span',
+      classList: ['badge'],
+      x: 0, y: 28, width: 115, height: 28,
+      quad: [0, 28, 115, 28, 115, 56, 0, 56],
+      styles: { display: 'flex', paddingLeft: '12', paddingRight: '12' },
+      children: [makeText('Figma Plugin', { x: 12, y: 34, width: 91, height: 16 })],
+    });
+
+    const tags = makeFrame({
+      tag: 'span',
+      classList: ['tags'],
+      x: 0, y: 28, width: 200, height: 28,
+      quad: [0, 28, 200, 28, 200, 56, 0, 56],
+      styles: { display: 'flex' },
+      children: [badge],
+    });
+
+    const body = makeFrame({
+      tag: 'span',
+      classList: ['body'],
+      x: 0, y: 0, width: 200, height: 56,
+      quad: [0, 0, 200, 0, 200, 56, 0, 56],
+      styles: { display: 'flex', flexDirection: 'column' },
+      children: [name, tags],
+    });
+
+    const anchor = makeFrame({
+      tag: 'a',
+      x: 0, y: 0, width: 400, height: 56,
+      quad: [0, 0, 400, 0, 400, 56, 0, 56],
+      styles: { display: 'grid' },
+      children: [body],
+    });
+
+    const result = convertW2WToWireframe(anchor as never, { layoutMode: 'autoLayout' });
+    const children = (result as Tree).children as Tree[];
+    // The wrapper survives as ONE frame child, not two loose text runs.
+    expect(children).toHaveLength(1);
+    expect(children[0].type).toBe('frame');
+    expect(children[0].layoutMode).toBe('VERTICAL');
+    expect((children[0].children as Tree[])).toHaveLength(2);
+  });
 });

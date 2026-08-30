@@ -57,7 +57,9 @@ const SR_ONLY = {
 
 /** Every class name / tag in the converted tree. */
 function names(node: WireframeNode, acc: string[] = []): string[] {
-  acc.push(node.name || node.tag);
+  // Layer names are semantic now — collect the preserved className/tag
+  // fields, which is what these presence/absence checks always meant.
+  acc.push(node.className || node.tag || node.name);
   for (const c of node.children || []) names(c, acc);
   return acc;
 }

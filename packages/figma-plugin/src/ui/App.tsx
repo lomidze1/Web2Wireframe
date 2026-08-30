@@ -18,6 +18,8 @@ import RebindFontsModal, {
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
+import ImportReportModal from "./components/modalPopup/ImportReportModal";
+import type { ImportWarning } from "../types";
 
 import ConnectFigma from "./components/ConnectFigma";
 import {
@@ -167,6 +169,9 @@ function AppContent() {
   // selection. Drives the footer button's scoped "Re-apply to selection" label;
   // the sandbox's rebind action already honours the same selection-or-page scope.
   const [selectionRebindableCount, setSelectionRebindableCount] = useState(0);
+  // Page-wide total, kept alongside the scoped count so the modal can say
+  // "6 of 1069 on this page" when a section is selected.
+  const [pageRebindableCount, setPageRebindableCount] = useState(0);
   // Per-layer detail for the modal's collapsible per-font list — each entry
   // is { id, name, families }; clicking a row selects & zooms to the layer.
   const [rebindableLayers, setRebindableLayers] = useState<
@@ -181,6 +186,39 @@ function AppContent() {
   const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
     number | null
   >(null);
+  // Post-import diagnostics: categorised warnings with the node ids the
+  // sandbox collected during rendering. The report opens itself, because the
+  // whole point is that the user learns WHICH layers degraded — a toast they
+  // can dismiss without reading is what we had before.
+  const [importWarnings, setImportWarnings] = useState<ImportWarning[]>([]);
+  const [importWarningOverflow, setImportWarningOverflow] = useState(0);
+  const [isImportReportOpen, setIsImportReportOpen] = useState(false);
+
+  // Post-import report from the sandbox (main.ts posts `import-report` right
+  // after the success toast). An empty list is still sent — it clears a stale
+  // report from a previous import.
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg.type !== "import-report") return;
+      const raw = msg.data?.warnings;
+      const warnings: ImportWarning[] = Array.isArray(raw)
+        ? raw.filter(
+            (w: unknown): w is ImportWarning =>
+              !!w &&
+              typeof (w as ImportWarning).category === "string" &&
+              typeof (w as ImportWarning).message === "string",
+          )
+        : [];
+      const overflow =
+        typeof msg.data?.overflow === "number" ? msg.data.overflow : 0;
+      setImportWarnings(warnings);
+      setImportWarningOverflow(overflow);
+      setIsImportReportOpen(warnings.length > 0);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
   // Listen for quota-exceeded events dispatched by import API callers
   // (see shared/quotaEvents.ts → isQuotaExceeded).
@@ -218,6 +256,10 @@ function AppContent() {
       const selectionCount = msg.data?.selectionCount;
       setSelectionRebindableCount(
         typeof selectionCount === "number" ? selectionCount : 0,
+      );
+      const pageCount = msg.data?.pageCount;
+      setPageRebindableCount(
+        typeof pageCount === "number" ? pageCount : (count ?? 0),
       );
       const layers = msg.data?.layers;
       setRebindableLayers(
@@ -406,6 +448,25 @@ function AppContent() {
       isOpen={isExtensionOpen}
       onClose={() => setIsExtensionOpen(false)}
     />
+    <ImportReportModal
+      isOpen={isImportReportOpen}
+      onClose={() => setIsImportReportOpen(false)}
+      warnings={importWarnings}
+      overflow={importWarningOverflow}
+      onSelectLayer={(nodeId) => {
+        // Sandbox selects the layer and zooms to it. The report stays open so
+        // the user can walk down the list without reopening it each time.
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "select-import-warning-layer",
+              data: { nodeId },
+            },
+          },
+          "*",
+        );
+      }}
+    />
     <RebindFontsModal
       isOpen={isRebindOpen}
       onClose={() => {
@@ -415,6 +476,7 @@ function AppContent() {
       }}
       count={rebindableCount}
       selectionCount={selectionRebindableCount}
+      pageCount={pageRebindableCount}
       missingFonts={rebindableFamilies}
       layers={rebindableLayers}
       onSelectLayer={(id) => {

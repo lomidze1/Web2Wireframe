@@ -6,6 +6,7 @@
 import type { WireframeNode, RenderContext } from "../types";
 import { hexToFigmaRGB, normalizeColorForLookup } from "./colors";
 import { applyCornerRadii } from "./layout";
+import * as perf from "../utils/perf";
 
 // ============================================================================
 // Placeholder Icon
@@ -134,6 +135,19 @@ export async function createImagePlaceholderIcon(
  * Uses a clean, modern design with the image icon centered
  */
 export async function createPlaceholder(
+  node: WireframeNode,
+  surfaceColor: string,
+  borderColor: string | undefined,
+  context: RenderContext
+): Promise<FrameNode> {
+  if (!__W2W_DEV_LOG__)
+    return createPlaceholderInner(node, surfaceColor, borderColor, context);
+  return perf.timed("node.placeholder", () =>
+    createPlaceholderInner(node, surfaceColor, borderColor, context)
+  );
+}
+
+async function createPlaceholderInner(
   node: WireframeNode,
   surfaceColor: string,
   borderColor: string | undefined,

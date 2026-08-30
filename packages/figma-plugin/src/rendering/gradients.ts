@@ -190,6 +190,13 @@ export function calculateRadialGradientTransform(fill: FigmaFill): Transform {
     radiusX = radiusY = radius;
   }
 
+  // Explicit radius form (`radial-gradient(100px 50px at …)`) overrides the
+  // size-keyword math entirely — the author gave the exact ellipse.
+  if (fill.radius && fill.radius.x > 0 && fill.radius.y > 0) {
+    radiusX = fill.radius.x;
+    radiusY = fill.radius.y;
+  }
+
   // Step 4: Calculate scale factors (gradient size relative to element)
   // Figma's radial gradient extends from center to edge in unit space
   const scaleX = radiusX / elementWidth;
