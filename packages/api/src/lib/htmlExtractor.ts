@@ -411,7 +411,12 @@ export async function createWireframeData(
 // W2W Content Script extraction (unified pipeline)
 // ---------------------------------------------------------------------------
 
-import { extractWithContentScript, type W2WExtractionResult } from "./cdp/w2w-extraction.js";
+import {
+  extractWithContentScript,
+  collectFontResponses,
+  type W2WExtractionResult,
+} from "./cdp/w2w-extraction.js";
+import { perfMark } from "../utils/stageTimer.js";
 import type { W2WFrameNode, W2WAssetEntry, W2WCSSVariable, W2WFontEntry } from "@w2w/shared";
 
 /** Single frame in W2W format (one per viewport) */
@@ -441,15 +446,18 @@ export async function renderWebsiteW2W(
   await assertPublicUrl(url);
   let browser: Browser | undefined;
   const effectiveUrl = remapLocalhostForDocker(url);
+  let t = Date.now();
   try {
     browser = await puppeteer.launch({
       headless: true,
       executablePath: findChromePath(),
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
     });
+    t = perfMark("launch", t);
 
     const page = await browser.newPage();
     await installNavigationSsrfGuard(page);
+    t = perfMark("newPage+ssrfGuard", t);
 
     // Inject cookies if provided
     if (options.cookies && Array.isArray(options.cookies) && options.cookies.length > 0) {
@@ -488,17 +496,42 @@ export async function renderWebsiteW2W(
       }
     }
 
+    // Capture font bytes from the FIRST load. Historically the collector was
+    // attached inside extractWithContentScript — i.e. after this navigation —
+    // so a cache-busting `Page.reload` was needed to make the fonts come down
+    // again where the listener could see them. That second full download cost
+    // 7.7s of a 45.6s stripe.com capture. Attaching here removes the need.
+    const fontCollector = collectFontResponses(page);
+
+    // Size the viewport BEFORE navigating, so the first (and now only) load
+    // renders at the target width: media queries, `srcset`/`sizes` picks and
+    // lazy-loading thresholds all resolve for the viewport we actually want.
+    // extractWithContentScript re-applies the authoritative CDP override
+    // (with the deviceScaleFactor correction) once the page is up.
+    await page.setViewport({ width: viewportWidth, height: 900 });
+
     // Navigate to URL
     await page.goto(effectiveUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    t = perfMark("goto", t);
     const settle = await waitForNetworkSettled(page);
     console.log(
       `[W2W] network settled: ${settle.reason} ${settle.waitedMs}ms stuck=${settle.stuck}`,
     );
 
-    // Extract using content script (handles viewport, scroll, extraction, assets, fonts)
-    const result = await extractWithContentScript(page, { viewportWidth });
+    t = perfMark("settle#1", t);
 
+    // Extract using content script (handles viewport, scroll, extraction, assets, fonts).
+    // Handing over the collector's map both seeds the already-captured fonts
+    // and tells extraction the reload is unnecessary.
+    const result = await extractWithContentScript(page, {
+      viewportWidth,
+      prefetchedFonts: fontCollector.buffers,
+    });
+    t = perfMark("extractWithContentScript(TOTAL)", t);
+
+    fontCollector.detach();
     await browser.close();
+    perfMark("browser.close", t);
     return result;
   } catch (error) {
     if (browser) await browser.close();

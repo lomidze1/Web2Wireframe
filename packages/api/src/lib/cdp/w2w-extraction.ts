@@ -24,6 +24,7 @@
 import type { Page } from "puppeteer";
 import { createCDPClient } from "./client.js";
 import { waitForNetworkSettled } from "./network-settle.js";
+import { perfMark } from "../../utils/stageTimer.js";
 
 import { getContentScriptBundle } from "@w2w/shared/content-script-bundle";
 import {
@@ -81,6 +82,66 @@ export interface W2WExtractionOptions {
    * `ignoreCache`.
    */
   skipReload?: boolean;
+  /**
+   * Font bytes already captured by a collector the caller attached BEFORE
+   * navigating (see `collectFontResponses`). Supplying this makes the
+   * cache-busting reload unnecessary — the fonts were caught on the first
+   * load — and extraction keeps appending to the same map, so anything
+   * fetched later (auto-scroll, lazy `@font-face`) is captured too.
+   *
+   * Omit it and behaviour is exactly as before: own collector + reload.
+   */
+  prefetchedFonts?: Map<string, FontBytes>;
+}
+
+/** One font response captured off the network. */
+export interface FontBytes {
+  buffer: Buffer;
+  mimeType: string;
+}
+
+/** Handle for a font collector attached to a page. */
+export interface FontResponseCollector {
+  /** URL → bytes. Filled as responses arrive; safe to read after settle. */
+  buffers: Map<string, FontBytes>;
+  /** Remove the listener. Always call it — listeners keep the page alive. */
+  detach: () => void;
+}
+
+/**
+ * Watch a page's responses and buffer every font body.
+ *
+ * Why not `Page.getResourceContent` later: it answers "Resource was not
+ * cached" for many sites (Chromium evicts response bodies under memory
+ * pressure), and re-fetching server-side often trips Cloudflare 429 when 20
+ * `@font-face` rules are pulled in a burst. Capturing at response time costs
+ * no extra HTTP traffic and no replay.
+ *
+ * Attach this BEFORE `page.goto` to catch fonts on the first load — that is
+ * what lets the caller skip the cache-busting reload entirely.
+ */
+export function collectFontResponses(
+  page: Page,
+  into: Map<string, FontBytes> = new Map(),
+): FontResponseCollector {
+  const listener = (response: import("puppeteer").HTTPResponse): void => {
+    if (!response.ok()) return; // Skip 4xx/5xx — no usable body
+    const url = response.url();
+    const lowerUrl = url.split("?")[0].toLowerCase();
+    const ext = lowerUrl.split(".").pop() || "";
+    const mime = response.headers()["content-type"] || "";
+    const isFontByExt = ext === "woff2" || ext === "woff" || ext === "ttf" || ext === "otf";
+    const isFontByMime = mime.startsWith("font/") || mime.includes("font-");
+    if (!isFontByExt && !isFontByMime) return;
+    response
+      .buffer()
+      .then((buf) => {
+        into.set(url, { buffer: buf, mimeType: mime || guessMimeFromUrl(url) });
+      })
+      .catch(() => { /* response body may have been discarded */ });
+  };
+  page.on("response", listener);
+  return { buffers: into, detach: () => page.off("response", listener) };
 }
 
 // ---------------------------------------------------------------------------
@@ -104,36 +165,25 @@ export async function extractWithContentScript(
     skipReload = false,
   } = options;
 
+  let t = Date.now();
+
   // Note: Emulation domain doesn't have .enable — it's always available
   const client = await createCDPClient(page, {
     domains: ["DOM", "CSS", "Page", "Runtime"],
   });
 
-  // Capture font binaries directly off the network as the page loads them.
-  // `Page.getResourceContent` later in the flow returns "Resource was not
-  // cached" for many sites because Chromium evicts response bodies under
-  // memory pressure, and re-fetching server-side often hits Cloudflare 429
-  // when 20 @font-face rules are pulled in a burst. The listener side-steps
-  // both: bytes are captured the moment the page receives them, no extra
-  // HTTP traffic, no replay required.
-  const networkFontBuffers = new Map<string, { buffer: Buffer; mimeType: string }>();
-  const responseListener = (response: import("puppeteer").HTTPResponse) => {
-    if (!response.ok()) return; // Skip 4xx/5xx — no usable body
-    const url = response.url();
-    const lowerUrl = url.split("?")[0].toLowerCase();
-    const ext = lowerUrl.split(".").pop() || "";
-    const mime = response.headers()["content-type"] || "";
-    const isFontByExt = ext === "woff2" || ext === "woff" || ext === "ttf" || ext === "otf";
-    const isFontByMime = mime.startsWith("font/") || mime.includes("font-");
-    if (!isFontByExt && !isFontByMime) return;
-    response
-      .buffer()
-      .then((buf) => {
-        networkFontBuffers.set(url, { buffer: buf, mimeType: mime || guessMimeFromUrl(url) });
-      })
-      .catch(() => { /* response body may have been discarded */ });
-  };
-  page.on("response", responseListener);
+  // Font bytes captured off the network. When the caller pre-attached a
+  // collector before navigation (see `collectFontResponses`), we keep filling
+  // the SAME map — so fonts fetched during the initial load and during
+  // auto-scroll both land in one place.
+  const networkFontBuffers = options.prefetchedFonts ?? new Map<string, FontBytes>();
+  // When the caller handed us its map, its listener is still attached and keeps
+  // filling the very same map for the rest of extraction (auto-scroll, lazy
+  // `@font-face`). Attaching a second one here would just buffer every font
+  // response twice, so only attach when we weren't given one.
+  const localCollector = options.prefetchedFonts
+    ? null
+    : collectFontResponses(page, networkFontBuffers);
 
   try {
     // --- 1. Viewport Setup ---
@@ -156,6 +206,8 @@ export async function extractWithContentScript(
       screenOrientation: { angle: 0, type: "landscapePrimary" },
     });
 
+    t = perfMark("  viewportSetup", t);
+
     // --- 2. Reload + wait for dynamic content ---
     // ignoreCache=true forces every resource to re-download, including fonts
     // that the initial page.goto already cached. The response listener
@@ -164,7 +216,13 @@ export async function extractWithContentScript(
     // Skipped on the raw-HTML path: that document is injected via
     // `page.setContent()` and lives on `about:blank`, so a reload re-fetches
     // the empty blank page and discards every element (empty body downstream).
-    if (!skipReload) {
+    //
+    // Also skipped when the caller attached the font collector BEFORE
+    // navigating (`prefetchedFonts`): the bytes were already captured on the
+    // first load, so a second full download buys nothing. Measured on
+    // stripe.com this reload plus its settle wait cost 7.7s of a 45.6s capture.
+    const needsReloadForFonts = !options.prefetchedFonts;
+    if (!skipReload && needsReloadForFonts) {
       await client.send("Page.reload", { ignoreCache: true });
       // `minWaitMs: 1500` ინარჩუნებს ძველ ფიქსირებულ ლოდინს როგორც იატაკს —
       // ვერსად ველოდებით ნაკლებს, ვიდრე აქამდე. სხვაობა ისაა, რომ ნელ საიტზე
@@ -176,7 +234,9 @@ export async function extractWithContentScript(
     }
 
     // Auto-scroll for lazy content
+    t = perfMark("  reload+settle#2", t);
     await autoScrollPage(client);
+    t = perfMark("  autoScroll", t);
 
     // Force-load every declared @font-face. With `font-display: swap`, faces
     // that aren't used by visible elements at this viewport stay `unloaded`
@@ -234,9 +294,12 @@ export async function extractWithContentScript(
     });
     await new Promise((resolve) => setTimeout(resolve, 200));
 
+    t = perfMark("  scrollbarCompensation", t);
+
     // --- 4. Inject content script bundle ---
     const bundleCode = getContentScriptBundle();
     await page.evaluate(bundleCode);
+    t = perfMark("  injectBundle", t);
 
     // --- 5. Call extractPage() ---
      
@@ -252,6 +315,7 @@ export async function extractWithContentScript(
 
     const { doc, frame, textHostCount } = extractResult;
     console.log(`[W2W] DOM extracted: ${countNodes(frame)} nodes, ${textHostCount} text hosts`);
+    t = perfMark("  extractDOM", t);
 
     // --- 6. Platform fonts via CDP ---
     const fontsByIdx = new Map<number, { familyName: string; postScriptName: string; isCustomFont: boolean }>();
@@ -267,7 +331,13 @@ export async function extractWithContentScript(
         { nodeId: docRoot.root.nodeId, selector: "[data-w2w-idx]" },
       );
 
-      for (const nodeId of idxResult.nodeIds) {
+      // One CDP round-trip per text host, and stripe.com has 760 of them —
+      // sequentially that measured 2.9s. CDP multiplexes requests over a
+      // single websocket, so a bounded fan-out collapses the wall-clock
+      // without changing a single result: `fontsByIdx` is keyed by the
+      // element's own data-w2w-idx, so completion order is irrelevant.
+      const FONT_LOOKUP_CONCURRENCY = 16;
+      const readPlatformFont = async (nodeId: number): Promise<void> => {
         try {
           const fontsResult = await client.send<{
             fonts: Array<{
@@ -301,12 +371,22 @@ export async function extractWithContentScript(
         } catch {
           // Skip elements that can't be queried
         }
+      };
+
+      for (let i = 0; i < idxResult.nodeIds.length; i += FONT_LOOKUP_CONCURRENCY) {
+        await Promise.all(
+          idxResult.nodeIds
+            .slice(i, i + FONT_LOOKUP_CONCURRENCY)
+            .map(readPlatformFont),
+        );
       }
 
       // Enrich TEXT nodes with platform font info
       enrichAllTextNodes(frame, fontsByIdx);
       console.log(`[W2W] Platform fonts collected: ${fontsByIdx.size} elements`);
     }
+
+    t = perfMark("  platformFonts", t);
 
     // --- 6b. Hover State Capture via CDP ---
     // FIX 1: Expand candidate pool with stylesheet-derived :hover triggers
@@ -402,6 +482,8 @@ export async function extractWithContentScript(
         cleanupFn();
       }
     });
+
+    t = perfMark("  hover", t);
 
     // --- 7 & 8. Asset + Font extraction from browser cache ---
     const assets: Record<string, W2WAssetEntry> = {};
@@ -705,6 +787,8 @@ export async function extractWithContentScript(
       );
     }
 
+    t = perfMark("  assets+fonts", t);
+
     // --- 9. CSS variables ---
     const rawCSSVariables = await extractCSSVariables(client);
     const cssVariables: W2WCSSVariable[] = rawCSSVariables.map((v) => ({
@@ -713,6 +797,8 @@ export async function extractWithContentScript(
       rawValue: v.rawValue,
       category: categorizeCSSVariable(v.name, v.value),
     }));
+
+    t = perfMark("  cssVariables", t);
 
     // --- Cleanup ---
     await client.send("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
@@ -729,7 +815,7 @@ export async function extractWithContentScript(
       width: viewportWidth,
     };
   } finally {
-    page.off("response", responseListener);
+    localCollector?.detach();
     await client.detach().catch(() => {});
   }
 }
@@ -740,7 +826,6 @@ export async function extractWithContentScript(
 
 /** Auto-scroll the page to trigger lazy-loaded content. */
 async function autoScrollPage(client: { send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T> }): Promise<void> {
-  const scrollStep = 400;
   const scrollDelay = 100;
   const maxScrollTime = 30000;
 
@@ -748,7 +833,13 @@ async function autoScrollPage(client: { send: <T = unknown>(method: string, para
     await client.send("Runtime.evaluate", {
       expression: `
         (async () => {
-          const scrollStep = ${scrollStep};
+          // Step just under one viewport so every band of the page is inside
+          // the viewport at some sample — IntersectionObserver reports the
+          // state at the landing position, so a step LARGER than the viewport
+          // would skip lazy content entirely. The old fixed 400px stepped
+          // through a 900px viewport twice as often as needed: 4.8s of
+          // stripe.com's capture went here.
+          const scrollStep = Math.max(200, window.innerHeight - 100);
           const scrollDelay = ${scrollDelay};
           const maxTime = ${maxScrollTime};
           const startTime = Date.now();
