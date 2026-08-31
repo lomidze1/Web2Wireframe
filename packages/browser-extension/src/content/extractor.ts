@@ -629,10 +629,35 @@ function extractTextNodes(
   let lineStart = 0;
   let prevTop = -Infinity;
 
+  // A character outside the BMP (emoji, rare CJK) occupies TWO UTF-16 code
+  // units — a high surrogate followed by a low one — that render as a single
+  // glyph. Range offsets and String.slice() both count code units, so a line
+  // boundary landing between the halves would cut the glyph in two and leave a
+  // lone surrogate at the end of one line and the start of the next (both
+  // render as U+FFFD). A browser never wraps inside a pair, so the low half is
+  // skipped entirely below: it is never treated as a boundary candidate, and
+  // the high half is measured across both units so the rect covers the glyph.
+  const isHighSurrogate = (code: number): boolean => (code & 0xfc00) === 0xd800;
+  const isLowSurrogate = (code: number): boolean => (code & 0xfc00) === 0xdc00;
+
   for (let i = 0; i <= textLength; i++) {
+    // Second half of a surrogate pair — not a legal break point, and its own
+    // rect is meaningless. Skip without touching prevTop, so the next index
+    // still compares against the glyph's real top.
+    if (
+      i > 0 && i < textLength &&
+      isLowSurrogate(text.charCodeAt(i)) &&
+      isHighSurrogate(text.charCodeAt(i - 1))
+    ) {
+      continue;
+    }
+
     const charRange = document.createRange();
     charRange.setStart(textNode, Math.min(i, textLength));
-    charRange.setEnd(textNode, Math.min(i + 1, textLength));
+    // Measure the whole glyph when this index starts a surrogate pair.
+    const charEnd =
+      i < textLength && isHighSurrogate(text.charCodeAt(i)) ? i + 2 : i + 1;
+    charRange.setEnd(textNode, Math.min(charEnd, textLength));
 
     let charTop: number;
     if (i < textLength) {
