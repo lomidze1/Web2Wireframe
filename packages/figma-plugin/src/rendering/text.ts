@@ -1476,13 +1476,18 @@ async function createTextNodeInner(
   // and what a plain `<a>text</a>` produces); several different links — or one
   // link next to unlinked text — need a range each, because the node-level
   // setter paints the link over EVERY character.
+  // The "Links" import option, off = no hyperlink of any kind. Gating both
+  // flags here covers every application site below (ranges and node alike).
+  const linksEnabled = context?.originLinks !== false;
   const segmentHrefs = new Set(segments.map((s) => s.href).filter(Boolean) as string[]);
   const useRangeHyperlinks =
+    linksEnabled &&
     segments.length > 1 &&
     (segmentHrefs.size > 1 || (segmentHrefs.size === 1 && segments.some((s) => !s.href)));
   // A run inside an <a> knows the URL even when the node itself doesn't.
-  const nodeHyperlinkHref =
-    node.href ?? (!useRangeHyperlinks && segmentHrefs.size === 1
+  const nodeHyperlinkHref = !linksEnabled
+    ? undefined
+    : node.href ?? (!useRangeHyperlinks && segmentHrefs.size === 1
       ? Array.from(segmentHrefs)[0]
       : undefined);
 

@@ -515,6 +515,7 @@ export default function AreaSelection() {
             interactionMode: settings.localInteractionMode,
             htmlLayerNames: config.htmlLayerNames,
             geometryRows: config.geometryRows,
+            originLinks: settings.localOriginLinks,
             fontRealNames: buildFontRealNames(capturedFonts),
             fontDeclaredCuts: buildFontDeclaredCuts(capturedFonts),
             fontVariableFamilies: Array.from(buildVariableFontFamilies(capturedFonts)),
@@ -775,6 +776,8 @@ export default function AreaSelection() {
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
         setAssetMode={settings.setAssetMode}
+        localOriginLinks={settings.localOriginLinks}
+        setOriginLinks={settings.setOriginLinks}
         setInteractionMode={settings.setInteractionMode}
         handleReset={settings.handleReset}
         handleSaveAsDefault={settings.handleSaveAsDefault}

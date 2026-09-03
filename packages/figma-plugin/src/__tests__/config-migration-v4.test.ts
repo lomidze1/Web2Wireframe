@@ -12,19 +12,20 @@ import {
 // clientStorage without the key, so the migration must stamp the default in —
 // editing DEFAULT_CONFIG alone reaches only brand-new installs.
 describe("config migration → v4 (geometryRows)", () => {
-  it("CONFIG_VERSION is 4 and the default is CSS layout (false)", () => {
-    expect(CONFIG_VERSION).toBe(4);
+  it("the default is CSS layout (false)", () => {
+    // v4 is a floor, not a ceiling — later versions keep bumping CONFIG_VERSION.
+    expect(CONFIG_VERSION).toBeGreaterThanOrEqual(4);
     expect(DEFAULT_CONFIG.geometryRows).toBe(false);
   });
 
-  it("a v3 config gains geometryRows: false and version 4", () => {
+  it("a v3 config gains geometryRows: false and the current version", () => {
     const v3Saved: Partial<PluginConfig> = {
       configVersion: 3,
       htmlLayerNames: true,
     };
     const merged = deepMergeConfig(DEFAULT_CONFIG, v3Saved);
     expect(merged.geometryRows).toBe(false);
-    expect(merged.configVersion).toBe(4);
+    expect(merged.configVersion).toBe(CONFIG_VERSION);
     // v3 → v4 must NOT re-fire the earlier migrations.
     expect(merged.htmlLayerNames).toBe(true);
   });
@@ -36,7 +37,7 @@ describe("config migration → v4 (geometryRows)", () => {
     };
     const merged = deepMergeConfig(DEFAULT_CONFIG, legacySaved);
     expect(merged.geometryRows).toBe(false);
-    expect(merged.configVersion).toBe(4);
+    expect(merged.configVersion).toBe(CONFIG_VERSION);
     expect(merged.viewports).toEqual(["1920"]);
   });
 
@@ -47,6 +48,6 @@ describe("config migration → v4 (geometryRows)", () => {
     };
     const merged = deepMergeConfig(DEFAULT_CONFIG, v4Saved);
     expect(merged.geometryRows).toBe(true);
-    expect(merged.configVersion).toBe(4);
+    expect(merged.configVersion).toBe(CONFIG_VERSION);
   });
 });

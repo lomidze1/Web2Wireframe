@@ -701,7 +701,9 @@ export async function createNodeInFigma(
   // nodes the renderer drops), so ms/node has the right denominator.
   if (__W2W_DEV_LOG__) perf.count("renderedNodes", 1);
   const created = await createNodeInFigmaInner(node, context, depth);
-  if (created && context.anchorScope) {
+  // "Links" option off → neither the `#anchor` links nor their targets are
+  // registered, so resolveAnchorReactions has nothing to wire.
+  if (created && context.anchorScope && context.originLinks !== false) {
     registerAnchorNode(context.anchorScope, node, created);
   }
   return created;
@@ -1534,7 +1536,9 @@ async function createNodeInFigmaInner(
             }
 
             if (context.renderStats) context.renderStats.hoverCacheHits += 1;
-            if (node.linkReactionUrl) await attachLinkReaction(instance, node.linkReactionUrl);
+            if (node.linkReactionUrl && context.originLinks !== false) {
+              await attachLinkReaction(instance, node.linkReactionUrl);
+            }
             return instance;
           }
         }
@@ -1568,7 +1572,9 @@ async function createNodeInFigmaInner(
         if (context.renderStats) context.renderStats.hoverCacheMisses += 1;
         context.componentSets?.push(componentSet);
       }
-      if (node.linkReactionUrl) await attachLinkReaction(defaultInstance, node.linkReactionUrl);
+      if (node.linkReactionUrl && context.originLinks !== false) {
+        await attachLinkReaction(defaultInstance, node.linkReactionUrl);
+      }
       return defaultInstance;
     } catch (err) {
       if (context.renderStats) context.renderStats.pseudoErrors += 1;
@@ -1612,7 +1618,7 @@ async function createNodeInFigmaInner(
   // Non-text link (logo, icon, image card): the frame IS the click target.
   // Runs after the cursor:pointer block above, which assigns `reactions`
   // wholesale — merging first would lose the click-through.
-  if (node.linkReactionUrl) {
+  if (node.linkReactionUrl && context.originLinks !== false) {
     await attachLinkReaction(frame, node.linkReactionUrl);
   }
 

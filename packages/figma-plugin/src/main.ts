@@ -283,6 +283,7 @@ export default function () {
         interactionMode,
         htmlLayerNames,
         geometryRows,
+        originLinks,
       } = data;
 
       // Default colors if not provided
@@ -596,6 +597,9 @@ export default function () {
         assetMode: assetMode || "placeholders",
         assetsMap,
         interactionMode: interactionMode || "none",
+        // "Links" option — absent means ON, so only an explicit false silences
+        // the site's links (old payloads keep today's behaviour).
+        originLinks: originLinks !== false,
         componentSets: [],
         hoverComponentCache: new Map(),
         renderStats: {

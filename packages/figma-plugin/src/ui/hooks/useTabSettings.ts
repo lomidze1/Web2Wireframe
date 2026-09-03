@@ -34,6 +34,7 @@ export interface TabSettingsResult {
   localLayoutMode: "autoLayout" | "absolute";
   localAssetMode: "placeholders" | "realAssets";
   localInteractionMode: "none" | "variants";
+  localOriginLinks: boolean;
 
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => boolean;
@@ -44,6 +45,7 @@ export interface TabSettingsResult {
   setLayoutMode: (mode: "autoLayout" | "absolute") => void;
   setAssetMode: (mode: "placeholders" | "realAssets") => void;
   setInteractionMode: (mode: "none" | "variants") => void;
+  setOriginLinks: (enabled: boolean) => void;
   handleReset: () => void;
   handleSaveAsDefault: () => void;
 
@@ -112,6 +114,9 @@ export function useTabSettings(
   const [localInteractionMode, setLocalInteractionMode] = useState<"none" | "variants">(
     effectiveConfig.interactionMode || "none"
   );
+  const [localOriginLinks, setLocalOriginLinks] = useState<boolean>(
+    effectiveConfig.originLinks !== false
+  );
 
   // Check if there are any session overrides for this tab
   const hasOverrides = !!sessionOverrides[tabId];
@@ -143,6 +148,7 @@ export function useTabSettings(
       setLocalLayoutMode(effective.layoutModeDefault);
       setLocalAssetMode(effective.assetMode);
       setLocalInteractionMode(effective.interactionMode || "none");
+      setLocalOriginLinks(effective.originLinks !== false);
     }
   }, [
     // Use config values as dependencies since getEffectiveConfig returns config when no overrides
@@ -153,6 +159,7 @@ export function useTabSettings(
     config.cssVariablesDefault,
     config.layoutModeDefault,
     config.assetMode,
+    config.originLinks,
     hasOverrides,
     tabId,
     getEffectiveConfig,
@@ -212,6 +219,15 @@ export function useTabSettings(
     [tabId, setSessionOverride]
   );
 
+  // Update session override when the "Links" option changes
+  const setOriginLinksHandler = useCallback(
+    (enabled: boolean) => {
+      setLocalOriginLinks(enabled);
+      setSessionOverride(tabId, { originLinks: enabled });
+    },
+    [tabId, setSessionOverride]
+  );
+
   // Toggle viewport selection - returns false if trying to remove last viewport
   const toggleViewport = useCallback(
     (viewport: string, event?: Event): boolean => {
@@ -258,6 +274,7 @@ export function useTabSettings(
     setLocalLayoutMode(config.layoutModeDefault);
     setLocalAssetMode(config.assetMode);
     setLocalInteractionMode(config.interactionMode || "none");
+    setLocalOriginLinks(config.originLinks !== false);
   }, [tabId, resetToConfig, config]);
 
   // Save current local values as persistent config defaults
@@ -271,6 +288,7 @@ export function useTabSettings(
       layoutModeDefault: localLayoutMode,
       assetMode: localAssetMode,
       interactionMode: localInteractionMode,
+      originLinks: localOriginLinks,
     });
     // Clear session override since config now matches local state
     resetToConfig(tabId);
@@ -283,6 +301,7 @@ export function useTabSettings(
     localLayoutMode,
     localAssetMode,
     localInteractionMode,
+    localOriginLinks,
     updateConfig,
     resetToConfig,
     tabId,
@@ -326,6 +345,8 @@ export function useTabSettings(
       setLocalInteractionMode(mode);
       setSessionOverride(tabId, { interactionMode: mode });
     },
+    localOriginLinks,
+    setOriginLinks: setOriginLinksHandler,
     handleReset,
     handleSaveAsDefault,
     hasOverrides,

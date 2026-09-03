@@ -234,6 +234,7 @@ describe("useTabSettings", () => {
         layoutModeDefault: "absolute",
         assetMode: DEFAULT_CONFIG.assetMode,
         interactionMode: DEFAULT_CONFIG.interactionMode,
+        originLinks: DEFAULT_CONFIG.originLinks,
       });
     });
 

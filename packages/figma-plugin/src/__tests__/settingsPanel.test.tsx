@@ -406,6 +406,41 @@ describe("SettingsPanel", () => {
       expect(setCssVariablesMode).toHaveBeenCalledWith("styles");
     });
 
+    it("hides the Links row when no setOriginLinks handler is passed", () => {
+      // Screenshot import has no links to carry, so it omits the handler.
+      const { queryByText } = render(<SettingsPanel {...expandedProps} />);
+      expect(queryByText("Links")).toBeNull();
+    });
+
+    it("shows Links as On by default and turns it off on click", () => {
+      const setOriginLinks = vi.fn();
+      const { getByText, container } = render(
+        <SettingsPanel
+          {...expandedProps}
+          localOriginLinks={true}
+          setOriginLinks={setOriginLinks}
+        />
+      );
+      expect(getByText("Links")).toBeTruthy();
+      expect(inGroup(container, "Links").getByText("On").getAttribute("aria-checked")).toBe("true");
+      fireEvent.click(inGroup(container, "Links").getByText("Off"));
+      expect(setOriginLinks).toHaveBeenCalledWith(false);
+    });
+
+    it("reflects an Off selection and turns it back on", () => {
+      const setOriginLinks = vi.fn();
+      const { container } = render(
+        <SettingsPanel
+          {...expandedProps}
+          localOriginLinks={false}
+          setOriginLinks={setOriginLinks}
+        />
+      );
+      expect(inGroup(container, "Links").getByText("Off").getAttribute("aria-checked")).toBe("true");
+      fireEvent.click(inGroup(container, "Links").getByText("On"));
+      expect(setOriginLinks).toHaveBeenCalledWith(true);
+    });
+
     it("disables a toggle option and does not fire its handler when disabled", () => {
       const setAssetMode = vi.fn();
       const { getByText } = render(

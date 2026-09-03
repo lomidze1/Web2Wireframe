@@ -483,6 +483,10 @@ export interface RenderWireframeData {
    *  row to HORIZONTAL auto-layout instead of absolute placement;
    *  false/absent (default) = today's CSS-driven behaviour. */
   geometryRows?: boolean;
+  /** The "Links" import option. false = the source site's links are left out
+   *  of the wireframe (text hyperlinks, non-text `<a>` click-through and
+   *  same-page `#anchor` jumps alike). true/absent = today's behaviour. */
+  originLinks?: boolean;
   /** Map of CSS-declared family → real (SFNT) family, derived from the page's
    *  @font-face entries. Lets the sandbox auto-apply an already-installed font
    *  registered under an anti-piracy-aliased name (e.g. CSS "Söhne" → installed
@@ -589,6 +593,13 @@ export interface RenderContext {
   assetsMap?: Map<string, string>;
   // Interaction mode for pseudo-state variants
   interactionMode?: "none" | "variants";
+  // "Links" import option. false = render no link of any kind: no
+  // TextNode.hyperlink, no ON_CLICK URL reaction on text-less <a> frames and
+  // no same-page #anchor SCROLL_TO. Absent/true = links included.
+  // Deliberately gated HERE (render time) rather than in the converter: the
+  // captured `href` also feeds `isLink`, which colours links in plugin-colour
+  // mode, so dropping it upstream would change the picture too.
+  originLinks?: boolean;
   // Collected ComponentSets from pseudo-state variant creation
   componentSets?: ComponentSetNode[];
   // Content-signature dedup cache for hover ComponentSets — one entry per

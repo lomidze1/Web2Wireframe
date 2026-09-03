@@ -174,6 +174,7 @@ export default function Web() {
             interactionMode: settings.localInteractionMode,
             htmlLayerNames: config.htmlLayerNames,
             geometryRows: config.geometryRows,
+            originLinks: settings.localOriginLinks,
             fontRealNames: data.fontRealNames,
             fontDeclaredCuts: data.fontDeclaredCuts,
             fontVariableFamilies: data.fontVariableFamilies,
@@ -531,6 +532,8 @@ export default function Web() {
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
         setAssetMode={settings.setAssetMode}
+        localOriginLinks={settings.localOriginLinks}
+        setOriginLinks={settings.setOriginLinks}
         localInteractionMode={settings.localInteractionMode}
         setInteractionMode={settings.setInteractionMode}
         handleReset={settings.handleReset}

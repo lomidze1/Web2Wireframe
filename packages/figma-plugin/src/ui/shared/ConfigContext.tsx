@@ -29,8 +29,10 @@ export interface PluginColors {
  *                  default OFF = semantic layer naming).
  * v4 (2026-08-30): geometryRows added (promote block containers whose captured
  *                  rects prove a horizontal row, default OFF = CSS layout).
+ * v5 (2026-08-31): originLinks added (the "Links" import option, default ON =
+ *                  today's behaviour of carrying the site's links along).
  */
-export const CONFIG_VERSION = 4;
+export const CONFIG_VERSION = 5;
 
 export interface PluginConfig {
   // Absent on configs written before CONFIG_VERSION existed (treated as v1).
@@ -54,6 +56,10 @@ export interface PluginConfig {
   // left-to-right row becomes a HORIZONTAL auto-layout; false (default) = the
   // CSS decides, and an unproven block container stays absolute.
   geometryRows: boolean;
+  // true (default) = the source site's links come along: text hyperlinks,
+  // click-through on text-less <a> frames and same-page #anchor jumps.
+  // false = the wireframe carries no links at all; the picture is unchanged.
+  originLinks: boolean;
   // Figma user identity (re-emitted by sandbox on every plugin open;
   // primary key for License lookups). Not persisted to clientStorage —
   // sandbox always overwrites with the live `figma.currentUser?.id`.
@@ -108,6 +114,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   interactionMode: "none",
   htmlLayerNames: false,
   geometryRows: false,
+  originLinks: true,
   // Figma user id starts null until sandbox responds to `get-current-user`.
   figmaUserId: null,
 };
@@ -192,6 +199,13 @@ export function deepMergeConfig(defaults: PluginConfig, saved: Partial<PluginCon
   // v4+ is a deliberate opt-in and is preserved.
   if ((saved.configVersion ?? 1) < 4) {
     merged.geometryRows = defaults.geometryRows;
+  }
+
+  // Migration → v5: stamp in originLinks (default true = links come along, as
+  // they always have) for configs snapshotted before the key existed. A false
+  // saved at v5+ is a deliberate opt-out and is preserved.
+  if ((saved.configVersion ?? 1) < 5) {
+    merged.originLinks = defaults.originLinks;
   }
 
   if ((saved.configVersion ?? 1) < CONFIG_VERSION) {
