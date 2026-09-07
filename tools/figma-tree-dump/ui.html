@@ -1,0 +1,35 @@
+<!--
+  Invisible UI for W2W Tree Dump.
+
+  The Figma sandbox has no fetch(), so the plugin shows this iframe with
+  { visible: false } purely to make the network call to the local receiver.
+-->
+<script>
+  // Figma's manifest rejects raw-IP entries in devAllowedDomains, so "localhost"
+  // is the only spelling available here. server.mjs binds both 127.0.0.1 and ::1
+  // so it answers whichever address localhost resolves to.
+  var ENDPOINT = "http://localhost:3998/tree";
+
+  async function post(url, body) {
+    var res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body,
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || "HTTP " + res.status);
+    return data;
+  }
+
+  onmessage = async function (event) {
+    var payload = event.data.pluginMessage;
+    if (!payload) return;
+
+    try {
+      var data = await post(ENDPOINT, JSON.stringify(payload));
+      parent.postMessage({ pluginMessage: { ok: true, path: data.path } }, "*");
+    } catch (err) {
+      parent.postMessage({ pluginMessage: { ok: false, error: err.message } }, "*");
+    }
+  };
+</script>
