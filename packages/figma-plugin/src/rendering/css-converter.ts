@@ -50,15 +50,18 @@ import type {
   FigmaGradientStop,
   TextSegment,
   CssTransform,
+  SkippedFrame,
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
 import { parseCssPosition } from './imageCrop';
 import { isItalicStyle } from './styles';
 import { collapseMarginWrappers } from './marginCollapse';
+import { insertAlignWrappers } from './alignWrappers';
 import { simplifyTree } from './treeSimplify';
 import { isIconFont, isPuaOnlyText, CSS_FONT_KEYWORDS, isUsableMeasuredFamily } from '../utils/fontUtils';
 import { getSemanticElementName, applyRoleNames, chainNames } from './naming';
 import { parseInsetClipPath } from './clipPath';
+import { logger } from '../utils/logger';
 
 // Types from w2w content-script extraction (inline to avoid @w2w/shared dependency in plugin build)
 interface W2WFrameNode {
@@ -108,6 +111,10 @@ interface ConvertOptions {
    *  of falling through to absolute placement. false/absent (default) = today's
    *  CSS-driven behaviour. See `geometrySupportsHorizontalRow`. */
   geometryRows?: boolean;
+  /** Called for every content-bearing subtree dropped as fully transparent, so
+   *  the import report can list it instead of losing it silently. See
+   *  {@link shouldSkipInvisibleFrame}. */
+  onSkippedFrame?: (skipped: SkippedFrame) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +185,90 @@ interface TextChildValue {
   fontWeight?: number;
 }
 
+/**
+ * Does this run paint anything?
+ *
+ * h2d's `zy()` drops every line rect whose polygon area is ≤ 0.1 (`Al(q) > 0.1`),
+ * so a zero-width run never becomes a node. Ours kept them, and a run that
+ * paints nothing still takes a full line box in Figma auto-layout: stripe.com's
+ * `.hds-nowrap-svg::before { content: "\2060" }` (a word joiner, measured 0×20)
+ * pushed the callout chevron down 20px per nesting level.
+ */
+function isPaintableRun(tv: Pick<TextChildValue, 'width' | 'height'>): boolean {
+  return tv.width >= 0.5 && tv.height >= 0.5;
+}
+
+/** `inline`, `inline-block`, `inline-flex`, … — anything laid out on a line. */
+function isInlineLevelDisplay(display: string | undefined): boolean {
+  return !!display && display.startsWith('inline');
+}
+
+/**
+ * Group per-line runs into visual rows. A row holds one run PER INLINE ELEMENT,
+ * so `<a>GL<span>inc</span></a>` arrives as two runs sharing one row.
+ *
+ * Rows are decided by vertical OVERLAP rather than by a shared top edge: runs on
+ * one line sit on a common baseline, so `<p 16px>plain <span 22px>big</span></p>`
+ * yields two boxes whose tops differ by the font-size gap while they plainly
+ * share a line. Requiring HALF the shorter run to overlap tells that apart from
+ * consecutive wrapped lines, whose boxes only graze each other when the font's
+ * ascent+descent exceeds the line step (stripe.com's 26px text on a 29.12px step
+ * overlaps its own next line by 3.9px).
+ */
+export function groupRunsByRow(runs: TextChildValue[]): TextChildValue[][] {
+  const rows: TextChildValue[][] = [];
+  let top = 0;
+  let bottom = 0;
+  for (const tv of runs) {
+    const row = rows[rows.length - 1];
+    if (row) {
+      const overlap = Math.min(bottom, tv.y + tv.height) - Math.max(top, tv.y);
+      if (overlap >= Math.min(bottom - top, tv.height) * 0.5) {
+        row.push(tv);
+        top = Math.min(top, tv.y);
+        bottom = Math.max(bottom, tv.y + tv.height);
+        continue;
+      }
+    }
+    rows.push([tv]);
+    top = tv.y;
+    bottom = tv.y + tv.height;
+  }
+  return rows;
+}
+
+/**
+ * Can one Figma TEXT node reproduce these rows? — h2d's `Nh`
+ * (app.beautified.js:61628).
+ *
+ * Coalescing replaces the per-line runs with a single text node laid out on the
+ * element's union bounding box, so Figma re-wraps the copy from that box's edge.
+ * That only reproduces the browser when the rows agree on ONE edge: all left
+ * (normal/justified), all right (`text-align: right`) or all centred. h2d asks
+ * exactly this before it will treat children as a stack, and aborts to absolute
+ * placement otherwise.
+ *
+ * The case that forced this: an inline element whose FIRST line is indented
+ * because a preceding inline sibling occupies the start of the row. stripe.com's
+ * `<h3 class="…--inline">` + `<p class="…--inline">` share a flow, so the
+ * paragraph's rows measure x = 412.4 / 96.5 / 96.5 while its bounding box starts
+ * at 96.5 — coalescing pulled line 1 flush left, on top of the heading.
+ */
+export function rowsShareCommonEdge(rows: TextChildValue[][]): boolean {
+  if (rows.length < 2) return true;
+
+  const left = (row: TextChildValue[]): number => Math.min(...row.map(r => r.x));
+  const right = (row: TextChildValue[]): number => Math.max(...row.map(r => r.x + r.width));
+  const centre = (row: TextChildValue[]): number => (left(row) + right(row)) / 2;
+
+  const allAgree = (edge: (row: TextChildValue[]) => number): boolean => {
+    const first = edge(rows[0]);
+    return rows.every(row => Math.abs(edge(row) - first) <= GEOMETRY_EPSILON);
+  };
+
+  return allAgree(left) || allAgree(right) || allAgree(centre);
+}
+
 let _nodeId = 0;
 
 /**
@@ -243,6 +334,7 @@ export function convertW2WToWireframe(
   options: ConvertOptions = {},
 ): WireframeNode {
   _nodeId = 0;
+  if (__W2W_DEV_LOG__) logCanvasInventory(w2wFrame);
   const tree = convertFrame(w2wFrame, null, options);
   // Discrete shape passes (h2d l8 + h8/Oj, run to a fixpoint by y3/g8): delete
   // nodes that carry no information, then fold every parent that is nothing
@@ -254,6 +346,10 @@ export function convertW2WToWireframe(
   // at best and misleading at worst.
   if (options.layoutMode !== 'absolute') {
     collapseMarginWrappers(tree);
+    // h2d `H8`: an explicit align-self that the parent's align-items does not
+    // already give becomes its own cross-axis frame. After the collapse passes
+    // so they cannot fold it away; absolute mode places by x/y and needs none.
+    insertAlignWrappers(tree);
   }
   // Stage 2 naming: nodes stage 1 left unnamed get a role name from what
   // they paint ("Background+Border", "Horizontal Divider", filename…).
@@ -321,14 +417,22 @@ function isFullBleedHScroller(
 /** Global geometry epsilon — h2d's `fe`. */
 const GEOMETRY_EPSILON = 0.51;
 
+/**
+ * Everything that takes a slot in the parent's flow — size included, because a
+ * zero-size flex item still consumes its `gap` on both sides even though it
+ * paints nothing (stripe.com's `.divider-wrapper`: 1232x0, no paint, there
+ * only to turn one 80px gap into 160px of separation).
+ */
+function flowSlotChildren(children: WireframeNode[]): WireframeNode[] {
+  return children.filter(
+    (c) => c.position !== 'absolute' && c.position !== 'fixed',
+  );
+}
+
 /** In-flow, visually present children — the auto-layout participants. */
 function inFlowChildren(children: WireframeNode[]): WireframeNode[] {
-  return children.filter(
-    (c) =>
-      c.position !== 'absolute' &&
-      c.position !== 'fixed' &&
-      c.width > 0.5 &&
-      c.height > 0.5,
+  return flowSlotChildren(children).filter(
+    (c) => c.width > 0.5 && c.height > 0.5,
   );
 }
 
@@ -353,6 +457,23 @@ export function measuredItemSpacing(
   const flow = inFlowChildren(children).sort((a, b) =>
     horizontal ? a.x - b.x : a.y - b.y,
   );
+  // A zero-size sibling is invisible to the loop below but still owns a gap on
+  // each side, so every gap it sits in measures double — IF it survives. The
+  // renderer keeps one that has children (isUseless spares those; nodes.ts
+  // floors the box to 1px), and measuring through that would lay the row out
+  // with spacing the browser never had.
+  //
+  // A CHILDLESS sliver is the opposite case: `isUseless` deletes it outright,
+  // and simplifyTree runs after this measurement, so by render time it owns no
+  // gap at all. Bailing on it left rows like `<div class="clear">` between two
+  // cards on their CSS `gap` — and where that gap is 0 and the real spacing
+  // comes from margins, the row collapses on top of itself.
+  const phantom = (c: WireframeNode): boolean =>
+    c.type === 'frame' &&
+    c.children.length === 0 &&
+    (c.width < 0.5 || c.height < 0.5);
+  const skipped = flowSlotChildren(children).filter((c) => !flow.includes(c));
+  if (skipped.some((c) => !phantom(c))) return null;
   if (flow.length < 2) return null;
 
   let smallest: number | null = null;
@@ -381,11 +502,21 @@ export function measuredItemSpacing(
  * net of the outermost children's own margins (see measuredItemSpacing).
  * Sides are reconciled with CSS individually by the caller; a negative side
  * (child overhanging the frame) is the caller's cue to keep the CSS value.
+ *
+ * `border` is the per-side width Figma will draw as an INSIDE stroke. Child
+ * coordinates are relative to the BORDER box, but Figma starts auto-layout
+ * padding after the stroke, so the border width has to come off or every
+ * bordered frame measures `padding + border` and beats its own round CSS value
+ * (stripe.com's `.modular-solutions-section`: 16px padding + 1px border
+ * measured 17, leaving the bento 1230px of the 1232px its widest row needs —
+ * Figma's WRAP then broke 3 rows into 4 and the section grew by 692px).
  */
 export function measuredPadding(
   width: number,
   height: number,
   children: WireframeNode[],
+  border: { top: number; right: number; bottom: number; left: number } =
+    { top: 0, right: 0, bottom: 0, left: 0 },
 ): { top: number; right: number; bottom: number; left: number } | null {
   const flow = inFlowChildren(children);
   if (flow.length === 0) return null;
@@ -400,7 +531,12 @@ export function measuredPadding(
     right = Math.min(right, width - (c.x + c.width + (c.margin?.right || 0)));
     bottom = Math.min(bottom, height - (c.y + c.height + (c.margin?.bottom || 0)));
   }
-  return { top, right, bottom, left };
+  return {
+    top: top - border.top,
+    right: right - border.right,
+    bottom: bottom - border.bottom,
+    left: left - border.left,
+  };
 }
 
 /**
@@ -476,6 +612,69 @@ function getEffectiveChildren(node: W2WFrameNode): W2WNode[] {
     }
   }
   return result;
+}
+
+/**
+ * `align-self` and `align-items` spell the same alignments several ways, and
+ * the property is absent from the capture whenever it holds its default.
+ */
+function normalizeCrossAlign(value: string | number | undefined): string {
+  const v = str(value).trim();
+  if (!v || v === 'auto' || v === 'normal') return 'stretch';
+  if (v === 'flex-start' || v === 'self-start') return 'start';
+  if (v === 'flex-end' || v === 'self-end') return 'end';
+  return v;
+}
+
+/**
+ * The CSS `align-self` value this child needs its own cross-axis wrapper for,
+ * or `undefined` when it needs none — h2d's `H8` precondition
+ * (app.beautified.js:58150), evaluated here because it needs the PARENT's
+ * `display`, `align-items` and child list, all of which only exist on the W2W
+ * tree.
+ *
+ *   const L = M.$alignSelf && t.$alignItems !== M.$alignSelf
+ *           ? "align-" + M.$alignSelf : M.$wrapperReason;
+ *   // guarded above by: if (h.length < 2 || !t.$flexDirection) return M;
+ *
+ * `stretch` and `baseline` are deliberately excluded from ours: `stretch`
+ * already works through `layoutAlign: "STRETCH"` (483 live nodes in a
+ * stripe.com dump), and Figma's BASELINE throws on a non-horizontal frame.
+ *
+ * Grid is excluded for the same reason h2d's `!t.$flexDirection` excludes it:
+ * grid children get their alignment from the dedicated grid path in nodes.ts.
+ */
+export function resolveAlignSelfWrapper(
+  styles: Record<string, string | number | undefined>,
+  parent: W2WFrameNode | null,
+): string | undefined {
+  if (!parent) return undefined;
+
+  const alignSelf = str(styles.alignSelf).trim();
+  if (!alignSelf || alignSelf === 'auto') return undefined;
+
+  const normalized = normalizeCrossAlign(alignSelf);
+  if (normalized === 'stretch' || normalized === 'baseline') return undefined;
+
+  // Out-of-flow children are laid out by coordinate, not by the flex line.
+  const position = str(styles.position);
+  if (position === 'absolute' || position === 'fixed') return undefined;
+
+  const display = str(parent.styles?.display);
+  if (!display.endsWith('flex')) return undefined;
+
+  // A lone child is centred by the parent's own align-items; a wrapper would
+  // only add a frame.
+  const siblings = getEffectiveChildren(parent).filter(
+    (c) =>
+      c.type !== 'FRAME' ||
+      !['absolute', 'fixed'].includes(str((c as W2WFrameNode).styles?.position)),
+  );
+  if (siblings.length < 2) return undefined;
+
+  if (normalized === normalizeCrossAlign(parent.styles?.alignItems)) return undefined;
+
+  return alignSelf;
 }
 
 // ---------------------------------------------------------------------------
@@ -641,6 +840,7 @@ function convertFrame(
   // children in original DOM order (required for inline flow like Apple footer).
   const orderEntries: OrderEntry[] = [];
   const pushTextValue = (tv: TextChildValue): void => {
+    if (!isPaintableRun(tv)) return;
     orderEntries.push({ kind: 'text', index: textChildValues.length });
     textChildValues.push(tv);
   };
@@ -673,7 +873,7 @@ function convertFrame(
   let bubbledMargin: MarginSides | null = null;
 
   for (const child of effectiveChildren) {
-    if (child.type === 'FRAME' && shouldSkipInvisibleFrame(child, options)) {
+    if (child.type === 'FRAME' && shouldSkipInvisibleFrame(child, options, effectiveChildren)) {
       continue;
     }
 
@@ -701,7 +901,7 @@ function convertFrame(
           // direct children — apple.com's #globalheader (0×0 wrapper) promotes
           // #globalnav-curtain (visibility:hidden, opacity:0 fixed overlay)
           // which otherwise renders as a page-covering blurred sheet.
-          if (grandchild.type === 'FRAME' && shouldSkipInvisibleFrame(grandchild, options)) {
+          if (grandchild.type === 'FRAME' && shouldSkipInvisibleFrame(grandchild, options, child.children)) {
             continue;
           }
           if (grandchild.type === 'TEXT') {
@@ -927,7 +1127,16 @@ function convertFrame(
   const hasNonTextChildren = children.length > 0;
   const isLayoutContainer = layoutMode !== 'NONE';
 
-  if (hasTextChildren && !hasNonTextChildren && !isLayoutContainer && TEXT_COALESCE_TAGS.has(node.tag)) {
+  // One text node can only stand in for the measured rows when those rows share
+  // an edge — see rowsShareCommonEdge. When they don't (an inline element whose
+  // first line is indented by a preceding inline sibling), the runs stay
+  // separate and keep their own geometry, which is what h2d emits.
+  const rowsCoalescable = rowsShareCommonEdge(groupRunsByRow(textChildValues));
+  /** Every coalesce precondition except the shared-edge test held. */
+  const coalesceBlockedOnlyByRows =
+    !hasNonTextChildren && !isLayoutContainer && TEXT_COALESCE_TAGS.has(node.tag);
+
+  if (hasTextChildren && !hasNonTextChildren && !isLayoutContainer && rowsCoalescable && TEXT_COALESCE_TAGS.has(node.tag)) {
     // Coalesce all TEXT children into a single text node
     // Join with space because content script splits text per visual line
     //
@@ -958,12 +1167,7 @@ function convertFrame(
     // author forced the break. Width-exhausted rows stay soft (space join),
     // where Figma may legitimately re-wrap. `white-space: pre*` preserves
     // source breaks, so every boundary there is hard.
-    const rows: TextChildValue[][] = [];
-    for (const tv of segmentSource) {
-      const lastRow = rows[rows.length - 1];
-      if (lastRow && Math.abs(lastRow[0].y - tv.y) <= 2) lastRow.push(tv);
-      else rows.push([tv]);
-    }
+    const rows = groupRunsByRow(segmentSource);
     const preWhitespace = (str(s.whiteSpace) || '').startsWith('pre');
     const contentRight = node.x + node.width - (parseFloat(str(s.paddingRight)) || 0);
     const hardBreakAfterRow: boolean[] = rows.map((row, ri) => {
@@ -1231,6 +1435,21 @@ function convertFrame(
             wn.renderedTextWidths = merged._mergedLineWidths;
           }
         }
+        // Rows that share no common edge reached this branch precisely BECAUSE
+        // no single node can express them. Their measured x is the whole
+        // answer, so pin them: left in flow, `geometrySupportsVerticalStack`
+        // may hand the parent VERTICAL auto-layout and Figma would re-align
+        // every run to the frame's edge, undoing the indent this branch exists
+        // to keep.
+        //
+        // Only when the edge test is the ONLY thing that blocked coalescing,
+        // though. This branch is entered for four independent reasons, and the
+        // argument above holds for one of them. `<li><svg/>a label long enough
+        // to wrap</li>` is here because of the icon — its rows are ragged as
+        // any wrapped text is — and pinning those runs both loses the flow and
+        // empties `inFlowChildren`, which measuredPadding/measuredItemSpacing
+        // read.
+        if (!rowsCoalescable && coalesceBlockedOnlyByRows) wn.position = 'absolute';
         ordered.push(wn);
       } else {
         ordered.push(children[entry.index]);
@@ -1419,7 +1638,37 @@ function convertFrame(
     !textRendersOutsideChildren &&
     geometrySupportsHorizontalRow(children);
 
-  const effectiveLayoutMode = promotedRow ? ('HORIZONTAL' as const) : layoutMode;
+  /**
+   * A CSS subgrid borrows its parent's tracks, so the computed
+   * `grid-template-columns` carries no sizes at all — only the inherited line
+   * names, as in stripe.com's `subgrid [] [] [] [] [] [] []`. Every other grid
+   * arrives from the browser already resolved to used pixels (that same page's
+   * parent reads `88px` twelve times), which is why nothing else needs this.
+   *
+   * `parseGridTemplate` has no way to know: it reads the bare `subgrid`
+   * keyword as ONE flex track, `nodes.ts` sets `gridColumnCount = 1`, and both
+   * feature cards stack in a single column — the second landing at y=204 in a
+   * frame 164px tall.
+   *
+   * h2d never gets there. Their `$grid` is an already-resolved track list with
+   * a per-axis subgrid flag (`Zq`, app.beautified.js:59487), and on this very
+   * node they drop the grid altogether and emit a measured row: HORIZONTAL,
+   * gap 16 — a number only the geometry has, since the CSS column-gap is
+   * `normal`. Taking the axis from the children's rects lands on the same
+   * result, and the measured spacing/padding reconciliation below supplies the
+   * 16. When the rects do not form a row, VERTICAL is what a one-column grid
+   * already produced, so nothing regresses.
+   */
+  const subgridColumns =
+    layoutMode === 'GRID' && /^subgrid\b/.test(str(s.gridTemplateColumns).trim());
+
+  const effectiveLayoutMode = subgridColumns
+    ? geometrySupportsHorizontalRow(children)
+      ? ('HORIZONTAL' as const)
+      : ('VERTICAL' as const)
+    : promotedRow
+      ? ('HORIZONTAL' as const)
+      : layoutMode;
 
   let reconciledItemSpacing = itemSpacing;
   let reconciledPadding = padding;
@@ -1452,14 +1701,55 @@ function convertFrame(
     wrapValue !== 'wrap-reverse' &&
     !textContent.trim();
 
+  // Figma's INSIDE stroke eats its weight before padding starts; the measured
+  // insets are relative to the border box, so discount it on both call sites.
+  const strokeInsets = visibleBorderInsets(s);
+
   if (blockSelfCentred) {
     const mPadding = measuredPadding(
       node.width,
       inkGeometry ? inkGeometry.height : effectiveHeight,
       children,
+      strokeInsets,
     );
-    // `< 2` matches the equal-margin centring test used elsewhere in this file.
-    if (mPadding !== null && Math.abs(mPadding.left - mPadding.right) < 2) {
+    // An INLINE box with exactly ONE in-flow child has no arrangement to
+    // describe: the child's four measured insets ARE the padding, asymmetric or
+    // not. This is h2d's single-child branch — `Jq` skips its geometric
+    // layout-mode inference for `x.length === 1` and lets `Nh`/`Yh` derive the
+    // padding from that child's measured offset.
+    //
+    // The renderer turns this NONE box into VERTICAL auto-layout, which pins the
+    // child to the content origin, so without the measured inset the offset is
+    // simply lost: stripe.com's `.hds-nowrap-svg` holds its 5x8 chevron at
+    // +6 / +8.5 inside an 11x20 inline box, and the icon snapped to the corner.
+    //
+    // Restricted to inline-level boxes on purpose. The main-axis rule below —
+    // block children get their vertical offset from margin collapsing, which
+    // marginCollapse.ts owns — is a BLOCK formatting rule; inline boxes place
+    // their content by baseline, so there is no margin to double-count.
+    // The rule also holds for a BLOCK box whose only in-flow child is an SVG,
+    // and for the same reason the restriction above exists. That restriction
+    // is about margin collapsing: a block child's vertical offset is its
+    // margin, which marginCollapse.ts re-adds, so taking it as padding here
+    // would count it twice. An SVG capture node has no styles at all, and so
+    // no margin — nothing to double-count, and nothing else that remembers
+    // where the browser put it. h2d applies the measurement with no display
+    // test whatsoever (`Yh`, app.beautified.js:61241): their
+    // `.case-study-card__mediaLogo` is a `display: block` div and comes out
+    // `padding: 376/212/12/20` around a logo measured at (20, 376).
+    const soleFlowChild =
+      inFlowChildren(children).length === 1 ? inFlowChildren(children)[0] : null;
+    const soleChildIsSvg = soleFlowChild?.tag === 'svg';
+
+    if (mPadding !== null && soleFlowChild && (isInlineLevelDisplay(str(s.display)) || soleChildIsSvg)) {
+      reconciledPadding = {
+        top: reconcilePaddingSide(mPadding.top, padding.top),
+        right: reconcilePaddingSide(mPadding.right, padding.right),
+        bottom: reconcilePaddingSide(mPadding.bottom, padding.bottom),
+        left: reconcilePaddingSide(mPadding.left, padding.left),
+      };
+    } else if (mPadding !== null && Math.abs(mPadding.left - mPadding.right) < 2) {
+      // `< 2` matches the equal-margin centring test used elsewhere in this file.
       reconciledPadding = {
         ...padding,
         right: reconcilePaddingSide(mPadding.right, padding.right),
@@ -1486,6 +1776,7 @@ function convertFrame(
       node.width,
       inkGeometry ? inkGeometry.height : effectiveHeight,
       children,
+      strokeInsets,
     );
     if (mPadding !== null) {
       reconciledPadding = {
@@ -1526,9 +1817,15 @@ function convertFrame(
     zIndex: s.zIndex != null && String(s.zIndex) !== 'auto' ? Number(s.zIndex) : undefined,
     cssOrder: s.order != null && String(s.order) !== '0' ? Number(s.order) : undefined,
     filterGrayscale,
-    // CSS top/left for fixed|sticky elements (used by re-parenting logic)
+    // CSS insets for fixed|sticky elements (used by re-parenting logic)
     cssTop: (() => {
       const v = s.top;
+      if (v == null || v === 'auto') return undefined;
+      const n = parseFloat(String(v));
+      return isNaN(n) ? undefined : n;
+    })(),
+    cssBottom: (() => {
+      const v = s.bottom;
       if (v == null || v === 'auto') return undefined;
       const n = parseFloat(String(v));
       return isNaN(n) ? undefined : n;
@@ -1561,6 +1858,10 @@ function convertFrame(
       const v = str(s.alignSelf);
       return !v || v === 'auto' ? undefined : v;
     })(),
+    // …and whether that align-self needs its own cross-axis wrapper, which
+    // only this scope can answer: it takes the PARENT's display, align-items
+    // and child list. `alignWrappers.ts` builds the frame.
+    alignSelfWrapper: resolveAlignSelfWrapper(s, parent),
     // Single-line coalesced text whose natural DOM width exceeds its parent:
     // override FILL to HUG so the text keeps its natural width instead of
     // being wrapped to the narrower Figma parent. This matches browser
@@ -2209,6 +2510,47 @@ function mergeAdjacentTextEntries(
 // SVG node conversion
 // ---------------------------------------------------------------------------
 
+/**
+ * An SVG capture node carries NO styles — not `position`, not `display`, not
+ * `margin` — so the one thing that can say it is out of flow is its rect. When
+ * that rect leaves the parent's box, no in-flow arrangement can have produced
+ * it: stripe.com's Library-of-Stripe mark measures (+482, -64) inside the
+ * 608x585 `.book-of-the-week__content`, because the page pins it with
+ * `position: absolute; top: -64px; right: 40px`.
+ *
+ * h2d reads that `position` straight off their own SVG descriptors and filters
+ * the child out of the flow (`H8`'s `t2($position)`, then
+ * `layoutPositioning = "ABSOLUTE"`). This is the same conclusion from the only
+ * evidence our capture leaves us.
+ *
+ * Only when a sibling is still in flow. A lone overflowing SVG — linear.app's
+ * 1200px `Dc5tqa_primaryLogo` bleeding out of its 480px box — disturbs no
+ * arrangement, and the measured-padding branch already keeps today's result.
+ */
+function svgEscapesParentBox(node: W2WSVGNode, parent: W2WFrameNode | null): boolean {
+  if (!parent) return false;
+
+  const dx = node.x - parent.x;
+  const dy = node.y - parent.y;
+  const escapes =
+    dx < -GEOMETRY_EPSILON ||
+    dy < -GEOMETRY_EPSILON ||
+    dx + node.width > parent.width + GEOMETRY_EPSILON ||
+    dy + node.height > parent.height + GEOMETRY_EPSILON;
+  if (!escapes) return false;
+
+  return getEffectiveChildren(parent).some(
+    (c) =>
+      c !== (node as W2WNode) &&
+      c.width > 0.5 &&
+      c.height > 0.5 &&
+      !(
+        c.type === 'FRAME' &&
+        ['absolute', 'fixed'].includes(str((c as W2WFrameNode).styles?.position))
+      ),
+  );
+}
+
 function convertSVGNode(node: W2WSVGNode, parent: W2WFrameNode | null): WireframeNode {
   const id = `w2w-${_nodeId++}`;
 
@@ -2217,6 +2559,7 @@ function convertSVGNode(node: W2WSVGNode, parent: W2WFrameNode | null): Wirefram
     name: 'SVG',
     type: 'placeholder',
     tag: 'svg',
+    ...(svgEscapesParentBox(node, parent) ? { position: 'absolute' as const } : {}),
     x: parent ? node.x - parent.x : node.x,
     y: parent ? node.y - parent.y : node.y,
     width: node.width,
@@ -2956,6 +3299,26 @@ function figmaColorsEqual(a: FigmaColor, b: FigmaColor): boolean {
 function invisibleBorderInsets(
   s: Record<string, string | number | undefined>,
 ): { top: number; right: number; bottom: number; left: number } {
+  return borderInsets(s, (color) => color.a === 0);
+}
+
+/**
+ * Per-side widths of borders that PAINT — the ones invisibleBorderInsets()
+ * leaves alone, which parseStrokes turns into a visible INSIDE stroke. Figma
+ * insets auto-layout content by that weight on top of the padding, so
+ * measuredPadding() has to discount it to land back on the CSS number.
+ */
+function visibleBorderInsets(
+  s: Record<string, string | number | undefined>,
+): { top: number; right: number; bottom: number; left: number } {
+  return borderInsets(s, (color) => color.a > 0);
+}
+
+/** Shared per-side border scan: positive width, renderable style, matching colour. */
+function borderInsets(
+  s: Record<string, string | number | undefined>,
+  matches: (color: { a: number }) => boolean,
+): { top: number; right: number; bottom: number; left: number } {
   const inset = { top: 0, right: 0, bottom: 0, left: 0 };
   const sides = [
     { key: 'top' as const,    w: s.borderTopWidth,    c: s.borderTopColor,    st: s.borderTopStyle    },
@@ -2969,7 +3332,7 @@ function invisibleBorderInsets(
     const styleStr = str(side.st).toLowerCase();
     if (!styleStr || styleStr === 'none' || styleStr === 'hidden') continue;
     const color = parseCSSColor(str(side.c) || '');
-    if (color && color.a === 0) {
+    if (color && matches(color)) {
       inset[side.key] = weight;
     }
   }
@@ -3172,6 +3535,24 @@ function parseEffects(
 // Box shadow parsing
 // ---------------------------------------------------------------------------
 
+/**
+ * One CSS color token inside a shadow: any color function, a hex literal, or a
+ * trailing bare keyword.
+ *
+ * The function branch tolerates ONE level of nesting so `color-mix(in oklab,
+ * rgb(255 0 0) 50%, …)` is matched whole, and `color-mix` is listed before
+ * `color` so the shorter name can't claim its prefix.
+ *
+ * Modern spaces are not optional here. Chrome serializes any non-sRGB color as
+ * `oklab(...)`; when the pattern missed it the color stayed in the string and
+ * its own components became the shadow's metrics — a negative `b` channel
+ * landed in `radius`, Figma rejected the effect, and the per-child try/catch
+ * deleted the element (79 images in one clerk.com import).
+ */
+const SHADOW_COLOR_SOURCE =
+  String.raw`(?:color-mix|oklab|oklch|lab|lch|hwb|color|rgba?|hsla?)\((?:[^()]|\([^()]*\))*\)` +
+  String.raw`|#[0-9a-fA-F]{3,8}|[a-z]+$`;
+
 function parseBoxShadow(shadowStr: string): FigmaEffect[] {
   const effects: FigmaEffect[] = [];
 
@@ -3186,18 +3567,16 @@ function parseBoxShadow(shadowStr: string): FigmaEffect[] {
     const cleaned = trimmed.replace('inset', '').trim();
 
     // Extract color and numeric values
-    const colorMatch = cleaned.match(
-      /rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}|[a-z]+$/i,
-    );
+    const colorMatch = cleaned.match(new RegExp(SHADOW_COLOR_SOURCE, 'i'));
     const color = colorMatch
       ? parseCSSColor(colorMatch[0]) || { r: 0, g: 0, b: 0, a: 0.25 }
       : { r: 0, g: 0, b: 0, a: 0.25 };
 
-    // Remove color from string to get numbers
-    const numbersStr = cleaned.replace(
-      /rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}|[a-z]+$/gi,
-      '',
-    ).trim();
+    // Remove color from string to get numbers. Missing a color function here
+    // is not cosmetic: its own numbers are then read as the shadow's metrics.
+    const numbersStr = cleaned
+      .replace(new RegExp(SHADOW_COLOR_SOURCE, 'gi'), '')
+      .trim();
     const numbers = numbersStr.match(/-?[\d.]+/g)?.map(Number) || [];
 
     const offsetX = numbers[0] || 0;
@@ -3220,7 +3599,10 @@ function parseBoxShadow(shadowStr: string): FigmaEffect[] {
       visible: true,
       color,
       offset: { x: offsetX, y: offsetY },
-      radius: blur,
+      // Figma validates `radius >= 0` and throws otherwise, taking the whole
+      // element down with it. CSS can't express a negative blur either, so
+      // clamping loses nothing — it just keeps a mis-parse from being fatal.
+      radius: Math.max(0, blur),
       spread,
     });
   }
@@ -3494,6 +3876,38 @@ function parseScrollDirection(
 // Color parsing (CSS → FigmaColor)
 // ---------------------------------------------------------------------------
 
+/** Linear-light channel → gamma-encoded sRGB, clamped to the 0..1 Figma takes. */
+function srgbGamma(c: number): number {
+  const encoded = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  return Math.max(0, Math.min(1, encoded));
+}
+
+/** Oklab (CSS Color 4) → gamma-encoded sRGB. Matrices from the spec. */
+function oklabToRGB(L: number, a: number, b: number): { r: number; g: number; b: number } {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+  return {
+    r: srgbGamma(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    g: srgbGamma(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    b: srgbGamma(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
+  };
+}
+
+/** `0.5` or `50%` → 0.5. Percentages resolve against `scale`. */
+function cssNumber(raw: string, scale = 1): number {
+  return raw.endsWith('%') ? (parseFloat(raw) / 100) * scale : parseFloat(raw);
+}
+
+/** Optional `/ alpha` component: absent means opaque. */
+function cssAlpha(raw: string | undefined): number {
+  if (raw === undefined) return 1;
+  return Math.max(0, Math.min(1, cssNumber(raw)));
+}
+
 function parseCSSColor(color: string): FigmaColor | null {
   if (!color || color === 'transparent') return null;
 
@@ -3559,6 +3973,65 @@ function parseCSSColor(color: string): FigmaColor | null {
     };
   }
 
+  // oklab(L a b / α) and oklch(L C H / α). Chrome serializes ANY color the
+  // author wrote outside sRGB as `oklab()`, and Tailwind v4 authors everything
+  // in `oklch` — clerk.com alone reports 48 backgrounds, 30 borders and 153
+  // shadows in this syntax. Every one of them used to parse to null and lose
+  // its paint. `L` accepts the percentage form (`oklab(100% 0 0)`).
+  const oklabMatch = color.match(
+    /\bokl(ab|ch)\(\s*([\d.]+%?)\s+(-?[\d.]+%?)\s+(-?[\d.]+)(?:deg)?\s*(?:\/\s*([\d.]+%?)\s*)?\)/i,
+  );
+  if (oklabMatch) {
+    const lightness = cssNumber(oklabMatch[2]);
+    let a: number;
+    let b: number;
+    if (oklabMatch[1].toLowerCase() === 'ch') {
+      // Polar form: chroma + hue in degrees. `%` chroma resolves against 0.4.
+      const chroma = cssNumber(oklabMatch[3], 0.4);
+      const hue = (parseFloat(oklabMatch[4]) * Math.PI) / 180;
+      a = chroma * Math.cos(hue);
+      b = chroma * Math.sin(hue);
+    } else {
+      // `%` a/b resolve against 0.4 per CSS Color 4.
+      a = cssNumber(oklabMatch[3], 0.4);
+      b = cssNumber(oklabMatch[4], 0.4);
+    }
+    return { ...oklabToRGB(lightness, a, b), a: cssAlpha(oklabMatch[5]) };
+  }
+
+  // color(<space> r g b / α). Only the sRGB family is converted exactly;
+  // display-p3 is mapped through the linear-P3 → linear-sRGB matrix. Any other
+  // space (rec2020, prophoto, xyz…) falls through to the sRGB reading — a
+  // deliberate approximation, since none has shown up in a real capture.
+  const colorFnMatch = color.match(
+    /\bcolor\(\s*([\w-]+)\s+(-?[\d.]+%?)\s+(-?[\d.]+%?)\s+(-?[\d.]+%?)\s*(?:\/\s*([\d.]+%?)\s*)?\)/i,
+  );
+  if (colorFnMatch) {
+    const space = colorFnMatch[1].toLowerCase();
+    const c1 = cssNumber(colorFnMatch[2]);
+    const c2 = cssNumber(colorFnMatch[3]);
+    const c3 = cssNumber(colorFnMatch[4]);
+    const alpha = cssAlpha(colorFnMatch[5]);
+    if (space === 'srgb-linear') {
+      return { r: srgbGamma(c1), g: srgbGamma(c2), b: srgbGamma(c3), a: alpha };
+    }
+    if (space === 'display-p3') {
+      const lin = (v: number): number =>
+        v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      const [r, g, bl] = [lin(c1), lin(c2), lin(c3)];
+      return {
+        r: srgbGamma(1.2249401762805013 * r - 0.2249401762805013 * g),
+        g: srgbGamma(-0.04205697777922904 * r + 1.0420569777792292 * g),
+        b: srgbGamma(
+          -0.019637549699202946 * r - 0.07863604199985641 * g + 1.0982735916990593 * bl,
+        ),
+        a: alpha,
+      };
+    }
+    const clamp = (v: number): number => Math.max(0, Math.min(1, v));
+    return { r: clamp(c1), g: clamp(c2), b: clamp(c3), a: alpha };
+  }
+
   // Hex
   const hexMatch = color.match(/^#([0-9a-fA-F]+)$/);
   if (hexMatch) {
@@ -3597,11 +4070,23 @@ function parseCSSColor(color: string): FigmaColor | null {
  * gradient-text recipe, always paired with a transparent `color` /
  * `-webkit-text-fill-color`. getComputedStyle unifies the prefixed and
  * unprefixed properties, so reading `backgroundClip` alone is sufficient.
+ *
+ * The value is a LIST, one entry per background layer. stripe.com's "500M+"
+ * stacks two gradients and reports `"text, text"`, which a strict `=== "text"`
+ * comparison missed — the three big numbers imported as solid gradient boxes
+ * with invisible glyphs. A mixed list (`"text, border-box"`) is deliberately
+ * NOT treated as gradient text: Figma paints one thing per node, so there is no
+ * faithful rendering of half-and-half, and the box behaviour is the safer half.
  */
 function isBackgroundClipText(
   s: Record<string, string | number | undefined>,
 ): boolean {
-  return str(s.backgroundClip).trim() === 'text';
+  const layers = str(s.backgroundClip)
+    .split(',')
+    .map((layer) => layer.trim())
+    .filter((layer) => layer.length > 0);
+
+  return layers.length > 0 && layers.every((layer) => layer === 'text');
 }
 
 /**
@@ -4487,7 +4972,189 @@ function isFullyClippedAway(child: W2WFrameNode): boolean {
   return !hasFixedDescendant(child);
 }
 
-function shouldSkipInvisibleFrame(child: W2WFrameNode, options: ConvertOptions): boolean {
+/**
+ * Below this a hidden box is an artifact — a spacer, a close button, a
+ * measuring probe — not content someone will miss.
+ */
+const REPORTABLE_MIN_WIDTH = 40;
+const REPORTABLE_MIN_HEIGHT = 24;
+
+/** Captured nodes in this subtree, itself included. */
+function countCapturedNodes(node: W2WNode): number {
+  if (node.type !== 'FRAME') return 1;
+  let total = 1;
+  for (const child of node.children || []) total += countCapturedNodes(child);
+  return total;
+}
+
+/** Does anything in this subtree actually render — text, an image, an SVG? */
+function subtreeCarriesContent(node: W2WNode): boolean {
+  if (node.type === 'TEXT') return Boolean(node.value?.trim());
+  if (node.type === 'SVG') return true;
+  if (node.type !== 'FRAME') return false;
+  if (node.$url) return true;
+  return (node.children || []).some(subtreeCarriesContent);
+}
+
+/**
+ * Hand a dropped subtree to the import report — but only when losing it is
+ * worth a line: it has to carry something visible and be big enough that a
+ * person would notice the hole.
+ */
+function reportSkippedContent(child: W2WFrameNode, options: ConvertOptions): void {
+  if (!options.onSkippedFrame) return;
+  if (child.width < REPORTABLE_MIN_WIDTH || child.height < REPORTABLE_MIN_HEIGHT) return;
+  if (!subtreeCarriesContent(child)) return;
+  options.onSkippedFrame({
+    layerName: getNodeName(child),
+    width: child.width,
+    height: child.height,
+    nodes: countCapturedNodes(child),
+  });
+}
+
+/** Capture rounding wobbles by a pixel; two boxes this close are the same box. */
+const CROSSFADE_BOX_TOLERANCE = 2;
+
+/** A box CSS has faded out completely. */
+function isFullyTransparentFrame(node: W2WNode): boolean {
+  if (node.type !== 'FRAME') return false;
+  const opacity = node.styles?.opacity;
+  return opacity === 0 || opacity === '0';
+}
+
+function sharesBox(a: W2WFrameNode, b: W2WFrameNode): boolean {
+  return (
+    Math.abs(a.x - b.x) <= CROSSFADE_BOX_TOLERANCE &&
+    Math.abs(a.y - b.y) <= CROSSFADE_BOX_TOLERANCE &&
+    Math.abs(a.width - b.width) <= CROSSFADE_BOX_TOLERANCE &&
+    Math.abs(a.height - b.height) <= CROSSFADE_BOX_TOLERANCE
+  );
+}
+
+/**
+ * Does this box put pixels on the page by itself — a background, a border, a
+ * shadow?
+ *
+ * stripe.com's stats gradient is a childless <div> whose entire reason to exist
+ * is a radial-gradient background. By the text/SVG/image definition of content
+ * it holds nothing, so a faded-out one looked like empty decoration and was
+ * dropped — while h2d keeps all six faces of that deck.
+ */
+function boxPaints(node: W2WNode): boolean {
+  if (node.type !== 'FRAME') return false;
+  const s = (node as W2WFrameNode).styles ?? {};
+
+  const image = str(s.backgroundImage);
+  if (image && image !== 'none') return true;
+
+  const background = str(s.backgroundColor);
+  if (background && background !== 'rgba(0, 0, 0, 0)' && background !== 'transparent') {
+    const color = parseCSSColor(background);
+    if (!color || color.a > 0) return true;
+  }
+
+  const shadow = str(s.boxShadow);
+  if (shadow && shadow !== 'none') return true;
+
+  // Colour alone proves nothing: every element reports a borderTopColor, since
+  // the CSS default is black. borderInsets is the existing per-side scan that
+  // only counts a side with positive width and a drawable style.
+  const border = borderInsets(s, (color) => color.a > 0);
+  return border.top > 0 || border.right > 0 || border.bottom > 0 || border.left > 0;
+}
+
+/** The same walk as {@link subtreeCarriesContent}, for boxes whose content is their paint. */
+function subtreePaints(node: W2WNode): boolean {
+  if (boxPaints(node)) return true;
+  if (node.type !== 'FRAME') return false;
+  return ((node as W2WFrameNode).children || []).some(subtreePaints);
+}
+
+/**
+ * Is this transparent box one face of a crossfade deck?
+ *
+ * A carousel that fades between slides stacks them all in the same box and
+ * leaves every slide but the showing one at `opacity: 0` — stripe.com's events
+ * carousel lost seven of its eight slides that way. An OPAQUE sibling in the
+ * same box is what tells a deck apart from a lone hover overlay: apple.com's
+ * globalnav-curtain has no such sibling, so it keeps being dropped.
+ */
+function isCrossfadeSlide(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  if (!subtreeCarriesContent(child) && !subtreePaints(child)) return false;
+  return siblings.some(
+    (sibling) =>
+      sibling !== child &&
+      sibling.type === 'FRAME' &&
+      !isFullyTransparentFrame(sibling) &&
+      sharesBox(sibling as W2WFrameNode, child),
+  );
+}
+
+/**
+ * Dev-only: say exactly why one frame was dropped, and — when it was dropped
+ * for transparency — why the crossfade exemption did not save it. The import
+ * report only names the casualties; this says what the converter saw.
+ */
+function logSkippedFrame(
+  child: W2WFrameNode,
+  siblings: readonly W2WNode[],
+  reason: 'visibility' | 'transparent' | 'clipped',
+): void {
+  const carriesContent = subtreeCarriesContent(child);
+  const sameBoxSiblings = siblings.filter(
+    (s) => s !== child && s.type === 'FRAME' && sharesBox(s as W2WFrameNode, child),
+  );
+  logger.info('Skipped frame', {
+    layer: getNodeName(child),
+    tag: child.tag,
+    class: (child.classList ?? []).join('.').slice(0, 60),
+    box: `${Math.round(child.x)},${Math.round(child.y)} ${Math.round(child.width)}x${Math.round(child.height)}`,
+    reason,
+    opacity: child.styles?.opacity,
+    visibility: child.styles?.visibility,
+    subtreeNodes: countCapturedNodes(child),
+    carriesContent,
+    // Why the crossfade exemption did not apply.
+    siblingsInSameBox: sameBoxSiblings.length,
+    opaqueSiblingInSameBox: sameBoxSiblings.some((s) => !isFullyTransparentFrame(s)),
+  });
+}
+
+/**
+ * Dev-only: every <canvas> the capture handed us, and whether it arrived with
+ * pixels. A canvas whose backing store was never sized (the HTML default is
+ * 300x150) draws nothing, so it reaches Figma as an empty box however large its
+ * CSS box is — worth seeing before blaming the renderer.
+ */
+function logCanvasInventory(root: W2WFrameNode): void {
+  const rows: Record<string, unknown>[] = [];
+  const walk = (node: W2WNode): void => {
+    if (node.type === 'FRAME') {
+      const frame = node as W2WFrameNode;
+      if (frame.tag === 'canvas') {
+        const url = frame.$url ?? '';
+        rows.push({
+          class: (frame.classList ?? []).join('.').slice(0, 46),
+          cssBox: `${Math.round(frame.width)}x${Math.round(frame.height)}`,
+          attrSize: `${frame.attr?.width ?? '?'}x${frame.attr?.height ?? '?'}`,
+          hasImage: Boolean(url),
+          imageChars: url.length,
+        });
+      }
+      for (const child of frame.children ?? []) walk(child);
+    }
+  };
+  walk(root);
+  const empty = rows.filter((r) => !r.hasImage).length;
+  logger.info('Canvas inventory', { total: rows.length, withoutImage: empty, rows });
+}
+
+function shouldSkipInvisibleFrame(
+  child: W2WFrameNode,
+  options: ConvertOptions,
+  siblings: readonly W2WNode[] = [],
+): boolean {
   if (child._posterDonor) return true;
   // Media metadata, never painted. They still occupy an inline box, so the
   // extractor reports them at ~1 × line-height and each one used to land in
@@ -4498,6 +5165,18 @@ function shouldSkipInvisibleFrame(child: W2WFrameNode, options: ConvertOptions):
   const childOpacity = child.styles.opacity;
   const isInvisible = vis === 'hidden' || vis === 'collapse';
   const isFullyTransparent = childOpacity === 0 || childOpacity === '0';
+
+  // A faded-out carousel slide is content, not an overlay. Keep it — its own
+  // opacity carries the transparency through to Figma, so it paints nothing.
+  if (
+    isFullyTransparent &&
+    !isInvisible &&
+    !isFullyClippedAway(child) &&
+    isCrossfadeSlide(child, siblings)
+  ) {
+    return false;
+  }
+
   if (isInvisible || isFullyTransparent || isFullyClippedAway(child)) {
     if (options.interactionMode === 'variants') {
       child._isHiddenInDefault = true;
@@ -4508,6 +5187,16 @@ function shouldSkipInvisibleFrame(child: W2WFrameNode, options: ConvertOptions):
       // placeholder instead of a blank hero. Tiny hidden videos remain
       // preload/utility artifacts and are dropped as before.
     } else {
+      // A fully transparent box is the scroll-reveal idiom as much as it is
+      // the hover-overlay one, and the capture carries nothing that separates
+      // them (`transition`/`animation` are not among the 85 properties we
+      // record). Dropping stays — an overlay painted over the page is worse
+      // than a missing one — but a content-bearing box goes on the record so
+      // the import report can name what left.
+      if (isFullyTransparent) reportSkippedContent(child, options);
+      if (__W2W_DEV_LOG__) {
+        logSkippedFrame(child, siblings, isFullyTransparent ? 'transparent' : 'clipped');
+      }
       return true;
     }
   }
@@ -5041,6 +5730,7 @@ function collectTextFromFrame(
   const effectiveChildren = getEffectiveChildren(node);
   for (const child of effectiveChildren) {
     if (child.type === 'TEXT') {
+      if (!isPaintableRun(child)) continue;
       target.push({
         value: child.value,
         font: child.font,

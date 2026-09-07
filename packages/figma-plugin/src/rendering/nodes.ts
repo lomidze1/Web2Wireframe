@@ -349,6 +349,28 @@ export function wrapFitsChildren(
   );
 }
 
+/**
+ * Below this share of their summed width, children are not laid out along the
+ * row at all — they are stacked on the same spot.
+ *
+ * A real row spreads: its union is at least as wide as its parts, less any
+ * overlap. Half is far past what an overlapping-avatar row reaches (four 40px
+ * avatars at -8px still span 136 of 160) and far above a coincident deck (eight
+ * 1232px slides span 1232 of 9856).
+ */
+const ROW_SPREAD_MIN_RATIO = 0.5;
+
+/**
+ * Can these children's captured rects be reproduced by a single Figma row?
+ *
+ * Two things have to hold, one per axis. Across the row, every child sits
+ * inside the tallest one's band — children on a second line need WRAP, not a
+ * row. Along the row, the children have to actually spread out: stripe.com's
+ * crossfade carousel declares `display: flex` but translates all eight slides
+ * back onto the same spot, and believing the CSS stretched a 1232px container
+ * into a 9856px auto-layout row. Measured geometry wins, exactly as it does in
+ * `geometrySupportsVerticalStack`.
+ */
 export function geometryFormsSingleRow(children: WireframeNode[]): boolean {
   const flow = children.filter(
     (c) =>
@@ -362,9 +384,17 @@ export function geometryFormsSingleRow(children: WireframeNode[]): boolean {
   const tallest = flow.reduce((best, c) => (c.height > best.height ? c : best));
   const top = tallest.y;
   const bottom = tallest.y + tallest.height;
-  return flow.every(
+  const withinBand = flow.every(
     (c) => c.y >= top - 0.51 && c.y + c.height <= bottom + 0.51
   );
+  if (!withinBand) return false;
+
+  const left = Math.min(...flow.map((c) => c.x));
+  const right = Math.max(...flow.map((c) => c.x + c.width));
+  const summed = flow.reduce((total, c) => total + c.width, 0);
+  if (summed <= 0) return true;
+
+  return right - left >= summed * ROW_SPREAD_MIN_RATIO;
 }
 
 /**
@@ -491,14 +521,15 @@ function applySharedDecorationsInner(
   // Slice/Widget nodes have no opacity/blendMode and the render path never
   // creates one — narrow to the shape we actually set.
   const paintable = target as SceneNode & { opacity: number; blendMode: BlendMode };
-  // Opacity — skip in plugin colors mode (flat wireframes)
-  if (
-    context.colorMode !== "plugin" &&
-    typeof node.opacity === "number" &&
-    node.opacity < 1 &&
-    node.opacity > 0
-  ) {
-    paintable.opacity = Math.max(0, Math.min(1, node.opacity));
+  // Opacity — partial transparency is a colour effect and is skipped in plugin
+  // colors mode (flat wireframes), but a fully transparent node is structural:
+  // it is how a crossfade carousel's off-slides stay invisible, so it applies in
+  // every mode. Without it those slides would render stacked and opaque.
+  if (typeof node.opacity === "number" && node.opacity < 1) {
+    const fullyTransparent = node.opacity <= 0;
+    if (fullyTransparent || context.colorMode !== "plugin") {
+      paintable.opacity = Math.max(0, Math.min(1, node.opacity));
+    }
   }
 
   // CSS mix-blend-mode → Figma BlendMode
@@ -524,8 +555,21 @@ function applySharedDecorationsInner(
 
   // position:fixed / sticky marker — createWireframeFrame re-parents these
   // to the root frame and sets numberOfFixedChildren.
+  //
+  // `sticky` only qualifies when it sticks VERTICALLY. Per CSS, sticky with
+  // every inset `auto` never sticks at all — it is ordinary flow — and one
+  // that pins only sideways cannot be expressed by numberOfFixedChildren,
+  // which belongs to the frame's vertical scroll. stripe.com's
+  // `ul.navigation-buttons` is that case (`top: auto; right: 0` inside a
+  // horizontally scrollable <nav>): promoting it squeezed the ul to 1px
+  // (insertFixedSpacer landed a same-height spacer beside it in its own
+  // fixed-height :margin wrapper, where the ul is FILL) and stranded it at its
+  // wrapper-local x, now read against the page root — x 1098 → 262.
+  const stickyPinsVertically =
+    typeof node.cssTop === "number" || typeof node.cssBottom === "number";
   if (
-    (node.position === "fixed" || node.position === "sticky") &&
+    (node.position === "fixed" ||
+      (node.position === "sticky" && stickyPinsVertically)) &&
     !node.isHiddenInDefault &&
     !(typeof node.opacity === "number" && node.opacity === 0)
   ) {
@@ -700,6 +744,8 @@ export async function createNodeInFigma(
   // Dev profiler: how many nodes actually reach Figma (the tree count includes
   // nodes the renderer drops), so ms/node has the right denominator.
   if (__W2W_DEV_LOG__) perf.count("renderedNodes", 1);
+  // Same funnel, shipped: the import loader's only measured signal.
+  context.onNodeRendered?.();
   const created = await createNodeInFigmaInner(node, context, depth);
   // "Links" option off → neither the `#anchor` links nor their targets are
   // registered, so resolveAnchorReactions has nothing to wire.
@@ -798,15 +844,22 @@ async function createNodeInFigmaInner(
     (node.type === "placeholder" || node.isPlaceholder) &&
     (!node.children || node.children.length === 0)
   ) {
-    // Real assets mode: render actual image if available
-    if (
-      context.assetMode === "realAssets" &&
-      node.imageUrl &&
-      context.assetsMap?.has(node.imageUrl)
-    ) {
+    // Real assets mode: render actual image if available.
+    //
+    // A `data:` imageUrl IS the payload — a <canvas> exports its bitmap
+    // straight into `$url`, and no resource map will ever hold it (the asset
+    // harvest looks every url up in the browser cache, where a data URL by
+    // definition is not). Anything else still has to be a hit in the map: an
+    // https url we failed to fetch is a genuine miss and belongs in a
+    // placeholder, which is what the gate is for.
+    const inlineAsset =
+      node.imageUrl && node.imageUrl.startsWith("data:") ? node.imageUrl : undefined;
+    const assetData =
+      (node.imageUrl ? context.assetsMap?.get(node.imageUrl) : undefined) ?? inlineAsset;
+    if (context.assetMode === "realAssets" && assetData) {
       const image = await createRealImage(
         node,
-        context.assetsMap.get(node.imageUrl)!,
+        assetData,
         context
       );
       applyPaintDecorations(image, node, context);
@@ -876,12 +929,17 @@ async function createNodeInFigmaInner(
     (node.children?.length ?? 0) >= 2 &&
     !geometryFormsSingleRow(node.children || []);
 
+  // An in-flow child CSS paints above a later sibling can only be reproduced
+  // without auto layout — see paintOrderNeedsReorder.
+  const paintOrderRejected = paintOrderNeedsReorder(node.children || []);
+
   // Apply Auto Layout: global autoLayout mode OR node has its own layout (e.g. card with VERTICAL)
   const useAutoLayout =
     shouldUseAutoLayout(context.layoutMode, node.layoutMode) &&
     !isColumnWrap &&
     !noneStackRejected &&
-    !rowBandRejected;
+    !rowBandRejected &&
+    !paintOrderRejected;
   const isGrid = node.layoutMode === "GRID" && context.layoutMode !== "absolute";
 
   let gridApplied = false;
@@ -2945,6 +3003,49 @@ function isBehindSiblings(child: WireframeNode, zFloor?: number): boolean {
   const z = child.zIndex ?? 0;
   if (z < 0) return true;
   return zFloor !== undefined && z < zFloor;
+}
+
+/**
+ * Would CSS paint an in-flow child above a sibling that comes after it?
+ *
+ * A positioned element with a positive z-index paints above every in-flow
+ * non-positioned sibling, whatever the DOM order (CSS 2.1 Appendix E).
+ * stripe.com's `<header>` is `position: relative; z-index: 2` and precedes
+ * `<main>`, so the nav belongs on top of the hero artwork.
+ *
+ * Auto layout cannot express that: child order IS layout order, so moving the
+ * header last to fix the paint would move it to the bottom of the page — which
+ * is exactly what happened to telex.ge. The frame therefore gives up auto
+ * layout, and the children keep their captured coordinates, the way h2d does.
+ * Once the frame is NONE the reorder is free, and the z-index sort in
+ * {@link sortChildrenForStacking} performs it.
+ *
+ * Only IN-FLOW positioned children count. An absolute or fixed child gets
+ * Figma's `layoutPositioning: "ABSOLUTE"`, so its place in the child list is
+ * paint-only already and {@link isInFrontOfSiblings} handles it inside auto
+ * layout — vetoing for those would strip auto layout from half the web.
+ */
+export function paintOrderNeedsReorder(children: WireframeNode[]): boolean {
+  const inFlow = (child: WireframeNode): boolean =>
+    child.position !== "absolute" && child.position !== "fixed";
+
+  for (let i = 0; i < children.length; i++) {
+    const lifted = children[i];
+    if (!inFlow(lifted)) continue;
+    if (lifted.position !== "relative" && lifted.position !== "sticky") continue;
+    // A z-index on a `static` child does nothing in CSS, and `auto`/0 does not
+    // lift the child above its in-flow siblings either.
+    if (typeof lifted.zIndex !== "number" || lifted.zIndex <= 0) continue;
+
+    for (let j = i + 1; j < children.length; j++) {
+      const later = children[j];
+      if (!inFlow(later)) continue;
+      const z = later.zIndex;
+      if (typeof z !== "number" || z < lifted.zIndex) return true;
+    }
+  }
+
+  return false;
 }
 
 /**

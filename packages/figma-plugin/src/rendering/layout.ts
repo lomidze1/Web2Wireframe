@@ -235,6 +235,12 @@ export function resolveChildLayoutAlign(
 ): "MIN" | "CENTER" | "MAX" | "STRETCH" | "INHERIT" | null {
   if (selfAlign === "STRETCH") return "STRETCH";
   if (selfAlign === "MIN" || selfAlign === "MAX") return selfAlign;
+  // CENTER cannot be expressed here. Figma stores a child's counter-axis
+  // sizing and its layoutAlign as one property, so the `layoutSizing*` write
+  // that follows in nodes.ts resets whatever we put here — measured: a
+  // 3321-node stripe.com dump contained no MIN, CENTER or MAX at all. The
+  // centring is done by a `:align-center` wrapper instead, the way h2d does
+  // it — see rendering/alignWrappers.ts.
   if (selfAlign === "CENTER") return "INHERIT";
   if (nodeLayoutAlign === "STRETCH") return "STRETCH";
   return null;

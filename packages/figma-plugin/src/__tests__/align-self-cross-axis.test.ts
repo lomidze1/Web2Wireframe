@@ -33,7 +33,10 @@ function makeW2WFrame(overrides: Record<string, unknown> = {}): Record<string, u
 // ---------------------------------------------------------------------------
 
 describe("convertW2WToWireframe — alignSelf", () => {
-  it("copies align-self onto the child node", () => {
+  it("carries align-self through to a per-child cross-axis wrapper", () => {
+    // The raw value used to be dropped in the converter; now it reaches
+    // `alignWrappers.ts`, which spends it on a `:align-*` frame. Either way
+    // this is the guard that the CSS value survives the conversion.
     const w2w = makeW2WFrame({
       styles: { display: "flex" },
       children: [
@@ -42,8 +45,10 @@ describe("convertW2WToWireframe — alignSelf", () => {
       ],
     });
     const node = convertW2WToWireframe(w2w as never);
-    expect(node.children[0].alignSelf).toBe("flex-end");
-    expect(node.children[1].alignSelf).toBe("flex-start");
+    expect(node.children[0].name.endsWith(":align-flex-end")).toBe(true);
+    expect(node.children[0].alignItems).toBe("flex-end");
+    expect(node.children[1].name.endsWith(":align-flex-start")).toBe(true);
+    expect(node.children[1].alignItems).toBe("flex-start");
   });
 
   it("leaves alignSelf unset when CSS says auto", () => {
@@ -77,11 +82,60 @@ describe("resolveChildLayoutAlign", () => {
     expect(resolveChildLayoutAlign("INHERIT", "STRETCH")).toBe("STRETCH");
   });
 
-  it("maps center to INHERIT — Figma centers via counterAxisAlignItems", () => {
+  // `layoutAlign` does accept CENTER in the typings, but the value does not
+  // stick: Figma stores a child's counter-axis sizing and its layoutAlign as
+  // one property, so the `layoutSizing*` write nodes.ts makes right after
+  // resets it. Measured on a live import — 3321 nodes, zero MIN/CENTER/MAX.
+  // Centring is done by a `:align-center` wrapper instead (alignWrappers.ts),
+  // which is also the only mechanism h2d uses.
+  it("leaves centring to the wrapper, not to layoutAlign", () => {
     expect(resolveChildLayoutAlign(cssAlignSelfToFigma("center", "MIN"), undefined)).toBe("INHERIT");
+  });
+
+  it("still lets stretch win over center", () => {
+    expect(resolveChildLayoutAlign("STRETCH", undefined)).toBe("STRETCH");
   });
 
   it("returns null when there is nothing to apply", () => {
     expect(resolveChildLayoutAlign("INHERIT", undefined)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripe.com — the centred section heading
+// ---------------------------------------------------------------------------
+
+describe("align-self: center survives the conversion", () => {
+  it("puts the heading in a full-width centring wrapper", () => {
+    // div.section-row (column flex) holds a narrow centred heading and a
+    // full-width stats row. Only the heading carries align-self: center.
+    const parent = makeW2WFrame({
+      width: 1234,
+      height: 378,
+      quad: [0, 0, 1234, 0, 1234, 378, 0, 378],
+      styles: { display: "flex", flexDirection: "column" },
+      children: [
+        makeW2WFrame({
+          tag: "h2",
+          x: 372, y: 0, width: 489, height: 116,
+          quad: [372, 0, 861, 0, 861, 116, 372, 116],
+          styles: { display: "block", alignSelf: "center", textAlign: "center" },
+        }),
+        makeW2WFrame({
+          x: 0, y: 195, width: 1234, height: 183,
+          quad: [0, 195, 1234, 195, 1234, 378, 0, 378],
+          styles: { display: "block" },
+        }),
+      ],
+    });
+
+    const result = convertW2WToWireframe(parent as never);
+    const wrapper = result.children[0];
+
+    expect(wrapper.name.endsWith(":align-center")).toBe(true);
+    expect(wrapper.width).toBe(1234);
+    expect(wrapper.alignItems).toBe("center");
+    expect(wrapper.layoutAlign).toBe("STRETCH");
+    expect(wrapper.children[0].width).toBe(489);
   });
 });

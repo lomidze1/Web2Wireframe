@@ -212,3 +212,55 @@ describe("css-converter — background-clip: text", () => {
     expect(result.textColor).toMatch(/\b20\b/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Multi-layer background-clip — stripe.com
+// ---------------------------------------------------------------------------
+
+/**
+ * `background-clip` is a LIST: one value per background layer. stripe.com's
+ * "500M+" / "10K+" / "150K+" carry two gradient layers, so getComputedStyle
+ * reports `"text, text"` — and the strict `=== "text"` test missed it, leaving
+ * the three numbers as solid gradient boxes with invisible glyphs.
+ */
+describe("css-converter — background-clip with several layers", () => {
+  it("recognises stripe.com's `text, text` and moves the gradient onto the glyphs", () => {
+    const result = convertW2WToWireframe(
+      makeGradientHeading({ backgroundClip: "text, text" }) as never,
+      { layoutMode: "autoLayout" },
+    ) as Tree;
+
+    expect(result.type).toBe("text");
+    expect(fillsOf(result).some((f) => f.type.startsWith("GRADIENT_"))).toBe(false);
+    expect(textFillsOf(result).some((f) => f.type.startsWith("GRADIENT_"))).toBe(true);
+  });
+
+  it("tolerates the whitespace a browser may report", () => {
+    const result = convertW2WToWireframe(
+      makeGradientHeading({ backgroundClip: "  text ,  text  " }) as never,
+      { layoutMode: "autoLayout" },
+    ) as Tree;
+
+    expect(textFillsOf(result).some((f) => f.type.startsWith("GRADIENT_"))).toBe(true);
+  });
+
+  it("leaves a MIXED list alone — only some layers clip to the glyphs", () => {
+    // Figma paints one thing per node, so a half-and-half clip has no faithful
+    // rendering. Keeping the old box behaviour is the safer half.
+    const result = convertW2WToWireframe(
+      makeGradientHeading({ backgroundClip: "text, border-box" }) as never,
+      { layoutMode: "autoLayout" },
+    ) as Tree;
+
+    expect(textFillsOf(result).some((f) => f.type.startsWith("GRADIENT_"))).toBe(false);
+  });
+
+  it("still ignores an ordinary background-clip", () => {
+    const result = convertW2WToWireframe(
+      makeGradientHeading({ backgroundClip: "border-box" }) as never,
+      { layoutMode: "autoLayout" },
+    ) as Tree;
+
+    expect(textFillsOf(result).some((f) => f.type.startsWith("GRADIENT_"))).toBe(false);
+  });
+});

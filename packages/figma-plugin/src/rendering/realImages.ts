@@ -72,6 +72,29 @@ function isSvgDataUri(dataUri: string): boolean {
 }
 
 /**
+ * `url("#id")` → `url(#id)` in SVG markup.
+ *
+ * An SVG presentation attribute takes a `<FuncIRI>`, which has no quoted form,
+ * so a quoted reference simply dangles and the shape falls back to black. The
+ * capture bakes the COMPUTED paint back into the attribute, and
+ * `getComputedStyle().fill` serialises it the CSS way — with quotes — which is
+ * how stripe.com's gradient icons arrived as
+ * `fill="url(&quot;#apps-plus-gradient-id-:R9meupr6l6:&quot;)"` and rendered black.
+ *
+ * Only same-document references are touched. Quotes around a `data:` or `http:`
+ * URL are legal and load-bearing (an unquoted data URI containing a comma or
+ * parenthesis would not survive), so those are left exactly as they are.
+ */
+export function sanitizeSvgMarkup(markup: string): string {
+  // The quote may still be an entity: the markup is serialised HTML.
+  const QUOTE = String.raw`(?:&quot;|&#34;|&#39;|&apos;|["'])`;
+  return markup.replace(
+    new RegExp(String.raw`url\(\s*${QUOTE}\s*(#[^"'()&]*?)\s*${QUOTE}\s*\)`, "g"),
+    "url($1)",
+  );
+}
+
+/**
  * Decode an SVG data URI back to SVG markup for figma.createNodeFromSvg().
  *
  * Handles all three shapes a page can serve:
@@ -186,7 +209,8 @@ async function createRealImageInner(
     // SVG handling
     if (isSvgDataUri(base64Data)) {
       branch = "svg";
-      const svgString = svgDataUriToString(base64Data);
+      // A quoted FuncIRI (`url("#grad")`) dangles and paints black.
+      const svgString = sanitizeSvgMarkup(svgDataUriToString(base64Data));
 
       // Raster-masquerade SVG: Adobe Illustrator / "Save As SVG" exports that
       // wrap a base64 PNG/JPEG in an <image> tag with no real vector content.

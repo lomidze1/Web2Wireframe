@@ -27,6 +27,21 @@ export interface ImportWarning {
   layerName?: string;
 }
 
+/**
+ * A content-bearing subtree the converter dropped because the capture caught it
+ * at `opacity: 0` — usually scroll-reveal content whose IntersectionObserver
+ * had not fired yet. The nodes never reach Figma, so there is no id to link to;
+ * the DOM-selector name is all the report can offer.
+ */
+export interface SkippedFrame {
+  /** DOM-selector name, e.g. `div.reveal` or `section#plugins`. */
+  layerName: string;
+  width: number;
+  height: number;
+  /** Captured nodes in the lost subtree, itself included. */
+  nodes: number;
+}
+
 /** RGBA color normalized to 0-1 range (Figma format) */
 export interface FigmaColor {
   r: number; // 0-1
@@ -185,10 +200,12 @@ export interface WireframeNode {
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
   zIndex?: number; // CSS z-index — used for child ordering in Figma
   cssOrder?: number; // CSS order — used for flex child visual reordering
-  // CSS top/left offsets for position:fixed|sticky elements. Parsed to px.
-  // Used by nodes.ts re-parenting to place the element at its intended
-  // viewport offset instead of its DOM flow coordinate.
+  // CSS inset offsets for position:fixed|sticky elements. Parsed to px;
+  // `auto` stays undefined. Used by nodes.ts re-parenting to place the element
+  // at its intended viewport offset instead of its DOM flow coordinate, and by
+  // its promotion gate — a sticky element with no vertical inset never sticks.
   cssTop?: number;
+  cssBottom?: number;
   cssLeft?: number;
 
   // Layout
@@ -273,6 +290,13 @@ export interface WireframeNode {
   verticallyCenteredViaMargin?: boolean;
   // Self-alignment (for flex/grid children)
   alignSelf?: string;
+  /** The CSS `align-self` value this child needs a cross-axis wrapper for, or
+   *  absent when it needs none. Figma has no per-child cross-axis alignment
+   *  that survives a `layoutSizing*` write, so `alignWrappers.ts` turns this
+   *  into a `:align-<value>` frame the way h2d's `H8` does. Decided in
+   *  css-converter, where the parent's `display` and children are still in
+   *  reach — see {@link resolveAlignSelfWrapper}. */
+  alignSelfWrapper?: string;
   justifySelf?: string;
   // Margins for wrapper frame creation
   margin?: { top: number; right: number; bottom: number; left: number };
@@ -501,6 +525,11 @@ export interface RenderWireframeData {
    *  per-weight cuts are never demanded: the whole range lives in the file
    *  already installed, so a "missing cut" would offer that same file again. */
   fontVariableFamilies?: string[];
+  /** Per family, the styles its @font-face FILES install as. A weight with no
+   *  exact cut is only a real gap when the file behind it is missing too —
+   *  goodwill.ge's declared 500 is served by a file that installs as
+   *  "75 Bold", so the family was permanently "partial". */
+  fontFaceStyles?: Record<string, string[]>;
   /** Screenshot import: export the rendered frame back to the UI so it can be
    *  scored against the uploaded image. */
   compareToSource?: boolean;
@@ -587,6 +616,10 @@ export interface RenderContext {
   // CSS families served by ONE variable file. Their near-weight draws are the
   // best that exists, so they never earn a `w2w_original_cut` marker.
   fontVariableFamilies?: string[];
+  // Per family, the styles its @font-face FILES install as — see
+  // `buildFontFaceStyles`. Used to tell a page's own weight mapping apart from
+  // a file the user is genuinely missing.
+  fontFaceStyles?: Record<string, string[]>;
   // Asset extraction mode
   assetMode?: "placeholders" | "realAssets";
   // Map from image URL → base64 data URI (for real asset rendering)
@@ -646,6 +679,13 @@ export interface RenderContext {
   // that run BEFORE the loop never pollute the map. One scope per viewport
   // frame — see rendering/anchorLinks.ts.
   anchorScope?: AnchorScope;
+  /**
+   * Called once for every node that reaches Figma. Drives the import loader's
+   * render progress — the only part of the bar that is measured rather than
+   * estimated (see utils/importProgress.ts). Kept optional: renders started
+   * outside the import loop (hover masters, tests) attach nothing.
+   */
+  onNodeRendered?: () => void;
   // Render statistics — incremented during traversal, logged at the end of
   // the import so we can diagnose dedup effectiveness.
   renderStats?: {
