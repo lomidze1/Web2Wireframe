@@ -11,6 +11,8 @@
 import { describe, it, expect } from "vitest";
 import {
   buildRebindableCountPayload,
+  composeRebindablePayload,
+  countRebindableNodes,
   ORIGINAL_FONT_PLUGIN_KEY,
 } from "../rendering/rebindFonts";
 
@@ -57,5 +59,37 @@ describe("buildRebindableCountPayload", () => {
     expect(out.count).toBe(3);
     expect(out.selectionCount).toBe(0);
     expect(out.families).toEqual(["SourceCodePro", "Söhne VF"]);
+  });
+});
+
+/**
+ * Clicking a frame on canvas re-posts the count, and rescanning the whole page
+ * for it is what made every selection freeze Figma. The sandbox now keeps the
+ * page's already-counted result and only re-walks the selection, so the
+ * composer has to produce exactly what the full-scan path produced.
+ */
+describe("composeRebindablePayload", () => {
+  const pageCount = countRebindableNodes(PAGE);
+
+  it("matches the full-scan payload when the page result is reused", () => {
+    const selection = [PAGE[2]];
+
+    expect(
+      composeRebindablePayload(
+        pageCount,
+        countRebindableNodes(selection),
+        true,
+      ),
+    ).toEqual(buildRebindableCountPayload(PAGE, selection, true));
+  });
+
+  it("matches the full-scan payload with no selection", () => {
+    expect(
+      composeRebindablePayload(
+        pageCount,
+        { count: 0, families: [], layers: [] },
+        false,
+      ),
+    ).toEqual(buildRebindableCountPayload(PAGE, [], false));
   });
 });

@@ -18,6 +18,7 @@
  * sees a populated tree and skips it).
  */
 import { convertW2WToWireframe } from "../rendering/css-converter";
+import type { SkippedFrame } from "../types";
 import { logger } from "./logger";
 
 /**
@@ -57,11 +58,17 @@ type FrameWithCapturedData = { tree: any; capturedData?: { frame?: unknown } };
  * `prepareFramesForRendering` path), nor frames whose tree is already
  * populated (idempotency safety — important because `executeRender` keeps
  * a fallback FIX A loop for legacy callers).
+ *
+ * Returns the content-bearing subtrees the converter dropped as fully
+ * transparent. They are collected here rather than reported here because the
+ * render context — and with it the warning report — does not exist yet when
+ * this pre-pass runs; `main.ts` replays them once it does.
  */
 export function prePassConvertFrames(
   frames: FrameWithCapturedData[],
   options: PrePassOptions,
-): void {
+): SkippedFrame[] {
+  const skipped: SkippedFrame[] = [];
   for (const frameData of frames) {
     if (frameData.capturedData?.frame && isPlaceholderTree(frameData.tree)) {
       try {
@@ -72,10 +79,12 @@ export function prePassConvertFrames(
           interactionMode: options.interactionMode,
           htmlLayerNames: options.htmlLayerNames === true,
           geometryRows: options.geometryRows === true,
+          onSkippedFrame: (s) => skipped.push(s),
         });
       } catch (err) {
         logger.warn("Pre-pass tree conversion failed", { error: err });
       }
     }
   }
+  return skipped;
 }

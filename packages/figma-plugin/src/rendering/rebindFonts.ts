@@ -168,6 +168,11 @@ export interface RebindableCountPayload extends RebindableCount {
   selectionCount: number;
   /** Rebindable layers on the whole page, whatever the scope. */
   pageCount: number;
+  /** True when the user HAS a selection — whether or not it holds anything
+   *  pending. Without it the modal cannot tell "no selection, page scope"
+   *  from "a selection that turned out clean", and the second case reads as
+   *  the tool ignoring the selection while it quietly shows other frames. */
+  selectionActive: boolean;
 }
 
 /**
@@ -181,6 +186,9 @@ export interface RebindableCountPayload extends RebindableCount {
 export function buildRebindableCountPayload(
   pageNodes: Array<Pick<TextNode, "getPluginData" | "id" | "name">>,
   selectionNodes: Array<Pick<TextNode, "getPluginData" | "id" | "name">>,
+  /** Whether anything is selected on canvas. Defaults to "there are nodes in
+   *  `selectionNodes`", which is only wrong for a selection holding no text. */
+  selectionActive = selectionNodes.length > 0,
 ): RebindableCountPayload {
   const page = countRebindableNodes(pageNodes);
   const selection =
@@ -188,6 +196,22 @@ export function buildRebindableCountPayload(
       ? countRebindableNodes(selectionNodes)
       : { count: 0, families: [], layers: [] };
 
+  return composeRebindablePayload(page, selection, selectionActive);
+}
+
+/**
+ * Same payload, from counts that were tallied separately.
+ *
+ * The sandbox rescans the page only when the document actually changed; a
+ * plain selection change reuses the page's last result and re-walks just the
+ * selection, which is what keeps clicking a large imported frame from
+ * freezing Figma.
+ */
+export function composeRebindablePayload(
+  page: RebindableCount,
+  selection: RebindableCount,
+  selectionActive: boolean,
+): RebindableCountPayload {
   // A selection holding nothing rebindable falls back to page scope, matching
   // what the rebind handler does with it.
   const scoped = selection.count > 0 ? selection : page;
@@ -197,6 +221,7 @@ export function buildRebindableCountPayload(
     layers: scoped.layers,
     selectionCount: selection.count,
     pageCount: page.count,
+    selectionActive,
   };
 }
 
@@ -373,7 +398,16 @@ async function loadFontWithFallback(
  */
 export async function rebindOriginalFonts(
   nodes: TextNode[],
+  /** Families the user chose to REPLACE rather than wait for, as
+   *  `markerFamily → chosenFamily`. Söhne and Geist Variable are licensed:
+   *  no download makes them installable, so without a way to say "use this
+   *  instead" the modal waits forever. The marker's own name is still what we
+   *  report as missing — that is the font the layer asked for. */
+  substitutions?: Record<string, string>,
 ): Promise<RebindResult> {
+  /** The family to actually load for a marker — the user's pick when they
+   *  made one, the marker itself otherwise. */
+  const chosen = (family: string): string => substitutions?.[family] || family;
   let rebound = 0;
   let skippedMixed = 0;
   let total = 0;
@@ -459,7 +493,7 @@ export async function rebindOriginalFonts(
 
       let applied: { family: string; style: string } | null = null;
       let attempts = 0;
-      for (const family of pendingCut.families) {
+      for (const family of pendingCut.families.map(chosen)) {
         for (const style of fontCutExactStyles(pendingCut.weight, pendingCut.italic)) {
           attempts++;
           try {
@@ -586,7 +620,7 @@ export async function rebindOriginalFonts(
         const fbTrace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
         let allRunsSet = true;
         for (const r of interRuns) {
-          const loaded = await loadFontWithFallback(originalFamily, r.fontName.style, fbTrace, installedStyles);
+          const loaded = await loadFontWithFallback(chosen(originalFamily), r.fontName.style, fbTrace, installedStyles);
           if (loaded === null) {
             allRunsSet = false;
             stillMissing.add(originalFamily);
@@ -653,7 +687,7 @@ export async function rebindOriginalFonts(
         } catch {
           /* fall back to "Regular" */
         }
-        const loaded = await loadFontWithFallback(s.family, curStyle, segTrace, installedStyles);
+        const loaded = await loadFontWithFallback(chosen(s.family), curStyle, segTrace, installedStyles);
         if (loaded === null) {
           // Dead server-fallback run (pre-fix server import) — heal by
           // ignoring it; the marker clears below if nothing real failed.
@@ -732,7 +766,7 @@ export async function rebindOriginalFonts(
 
     const currentStyle = (node.fontName as FontName).style;
     const trace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
-    const loaded = await loadFontWithFallback(originalFamily, currentStyle, trace, installedStyles);
+    const loaded = await loadFontWithFallback(chosen(originalFamily), currentStyle, trace, installedStyles);
 
     if (loaded === null) {
       // Self-heal: a server-fallback family (Liberation Sans, Noto * CJK …)

@@ -414,7 +414,9 @@ export function collapseSingleChildFrames(root: WireframeNode): boolean {
 // Fixpoint — h2d `y3` / `g8` (app.js:40845 / 40858)
 // ---------------------------------------------------------------------------
 
-function countNodes(n: WireframeNode): number {
+/** Total nodes in a tree, root included. Also the denominator behind the
+ *  import loader's render progress — see utils/importProgress.ts. */
+export function countNodes(n: WireframeNode): number {
   let total = 1;
   for (const c of n.children) total += countNodes(c);
   return total;

@@ -47,7 +47,11 @@ import {
   resolveAnchorReactions,
   registerFlowStartingPoints,
 } from "./rendering/anchorLinks";
-import { buildNotifySummary, buildRelaunchSummary } from "./rendering/diagnostics";
+import {
+  buildNotifySummary,
+  buildRelaunchSummary,
+  recordWarning,
+} from "./rendering/diagnostics";
 import {
   collectAllFonts,
   collectFontUsage,
@@ -66,8 +70,26 @@ import {
 import {
   rebindOriginalFonts,
   collectTextNodesIn,
-  buildRebindableCountPayload,
+  composeRebindablePayload,
+  countRebindableNodes,
+  type RebindableCount,
 } from "./rendering/rebindFonts";
+import { collectTextNodesChunked } from "./rendering/rebindScan";
+import { countNodes } from "./rendering/treeSimplify";
+import {
+  nodeProgressPercent,
+  shouldEmitNodeProgress,
+} from "./utils/importProgress";
+
+/**
+ * clientStorage key + window for the loader's capture-duration history, kept
+ * per import kind (`{ url: [...], file: [...] }`) — a two-second `.w2w` decode
+ * must not become a URL capture's estimate. Deliberately NOT part of
+ * `w2w_plugin_config`: that shape is snapshot on first open and changing it
+ * needs a CONFIG_VERSION migration.
+ */
+const TIMING_KEY = "w2w_import_timing";
+const TIMING_SAMPLES = 5;
 
 /**
  * Dev profiler helper: tally the converted tree by node type so the stage
@@ -108,11 +130,33 @@ export default function () {
   // (they carry a non-empty `w2w_original_font` marker — imported with a
   // substituted font). The UI uses this to conditionally show the
   // "Re-apply fonts" footer button only when there's actually work to do.
-  const postRebindableCount = () => {
+  //
+  // The walk is chunked and cancellable (see rendering/rebindScan.ts): a page
+  // holding a dozen imported sites is hundreds of thousands of nodes, and
+  // scanning them in one synchronous findAll() blocked Figma's main thread —
+  // the plugin opened with its URL field frozen for a second or two.
+  let scanToken = 0;
+  /** Last completed page-wide count, reused while the document is unchanged. */
+  let cachedPageCount: RebindableCount | null = null;
+  /** Whether `documentchange` is available to invalidate the cache above. */
+  let documentChangeWatched = false;
+
+  const postRebindableCount = async (pageDirty = true) => {
+    const token = ++scanToken;
+    const isCancelled = () => token !== scanToken;
+    if (pageDirty) cachedPageCount = null;
+
     try {
-      const pageNodes = figma.currentPage.findAll(
-        (n) => n.type === "TEXT",
-      ) as TextNode[];
+      let page = cachedPageCount;
+      if (!page) {
+        const pageNodes = await collectTextNodesChunked(
+          figma.currentPage.children,
+          { isCancelled },
+        );
+        if (!pageNodes) return; // superseded by a newer scan
+        page = countRebindableNodes(pageNodes);
+        cachedPageCount = page;
+      }
 
       // Scope to the current selection, so every number the modal shows —
       // header count, per-font list, button label — describes what Re-apply
@@ -121,14 +165,22 @@ export default function () {
       const selection = figma.currentPage.selection;
       const selectionNodes =
         selection.length > 0
-          ? collectTextNodesIn(selection as unknown as SceneNode[])
+          ? await collectTextNodesChunked(selection as unknown as SceneNode[], {
+              isCancelled,
+            })
           : [];
+      if (!selectionNodes) return;
+      if (isCancelled()) return;
 
       figma.ui.postMessage({
         type: "rebindable-count",
         // Per-layer detail rides along so the modal can render a clickable
         // per-font list ("h1.u-text" → select & zoom).
-        data: buildRebindableCountPayload(pageNodes, selectionNodes),
+        data: composeRebindablePayload(
+          page,
+          countRebindableNodes(selectionNodes),
+          selection.length > 0,
+        ),
       });
     } catch {
       // Page scan can fail on unusual/huge docs — non-fatal, just skip.
@@ -136,11 +188,21 @@ export default function () {
   };
 
   // Switching Figma pages changes which nodes are in scope; refresh the count.
-  figma.on("currentpagechange", () => postRebindableCount());
+  figma.on("currentpagechange", () => void postRebindableCount());
 
   // Selecting a frame changes the re-apply scope — refresh so the footer button
   // can reflect "Re-apply to selection" when the selection holds pending fonts.
-  figma.on("selectionchange", () => postRebindableCount());
+  // Only the selection is re-walked (the page's count is unchanged unless the
+  // document was edited, which `documentchange` below invalidates), and bursts
+  // from drag-selecting are coalesced.
+  let selectionTimer: ReturnType<typeof setTimeout> | null = null;
+  figma.on("selectionchange", () => {
+    if (selectionTimer) clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(() => {
+      selectionTimer = null;
+      void postRebindableCount(!documentChangeWatched);
+    }, 150);
+  });
 
   // Editing the canvas changes it too — deleting the imported frames must hide
   // the "Re-apply fonts" button, not leave it pointing at nothing. documentchange
@@ -151,9 +213,11 @@ export default function () {
       if (rescanTimer) clearTimeout(rescanTimer);
       rescanTimer = setTimeout(() => {
         rescanTimer = null;
-        postRebindableCount();
+        void postRebindableCount();
       }, 400);
     });
+    // The cache above is only safe while edits invalidate it.
+    documentChangeWatched = true;
   } catch {
     // documentchange needs the `documentAccess: dynamic-page` manifest flag and
     // isn't available in every host/test env — the other refresh points remain.
@@ -167,11 +231,30 @@ export default function () {
     }
     // UI asks how many text nodes still need their original font re-applied.
     if (msg.type === "count-rebindable-fonts") {
-      postRebindableCount();
+      void postRebindableCount();
       return;
     }
     // A layer row in the Re-apply modal was clicked — select it on canvas and
     // bring it into view so the user sees which element the font refers to.
+    // The Re-apply modal's per-font picker needs the families this machine
+    // can actually offer. Figma's list includes its own web fonts, so it is
+    // never just what the OS has installed.
+    if (msg.type === "list-installed-fonts") {
+      try {
+        const avail =
+          typeof figma.listAvailableFontsAsync === "function"
+            ? await figma.listAvailableFontsAsync()
+            : [];
+        const families = Array.from(
+          new Set(avail.map((f) => f.fontName.family)),
+        ).sort((a, b) => a.localeCompare(b));
+        figma.ui.postMessage({ type: "installed-fonts", data: { families } });
+      } catch {
+        figma.ui.postMessage({ type: "installed-fonts", data: { families: [] } });
+      }
+      return;
+    }
+
     if (msg.type === "select-rebind-layer") {
       const nodeId: unknown = msg.data?.nodeId;
       if (typeof nodeId !== "string") return;
@@ -239,7 +322,7 @@ export default function () {
           } catch {
             /* rebind best-effort — markers remain for a manual Re-apply */
           }
-          postRebindableCount();
+          void postRebindableCount();
         }
       }
       return;
@@ -314,7 +397,10 @@ export default function () {
       // net but is now a no-op for content-script-format frames (its
       // guard checks isPlaceholderTree, so populated trees are skipped).
       // ----------------------------------------------------------------------
-      perf.timedSync("prePassConvert", () =>
+      // Subtrees the converter dropped as fully transparent. Reported to the
+      // user once `renderContext.renderStats` exists (it does not yet — the
+      // conversion has to run before the font check reads the tree).
+      const skippedFrames = perf.timedSync("prePassConvert", () =>
         prePassConvertFrames(frames as Parameters<typeof prePassConvertFrames>[0], {
           layoutMode: (layoutMode || "autoLayout") as "absolute" | "autoLayout",
           interactionMode: (interactionMode || "none") as "none" | "variants",
@@ -594,6 +680,7 @@ export default function () {
         fontRealNames: data.fontRealNames,
         fontDeclaredCuts: data.fontDeclaredCuts,
         fontVariableFamilies: data.fontVariableFamilies,
+        fontFaceStyles: data.fontFaceStyles,
         assetMode: assetMode || "placeholders",
         assetsMap,
         interactionMode: interactionMode || "none",
@@ -610,6 +697,19 @@ export default function () {
           droppedNodes: [],
         },
       };
+
+      // Replay the pre-pass's transparent-subtree drops into the report. They
+      // happened before this context existed, and they are not render errors —
+      // the converter removed them on purpose — so they carry no node id.
+      for (const skipped of skippedFrames) {
+        recordWarning(renderContext, {
+          category: "layout",
+          message:
+            `Hidden at capture time (opacity: 0) — ${skipped.nodes} layer(s) skipped ` +
+            `across ${Math.round(skipped.width)}×${Math.round(skipped.height)}px`,
+          layerName: skipped.layerName,
+        });
+      }
 
       // Create effect styles (Phase 2) — shared shadow/blur library. Plugin
       // color mode returns empty map because effects are stripped upstream
@@ -768,6 +868,32 @@ export default function () {
       try {
         const createdFrames: FrameNode[] = [];
 
+        // Real render progress. Every node passes through createNodeInFigma,
+        // and the converted trees say how many there are — so the stretch that
+        // used to jump 30 → 85 in silence is now measured. The renderer drops
+        // some nodes and invents wrappers, so the ratio is approximate and
+        // `nodeProgressPercent` clamps it below the "frames done" milestone.
+        const totalTreeNodes = frames.reduce(
+          (sum, f) => sum + (f.tree ? countNodes(f.tree) : 0),
+          0
+        );
+        let renderedNodes = 0;
+        let lastSentPercent = 0;
+        let currentBuildStep = "Building elements…";
+        renderContext.onNodeRendered = () => {
+          renderedNodes++;
+          if (!shouldEmitNodeProgress(renderedNodes)) return;
+          const percent = Math.round(
+            nodeProgressPercent(renderedNodes, totalTreeNodes)
+          );
+          if (percent === lastSentPercent) return;
+          lastSentPercent = percent;
+          figma.ui.postMessage({
+            type: "render-progress",
+            data: { step: currentBuildStep, percent },
+          });
+        };
+
         for (let i = 0; i < frames.length; i++) {
           const viewportWidth = frames[i].viewportWidth;
           figma.notify(`Processing viewport ${i + 1}/${frames.length}…`, {
@@ -775,14 +901,14 @@ export default function () {
           });
 
           // Calculate progress
-          const frameStartProgress = 25 + (i / frames.length) * 60;
           const frameEndProgress = 25 + ((i + 1) / frames.length) * 60;
 
+          currentBuildStep = `Building elements for ${viewportWidth}px...`;
           figma.ui.postMessage({
             type: "render-progress",
             data: {
-              step: `Building elements for ${viewportWidth}px...`,
-              percent: Math.round(frameStartProgress + 5),
+              step: currentBuildStep,
+              percent: Math.round(nodeProgressPercent(renderedNodes, totalTreeNodes)),
             },
           });
 
@@ -831,6 +957,10 @@ export default function () {
             },
           });
         }
+
+        // Everything past this point (Components section, orphan sweep) has
+        // its own milestones — stop the node counter from talking over them.
+        renderContext.onNodeRendered = undefined;
 
         // Wrap frame(s) in a Section
         figma.notify("Grouping frames in Section…", { timeout: 1000 });
@@ -1088,7 +1218,7 @@ export default function () {
 
         // The fresh import may have introduced substituted-font text — refresh
         // the count so the "Re-apply fonts" button surfaces if needed.
-        postRebindableCount();
+        void postRebindableCount();
       } catch (error) {
         errorHandler.handle({
           code: ErrorCode.WIREFRAME_CREATION_FAILED,
@@ -1126,6 +1256,7 @@ export default function () {
             fontUsage,
             data.fontRealNames || {},
             new Set(data.fontVariableFamilies || []),
+            data.fontFaceStyles || {},
           ),
         );
         // A cut is only worth offering when some @font-face actually declares
@@ -1193,7 +1324,7 @@ export default function () {
             } catch {
               /* rebind best-effort — markers remain for a manual Re-apply */
             }
-            postRebindableCount();
+            void postRebindableCount();
             return;
           }
 
@@ -1255,10 +1386,25 @@ export default function () {
     if (msg.type === "rebind-original-fonts") {
       try {
         const selection = figma.currentPage.selection;
-        const scope =
+        const pageNodes = () =>
+          figma.currentPage.findAll((n) => n.type === "TEXT") as TextNode[];
+        const selected =
           selection.length > 0
             ? collectTextNodesIn(selection as unknown as SceneNode[])
-            : (figma.currentPage.findAll((n) => n.type === "TEXT") as TextNode[]);
+            : [];
+        // A selection with nothing pending falls back to the page — the same
+        // rule `buildRebindableCountPayload` follows. Without it the modal
+        // showed page-wide numbers while the button acted on a clean
+        // selection, so clicking it did nothing at all.
+        const scope =
+          countRebindableNodes(selected).count > 0 ? selected : pageNodes();
+
+        // Families the user chose to replace instead of install (see the
+        // Re-apply modal's per-font picker).
+        const substitutions =
+          msg.data && typeof msg.data.substitutions === "object"
+            ? (msg.data.substitutions as Record<string, string>)
+            : undefined;
 
         if (scope.length === 0) {
           figma.notify("Re-apply fonts: nothing to scan in this scope.");
@@ -1269,7 +1415,7 @@ export default function () {
           return;
         }
 
-        const result = await rebindOriginalFonts(scope);
+        const result = await rebindOriginalFonts(scope, substitutions);
         const cumulative = result.previouslyRebound + result.rebound;
 
         // Mirror the outcome into the UI — the Re-apply modal stays open and
@@ -1323,7 +1469,41 @@ export default function () {
       }
       // Markers are cleared on successful re-apply — refresh so the button
       // hides once everything is re-applied (and stays if fonts still missing).
-      postRebindableCount();
+      void postRebindableCount();
+      return;
+    }
+
+    // Capture-duration history for the import loader's estimate. Kept in its
+    // OWN clientStorage key rather than the plugin config: config is snapshot
+    // on first open and needs a CONFIG_VERSION migration to change shape, and
+    // a progress-bar hint is not worth putting existing users through one.
+    if (msg.type === "save-timing") {
+      try {
+        const stored =
+          ((await figma.clientStorage.getAsync(TIMING_KEY)) as
+            | Record<string, number[]>
+            | undefined) ?? {};
+        const kind: string = msg.data.kind || "url";
+        stored[kind] = [...(stored[kind] ?? []), msg.data.captureMs].slice(
+          -TIMING_SAMPLES
+        );
+        await figma.clientStorage.setAsync(TIMING_KEY, stored);
+      } catch (err) {
+        logger.warn("Failed to save import timing", { error: err });
+      }
+      return;
+    }
+
+    if (msg.type === "load-timing") {
+      try {
+        const stored = (await figma.clientStorage.getAsync(TIMING_KEY)) as
+          | Record<string, number[]>
+          | undefined;
+        figma.ui.postMessage({ type: "timing-loaded", data: stored ?? {} });
+      } catch (err) {
+        logger.warn("Failed to load import timing", { error: err });
+        figma.ui.postMessage({ type: "timing-loaded", data: {} });
+      }
       return;
     }
 
