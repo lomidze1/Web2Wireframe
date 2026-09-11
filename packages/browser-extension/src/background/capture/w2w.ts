@@ -38,6 +38,10 @@ import {
   DEFAULT_CAPTURE_OPTIONS,
   extractUrlsFromSrc,
   orderUrlsByInstallability,
+  W2W_HYDRATION_EXPRESSION,
+  W2W_HYDRATION_TIMEOUT_MS,
+  captureTaintedCanvases,
+  type W2WTextNode,
 } from "@w2w/shared";
 
 import { state, updateProgress } from "../state";
@@ -46,6 +50,10 @@ import { categorizeCSSVariable } from "../utils/misc";
 import { autoScrollPage } from "./legacy";
 
 // =============================================================================
+
+/** CSS-pixel height of the emulated viewport. The page is captured full-height
+ *  by scrolling, so this only seeds the layout viewport (and `vh` units). */
+const VIEWPORT_HEIGHT = 900;
 
 /**
  * W2W page capture using content script DOM traversal.
@@ -92,15 +100,23 @@ export async function handleCapturePageW2W(
     updateProgress(5, "Connecting to page...");
     client = await createCDPClient(tabId);
 
-    // Get devicePixelRatio — shared across all viewports
-    const dprResult = await client.send<{ result: { value: number } }>(
-      "Runtime.evaluate",
-      { expression: "window.devicePixelRatio", returnByValue: true },
-    );
-    const browserDpr = dprResult.result.value || 1;
+    // Browser zoom — shared across all viewports. `devicePixelRatio` can't tell
+    // us this: it is dpr × zoom, so reading it conflates a Retina panel with a
+    // zoomed window. `cssVisualViewport.zoom` is the zoom alone.
+    const zoom = await client
+      .send<{ cssVisualViewport?: { zoom?: number } }>("Page.getLayoutMetrics", {})
+      .then((m) => m.cssVisualViewport?.zoom || 1)
+      .catch(() => 1);
+    __verifyCDPCalls.getLayoutMetrics++;
+
+    // Before the first viewport override and the first layout measurement:
+    // the scrollbar must be gone when the layout width is read, or the
+    // compensation below widens the viewport for a scrollbar the extraction
+    // then hides. Restored in the `finally`. Pinned by a source-order guard in
+    // w2w-scrollbars.test.ts.
+    await w2wHideScrollbars(client);
 
     const viewports = options.viewports.length > 0 ? options.viewports : [1440];
-    const targetHeight = 900;
     const captures: W2WFrameCapture[] = [];
     console.log("[W2W-VERIFY] Viewports:", viewports);
 
@@ -128,17 +144,10 @@ export async function handleCapturePageW2W(
       updateProgress(baseProgress, `Setting viewport ${label}...`);
 
       // --- Viewport Setup ---
-      await client.send("Emulation.setDeviceMetricsOverride", {
-        width: targetViewport,
-        height: targetHeight,
-        deviceScaleFactor: 1 / browserDpr,
-        mobile: targetViewport <= 768,
-        screenWidth: targetViewport,
-        screenHeight: targetHeight,
-        positionX: 0,
-        positionY: 0,
-        screenOrientation: { angle: 0, type: "landscapePrimary" },
-      });
+      await client.send(
+        "Emulation.setDeviceMetricsOverride",
+        w2wViewportMetrics(targetViewport, zoom),
+      );
 
       __verifyCDPCalls.setViewport++;
 
@@ -147,30 +156,28 @@ export async function handleCapturePageW2W(
       // we skip it; give layout a moment to settle, then trigger lazy content.
       await new Promise((resolve) => setTimeout(resolve, 500));
 
+      // Must stay BEFORE the auto-scroll: scrolling is what fires the
+      // IntersectionObservers, so they have to be registered first. Pinned by
+      // a source-order guard in w2w-hydration.test.ts.
+      await w2wWaitForHydration(client);
+
       // Auto-scroll for lazy content
       await autoScrollPage(client);
 
       // Scrollbar compensation
       const layoutMetrics = await client.send<{
+        cssLayoutViewport?: { clientWidth: number };
         layoutViewport: { clientWidth: number; clientHeight: number };
       }>("Page.getLayoutMetrics", {});
       __verifyCDPCalls.getLayoutMetrics++;
 
-      const actualLayoutWidth = layoutMetrics.layoutViewport.clientWidth;
-      const scrollbarWidth = targetViewport - actualLayoutWidth;
+      const scrollbarWidth = w2wScrollbarWidth(targetViewport, layoutMetrics);
 
       if (scrollbarWidth > 0) {
-        await client.send("Emulation.setDeviceMetricsOverride", {
-          width: targetViewport + scrollbarWidth,
-          height: targetHeight,
-          deviceScaleFactor: 1 / browserDpr,
-          mobile: targetViewport <= 768,
-          screenWidth: targetViewport + scrollbarWidth,
-          screenHeight: targetHeight,
-          positionX: 0,
-          positionY: 0,
-          screenOrientation: { angle: 0, type: "landscapePrimary" },
-        });
+        await client.send(
+          "Emulation.setDeviceMetricsOverride",
+          w2wViewportMetrics(targetViewport, zoom, scrollbarWidth),
+        );
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
@@ -281,8 +288,19 @@ export async function handleCapturePageW2W(
           }
         }
 
-        w2wEnrichAllTextNodes(frame, fontsByIdx);
-        console.log(`[W2W] Platform fonts at ${label}: ${fontsByIdx.size} elements`);
+        // Read every host's own text now, AFTER the measurements: a label that
+        // changed under us between the DOM read and here (stripe.com's payment
+        // mockup cycles locales in place) must not hand its font to the text
+        // we captured. Read once more before the loop would only be stronger;
+        // this one alone already rejects the stale side.
+        const hostText = await w2wReadHostText(client);
+        const before = w2wCountPlatformFonts(frame);
+        w2wEnrichAllTextNodes(frame, fontsByIdx, hostText);
+        console.log(
+          `[W2W] Platform fonts at ${label}: ${fontsByIdx.size} measured, ` +
+            `${w2wCountPlatformFonts(frame) - before} applied` +
+            (hostText ? ` (live text checked on ${hostText.size} hosts)` : " (live text unavailable — unguarded)"),
+        );
       }
 
       // --- Hover State Capture (per viewport) ---
@@ -385,6 +403,14 @@ export async function handleCapturePageW2W(
       } catch {
         // Content script may not be ready
       }
+
+      // A tainted <canvas> cannot hand its pixels to the content script at all
+      // (stripe.com's carousel draws cross-origin images without CORS), so it
+      // arrives as an empty box. Photograph the compositor instead. Last of the
+      // layout-touching steps: `captureBeyondViewport` resizes the viewport for
+      // the duration of each shot, and it has to run before this viewport's
+      // frame is banked because it fills the frame in place.
+      await captureTaintedCanvases(client, frame);
 
       captures.push({ width: targetViewport, frame, doc });
 
@@ -753,6 +779,9 @@ export async function handleCapturePageW2W(
     return result;
   } finally {
     if (client) {
+      // The style lives in the user's real tab, so unlike emulation state it
+      // does not go away on detach — take it back out ourselves.
+      await w2wShowScrollbars(client);
       try {
         await client.send("Emulation.clearDeviceMetricsOverride", {});
       } catch {
@@ -769,6 +798,169 @@ export async function handleCapturePageW2W(
 // ---------------------------------------------------------------------------
 // W2W content script helper functions
 // ---------------------------------------------------------------------------
+
+/**
+ * Let a hydrating framework finish before anything is read off the page.
+ *
+ * A React/Vue/Svelte page is HTML first and interactive second; capture it in
+ * between and the scroll-reveal wrappers are still `opacity: 0` with no
+ * IntersectionObserver registered to lift them, so the converter drops them and
+ * can only report that something hidden went missing.
+ *
+ * The expression and its bound live in `@w2w/shared` because the API's capture
+ * path runs the same wait — they were separate for a while, only the API's was
+ * fixed, and this path kept losing the content.
+ */
+export async function w2wWaitForHydration(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<void> {
+  try {
+    await client.send("Runtime.evaluate", {
+      expression: W2W_HYDRATION_EXPRESSION,
+      awaitPromise: true,
+      timeout: W2W_HYDRATION_TIMEOUT_MS,
+    });
+  } catch {
+    // A page that never goes idle is still worth capturing.
+  }
+}
+
+/** Id of the style {@link w2wHideScrollbars} injects — the API path uses the same. */
+const HIDE_SCROLLBAR_STYLE_ID = "__w2w_hide_scrollbar";
+
+/**
+ * Take the page scrollbar out of layout for the whole capture.
+ *
+ * Scrollbar compensation measured the layout viewport WITH the scrollbar (1425
+ * at a 1440 override on a Mac with classic scrollbars), widened the override by
+ * the difference, and expected the content to land on 1440. It did — until the
+ * content script hid the scrollbar for the extraction and the 15px came back:
+ * everything laid out from `100vw` (stripe.com's `main`, its section padding
+ * `(100vw - 1266px) / 2`) then measured 1455 / 94.5 where a URL import of the
+ * same page gives 1440 / 87. Headless Chromium has no scrollbar, so the API
+ * path never saw this.
+ *
+ * Hiding it BEFORE the first measurement makes the measured width equal the
+ * override, the compensation 0, and the two paths agree. `scrollbar-width:
+ * none` is the rule that actually returns the width to layout; the -webkit
+ * rule only hides the paint. Both root candidates are covered because the
+ * scroller is `html` on most pages and `body` on some.
+ *
+ * Never throws — a page that refuses the style is still worth capturing.
+ */
+export async function w2wHideScrollbars(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<void> {
+  try {
+    await client.send("Runtime.evaluate", {
+      expression: `
+        if (!document.getElementById(${JSON.stringify(HIDE_SCROLLBAR_STYLE_ID)})) {
+          const style = document.createElement('style');
+          style.id = ${JSON.stringify(HIDE_SCROLLBAR_STYLE_ID)};
+          style.textContent = 'html, body { scrollbar-width: none !important; } html::-webkit-scrollbar, body::-webkit-scrollbar { display: none !important; }';
+          document.head.appendChild(style);
+        }
+      `,
+      awaitPromise: false,
+    });
+  } catch {
+    // Hiding is an improvement, never a precondition.
+  }
+}
+
+/**
+ * Undo {@link w2wHideScrollbars}. The style sits in the user's real tab, so it
+ * does not vanish on debugger detach the way emulation state does; the tab has
+ * to be handed back exactly as it was. Never throws — cleanup must not mask
+ * the capture result.
+ */
+export async function w2wShowScrollbars(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<void> {
+  try {
+    await client.send("Runtime.evaluate", {
+      expression: `document.getElementById(${JSON.stringify(HIDE_SCROLLBAR_STYLE_ID)})?.remove()`,
+      awaitPromise: false,
+    });
+  } catch {
+    // Ignore — the tab may already be gone.
+  }
+}
+
+/**
+ * Width of the scrollbar the page is actually showing, in CSS pixels.
+ *
+ * `Page.getLayoutMetrics` reports the layout viewport twice. `layoutViewport`
+ * is deprecated and, per the protocol, in DEVICE pixels; `cssLayoutViewport` is
+ * the CSS-pixel one. `targetViewport` is CSS, so subtracting the deprecated
+ * field mixed units: on a Retina display it is ~2x, at 150% zoom ~1.5x, the
+ * difference goes negative, and the caller's `> 0` guard then skips
+ * compensation altogether — silently, and on most developer machines.
+ */
+export function w2wScrollbarWidth(
+  targetViewport: number,
+  metrics: {
+    cssLayoutViewport?: { clientWidth: number };
+    layoutViewport?: { clientWidth: number };
+  },
+): number {
+  const cssWidth =
+    metrics.cssLayoutViewport?.clientWidth ?? metrics.layoutViewport?.clientWidth;
+  if (typeof cssWidth !== "number" || !isFinite(cssWidth)) return 0;
+  return Math.max(0, targetViewport - cssWidth);
+}
+
+/**
+ * Build the `Emulation.setDeviceMetricsOverride` params for one capture viewport.
+ *
+ * `deviceScaleFactor: 0` means "inherit the host's native DPR". Overriding it
+ * makes the page resolve every `srcset` against a density it isn't rendering at:
+ * the old `1 / devicePixelRatio` sent 0.5 on any Retina display, which is why a
+ * capture came back holding the smallest candidate of every responsive image.
+ *
+ * Browser zoom is the thing that actually needs correcting, and it needs
+ * correcting on the SIZE, not the density — CDP sizes are device-independent
+ * pixels, so a CSS viewport of `targetViewport` needs `targetViewport * zoom`.
+ * Height is scaled for the same reason, so `vh` units resolve against the
+ * height we asked for.
+ */
+export function w2wViewportMetrics(
+  targetViewport: number,
+  zoom: number,
+  scrollbarWidth = 0,
+): {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  mobile: boolean;
+  screenWidth: number;
+  screenHeight: number;
+  positionX: number;
+  positionY: number;
+  screenOrientation: { angle: number; type: string };
+} {
+  const cssWidth = targetViewport + scrollbarWidth;
+  const width = Math.round(cssWidth * zoom);
+  const height = Math.round(VIEWPORT_HEIGHT * zoom);
+  // Mobile emulation keys off the CSS viewport we asked for, never the zoomed
+  // device width — 375 CSS px is a phone capture at any zoom level.
+  const mobile = targetViewport <= 768;
+
+  return {
+    width,
+    height,
+    deviceScaleFactor: 0,
+    mobile,
+    screenWidth: width,
+    screenHeight: height,
+    positionX: 0,
+    positionY: 0,
+    screenOrientation: {
+      angle: 0,
+      type: mobile ? "portraitPrimary" : "landscapePrimary",
+    },
+  };
+}
 
 /** Count total nodes in a W2W tree. */
 /** Get main frame ID from resource map (first entry's frameId). */
@@ -960,48 +1152,142 @@ export function w2wPickFontUrlsToKeep(
 export function w2wEnrichAllTextNodes(
   frame: W2WFrameNode,
   fontsByIdx: Map<number, { familyName: string; postScriptName: string }>,
+  hostText?: Map<number, string>,
 ): void {
   let idx = 0;
 
   function walk(node: W2WNode): void {
-    if (node.type === "FRAME") {
-      const hasTextChildren = node.children.some((c) => c.type === "TEXT");
-      if (hasTextChildren) {
-        const font = fontsByIdx.get(idx);
-        // A malformed `name` table can put legal text where the family name
-        // belongs — stripe.com measures as familyName "Copyright Klim Type
-        // Foundry" / postScriptName "SohneVF-Buch". Ignore such measurements
-        // entirely so the CSS-declared family stands.
-        const trustworthy =
-          font &&
-          !isObfuscatedFont({
-            familyName: font.familyName,
-            postScriptName: font.postScriptName,
-            isCustomFont: true,
-            glyphCount: 1,
-          });
-        if (font && trustworthy) {
-          for (const child of node.children) {
-            if (child.type === "TEXT") {
-              child.platformFont = {
-                familyName: font.familyName,
-                postScriptName: font.postScriptName,
-              };
-              // Override content-script's weight-specific font name with platform font
-              // (platformFont.familyName overrides content-script font for TEXT nodes)
-              child.font = font.familyName;
-            }
-          }
-        }
-        idx++;
-      }
-      for (const child of node.children) {
-        walk(child);
-      }
+    if (node.type !== "FRAME") return;
+
+    // Pseudo-element and list-marker wrappers are synthesized by the content
+    // script, not traversed, so they never received a `data-w2w-idx`. Counting
+    // them shifted every host after them — 80 of stripe.com's 831 hosts were
+    // wrappers, the first at position 7, and 17 Latin labels ended up wearing
+    // the Hiragino / PingFang measured on Japanese labels nearby.
+    if (isSyntheticFrame(node)) return;
+
+    // POST-order: the content script tags a host only after traversing its
+    // children (`nodeIndexCounter++` sits below the child loop), so a nested
+    // host is numbered BEFORE its parent. Counting pre-order swapped the two.
+    for (const child of node.children) {
+      walk(child);
+    }
+
+    const textChildren = node.children.filter(
+      (c): c is W2WTextNode => c.type === "TEXT",
+    );
+    if (textChildren.length === 0) return;
+
+    const font = fontsByIdx.get(idx);
+    const live = hostText?.get(idx);
+    idx++;
+
+    if (!font) return;
+    // A malformed `name` table can put legal text where the family name
+    // belongs — stripe.com measures as familyName "Copyright Klim Type
+    // Foundry" / postScriptName "SohneVF-Buch". Ignore such measurements
+    // entirely so the CSS-declared family stands.
+    if (
+      isObfuscatedFont({
+        familyName: font.familyName,
+        postScriptName: font.postScriptName,
+        isCustomFont: true,
+        glyphCount: 1,
+      })
+    ) {
+      return;
+    }
+    // The measurement describes whatever the element shows NOW. If that is
+    // not the text we captured — the label rotated, or the numbering is off
+    // in some way not covered above — the font belongs to other text.
+    // Whitespace is ignored on both sides: the content script splits a text
+    // node into trimmed visual lines.
+    if (hostText) {
+      if (live === undefined) return;
+      const captured = textChildren.map((c) => c.value).join("");
+      if (stripWhitespace(live) !== stripWhitespace(captured)) return;
+    }
+
+    for (const child of textChildren) {
+      child.platformFont = {
+        familyName: font.familyName,
+        postScriptName: font.postScriptName,
+      };
+      // Override content-script's weight-specific font name with platform font
+      // (platformFont.familyName overrides content-script font for TEXT nodes)
+      child.font = font.familyName;
     }
   }
 
   walk(frame);
 }
 
-// w2wFindInteractiveNodes imported from @w2w/shared (shared between Extension and API)
+/** A FRAME the content script synthesized (pseudo-element / list-marker
+ *  wrapper) rather than traversed — never tagged with `data-w2w-idx`. */
+function isSyntheticFrame(node: W2WFrameNode): boolean {
+  return (node.classList ?? []).some((c) => String(c).startsWith("__w2w-"));
+}
+
+function stripWhitespace(s: string): string {
+  return s.replace(/\s+/g, "");
+}
+
+/** TEXT nodes in the tree that carry a platform font — for the capture log. */
+export function w2wCountPlatformFonts(frame: W2WFrameNode): number {
+  let n = 0;
+  const walk = (node: W2WNode): void => {
+    if (node.type === "TEXT") {
+      if (node.platformFont) n++;
+      return;
+    }
+    if (node.type === "FRAME") for (const c of node.children) walk(c);
+  };
+  walk(frame);
+  return n;
+}
+
+/**
+ * Each tagged host's OWN text — its direct child text nodes joined — keyed by
+ * `data-w2w-idx`, in one round trip.
+ *
+ * Direct children only, deliberately: the captured TEXT children of a host
+ * come from exactly those nodes (`extractTextNodes` runs on `el.childNodes`),
+ * and every descendant element with text is a host of its own. `textContent`
+ * would drag in nested and hidden text and fail the comparison for nothing.
+ *
+ * Returns undefined when the page cannot be read, and the caller then assigns
+ * unguarded — the guard is an improvement on a capture, never a precondition.
+ */
+export async function w2wReadHostText(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<Map<number, string> | undefined> {
+  try {
+    const result = await client.send<{ result: { value?: Array<[string, string]> } }>(
+      "Runtime.evaluate",
+      {
+        expression: `
+          Array.from(document.querySelectorAll('[data-w2w-idx]')).map((el) => [
+            el.getAttribute('data-w2w-idx'),
+            Array.from(el.childNodes)
+              .filter((n) => n.nodeType === 3)
+              .map((n) => n.textContent)
+              .join(''),
+          ])
+        `,
+        returnByValue: true,
+      },
+    );
+    const pairs = result?.result?.value;
+    if (!Array.isArray(pairs)) return undefined;
+    const out = new Map<number, string>();
+    for (const [idx, text] of pairs) {
+      const n = parseInt(idx, 10);
+      if (Number.isFinite(n)) out.set(n, String(text ?? ""));
+    }
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
+// w2wFindHoverCandidates imported from @w2w/shared (shared between Extension and API)

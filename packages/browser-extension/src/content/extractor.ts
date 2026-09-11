@@ -42,6 +42,7 @@ import {
   extractRightmostCompound,
 } from './hover-parser';
 import { bakeSvgPresentation } from './svg-style-baker';
+import { rasterizeCanvases } from './canvas-raster';
 
 import { SKIP_TAGS, isHidden, isOffscreen, isHorizontalScrollContainer } from './visibility';
 import {
@@ -61,6 +62,16 @@ const MAX_DEPTH = 30;
 
 /** Counter for tagging elements with data-w2w-idx (used by service worker for CDP font lookup) */
 let nodeIndexCounter = 0;
+
+/**
+ * `<canvas>` bitmaps exported by the pre-pass, keyed by element.
+ *
+ * A canvas has no children and no background to read, so the traversal has
+ * nothing to render without this. Filled by rasterizeCanvases() before the
+ * traversal starts, because reading a WebGL canvas has to await a frame
+ * callback and traverseElement() is synchronous.
+ */
+const canvasBitmaps = new WeakMap<HTMLCanvasElement, string>();
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -90,6 +101,11 @@ export async function extractPage(): Promise<ExtractPageResult> {
   //    empty currentSrc/naturalWidth. Both waits are capped so a hung
   //    resource can never stall the capture.
   await waitForRenderReadiness();
+
+  // 0b. Export <canvas> bitmaps. A pre-pass, not a post-pass: reading a WebGL
+  //     canvas has to await a frame callback, and traverseElement() below is
+  //     synchronous, so the bitmaps must already be in hand when it runs.
+  await rasterizeCanvases(canvasBitmaps);
 
   // 1. Inject pre-capture styles
   injectPreCaptureStyles();
@@ -424,6 +440,10 @@ function traverseElement(
     $url = img.currentSrc || img.src || img.dataset.src;
   } else if (tag === 'video') {
     $url = (el as HTMLVideoElement).poster;
+  } else if (tag === 'canvas') {
+    // Exported by the pre-pass in extractPage(); absent when the canvas paints
+    // nothing, or is tainted and cannot be read back.
+    $url = canvasBitmaps.get(el as HTMLCanvasElement);
   }
 
   // Background image URL

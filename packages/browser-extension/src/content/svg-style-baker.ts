@@ -33,6 +33,40 @@ const PRESENTATION_PROPS = [
 ] as const;
 
 /**
+ * Paint carried only by a `<stop>`.
+ *
+ * stripe.com colours its gradient icons through CSS custom properties scoped to
+ * the `<svg>` (`stop-color: var(--icon-gradient-start)`), and Figma's SVG parser
+ * has no variable resolution — an unbaked stop imports as black and takes the
+ * whole icon with it.
+ *
+ * Kept apart from {@link PRESENTATION_PROPS} because `getComputedStyle` answers
+ * `stop-color` on ANY element, with the initial black: baking it everywhere put
+ * `stop-color="rgb(0, 0, 0)"` on 7 of one icon's 10 elements — noise in every
+ * payload, for nothing.
+ */
+const STOP_PROPS = ['stop-color', 'stop-opacity'] as const;
+
+/**
+ * Type size, which only a text element can use.
+ *
+ * A relative `font-size` is meaningless without a CSS context and Figma's SVG
+ * parser has none — it reads the number and drops the unit. stripe.com's "Sign
+ * in" button is a knockout mask whose label is `font-size="1em"`, and it
+ * imported at fontSize 1: a 3.28 × 0.38px sliver where h2d gets 45 × 17 at 14.
+ * The computed value is already absolute, so baking it is the whole fix.
+ *
+ * Kept apart from {@link PRESENTATION_PROPS} for the same reason as
+ * {@link STOP_PROPS}: `getComputedStyle` answers `font-size` on ANY element, so
+ * baking it everywhere would hang an attribute on every shape of every icon for
+ * nothing.
+ */
+const TEXT_PROPS = ['font-size'] as const;
+
+/** Elements that render glyphs, i.e. the ones {@link TEXT_PROPS} applies to. */
+const TEXT_TAGS = new Set(['text', 'tspan', 'textpath']);
+
+/**
  * Copy the computed values of {@link PRESENTATION_PROPS} from every element of
  * `original` onto the corresponding element of `clone`.
  *
@@ -67,6 +101,19 @@ export function bakeSvgPresentation(
       const attrValue =
         prop === 'stroke-width' ? value.replace(/px$/, '') : value;
       targets[i].setAttribute(prop, attrValue);
+    }
+    const tag = sources[i].tagName.toLowerCase();
+    if (tag === 'stop') {
+      for (const prop of STOP_PROPS) {
+        const value = style.getPropertyValue(prop);
+        if (value) targets[i].setAttribute(prop, value);
+      }
+    }
+    if (TEXT_TAGS.has(tag)) {
+      for (const prop of TEXT_PROPS) {
+        const value = style.getPropertyValue(prop);
+        if (value) targets[i].setAttribute(prop, value);
+      }
     }
   }
 }
