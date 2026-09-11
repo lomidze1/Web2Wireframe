@@ -414,6 +414,7 @@ export async function createWireframeData(
 import {
   extractWithContentScript,
   collectFontResponses,
+  emulateReducedMotion,
   type W2WExtractionResult,
 } from "./cdp/w2w-extraction.js";
 import { perfMark } from "../utils/stageTimer.js";
@@ -457,6 +458,8 @@ export async function renderWebsiteW2W(
 
     const page = await browser.newPage();
     await installNavigationSsrfGuard(page);
+    // Before the first navigation: a site reads `matchMedia` when it boots.
+    await emulateReducedMotion(page);
     t = perfMark("newPage+ssrfGuard", t);
 
     // Inject cookies if provided
@@ -601,6 +604,8 @@ export async function renderHTMLContentW2W(
     });
 
     const page = await browser.newPage();
+    // Before setContent: a site reads `matchMedia` when it boots.
+    await emulateReducedMotion(page);
 
     // SSRF protection: same as renderHTMLContent
     const ALLOWED_RESOURCE_TYPES: ReadonlySet<string> = new Set([

@@ -40,6 +40,9 @@ import {
   w2wFindHoverCandidates,
   attachHoverToDescendants,
   orderUrlsByInstallability,
+  W2W_HYDRATION_EXPRESSION,
+  W2W_HYDRATION_TIMEOUT_MS,
+  captureTaintedCanvases,
 } from "@w2w/shared";
 import { normalizeFontPayload } from "../fonts/decompressFont.js";
 
@@ -233,10 +236,17 @@ export async function extractWithContentScript(
       );
     }
 
-    // Auto-scroll for lazy content
     t = perfMark("  reload+settle#2", t);
+
+    // Scrolling is only useful once the page can react to it — see
+    // `waitForHydration`. Must stay BEFORE the auto-scroll.
+    await waitForHydration(client);
+    t = perfMark("  hydration", t);
+
+    // Auto-scroll for lazy content
     await autoScrollPage(client);
     t = perfMark("  autoScroll", t);
+
 
     // Force-load every declared @font-face. With `font-display: swap`, faces
     // that aren't used by visible elements at this viewport stay `unloaded`
@@ -484,6 +494,13 @@ export async function extractWithContentScript(
     });
 
     t = perfMark("  hover", t);
+
+    // --- 6c. Tainted <canvas> via compositor screenshot ---
+    // Last of the layout-touching steps: `captureBeyondViewport` resizes the
+    // viewport for the duration of each shot, so nothing that reads geometry
+    // may run after it.
+    await captureTaintedCanvases(client, frame);
+    t = perfMark("  canvasShots", t);
 
     // --- 7 & 8. Asset + Font extraction from browser cache ---
     const assets: Record<string, W2WAssetEntry> = {};
@@ -823,6 +840,96 @@ export async function extractWithContentScript(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Wait for the page to finish booting before anything scrolls it.
+ *
+ * Scroll-reveal content — `opacity: 0` until an IntersectionObserver flips a
+ * class on it — is released by an observer that a client-rendered page only
+ * attaches after hydration. `waitForNetworkSettled` can return well before
+ * that: the bytes have arrived, but React has not run. Auto-scrolling then
+ * walks the whole page past an observer that does not exist yet, and after the
+ * scroll returns to the top every reveal is still transparent — which the
+ * plugin deletes, subtree and all.
+ *
+ * Measured on glinc.io at 6x CPU throttle + slow network (standing in for
+ * Render's cold, shared CPU), 24 runs per arm:
+ *
+ *   without this wait   14 clean / 10 lost content
+ *   with this wait      24 clean /  0 lost content
+ *
+ * The wait itself averaged ~270ms, because on a page that is already idle every
+ * step below resolves immediately. Bounded at every step and never throws: a
+ * capture must not fail because the page would not go quiet.
+ */
+export async function waitForHydration(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<void> {
+  try {
+    await client.send("Runtime.evaluate", {
+      // Shared with the extension's capture path — the two ran different waits
+      // for a while and only this one was fixed, which left every extension
+      // capture losing the scroll-reveal content this exists to save.
+      expression: W2W_HYDRATION_EXPRESSION,
+      awaitPromise: true,
+      timeout: W2W_HYDRATION_TIMEOUT_MS,
+    });
+  } catch {
+    // A page that never goes idle is still worth capturing.
+  }
+}
+
+/**
+ * Ask the page to render as if the visitor had asked for less motion.
+ *
+ * `waitForHydration` + `autoScrollPage` handle animations that latch: an
+ * IntersectionObserver flips a class once and the content stays revealed.
+ * Scroll-*progress* animations do not latch. The site writes a 0..1 variable
+ * that tracks the scroll position both ways, so `autoScrollPage`'s closing
+ * `window.scrollTo(0, 0)` rewinds every one of them to its opening frame,
+ * moments before we extract.
+ *
+ * stripe.com's usage chart is the measured case (headless Chromium, 1440x900,
+ * our own content-script bundle). `.billing-plan-graphic__bar` reads
+ * `transform: scaleY(calc(var(--bar-target-scale) * var(--progress-in-window)))`,
+ * and `--progress` is an inline style Stripe's script keeps in sync with the
+ * scroll:
+ *
+ *   after load, scrollY 0        --progress 0   31 bars at 4.27 x 0
+ *   after the auto-scroll loop   --progress 1   7, 12, 23, 33, 47, 67 ...
+ *   after scrollTo(0, 0)         --progress 0   31 bars at 4.27 x 0  <- we extract here
+ *
+ * Zero-height boxes are then dropped by treeSimplify's DEGENERATE test, so the
+ * chart arrives in Figma as an empty 306x149 box.
+ *
+ * Under `prefers-reduced-motion: reduce` Stripe's own script jumps straight to
+ * the finished state at page top, before anything scrolls, and never rewinds —
+ * all 31 bars land on 100% of their target height, which is closer than h2d
+ * gets (h2d relies on not resetting the scroll, which leaves its last four bars
+ * ~25% short). Cost on the same page: 52 of 2916 elements differ from a normal
+ * capture — the 31 bars, three more nodes of the same widget, a marquee frozen
+ * at a defined offset, and an invisible animated checkmark. Element counts are
+ * identical, and linear.app / vercel.com / telex.ge / apple.com showed no
+ * difference beyond run-to-run noise.
+ *
+ * Must be called BEFORE navigation: a site reads `matchMedia` when it boots.
+ * Puppeteer re-applies the override across navigations and reloads, so one call
+ * per page covers the whole capture. Never throws — a page that will not
+ * emulate is still worth capturing.
+ */
+export async function emulateReducedMotion(page: {
+  emulateMediaFeatures: (
+    features: Array<{ name: string; value: string }>,
+  ) => Promise<void>;
+}): Promise<void> {
+  try {
+    await page.emulateMediaFeatures([
+      { name: "prefers-reduced-motion", value: "reduce" },
+    ]);
+  } catch {
+    // Emulation is an improvement, never a precondition.
+  }
+}
 
 /** Auto-scroll the page to trigger lazy-loaded content. */
 async function autoScrollPage(client: { send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T> }): Promise<void> {

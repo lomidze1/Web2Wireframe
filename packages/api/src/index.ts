@@ -39,6 +39,7 @@ import pluginAiRoutes from "./routes/plugin/ai.js";
 import pluginWireframeRoutes from "./routes/plugin/wireframe.js";
 import pluginSettingsRoutes from "./routes/plugin/settings.js";
 import pluginNewsletterRoutes from "./routes/plugin/newsletter.js";
+import pluginImportReportRoutes from "./routes/plugin/importReport.js";
 
 // License routes (MongoDB-backed, formerly License_Backend)
 import licenseRoutes from "./routes/license/index.js";
@@ -351,6 +352,7 @@ pluginRouter.use("/api", pluginAiRoutes);
 pluginRouter.use("/api", pluginWireframeRoutes);
 pluginRouter.use("/api", pluginSettingsRoutes);
 pluginRouter.use("/api", pluginNewsletterRoutes);
+pluginRouter.use("/api", pluginImportReportRoutes);
 
 app.use(pluginRouter);
 

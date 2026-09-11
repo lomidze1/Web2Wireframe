@@ -128,3 +128,24 @@ export const byTokenUserRateLimiter = rateLimit({
   },
   skip: skipInDevelopment,
 });
+
+/**
+ * Per-user limiter for the plugin's "Report this to the developer" button
+ * (report + optional follow-up note share the bucket). Keyed by the VERIFIED
+ * token's userId, so it must run AFTER authenticatePlugin — a 401 never
+ * spends budget, and rotating IPs doesn't buy a fresh one. One click per
+ * import is the legitimate ceiling; 20/hour covers a user working through a
+ * bad site, beyond that it is spam in the support inbox.
+ */
+export const importReportRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: { success: false, error: "Too many reports — please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: { ip?: string; userId?: string }): string =>
+    req.userId
+      ? `importReport:uid:${req.userId}`
+      : `importReport:ip:${req.ip ?? "unknown"}`,
+  skip: skipInDevelopment,
+});
