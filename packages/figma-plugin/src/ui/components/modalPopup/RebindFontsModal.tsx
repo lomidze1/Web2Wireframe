@@ -43,6 +43,16 @@ interface RebindFontsModalProps {
   layers?: RebindLayerInfo[];
   /** Fires when a layer row is clicked — the sandbox selects & zooms to it. */
   onSelectLayer?: (id: string) => void;
+  /** True when the user has something selected on canvas — even if it holds
+   *  nothing pending. Distinguishes "page scope, nothing selected" from
+   *  "your selection is already clean". */
+  selectionActive?: boolean;
+  /** Families this Figma can offer, for the per-font "use instead" picker. */
+  installedFonts?: string[];
+  /** The user's picks so far, as `pendingFamily → chosenFamily`. */
+  choices?: Record<string, string>;
+  /** Fires when a pick changes. An empty `chosen` clears it. */
+  onChoiceChange?: (family: string, chosen: string) => void;
   /** Fires the actual `rebind-original-fonts` action. */
   onReapply: () => void;
   /** True while the sandbox is walking & rebinding nodes — the button shows
@@ -103,6 +113,10 @@ export default function RebindFontsModal({
   missingFonts,
   layers = [],
   onSelectLayer,
+  selectionActive,
+  installedFonts,
+  choices,
+  onChoiceChange,
   onReapply,
   isReapplying = false,
   result = null,
@@ -165,6 +179,28 @@ export default function RebindFontsModal({
                           </span>
                         </summary>
                         <div class={styles.accordionContent}>
+                          {installedFonts && installedFonts.length > 0 && (
+                            <div class={local.rebindChoiceRow}>
+                              <span>Use instead</span>
+                              <select
+                                class={styles.dropdown}
+                                value={choices?.[family] ?? ""}
+                                onChange={(e) =>
+                                  onChoiceChange?.(
+                                    family,
+                                    (e.target as HTMLSelectElement).value,
+                                  )
+                                }
+                              >
+                                <option value="">Keep {family}</option>
+                                {installedFonts.map((f) => (
+                                  <option key={f} value={f}>
+                                    {f}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                           {familyLayers.map((l) => (
                             <button
                               key={l.id}
@@ -194,6 +230,11 @@ export default function RebindFontsModal({
                   <strong class={local.rebindSelCount}>{selectionCount}</strong>
                   {pageCount > selectionCount ? ` of ${pageCount} on this page` : ""}.
                   Re-apply will target the selection.
+                </div>
+              )}
+              {!scopedToSelection && selectionActive && (
+                <div class={local.rebindFontList}>
+                  Your selection has none pending — showing the whole page.
                 </div>
               )}
             </div>

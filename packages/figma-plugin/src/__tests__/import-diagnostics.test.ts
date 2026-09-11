@@ -17,6 +17,7 @@ import {
   recordWarning,
   buildRelaunchSummary,
   summarizeWarnings,
+  groupWarnings,
   MAX_WARNINGS,
   type ImportWarning,
 } from "../rendering/diagnostics";
@@ -104,6 +105,30 @@ describe("recordWarning", () => {
   });
 });
 
+describe("recordWarning — per-instance detail", () => {
+  it("stores detail separately so the message stays a groupable template", () => {
+    const ctx = makeContext();
+    recordWarning(ctx, {
+      category: "layout",
+      message: "Hidden at capture time (opacity: 0) — skipped",
+      layerName: "Promo",
+      detail: "12 layers · 1440×900px",
+    });
+    expect(ctx.renderStats.warnings?.[0]).toEqual({
+      category: "layout",
+      message: "Hidden at capture time (opacity: 0) — skipped",
+      layerName: "Promo",
+      detail: "12 layers · 1440×900px",
+    });
+  });
+
+  it("omits detail when none is given", () => {
+    const ctx = makeContext();
+    recordWarning(ctx, { category: "other", message: "m" });
+    expect(ctx.renderStats.warnings?.[0]).not.toHaveProperty("detail");
+  });
+});
+
 describe("recordDroppedNode", () => {
   it("still records the legacy droppedNodes entry", () => {
     const ctx = makeContext();
@@ -177,5 +202,59 @@ describe("buildRelaunchSummary", () => {
 
   it("says so when the import was clean", () => {
     expect(buildRelaunchSummary([])).toBe("Imported with no warnings");
+  });
+});
+
+describe("groupWarnings", () => {
+  const SOEHNE = 'Font "Söhne" not available — rendered with "Inter"';
+  const TIEMPOS = 'Font "Tiempos" not available — rendered with "Inter"';
+  const DECODE = "Image could not be decoded — replaced with a placeholder";
+  const SKIPPED = "Could not be rendered — skipped (x)";
+  const sample: ImportWarning[] = [
+    { category: "typography", message: SOEHNE, nodeId: "1:1", layerName: "Hero" },
+    { category: "image", message: DECODE, nodeId: "1:2", layerName: "Photo" },
+    { category: "typography", message: SOEHNE, nodeId: "1:3", layerName: "Subhead" },
+    { category: "typography", message: TIEMPOS, layerName: "Quote" },
+    { category: "fatal", message: SKIPPED, layerName: "Card" },
+  ];
+
+  it("collapses identical (category, message) pairs into one issue", () => {
+    const soehne = groupWarnings(sample).find((g) => g.message === SOEHNE);
+    expect(soehne?.count).toBe(2);
+    expect(soehne?.layers).toEqual([
+      { nodeId: "1:1", layerName: "Hero" },
+      { nodeId: "1:3", layerName: "Subhead" },
+    ]);
+  });
+
+  it("keeps different messages apart even within one category", () => {
+    const typography = groupWarnings(sample).filter((g) => g.category === "typography");
+    expect(typography.map((g) => g.message)).toEqual([SOEHNE, TIEMPOS]);
+  });
+
+  it("orders issues severity-first, then by first appearance", () => {
+    expect(groupWarnings(sample).map((g) => g.message)).toEqual([
+      SKIPPED,
+      SOEHNE,
+      TIEMPOS,
+      DECODE,
+    ]);
+  });
+
+  it("carries per-layer detail without splitting the issue", () => {
+    const groups = groupWarnings([
+      { category: "layout", message: "Hidden", layerName: "A", detail: "3 layers" },
+      { category: "layout", message: "Hidden", layerName: "B", detail: "9 layers" },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].layers).toEqual([
+      { layerName: "A", detail: "3 layers" },
+      { layerName: "B", detail: "9 layers" },
+    ]);
+  });
+
+  it("returns an empty list for a clean import", () => {
+    expect(groupWarnings([])).toEqual([]);
+    expect(groupWarnings(undefined)).toEqual([]);
   });
 });

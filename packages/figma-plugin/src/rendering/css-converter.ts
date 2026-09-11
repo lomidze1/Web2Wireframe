@@ -51,6 +51,7 @@ import type {
   TextSegment,
   CssTransform,
   SkippedFrame,
+  PendingWarning,
 } from '../types';
 import { isTrivialHoverDiff } from './trivialHoverDiff';
 import { parseCssPosition } from './imageCrop';
@@ -2195,6 +2196,9 @@ function convertFrame(
         c.hasDescendantHover === true,
     ) || undefined,
 
+    // Losses visible from the captured styles — reported once the node exists.
+    pendingWarnings: detectConverterWarnings(node),
+
     // Media
     isPlaceholder: type === 'placeholder',
     imageUrl: node.$url,
@@ -3070,12 +3074,27 @@ function getSizing(
   // When a child's pixel dimension matches the parent's content dimension on the cross-axis,
   // upgrade FIXED to FILL — the element was likely width: 100% or height: 100%.
   if (parentDims && parentIsFlexOrGrid && !isParentGrid) {
+    // A scaling transform makes the CSS length stop describing the painted box,
+    // so the comparison below has nothing to compare. stripe.com's usage chart
+    // is the case: each of its 31 bars declares `height: 149px` inside a 149px
+    // row and paints 7..149px through `scaleY(var(--bar-target-scale))`. Every
+    // bar matched the parent's content height, every bar was upgraded to FILL,
+    // and Figma stretched all 31 back into a flat wall. The measured rect
+    // already carries the scale, so a scaled axis keeps FIXED.
+    //
+    // Translation is not a scale and does not block the upgrade: the captured
+    // geometry is the AABB of the already-transformed element, so a translate
+    // is baked into x/y and never contradicts the declared length.
+    const ownTransform = parseCssTransform(str(s.transform));
+    const scaledX = !!ownTransform && Math.abs(Math.abs(ownTransform.scaleX) - 1) > 1e-3;
+    const scaledY = !!ownTransform && Math.abs(Math.abs(ownTransform.scaleY) - 1) > 1e-3;
+
     // parentDims comes from node.width/height — the browser's BORDER box — so
     // the parent's own border has to come off alongside its padding. Leaving it
     // in overstates the content box by both border widths, and with the 2px
     // tolerance below any border thicker than 1px per side silently loses the
     // upgrade.
-    if (isParentVertical && horizontal === 'FIXED') {
+    if (isParentVertical && horizontal === 'FIXED' && !scaledX) {
       const numW = parseFloat(width);
       if (!isNaN(numW) && numW > 0) {
         const padL = parseFloat(str(parentStyles?.paddingLeft)) || 0;
@@ -3087,7 +3106,7 @@ function getSizing(
           horizontal = 'FILL';
         }
       }
-    } else if (!isParentVertical && vertical === 'FIXED') {
+    } else if (!isParentVertical && vertical === 'FIXED' && !scaledY) {
       const numH = parseFloat(height);
       if (!isNaN(numH) && numH > 0) {
         const padT = parseFloat(str(parentStyles?.paddingTop)) || 0;
@@ -4985,6 +5004,96 @@ function countCapturedNodes(node: W2WNode): number {
   let total = 1;
   for (const child of node.children || []) total += countCapturedNodes(child);
   return total;
+}
+
+/**
+ * Filter functions the renderer draws (see parseEffects). `grayscale` is
+ * honoured on image fills, so it is not reported either — a warning that can
+ * fire on a correct render is worse than none.
+ */
+const SUPPORTED_FILTER_FUNCTIONS = new Set(['blur', 'drop-shadow', 'grayscale']);
+
+/** Split a CSS filter list into `name(args)` pairs, balancing nested parens. */
+function listFilterFunctions(filter: string): { name: string; arg: string }[] {
+  const out: { name: string; arg: string }[] = [];
+  let i = 0;
+  while (i < filter.length) {
+    const open = filter.indexOf('(', i);
+    if (open < 0) break;
+    const name = filter.slice(i, open).trim().toLowerCase();
+    let depth = 1;
+    let j = open + 1;
+    while (j < filter.length && depth > 0) {
+      if (filter[j] === '(') depth++;
+      else if (filter[j] === ')') depth--;
+      j++;
+    }
+    out.push({ name, arg: filter.slice(open + 1, j - 1).trim() });
+    i = j;
+  }
+  return out;
+}
+
+/** A filter function at its no-op value (`brightness(1)`, `invert(0)`) changes nothing. */
+function isIdentityFilter(name: string, arg: string): boolean {
+  const n = parseFloat(arg);
+  const v = arg.endsWith('%') ? n / 100 : n;
+  switch (name) {
+    case 'brightness':
+    case 'contrast':
+    case 'saturate':
+    case 'opacity':
+      return arg === '' || v === 1;
+    case 'invert':
+    case 'sepia':
+      return v === 0;
+    case 'hue-rotate':
+      return arg === '' || n === 0;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Losses visible from the captured styles alone. They ride on the node and are
+ * reported by the renderer once the Figma node exists (so the report row can
+ * select it). Each fires only when the output really differs from the page.
+ */
+function detectConverterWarnings(node: W2WFrameNode): PendingWarning[] | undefined {
+  const warnings: PendingWarning[] = [];
+
+  const filter = str(node.styles.filter);
+  if (filter && filter !== 'none') {
+    const reported = new Set<string>();
+    for (const { name, arg } of listFilterFunctions(filter)) {
+      if (SUPPORTED_FILTER_FUNCTIONS.has(name) || isIdentityFilter(name, arg)) continue;
+      if (reported.has(name)) continue;
+      reported.add(name);
+      warnings.push({
+        category: 'other',
+        message: `CSS filter "${name}()" isn't supported — layer shown without it`,
+      });
+    }
+  }
+
+  // Same size floor as skipped-content reporting: a 1×1 tracking frame is no loss.
+  const noticeable =
+    node.width >= REPORTABLE_MIN_WIDTH && node.height >= REPORTABLE_MIN_HEIGHT;
+  if (node.tag === 'iframe' && noticeable) {
+    warnings.push({
+      category: 'image',
+      message: "Embedded content (iframe) can't be imported — left empty",
+    });
+  }
+  if (node.tag === 'canvas' && !node.$url && noticeable) {
+    warnings.push({
+      category: 'image',
+      message: "Canvas content couldn't be captured — left empty",
+      realAssetsOnly: true,
+    });
+  }
+
+  return warnings.length > 0 ? warnings : undefined;
 }
 
 /** Does anything in this subtree actually render — text, an image, an SVG? */

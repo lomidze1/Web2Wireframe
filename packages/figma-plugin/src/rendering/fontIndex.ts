@@ -161,6 +161,26 @@ export function isSameFamilyName(a: string, b: string): boolean {
   return key.length > 0 && key === normalizeFamilyKey(b);
 }
 
+/**
+ * True when drawing `family` + `style` gives the face `requested` names.
+ *
+ * A measured font name is often the face's FULL name — "Helvetica Neue LT GEO
+ * 55 Roman" for a family "Helvetica Neue LT GEO" whose style is "55 Roman".
+ * Comparing family to family calls that a substitution and stamps a Re-apply
+ * marker on a node that is already showing exactly the font the page asked
+ * for: goodwill.ge reported 90 layers as "still showing Inter" while every one
+ * of them was drawn in the right face.
+ */
+export function isSameFaceName(
+  requested: string,
+  family: string,
+  style: string,
+): boolean {
+  if (isSameFamilyName(requested, family)) return true;
+  const key = normalizeFamilyKey(`${family}${style}`);
+  return key.length > 0 && key === normalizeFamilyKey(requested);
+}
+
 /** Emoji fonts must never satisfy a text run (and vice versa). */
 export function isEmojiFamilyName(name: string): boolean {
   return /emoji/i.test(String(name || ""));
@@ -327,6 +347,45 @@ export function matchInIndex(index: FontIndex, req: FontRequest): IndexedFont | 
 }
 
 /**
+ * Split a face's FULL name into an installed family plus the style it names.
+ *
+ * `CSS.getPlatformFontsForNode` reports the font that actually rendered, and
+ * for a Linotype-style face that string is the full name (`name` ID 4):
+ * "Helvetica Neue LT GEO 55 Roman". macOS — and therefore Figma — registers
+ * the same file as family "Helvetica Neue LT GEO" + style "55 Roman", so the
+ * full name matches no family key and the face reads as missing. The
+ * style-word strip above can't rescue it either: it consumes "Roman" but
+ * leaves the numeric "55" in the family key.
+ *
+ * A prefix is accepted ONLY when the remainder is a style that family really
+ * ships — the index is the evidence. Guessing from the words alone would let
+ * the (always installed) "Helvetica" answer for "Helvetica Neue LT GEO 55
+ * Roman": a silent substitution under the wrong name, which is exactly the
+ * failure the marker/rebind flow exists to prevent.
+ *
+ * Longest prefix first, so a family whose own name ends in a style word keeps
+ * its cuts rather than losing them to a shorter namesake.
+ */
+function splitFullName(
+  index: FontIndex,
+  name: string,
+): { entries: IndexedFont[]; styleTail: string } | null {
+  const tokens = tokenize(name);
+  for (let k = tokens.length - 1; k >= 1; k--) {
+    const entries = index.get(normalizeFamilyKey(tokens.slice(0, k).join("")));
+    if (!entries || entries.length === 0) continue;
+
+    const tail = tokens.slice(k);
+    const tailKey = normalizeFamilyKey(tail.join(""));
+    if (!tailKey) continue;
+    if (entries.some((e) => normalizeFamilyKey(e.style) === tailKey)) {
+      return { entries, styleTail: tail.join(" ") };
+    }
+  }
+  return null;
+}
+
+/**
  * Every cut the index can offer for `req`, best first — {@link matchInIndex}
  * is this list's head.
  *
@@ -360,6 +419,20 @@ export function rankInIndex(index: FontIndex, req: FontRequest): IndexedFont[] {
         if (weight === DEFAULT_WEIGHT && !p.weightDefaulted) weight = p.weight;
         if (stretch === DEFAULT_STRETCH && !p.stretchDefaulted) stretch = p.stretch;
       }
+    }
+  }
+  // Still nothing: the name may be the face's FULL name rather than its
+  // family — "Helvetica Neue LT GEO 55 Roman" for an installed family
+  // "Helvetica Neue LT GEO" + style "55 Roman". Split it against the index.
+  if (!entries || entries.length === 0) {
+    const split = splitFullName(index, familyName);
+    if (split) {
+      entries = split.entries;
+      // The split-off tail IS the style, so it — not the family name — knows
+      // the cut. Only defaults are filled in, same as the strip above.
+      const tail = parseFontWords(split.styleTail);
+      if (weight === DEFAULT_WEIGHT && !tail.weightDefaulted) weight = tail.weight;
+      if (stretch === DEFAULT_STRETCH && !tail.stretchDefaulted) stretch = tail.stretch;
     }
   }
   if (!entries || entries.length === 0) return [];

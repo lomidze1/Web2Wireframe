@@ -799,31 +799,73 @@ export async function enrichFontsFromAssets(
 
     if (!fontBase64) return entry;
 
-    // Unwrap WOFF2 once, here: everything downstream — the ZIP entry and the
-    // SFNT name lookup below — then works on bytes an OS can actually install.
-    // A payload we cannot decode keeps its original bytes, so this can only
-    // ever improve on the previous behaviour.
-    const rawBytes = base64ToBytes(fontBase64);
-    if (isWoff2(rawBytes)) {
-      const sfnt = await convertWoff2ToSfnt(rawBytes);
-      if (sfnt) {
-        fontBase64 = bytesToBase64(sfnt.bytes);
-        fontMimeType = sfnt.extension === "otf" ? "font/otf" : "font/ttf";
-      }
+    return attachRealNames(font, fontBase64, fontMimeType);
+  }));
+}
+
+/**
+ * Unwrap the bytes to installable SFNT and stamp the face's real names on it.
+ *
+ * Shared by both discovery routes — the extension's asset map and the API's
+ * already-bound `fontBase64` — so a face gains the same identity whichever
+ * import path it arrived on.
+ */
+async function attachRealNames(
+  font: FontMetadata,
+  base64: string,
+  mimeType: string | undefined,
+): Promise<FontMetadata> {
+  let fontBase64 = base64;
+  let fontMimeType = mimeType;
+
+  // Unwrap WOFF2 once, here: everything downstream — the ZIP entry and the
+  // SFNT name lookup below — then works on bytes an OS can actually install.
+  // A payload we cannot decode keeps its original bytes, so this can only
+  // ever improve on the previous behaviour.
+  const rawBytes = base64ToBytes(fontBase64);
+  if (isWoff2(rawBytes)) {
+    const sfnt = await convertWoff2ToSfnt(rawBytes);
+    if (sfnt) {
+      fontBase64 = bytesToBase64(sfnt.bytes);
+      fontMimeType = sfnt.extension === "otf" ? "font/otf" : "font/ttf";
     }
+  }
 
-    const enriched: FontMetadata = { ...font, fontBase64 };
-    if (fontMimeType) enriched.fontMimeType = fontMimeType;
+  const enriched: FontMetadata = { ...font, fontBase64 };
+  if (fontMimeType) enriched.fontMimeType = fontMimeType;
 
-    if (!enriched.realFamily) {
-      const names = readSfntNames(base64ToBytes(fontBase64));
-      if (names.family) enriched.realFamily = names.family;
-      if (names.subfamily && !enriched.realSubfamily) {
-        enriched.realSubfamily = names.subfamily;
-      }
+  if (!enriched.realFamily) {
+    const names = readSfntNames(base64ToBytes(fontBase64));
+    if (names.family) enriched.realFamily = names.family;
+    if (names.subfamily && !enriched.realSubfamily) {
+      enriched.realSubfamily = names.subfamily;
     }
+  }
 
-    return enriched;
+  return enriched;
+}
+
+/**
+ * Read the real (SFNT) names of faces that already carry their binary.
+ *
+ * The API binds font bytes server-side but only reads the `name` table for
+ * formats it can open — WOFF1 is shipped with no names at all
+ * (`decompressFont.ts`). URL and HTML imports therefore had no `realFamily`
+ * for a whole class of sites (goodwill.ge), and the "install it, then
+ * Re-apply" flow was left naming a family that will never exist. The plugin
+ * can open WOFF1, so it reads them here — the same closing move
+ * {@link enrichFontsFromAssets} makes for the extension's `.w2w` captures.
+ */
+export async function enrichFontsWithSfntNames(
+  fonts: unknown[] | undefined,
+): Promise<unknown[]> {
+  if (!fonts) return [];
+
+  return Promise.all(fonts.map(async (entry) => {
+    const font = entry as FontMetadata;
+    if (!font || typeof font !== "object") return entry;
+    if (!font.fontBase64 || font.realFamily) return entry;
+    return attachRealNames(font, font.fontBase64, font.fontMimeType);
   }));
 }
 
@@ -868,11 +910,29 @@ export function buildFontRealNames(
       family?: string;
       fontFamily?: string;
       realFamily?: string;
+      realSubfamily?: string;
     };
     const css = font.fontFamily || font.family;
     const real = font.realFamily;
-    if (css && real && real.trim() && real !== css && !map[css]) {
+    if (!real || !real.trim()) continue;
+    if (css && real !== css && !map[css]) {
       map[css] = real;
+    }
+
+    // Second key: the face's FULL name (family + subfamily). A text node
+    // carries the name CDP MEASURED, and for a Linotype-style face that is
+    // "Helvetica Neue LT GEO 55 Roman" — never the CSS "HelveticaNeue" this
+    // map was keyed by, and never a family Figma has. Keying it too is what
+    // lets the availability check and the Re-apply marker name the family the
+    // font really installs under.
+    //
+    // A default subfamily is skipped: there the full name IS the family
+    // ("moitane-icons"), so the composed key would name a font nothing reports.
+    const sub = font.realSubfamily?.trim();
+    if (!sub || /^(regular|normal)$/i.test(sub)) continue;
+    const fullName = `${real} ${sub}`;
+    if (fullName !== real && !map[fullName]) {
+      map[fullName] = real;
     }
   }
   return map;

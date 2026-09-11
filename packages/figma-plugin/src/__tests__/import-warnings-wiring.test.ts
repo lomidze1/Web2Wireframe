@@ -10,9 +10,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createTextNode } from "../rendering/text";
 import { createRealImage } from "../rendering/realImages";
 import { convertFillsToPaints } from "../rendering/fills";
+import { resetFontCacheForTests } from "../rendering/fontLoader";
 import type { WireframeNode, RenderContext } from "../types";
 
 let installedFonts: Map<string, string[]>;
+/** Families Figma refuses to APPLY even though they load (broken font file). */
+let rejectOnSet: Set<string>;
 
 function isInstalled(family: string, style: string): boolean {
   const styles = installedFonts.get(family);
@@ -51,7 +54,9 @@ function createMockTextNode() {
   Object.defineProperty(node, "fontName", {
     get: () => _fontName,
     set: (v: { family: string; style: string }) => {
-      if (!isInstalled(v.family, v.style)) throw new Error(`unloaded: ${v.family} ${v.style}`);
+      if (rejectOnSet.has(v.family) || !isInstalled(v.family, v.style)) {
+        throw new Error(`unloaded: ${v.family} ${v.style}`);
+      }
       _fontName = v;
     },
   });
@@ -137,6 +142,7 @@ function makeImageNode(overrides: Partial<WireframeNode> = {}): WireframeNode {
 
 beforeEach(() => {
   frameCounter = 0;
+  rejectOnSet = new Set();
   installedFonts = new Map([["Inter", ["Regular", "Bold", "Semi Bold", "Medium", "Light"]]]);
 
   (globalThis as Record<string, unknown>).figma = {
@@ -263,5 +269,48 @@ describe("background-image warnings", () => {
     expect(warnings[0].category).toBe("image");
     expect(warnings[0].nodeId).toBe("300:9");
     expect(warnings[0].layerName).toBe("Hero banner");
+  });
+});
+
+describe("background-image that never arrived", () => {
+  const missing = () =>
+    [{ type: "IMAGE_PLACEHOLDER", imageUrl: "https://x.com/hero.jpg", visible: true, opacity: 1 }] as never;
+
+  it("warns when real assets were asked for and the image is missing", () => {
+    const context = makeContext({ assetMode: "realAssets", assetsMap: new Map() } as Partial<RenderContext>);
+    const paints = convertFillsToPaints(missing(), context, "div", undefined, {
+      id: "300:10",
+      name: "Hero banner",
+    });
+
+    expect((paints[0] as { type: string }).type).toBe("SOLID");
+    const warnings = context.renderStats!.warnings!;
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].category).toBe("image");
+    expect(warnings[0].message).toMatch(/couldn't be loaded/);
+    expect(warnings[0].nodeId).toBe("300:10");
+  });
+
+  it("stays quiet in placeholders mode — the solid fill IS the design", () => {
+    const context = makeContext({ assetMode: "placeholders" } as Partial<RenderContext>);
+    convertFillsToPaints(missing(), context, "div", undefined, { id: "300:11", name: "Hero" });
+    expect(context.renderStats!.warnings).toHaveLength(0);
+  });
+});
+
+describe("font that loads but won't apply", () => {
+  it("reports the Inter fallback instead of claiming the requested family", async () => {
+    resetFontCacheForTests();
+    installedFonts.set("Söhne", ["Regular"]);
+    rejectOnSet.add("Söhne");
+
+    const context = makeContext();
+    const textNode = await createTextNode(makeTextNode(), "Inter", context);
+
+    expect(textNode!.fontName.family).toBe("Inter");
+    const typo = context.renderStats!.warnings!.filter((w) => w.category === "typography");
+    expect(typo).toHaveLength(1);
+    expect(typo[0].message).toContain("Söhne");
+    expect(typo[0].message).toContain('"Inter"');
   });
 });

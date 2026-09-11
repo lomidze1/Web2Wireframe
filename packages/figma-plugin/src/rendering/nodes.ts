@@ -518,6 +518,16 @@ function applySharedDecorationsInner(
   context: RenderContext
 ): void {
   if (!target) return;
+  // Losses the converter already saw — now there is a layer to point at.
+  for (const pending of node.pendingWarnings ?? []) {
+    if (pending.realAssetsOnly && context.assetMode !== "realAssets") continue;
+    recordWarning(context, {
+      category: pending.category,
+      message: pending.message,
+      nodeId: target.id,
+      layerName: target.name,
+    });
+  }
   // Slice/Widget nodes have no opacity/blendMode and the render path never
   // creates one — narrow to the shape we actually set.
   const paintable = target as SceneNode & { opacity: number; blendMode: BlendMode };
@@ -886,6 +896,17 @@ async function createNodeInFigmaInner(
     );
     applyPaintDecorations(placeholder, node, context);
     applySharedDecorations(placeholder, node, context);
+    // Real assets were asked for and this image never arrived (fetch failed,
+    // not cached, format conversion timed out) — the grey box is a loss, not
+    // the design. In placeholders mode it IS the design, so stay quiet.
+    if (context.assetMode === "realAssets" && node.imageUrl) {
+      recordWarning(context, {
+        category: "image",
+        message: "Image couldn't be loaded — replaced with a placeholder",
+        nodeId: placeholder.id,
+        layerName: placeholder.name,
+      });
+    }
     return placeholder;
   }
 
@@ -968,6 +989,12 @@ async function createNodeInFigmaInner(
     } catch (err) {
       // Fallback to VERTICAL auto layout if Grid API fails
       logger.warn("Grid layout failed, falling back to auto layout", { error: err, nodeName: node.name });
+      recordWarning(context, {
+        category: "layout",
+        message: "CSS grid couldn't be applied — items stacked in one column",
+        nodeId: frame.id,
+        layerName: frame.name,
+      });
       frame.layoutMode = "VERTICAL";
       frame.layoutSizingHorizontal = "FIXED";
       frame.layoutSizingVertical = "HUG";
@@ -1510,6 +1537,12 @@ async function createNodeInFigmaInner(
         nodeId: node.id,
         nodeName: node.name,
         textContent: node.textContent?.substring(0, 50),
+      });
+      recordWarning(context, {
+        category: "typography",
+        message: "Text couldn't be rendered — left out",
+        nodeId: frame.id,
+        layerName: frame.name,
       });
     }
   }

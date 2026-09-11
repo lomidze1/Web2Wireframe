@@ -704,10 +704,11 @@ export default function () {
       for (const skipped of skippedFrames) {
         recordWarning(renderContext, {
           category: "layout",
-          message:
-            `Hidden at capture time (opacity: 0) — ${skipped.nodes} layer(s) skipped ` +
-            `across ${Math.round(skipped.width)}×${Math.round(skipped.height)}px`,
+          message: "Hidden at capture time (opacity: 0) — skipped",
           layerName: skipped.layerName,
+          detail:
+            `${skipped.nodes} layer(s) · ` +
+            `${Math.round(skipped.width)}×${Math.round(skipped.height)}px`,
         });
       }
 
@@ -1155,9 +1156,17 @@ export default function () {
 
         // Hand the list to the UI, which holds the report; the sandbox keeps
         // the node ids so a click can come back as select-import-warning-layer.
+        // The origin rides along for "Report this to the developer": only a
+        // URL/extension import carries a page the developer can re-import.
         figma.ui.postMessage({
           type: "import-report",
-          data: { warnings, overflow: warningOverflow },
+          data: {
+            warnings,
+            overflow: warningOverflow,
+            sourceUrl,
+            kind: data.kind,
+            viewports: frames.map((f) => f.viewportWidth),
+          },
         });
 
         // Dev profiler: one table per import, out through the dev-log bridge.

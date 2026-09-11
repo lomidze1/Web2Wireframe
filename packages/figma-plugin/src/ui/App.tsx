@@ -18,7 +18,9 @@ import RebindFontsModal, {
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
-import ImportReportModal from "./components/modalPopup/ImportReportModal";
+import ImportReportModal, {
+  type ReportSource,
+} from "./components/modalPopup/ImportReportModal";
 import type { ImportWarning } from "../types";
 
 import ConnectFigma from "./components/ConnectFigma";
@@ -169,6 +171,13 @@ function AppContent() {
   // selection. Drives the footer button's scoped "Re-apply to selection" label;
   // the sandbox's rebind action already honours the same selection-or-page scope.
   const [selectionRebindableCount, setSelectionRebindableCount] = useState(0);
+  /** Whether anything is selected on canvas, pending or not — lets the modal
+   *  say "your selection is already clean" instead of silently widening. */
+  const [selectionActive, setSelectionActive] = useState(false);
+  /** Families this Figma can offer, for the modal's per-font picker. */
+  const [installedFontFamilies, setInstalledFontFamilies] = useState<string[]>([]);
+  /** The user's substitutions: pending family → chosen family. */
+  const [fontChoices, setFontChoices] = useState<Record<string, string>>({});
   // Page-wide total, kept alongside the scoped count so the modal can say
   // "6 of 1069 on this page" when a section is selected.
   const [pageRebindableCount, setPageRebindableCount] = useState(0);
@@ -193,6 +202,7 @@ function AppContent() {
   const [importWarnings, setImportWarnings] = useState<ImportWarning[]>([]);
   const [importWarningOverflow, setImportWarningOverflow] = useState(0);
   const [isImportReportOpen, setIsImportReportOpen] = useState(false);
+  const [importReportSource, setImportReportSource] = useState<ReportSource>();
 
   // Post-import report from the sandbox (main.ts posts `import-report` right
   // after the success toast). An empty list is still sent — it clears a stale
@@ -214,6 +224,20 @@ function AppContent() {
         typeof msg.data?.overflow === "number" ? msg.data.overflow : 0;
       setImportWarnings(warnings);
       setImportWarningOverflow(overflow);
+      // Where the import came from — the report's "Report this to the
+      // developer" button only appears for a reportable (URL/extension) one.
+      const data = msg.data ?? {};
+      setImportReportSource(
+        typeof data.sourceUrl === "string"
+          ? {
+              sourceUrl: data.sourceUrl,
+              kind: typeof data.kind === "string" ? (data.kind as ReportSource["kind"]) : undefined,
+              viewports: Array.isArray(data.viewports)
+                ? data.viewports.filter((v: unknown): v is number => typeof v === "number")
+                : [],
+            }
+          : undefined,
+      );
       setIsImportReportOpen(warnings.length > 0);
     };
     window.addEventListener("message", handler);
@@ -239,6 +263,15 @@ function AppContent() {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
+      if (msg?.type === "installed-fonts") {
+        const families = msg.data?.families;
+        setInstalledFontFamilies(
+          Array.isArray(families)
+            ? families.filter((f: unknown): f is string => typeof f === "string")
+            : [],
+        );
+        return;
+      }
       if (msg?.type === "rebind-result") {
         // Sandbox finished (or failed) a re-apply run — release the modal's
         // busy button and surface the outcome inline.
@@ -257,6 +290,8 @@ function AppContent() {
       setSelectionRebindableCount(
         typeof selectionCount === "number" ? selectionCount : 0,
       );
+      const selActive = msg.data?.selectionActive;
+      setSelectionActive(selActive === true);
       const pageCount = msg.data?.pageCount;
       setPageRebindableCount(
         typeof pageCount === "number" ? pageCount : (count ?? 0),
@@ -431,6 +466,12 @@ function AppContent() {
           // Opens the info modal (install → select → re-apply); the modal's
           // own button fires the actual `rebind-original-fonts` action.
           setIsRebindOpen(true);
+          // The per-font "use instead" picker needs the families this Figma
+          // can offer; ask now so the list is there when the user expands one.
+          parent.postMessage(
+            { pluginMessage: { type: "list-installed-fonts" } },
+            "*",
+          );
         }}
       />
     </div>
@@ -453,6 +494,7 @@ function AppContent() {
       onClose={() => setIsImportReportOpen(false)}
       warnings={importWarnings}
       overflow={importWarningOverflow}
+      source={importReportSource}
       onSelectLayer={(nodeId) => {
         // Sandbox selects the layer and zooms to it. The report stays open so
         // the user can walk down the list without reopening it each time.
@@ -477,6 +519,17 @@ function AppContent() {
       count={rebindableCount}
       selectionCount={selectionRebindableCount}
       pageCount={pageRebindableCount}
+      selectionActive={selectionActive}
+      installedFonts={installedFontFamilies}
+      choices={fontChoices}
+      onChoiceChange={(family, chosen) =>
+        setFontChoices((prev) => {
+          const next = { ...prev };
+          if (chosen) next[family] = chosen;
+          else delete next[family];
+          return next;
+        })
+      }
       missingFonts={rebindableFamilies}
       layers={rebindableLayers}
       onSelectLayer={(id) => {
@@ -497,7 +550,13 @@ function AppContent() {
         setIsReapplying(true);
         setRebindResult(null);
         parent.postMessage(
-          { pluginMessage: { type: "rebind-original-fonts" } },
+          {
+            pluginMessage: {
+              type: "rebind-original-fonts",
+              // Families the user chose to replace rather than install.
+              data: { substitutions: fontChoices },
+            },
+          },
           "*",
         );
       }}

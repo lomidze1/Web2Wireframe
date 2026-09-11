@@ -190,3 +190,97 @@ describe("prePassConvertFrames + collectAllFonts integration", () => {
     expect(allFonts.has("Inter")).toBe(true);
   });
 });
+
+/**
+ * The pre-pass now also carries the converter's skipped-content reports back
+ * out (`void` → `SkippedFrame[]`), because the render context that owns the
+ * import report does not exist yet when this runs — `main.ts` replays them
+ * once it does. Nothing asserted the return value, so the whole hand-back
+ * could be reverted with a green suite.
+ */
+function frameWithHiddenReveal() {
+  return {
+    type: "FRAME" as const,
+    tag: "body",
+    x: 0,
+    y: 0,
+    width: 1440,
+    height: 900,
+    quad: [0, 0, 1440, 0, 1440, 900, 0, 900],
+    classList: [],
+    attr: {},
+    styles: { display: "block" },
+    children: [
+      {
+        type: "FRAME" as const,
+        tag: "section",
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 300,
+        quad: [0, 0, 800, 0, 800, 300, 0, 300],
+        classList: ["reveal"],
+        attr: {},
+        styles: { display: "block", opacity: 0 },
+        children: [
+          {
+            type: "TEXT" as const,
+            x: 0,
+            y: 0,
+            width: 400,
+            height: 24,
+            quad: [0, 0, 400, 0, 400, 24, 0, 24],
+            value: "Plugins, crafted with care.",
+            font: "24px Inter",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+describe("prePassConvertFrames hands back what the converter dropped", () => {
+  it("returns the skipped subtree so main.ts can put it in the report", () => {
+    const frames = [
+      { tree: null as any, capturedData: { frame: frameWithHiddenReveal() } },
+    ];
+
+    const skipped = prePassConvertFrames(frames, PRE_PASS_OPTS);
+
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatchObject({ width: 800, height: 300 });
+    expect(skipped[0].layerName).toContain("reveal");
+  });
+
+  it("returns nothing for a page that hides nothing", () => {
+    const frames = [
+      { tree: null as any, capturedData: { frame: makeRealisticW2WFrame() } },
+    ];
+
+    expect(prePassConvertFrames(frames, PRE_PASS_OPTS)).toEqual([]);
+  });
+
+  it("accumulates across viewports — the same reveal is reported per frame", () => {
+    // The same subtree is captured once per viewport, so a 3-viewport import
+    // hands back 3 identical entries. Pinned deliberately: if the report is
+    // ever deduped, that belongs here or in main.ts, not silently.
+    const frames = [375, 1440].map((width) => ({
+      tree: null as any,
+      capturedData: { frame: { ...frameWithHiddenReveal(), width } },
+    }));
+
+    const skipped = prePassConvertFrames(frames, PRE_PASS_OPTS);
+
+    expect(skipped).toHaveLength(2);
+    expect(skipped[0].layerName).toBe(skipped[1].layerName);
+  });
+
+  it("returns nothing for an already-populated tree", () => {
+    const frames = [
+      { tree: { id: "done", type: "FRAME", children: [] } as any,
+        capturedData: { frame: frameWithHiddenReveal() } },
+    ];
+
+    expect(prePassConvertFrames(frames, PRE_PASS_OPTS)).toEqual([]);
+  });
+});

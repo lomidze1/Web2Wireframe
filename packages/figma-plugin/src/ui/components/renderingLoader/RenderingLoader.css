@@ -42,13 +42,15 @@
 
 /* Background track circle */
 .progressTrack {
-  stroke: rgba(255, 255, 255, 0.1);
+  stroke: var(--border-light);
 }
 
-/* Progress arc - smooth transition */
+/* Progress arc. NO stroke-dashoffset transition: the component eases that
+   value itself, once per frame, and a CSS transition restarted every frame
+   never gets anywhere — the ring crawls while the number races ahead. */
 .progressArc {
   stroke: var(--accent);
-  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: stroke 0.3s ease, filter 0.3s ease;
   filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), 0.4));
 }
 
@@ -56,7 +58,7 @@
 .progressArc.completeArc {
   stroke: #2ecc71;
   filter: drop-shadow(0 0 12px rgba(46, 204, 113, 0.5));
-  transition: stroke 0.3s ease, filter 0.3s ease, stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: stroke 0.3s ease, filter 0.3s ease;
 }
 
 /* Center content overlay */
@@ -68,6 +70,27 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Live percentage — the number IS the feedback, so it gets the weight.
+   Tabular figures keep it from jittering as the digits change. */
+.percent {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.5px;
+}
+
+.percentSign {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 /* Checkmark for complete state */
@@ -98,43 +121,6 @@
   );
 }
 
-/* Animated dots for indeterminate state */
-.dots {
-  display: flex;
-  gap: 4px;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: bounce 1.2s ease-in-out infinite;
-}
-
-.dot:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes bounce {
-  0%, 80%, 100% {
-    transform: scale(0.6);
-    opacity: 0.4;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
 /* Step text - main message */
 .stepText {
   font-size: 14px;
@@ -152,6 +138,48 @@
 .stepText.successText {
   color: #2ecc71;
   font-size: 15px;
+}
+
+/* The four phases of an import. Gives the wait a shape — what is finished,
+   where we are, what is still coming — instead of one anonymous number. */
+.phaseList {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: "Montserrat", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.phaseItem {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 9px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.3);
+  transition: color 0.3s ease, border-color 0.3s ease, background 0.3s ease;
+  white-space: nowrap;
+}
+
+.phaseItem[data-state="active"] {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.phaseItem[data-state="done"] {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.phaseMark {
+  font-size: 10px;
+  color: #2ecc71;
 }
 
 /* Pulse glow animation for the ring container */
@@ -242,6 +270,28 @@
   box-shadow: 0 2px 10px rgba(46, 204, 113, 0.3);
 }
 
+/* Cancel — quiet by design. It is an escape hatch from a long capture, not a
+   call to action, so it stays a ghost button below everything else. */
+.cancelBtn {
+  margin-top: 4px;
+  padding: 7px 18px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "Montserrat", sans-serif;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.cancelBtn:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+}
+
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -251,4 +301,20 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* A 50-second overlay is a long time to watch something breathe. */
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .checkmark,
+  .doneBtn {
+    animation: none;
+  }
+
+  .loaderContainer::before {
+    animation: none;
+    opacity: 0.5;
+  }
+
+  /* The auto-dismiss bar keeps its animation — it is a countdown, not decoration. */
 }

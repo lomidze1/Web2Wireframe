@@ -157,3 +157,111 @@
     opacity: 1;
   }
 }
+
+/* Input mode switch — Code | Files */
+.modeSwitch {
+  margin-bottom: var(--space-1);
+}
+
+/* File Upload Zones — same shape as the Area tab's .w2w drop zone, sized
+   down so both the HTML and CSS zone fit without scrolling. */
+.fileZone {
+  border: 1px dashed var(--border-accent);
+  border-radius: 10px;
+  padding: var(--space-3);
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.fileZone.dragOver {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.fileIcon {
+  font-size: var(--space-7);
+  color: var(--accent);
+}
+
+.fileCopy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-align: left;
+  min-width: 0;
+}
+
+.fileName {
+  font-size: var(--font-md);
+  color: var(--text);
+  font-weight: 700;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSubtext {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.fileActions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-1);
+}
+
+.browseBtn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-input);
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-normal);
+}
+
+.browseBtn:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.browseBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fileClearBtn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-input);
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  transition: var(--transition-normal);
+}
+
+.fileClearBtn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.fileHint {
+  margin-top: var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}

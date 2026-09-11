@@ -11,6 +11,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildFontIndex,
+  isSameFaceName,
   matchInIndex,
   orderWeightsBySpec,
 } from "../rendering/fontIndex";
@@ -260,3 +261,55 @@ describe("matchInIndex — emoji partition", () => {
     expect(matchInIndex(mixed, { family: "Inter", weight: 400 })?.family).toBe("Inter");
   });
 });
+
+/**
+ * `isSameFaceName` — "did drawing family+style give the face the page asked
+ * for?". It sits on four hot paths in text.ts (the node-level Re-apply marker,
+ * the cut marker, and both segment markers), so a normalization change here
+ * silently re-opens goodwill.ge's 90-false-alarm font modal. Nothing tested the
+ * primitive directly; only its end-to-end effect was pinned.
+ */
+describe("isSameFaceName", () => {
+  it("accepts a full name served by family + style", () => {
+    // THE case: the measured name is the face's FULL name. Family-to-family
+    // comparison calls this a substitution; it is not one.
+    expect(
+      isSameFaceName("Helvetica Neue LT GEO 55 Roman", "Helvetica Neue LT GEO", "55 Roman"),
+    ).toBe(true);
+  });
+
+  it("accepts a plain family match regardless of style", () => {
+    expect(isSameFaceName("Inter", "Inter", "Bold")).toBe(true);
+  });
+
+  it("ignores spacing and case in the concatenation", () => {
+    expect(
+      isSameFaceName("helvetica neue lt geo 55 roman", "Helvetica Neue LT GEO", "55 Roman"),
+    ).toBe(true);
+  });
+
+  it("survives Figma mangling a non-ASCII family name", () => {
+    // Figma reports "Söhne VF" as "S?hne VF"; normalization drops every
+    // non-[a-z0-9] character, so both sides land on the same key. Without
+    // this, every Söhne run on stripe.com reports as a substitution.
+    expect(isSameFaceName("S?hne VF Buch", "Söhne VF", "Buch")).toBe(true);
+  });
+
+  it("does not fuse two families that share a prefix", () => {
+    // "Inter Display" is its own family. Answering a request for it with plain
+    // Inter is exactly the substitution the marker exists to record.
+    expect(isSameFaceName("Inter Display", "Inter", "Display")).toBe(true);
+    expect(isSameFaceName("Inter Display", "Inter", "Regular")).toBe(false);
+  });
+
+  it("refuses a different family", () => {
+    expect(isSameFaceName("Söhne VF", "Inter", "Medium")).toBe(false);
+  });
+
+  it("refuses an empty request rather than matching everything", () => {
+    // A name of only non-ASCII characters normalizes to "", and so does "".
+    // Equal-empty would make every CJK family answer every request.
+    expect(isSameFaceName("", "Inter", "Regular")).toBe(false);
+    expect(isSameFaceName("黑体", "ヒラギノ角ゴ", "W3")).toBe(false);
+  });
+})

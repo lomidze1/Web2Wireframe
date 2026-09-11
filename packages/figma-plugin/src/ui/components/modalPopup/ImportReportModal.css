@@ -1,6 +1,6 @@
-/* Import report — the post-import warning list. Shape mirrors the Re-apply
-   modal: a lead sentence, then one accordion group per category, each row a
-   link that selects the offending layer on canvas. */
+/* Import report — the post-import warning list. A lead sentence, then one
+   accordion group per category; inside it one row per distinct issue, which
+   expands to the layers it hit (each a link that selects it on canvas). */
 .reportContainer {
   display: flex;
   flex-direction: column;
@@ -28,17 +28,75 @@
   margin-right: 8px;
 }
 
-/* One warning. The layer name is the click target; the message sits under it
-   so the user knows what went wrong before jumping to the canvas. */
-.reportRow {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 5px 0;
+/* One distinct problem. The message is the toggle; the count says how many
+   layers it hit. Expanding it lists those layers. */
+.reportIssue + .reportIssue {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.reportRow + .reportRow {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+.reportIssueToggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.reportIssueToggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.reportIssueToggle::before {
+  content: "\25B8";
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.reportIssueToggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+.reportIssueMessage {
+  flex: 1;
+}
+
+.reportIssueCount {
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* The layers behind one issue, indented under its toggle. */
+.reportLayers {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 6px 18px;
+}
+
+.reportLayer {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Per-instance specifics (sizes, counts) beside the layer name. */
+.reportLayerDetail {
+  flex-shrink: 0;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 /* Clickable layer name — same affordance as the Re-apply modal's layer rows. */
@@ -77,16 +135,91 @@
   white-space: nowrap;
 }
 
-.reportMessage {
-  padding: 0 6px;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
 /* "…and N more" — warnings dropped past the collector's cap. */
 .reportOverflow {
   font-size: var(--font-sm);
   color: var(--text-secondary);
   font-style: italic;
 }
+
+/* "Report this to the developer" — one click, then an optional note. The
+   buttons reuse the Plan modal's accent pill (.planFooterLink) so they read
+   like "Send feedback". */
+.reportAction {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.reportThanks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.reportThanksText {
+  margin: 0;
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  color: var(--success-text);
+  text-align: center;
+}
+
+.reportNote {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reportNoteLabel {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.reportNoteInput {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 48px;
+  resize: vertical;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-sm);
+  line-height: 1.4;
+}
+
+.reportNoteInput:focus {
+  outline: none;
+  border-color: var(--border-accent);
+}
+
+.reportNoteRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reportNoteRow .planFooterLink {
+  margin-top: 0;
+}
+
+.reportNoteError {
+  font-size: var(--font-sm);
+  color: var(--error);
+}
+
+.reportNoteDone {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  text-align: center;
+}
+

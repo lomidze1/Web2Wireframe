@@ -25,6 +25,24 @@ export interface ImportWarning {
   nodeId?: string;
   /** Layer name, shown as the link text in the report. */
   layerName?: string;
+  /**
+   * Per-instance specifics (sizes, counts) shown next to the layer. Kept out
+   * of `message` so identical problems collapse into one report row.
+   */
+  detail?: string;
+}
+
+/**
+ * A loss the converter can already see from the captured styles (an
+ * unsupported CSS filter, an iframe it can't import). Carried on the node and
+ * reported by the renderer once the Figma node exists, so the report row can
+ * select the layer.
+ */
+export interface PendingWarning {
+  category: WarningCategory;
+  message: string;
+  /** Only a loss when real assets were requested (placeholders mode draws none). */
+  realAssetsOnly?: boolean;
 }
 
 /**
@@ -191,6 +209,8 @@ export interface WireframeNode {
   type: "frame" | "text" | "placeholder";
   tag: string;
   className?: string; // CSS class name(s) from the element
+  /** Converter-detected losses, reported at render time — see PendingWarning. */
+  pendingWarnings?: PendingWarning[];
   x: number;
   y: number;
   width: number;
@@ -478,9 +498,18 @@ export interface ExtractedCSSVariable {
   category?: string; // color, spacing, typography, etc.
 }
 
+/**
+ * Which import flow produced a render. Only URL and extension imports carry a
+ * page the developer can re-import, so only they get "Report this to the
+ * developer" in the import report.
+ */
+export type ImportSourceKind = "url" | "extension" | "html" | "screenshot";
+
 export interface RenderWireframeData {
   frames: WireframeFrame[];
   sourceUrl: string;
+  /** Which import flow sent this — see ImportSourceKind. */
+  kind?: ImportSourceKind;
   localStyles?: object;
   pluginColors: {
     // 5-color minimalist wireframe palette

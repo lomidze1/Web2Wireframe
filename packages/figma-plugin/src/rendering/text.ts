@@ -493,6 +493,7 @@ import {
   hasFontIndex,
   isEmojiFamilyName,
   isSameFamilyName,
+  isSameFaceName,
   normalizeFamilyKey,
   refineRequestFromPostScript,
   resolveInstalledCandidates,
@@ -978,10 +979,18 @@ async function createTextNodeInner(
   const resolveFamilyCut = async (
     family: string,
     fallbackStyles: string[],
-    opts: { exact?: boolean; weight?: number; italic?: boolean } = {},
+    opts: {
+      exact?: boolean;
+      weight?: number;
+      italic?: boolean;
+      /** Override the node-level emoji/text partition for ONE run — see
+       *  `segWantsEmoji` in the segment loop. */
+      wantsEmoji?: boolean;
+    } = {},
   ): Promise<{ family: string; style: string } | null> => {
     if (!family) return null;
-    if (!runWantsEmoji && isEmojiFamilyName(family)) return null;
+    const wantsEmoji = opts.wantsEmoji ?? runWantsEmoji;
+    if (!wantsEmoji && isEmojiFamilyName(family)) return null;
     // Walk the ranked candidates rather than trusting the single best. Figma
     // lists fonts it cannot load — stripe.com's Söhne appears both as the
     // loadable "S?hne VF" and as a "Söhne VF" whose every load throws — and
@@ -993,7 +1002,7 @@ async function createTextNodeInner(
       stretch: nodeRequest.stretch,
       italic: opts.italic ?? nodeRequest.italic,
       exact: opts.exact,
-      allowEmoji: runWantsEmoji,
+      allowEmoji: wantsEmoji,
     });
     for (const hit of candidates.slice(0, MAX_INDEX_CANDIDATES)) {
       if (await tryLoad(hit.family, hit.style)) {
@@ -1251,6 +1260,10 @@ async function createTextNodeInner(
     if (!recovered) {
       await loadFontCached("Inter", "Regular");
       textNode.fontName = { family: "Inter", style: "Regular" };
+      // Keep the bookkeeping truthful: the substitution warning and the
+      // Re-apply marker below compare against what was actually drawn.
+      usedFontFamily = "Inter";
+      mainFontStyle = "Regular";
     }
   }
 
@@ -1282,7 +1295,7 @@ async function createTextNodeInner(
   if (
     context?.fontMode === "website" &&
     node.fontFamily &&
-    !isSameFamilyName(usedFontFamily, node.fontFamily) &&
+    !isSameFaceName(node.fontFamily, usedFontFamily, mainFontStyle) &&
     !resolvedViaRealFamily &&
     !rescuedViaRealFamily
   ) {
@@ -1301,7 +1314,7 @@ async function createTextNodeInner(
     // already shows the wanted font; a marker here would file a resolved layer
     // as "still showing Inter" (386 of them on one stripe.com import).
     const markerIsWhatWeDrew =
-      !!markerName && isSameFamilyName(markerName, usedFontFamily);
+      !!markerName && isSameFaceName(markerName, usedFontFamily, mainFontStyle);
     if (markerName && !markerIsWhatWeDrew && !isServerFallbackFamily(markerName)) {
       try {
         textNode.setPluginData("w2w_original_font", markerName);
@@ -1341,7 +1354,7 @@ async function createTextNodeInner(
   ) {
     const realName = context.fontRealNames?.[node.fontFamily];
     const familyIsRight =
-      isSameFamilyName(usedFontFamily, node.fontFamily) ||
+      isSameFaceName(node.fontFamily, usedFontFamily, mainFontStyle) ||
       (!!realName && isSameFamilyName(usedFontFamily, realName));
     // A variable family covers its whole range from one file: Figma exposes
     // named instances ("Buch"), never a Light or a Medium, so a near-weight
@@ -1614,6 +1627,11 @@ async function createTextNodeInner(
       }
 
       const isSegIcon = isIconFont(segFontFamily) || isPuaOnlyText(segment.text ?? "");
+      // The emoji/text partition is per RUN, not per node: `<p>Ship it 🚀</p>`
+      // has a node family of Inter and a run family of "Apple Color Emoji".
+      // Asking the node's `runWantsEmoji` refused the run its own font and the
+      // rocket rendered as tofu in Inter.
+      const segWantsEmoji = isEmojiFamilyName(segment.fontFamily || segFontFamily);
       const segStylesToTry = isSegIcon
         ? Array.from(new Set([...segCandidates, ...ICON_FONT_EXTRA_STYLES]))
         : segCandidates;
@@ -1660,14 +1678,27 @@ async function createTextNodeInner(
           }
         }
 
-        // Step 1: Try segment font with all style variants
+        // Step 1: the run's own family — asked of the font INDEX first, then
+        // the style ladder, exactly as the node-level path does.
+        //
+        // The ladder alone spells the family and the style itself, so it only
+        // finds a face registered under the name the page used, with a style
+        // named the way CSS weights are. stripe.com is neither: "Söhne VF"
+        // loads as "S?hne VF" (Figma mangles the ö) and its 400 cut is called
+        // "Buch". Every styled RUN therefore fell to Inter while the node
+        // around it rendered correctly — 57 layers in one import, each landing
+        // in the Re-apply modal that a later click then fixed, because the
+        // rebind path does consult the index.
         if (!segLoaded) {
-          for (const sty of segStylesToTry) {
-            if (await tryLoad(segFontFamily, sty)) {
-              resolvedSegStyle = sty;
-              segLoaded = true;
-              break;
-            }
+          const hit = await resolveFamilyCut(segFontFamily, segStylesToTry, {
+            weight: segment.fontWeight,
+            italic: isItalicStyle(segment.fontStyle),
+            wantsEmoji: segWantsEmoji,
+          });
+          if (hit) {
+            resolvedSegFont = hit.family;
+            resolvedSegStyle = hit.style;
+            segLoaded = true;
           }
         }
 
@@ -1701,13 +1732,19 @@ async function createTextNodeInner(
             ? context.fontRealNames?.[segCssFamily]
             : undefined;
           if (segRealFamily && segRealFamily !== segFontFamily) {
-            for (const sty of segStylesToTry) {
-              if (await tryLoad(segRealFamily, sty)) {
-                resolvedSegFont = segRealFamily;
-                resolvedSegStyle = sty;
-                segLoaded = true;
-                break;
-              }
+            // Through the index, like Step 1: the real name is what the file's
+            // `name` table says, which is still not always what Figma lists it
+            // under ("Söhne VF" → "S?hne VF") nor how it names its cuts
+            // ("Buch", not "Regular").
+            const hit = await resolveFamilyCut(segRealFamily, segStylesToTry, {
+              weight: segment.fontWeight,
+              italic: isItalicStyle(segment.fontStyle),
+              wantsEmoji: segWantsEmoji,
+            });
+            if (hit) {
+              resolvedSegFont = hit.family;
+              resolvedSegStyle = hit.style;
+              segLoaded = true;
             }
           }
         }
@@ -1789,10 +1826,19 @@ async function createTextNodeInner(
             context.fontRealNames?.[segOriginalCss] ||
             segOriginalCss
           : undefined;
+        // Compared as FACES, not as strings. The family Figma draws under is
+        // routinely spelled differently from the one the page asks for —
+        // stripe.com's "Söhne VF" loads as "S?hne VF" (mangled ö), its
+        // "SourceCodePro" is the installed "Source Code Pro", and a measured
+        // full name is the family plus the style. A raw `!==` read all three
+        // as substitutions and filed 59 correctly-drawn runs for a Re-apply.
         if (
           segMarker &&
-          resolvedSegFont !== segMarker &&
-          resolvedSegFont !== segOriginalCss &&
+          !isSameFaceName(segMarker, resolvedSegFont, resolvedSegStyle) &&
+          !(
+            segOriginalCss &&
+            isSameFaceName(segOriginalCss, resolvedSegFont, resolvedSegStyle)
+          ) &&
           // Same rule as the node-level marker: server fallback families are
           // never installable — recording them would strand Re-apply.
           !isServerFallbackFamily(segMarker)

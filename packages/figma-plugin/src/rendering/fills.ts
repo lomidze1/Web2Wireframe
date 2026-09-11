@@ -248,7 +248,12 @@ export function convertFillsToPaints(
         break;
 
       case "IMAGE_PLACEHOLDER": {
-        const dataUri = fill.imageUrl ? context.assetsMap?.get(fill.imageUrl) : undefined;
+        // Same rule as the placeholder path in nodes.ts: a `data:` url is the
+        // payload itself (a <canvas> bitmap), never a pointer into the map.
+        const dataUri = fill.imageUrl
+          ? context.assetsMap?.get(fill.imageUrl) ??
+            (fill.imageUrl.startsWith("data:") ? fill.imageUrl : undefined)
+          : undefined;
         // SVG data URIs cannot be consumed by figma.createImage (would throw).
         // Vector conversion for background SVGs is handled upstream in
         // css-converter (synthetic child placeholder). Skip raster path for SVGs.
@@ -399,6 +404,17 @@ export function convertFillsToPaints(
               layerName: owner?.name,
             });
           }
+        }
+        // Real assets were asked for and this background never arrived — the
+        // flat fill below is a loss, not the design. (Placeholders mode draws
+        // it on purpose; SVG backgrounds are rendered upstream as a child.)
+        if (!dataUri && fill.imageUrl && context.assetMode === "realAssets") {
+          recordWarning(context, {
+            category: "image",
+            message: "Background image couldn't be loaded — replaced with a solid fill",
+            nodeId: owner?.id,
+            layerName: owner?.name,
+          });
         }
         // Fallback: solid surface color
         const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);

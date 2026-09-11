@@ -66,6 +66,7 @@ export function recordWarning(context: RenderContext, warning: ImportWarning): v
       message: warning.message,
       ...(warning.nodeId ? { nodeId: warning.nodeId } : {}),
       ...(warning.layerName ? { layerName: warning.layerName } : {}),
+      ...(warning.detail ? { detail: warning.detail } : {}),
     });
   } catch {
     // Diagnostics must never take an import down with them.
@@ -85,6 +86,41 @@ export function summarizeWarnings(
     category,
     count: counts.get(category) as number,
   }));
+}
+
+/** One distinct problem in the report: its message and every layer it hit. */
+export interface WarningGroup {
+  category: WarningCategory;
+  message: string;
+  count: number;
+  layers: { nodeId?: string; layerName?: string; detail?: string }[];
+}
+
+/**
+ * Collapse warnings into distinct problems — same category + same message is
+ * one issue — so "31 layers lost their font" reads as one row, not 31.
+ * Severity-first, then first appearance. Messages must therefore be stable
+ * templates; per-instance specifics belong in `detail`.
+ */
+export function groupWarnings(warnings: ImportWarning[] | undefined): WarningGroup[] {
+  if (!warnings || warnings.length === 0) return [];
+  const byKey = new Map<string, WarningGroup>();
+  for (const w of warnings) {
+    const key = `${w.category}\u0000${w.message}`;
+    let group = byKey.get(key);
+    if (!group) {
+      group = { category: w.category, message: w.message, count: 0, layers: [] };
+      byKey.set(key, group);
+    }
+    group.count++;
+    group.layers.push({
+      ...(w.nodeId ? { nodeId: w.nodeId } : {}),
+      ...(w.layerName ? { layerName: w.layerName } : {}),
+      ...(w.detail ? { detail: w.detail } : {}),
+    });
+  }
+  const groups = Array.from(byKey.values());
+  return CATEGORY_ORDER.flatMap((c) => groups.filter((g) => g.category === c));
 }
 
 /**
