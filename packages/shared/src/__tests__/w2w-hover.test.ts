@@ -65,19 +65,6 @@ describe("w2wFindInteractiveNodes", () => {
     expect(result).toHaveLength(2);
   });
 
-  it("finds [tabindex=0] but skips [tabindex=-1]", () => {
-    const tree = makeFrame({
-      tag: "div",
-      children: [
-        makeFrame({ tag: "div", attr: { tabindex: "0" }, classList: ["focusable"] }),
-        makeFrame({ tag: "div", attr: { tabindex: "-1" } }),
-      ],
-    });
-    const result = w2wFindInteractiveNodes(tree);
-    expect(result).toHaveLength(1);
-    expect(result[0].node.classList).toContain("focusable");
-  });
-
   it("builds #id selector", () => {
     const tree = makeFrame({
       tag: "div",
@@ -186,23 +173,18 @@ describe("w2wFindInteractiveNodes", () => {
     expect(result[0].selector).toBeNull();
   });
 
-  it("detects cursor:pointer as interactive (Phase 2)", () => {
-    // Apple's clickable <div onclick> uses cursor:pointer but no role/tag.
+  it("ignores cursor and tabindex, which the capture never records", () => {
+    // `cursor` is absent from the extension's CSS_PROPERTIES and `tabindex` is
+    // never captured by extractAttributes, so both predicates only ever fired
+    // on hand-built fixtures. Detection is tag/role only.
     const tree = makeFrame({
       tag: "div",
       children: [
-        makeFrame({
-          tag: "div",
-          classList: ["clickable"],
-          styles: { cursor: "pointer" },
-        }),
-        makeFrame({ tag: "span", styles: { cursor: "default" } }),
-        makeFrame({ tag: "section" }),
+        makeFrame({ tag: "div", classList: ["clickable"], styles: { cursor: "pointer" } }),
+        makeFrame({ tag: "div", classList: ["focusable"], attr: { tabindex: "0" } }),
       ],
     });
-    const result = w2wFindInteractiveNodes(tree);
-    expect(result).toHaveLength(1);
-    expect(result[0].node.classList).toContain("clickable");
+    expect(w2wFindInteractiveNodes(tree)).toHaveLength(0);
   });
 
   it("detects role=option (Phase 2: align with shared/pseudo-states.ts)", () => {
@@ -538,7 +520,13 @@ describe("findNodeBySelector", () => {
 });
 
 describe("w2wFindHoverCandidates", () => {
-  it("returns interactive tag nodes when no extra selectors given", () => {
+  it("takes nothing but interactive tags when there is no selector to go on", () => {
+    // An <a> or <button> is not evidence of a hover state, and storing a full
+    // re-serialized subtree for every one of them is what made 79% of a
+    // stripe.com capture hover payload. But zero selectors usually means the
+    // stylesheets were UNREADABLE (cross-origin CSS throws on `.cssRules`),
+    // not that the page has no hover styling — so the interactive pool stays
+    // as the floor for that case, bounded, and nothing else comes with it.
     const tree = makeFrame({
       tag: "div",
       children: [
@@ -546,33 +534,67 @@ describe("w2wFindHoverCandidates", () => {
         makeFrame({ tag: "div", classList: ["card"] }),
       ],
     });
+
     const result = w2wFindHoverCandidates(tree);
+
+    expect(result.map((r) => r.node.tag)).toEqual(["button"]);
+  });
+
+  it("drops the link farm entirely once the page's own CSS can be read", () => {
+    // The blowup case: 50 links the stylesheet never mentions. As soon as ONE
+    // selector is collected, the pool is out of the picture and only what the
+    // CSS asks for is captured.
+    const children = Array.from({ length: 50 }, (_, i) =>
+      makeFrame({ tag: "a", classList: [`link-${i}`], attr: { href: `/p/${i}` } }),
+    );
+    children.push(makeFrame({ tag: "div", classList: ["card"] }));
+    const tree = makeFrame({ tag: "nav", children });
+
+    const result = w2wFindHoverCandidates(tree, [".card"]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].node.classList).toContain("card");
+  });
+
+  it("returns EVERY node a :hover selector matches, not just the first", () => {
+    // `.card:hover` styles all three cards. Non-interactive tags on purpose:
+    // with <button> the blanket tag pool would satisfy this test without the
+    // selector ever matching more than its first node.
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "div", classList: ["card"], attr: { id: "a" } }),
+        makeFrame({ tag: "div", classList: ["card"], attr: { id: "b" } }),
+        makeFrame({
+          tag: "section",
+          children: [makeFrame({ tag: "div", classList: ["card"], attr: { id: "c" } })],
+        }),
+      ],
+    });
+    const result = w2wFindHoverCandidates(tree, [".card"]);
+    expect(result).toHaveLength(3);
+    expect(result.map((r) => r.node.attr?.id).sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("keeps an interactive tag when a :hover selector actually targets it", () => {
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "button", classList: ["submit"] }),
+        makeFrame({ tag: "div", classList: ["card"] }),
+      ],
+    });
+    const result = w2wFindHoverCandidates(tree, [".submit"]);
     expect(result).toHaveLength(1);
     expect(result[0].node.tag).toBe("button");
   });
 
-  it("adds nodes matched by extra selectors", () => {
+  it("dedupes a node matched by two different selectors", () => {
     const tree = makeFrame({
       tag: "div",
-      children: [
-        makeFrame({ tag: "button", classList: ["submit"] }),
-        makeFrame({ tag: "div", classList: ["card"] }),
-        makeFrame({ tag: "div", classList: ["menu-item"] }),
-      ],
+      children: [makeFrame({ tag: "button", classList: ["submit", "primary"] })],
     });
-    const result = w2wFindHoverCandidates(tree, [".card", ".menu-item"]);
-    expect(result).toHaveLength(3);
-    const tags = result.map((r) => r.node.tag);
-    expect(tags).toContain("button");
-    expect(tags.filter((t) => t === "div")).toHaveLength(2);
-  });
-
-  it("dedupes nodes matched by both INTERACTIVE_TAGS and extra selector", () => {
-    const tree = makeFrame({
-      tag: "div",
-      children: [makeFrame({ tag: "button", classList: ["submit"] })],
-    });
-    const result = w2wFindHoverCandidates(tree, [".submit"]);
+    const result = w2wFindHoverCandidates(tree, [".submit", ".primary"]);
     expect(result).toHaveLength(1);
     expect(result[0].node.tag).toBe("button");
   });
@@ -611,8 +633,35 @@ describe("w2wFindHoverCandidates", () => {
       makeFrame({ tag: "a", classList: [`link-${i}`] }),
     );
     const tree = makeFrame({ tag: "div", children });
-    const result = w2wFindHoverCandidates(tree);
+    const result = w2wFindHoverCandidates(
+      tree,
+      children.map((_, i) => `.link-${i}`),
+    );
     expect(result).toHaveLength(500);
+  });
+
+  it("caps a single selector that matches more nodes than the budget", () => {
+    // One `.row:hover` rule over a 300-row table must not blow past the cap.
+    // Rows carry their own id here: without one they all build the SAME probe
+    // selector and collapse to a single candidate (see the dedupe suite).
+    const children = Array.from({ length: 300 }, (_, i) =>
+      makeFrame({ tag: "tr", classList: ["row"], attr: { id: `r${i}` } }),
+    );
+    const tree = makeFrame({ tag: "table", children });
+    const result = w2wFindHoverCandidates(tree, [".row"], 100);
+    expect(result).toHaveLength(100);
+  });
+
+  it("collapses a 300-row table with no ids to one probe", () => {
+    // The same table as above, as real markup usually is. 300 identical
+    // `tr.row` probes cost 300 CDP round trips and return the first row's
+    // subtree 300 times.
+    const children = Array.from({ length: 300 }, () =>
+      makeFrame({ tag: "tr", classList: ["row"] }),
+    );
+    const tree = makeFrame({ tag: "table", children });
+
+    expect(w2wFindHoverCandidates(tree, [".row"], 100)).toHaveLength(1);
   });
 
   it("resolves extra selectors using descendant combinators (Phase 2)", () => {
@@ -632,8 +681,6 @@ describe("w2wFindHoverCandidates", () => {
     const result = w2wFindHoverCandidates(tree, [
       "#globalnav .globalnav-link",
     ]);
-    // Expect the nav-link to be included (already in interactive pool via <a>
-    // tag, but we still verify the extra selector resolves).
     expect(result.some((r) => r.node.classList.includes("globalnav-link"))).toBe(
       true,
     );
@@ -787,3 +834,129 @@ describe("attachHoverToDescendants (FIX 4)", () => {
     expect(curtainNormal.hover?.styles.opacity).toBe(1);
   });
 });
+
+/**
+ * Two consequences of deriving candidates from stylesheet selectors alone.
+ *
+ * 1. `buildSelectorForNode` emits the SAME string for every id-less node that
+ *    shares a tag and classes — three sibling `div.card` all become
+ *    "div.card". Both consumers resolve it with a first-match-only query
+ *    (`DOM.querySelector` in the extension, `document.querySelector` inside
+ *    `extractSubtree`), so cards 2 and 3 are handed CARD 1's subtree, its
+ *    absolute geometry included, after paying a full probe each —
+ *    querySelector + two forcePseudoState round trips + a 16ms settle + a
+ *    subtree extraction. A `.row:hover` rule over a 300-row table went from
+ *    one probe to 300, and the extension's loop has no time budget.
+ *
+ * 2. A page whose CSS is served cross-origin throws SecurityError on
+ *    `cssRules`, so `collectHoverSelectors` returns nothing — and with the
+ *    interactive pool gone, nothing means NO hover capture at all. The pool
+ *    is worth keeping exactly there: as a floor when the stylesheets could
+ *    not be read.
+ */
+describe("hover candidates are one probe per distinct selector", () => {
+  it("returns one candidate for id-less siblings that share a selector", () => {
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "div", classList: ["card"] }),
+        makeFrame({ tag: "div", classList: ["card"] }),
+        makeFrame({ tag: "div", classList: ["card"] }),
+      ],
+    });
+
+    const result = w2wFindHoverCandidates(tree, [".card"]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].selector).toBe("div.card");
+  });
+
+  it("keeps every node a selector matches when they are tellable apart", () => {
+    // The reason findNodesBySelector returns all matches in the first place.
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "div", classList: ["card"], attr: { id: "a" } }),
+        makeFrame({ tag: "div", classList: ["card"], attr: { id: "b" } }),
+      ],
+    });
+
+    const result = w2wFindHoverCandidates(tree, [".card"]);
+
+    expect(result.map((r) => r.selector).sort()).toEqual(["#a", "#b"]);
+  });
+
+  it("never returns a candidate the consumers would skip", () => {
+    // A node with no id, no classes, no href and no role has no selector at
+    // all; both consumers `continue` past it. Carrying it only inflated the
+    // count and ate the cap.
+    const tree = makeFrame({
+      tag: "div",
+      children: [makeFrame({ tag: "div" })],
+    });
+
+    expect(w2wFindHoverCandidates(tree, ["div"])).toEqual([]);
+  });
+
+  it("does not let one selector's duplicates starve another selector", () => {
+    const children = Array.from({ length: 40 }, () =>
+      makeFrame({ tag: "div", classList: ["row"] }),
+    );
+    children.push(makeFrame({ tag: "button", classList: ["cta"] }));
+    const tree = makeFrame({ tag: "div", children });
+
+    const result = w2wFindHoverCandidates(tree, [".row", ".cta"], 2);
+
+    expect(result.map((r) => r.selector)).toEqual(["div.row", "button.cta"]);
+  });
+});
+
+describe("hover falls back when the stylesheets could not be read", () => {
+  it("uses the interactive pool when no selector was collected", () => {
+    // apple.com and every other CDN-CSS page: `cssRules` throws SecurityError,
+    // `collectHoverSelectors` returns [], and without this the capture ships
+    // no hover states at all.
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "button", classList: ["submit"] }),
+        makeFrame({ tag: "div", classList: ["card"] }),
+      ],
+    });
+
+    const result = w2wFindHoverCandidates(tree, []);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].node.tag).toBe("button");
+  });
+
+  it("does NOT fall back once a single selector was collected", () => {
+    // stripe.com's 1154 subtrees came from unioning the pool in unconditionally.
+    // A page whose CSS we could read gets exactly what its CSS asks for.
+    const tree = makeFrame({
+      tag: "div",
+      children: [
+        makeFrame({ tag: "a", classList: ["nav-link"], attr: { href: "/a" } }),
+        makeFrame({ tag: "a", classList: ["nav-link"], attr: { href: "/b" } }),
+        makeFrame({ tag: "div", classList: ["card"] }),
+      ],
+    });
+
+    const result = w2wFindHoverCandidates(tree, [".card"]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].node.classList).toContain("card");
+  });
+
+  it("bounds the fallback so a link farm cannot flood the payload", () => {
+    const children = Array.from({ length: 400 }, (_, i) =>
+      makeFrame({ tag: "a", classList: [`link-${i}`], attr: { href: `/p/${i}` } }),
+    );
+    const tree = makeFrame({ tag: "nav", children });
+
+    const result = w2wFindHoverCandidates(tree, []);
+
+    expect(result.length).toBeLessThanOrEqual(150);
+  });
+});
+

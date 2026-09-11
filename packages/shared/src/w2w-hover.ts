@@ -60,14 +60,24 @@ function buildSelectorForNode(node: W2WFrameNode): string | null {
 }
 
 /**
- * Find interactive elements in a W2WFrameNode tree that could have hover states.
+ * Ceiling for the interactive-tag fallback below. Deliberately far under
+ * `maxResults`: it only runs when the stylesheets were unreadable, and h2d
+ * ships ~121 hover subtrees for a page of stripe.com's size.
+ */
+const HOVER_FALLBACK_MAX = 150;
+
+/**
+ * Find interactive elements in a W2WFrameNode tree.
  * Returns nodes with CSS selectors for re-querying in the DOM.
  *
- * Detection (Phase 2):
+ * Detection:
  *   - tags:   <a>, <button>, <input>, <select>, <textarea>
  *   - roles:  button, link, tab, menuitem, option
- *   - [tabindex] (not -1)
- *   - `cursor: pointer` — catches `<div onclick>` clickables
+ *
+ * NOTE: this is no longer part of hover discovery — being interactive is not
+ * evidence of a hover state, and probing every link and button cost far more
+ * payload than it captured. `w2wFindHoverCandidates` now derives candidates
+ * from stylesheet `:hover` rules alone.
  *
  * Selector priority: #id > tag.class1.class2 > tag[href] > tag[role] > null
  *
@@ -85,13 +95,11 @@ export function w2wFindInteractiveNodes(
     if (node.type === "FRAME") {
       const tag = node.tag;
       const role = node.attr?.role as string | undefined;
-      const tabindex = node.attr?.tabindex;
-      const cursor = node.styles?.cursor;
+      // `cursor` and `tabindex` were also tested here, but neither is ever
+      // captured — `cursor` is absent from the extension's CSS_PROPERTIES and
+      // `tabindex` from extractAttributes — so both were permanently dead.
       const isInteractive =
-        INTERACTIVE_TAGS.has(tag) ||
-        (role != null && INTERACTIVE_ROLES.has(role)) ||
-        (tabindex != null && String(tabindex) !== "-1") ||
-        cursor === "pointer";
+        INTERACTIVE_TAGS.has(tag) || (role != null && INTERACTIVE_ROLES.has(role));
 
       if (isInteractive) {
         results.push({ node, selector: buildSelectorForNode(node) });
@@ -307,25 +315,43 @@ export function findNodeBySelector(
   frame: W2WFrameNode,
   selector: string,
 ): W2WFrameNode | null {
+  return findNodesBySelector(frame, selector, 1)[0] ?? null;
+}
+
+/**
+ * Every FRAME node in the tree matching a CSS selector, in DFS order.
+ *
+ * Same matching rules as {@link findNodeBySelector} — which is this function
+ * stopping at the first hit. A `:hover` rule styles every element it matches,
+ * so hover discovery must see all of them: taking only the first left every
+ * `.btn` on a page but one without its hover state.
+ *
+ * @param limit Stop after this many matches (0 = no limit)
+ */
+export function findNodesBySelector(
+  frame: W2WFrameNode,
+  selector: string,
+  limit = 0,
+): W2WFrameNode[] {
   // Extract rightmost compound. Combinators (` `, `>`, `+`, `~`) separate
   // compounds; we take the one furthest right.
   const rightmost = extractRightmostCompound(selector.trim());
-  if (!rightmost) return null;
+  if (!rightmost) return [];
 
   const matcher = compileSimpleSelector(rightmost);
-  if (!matcher) return null;
+  if (!matcher) return [];
 
-  function walk(node: W2WNode): W2WFrameNode | null {
-    if (node.type !== "FRAME") return null;
-    if (matcher!(node)) return node;
-    for (const child of node.children) {
-      const found = walk(child);
-      if (found) return found;
-    }
-    return null;
+  const found: W2WFrameNode[] = [];
+
+  function walk(node: W2WNode): void {
+    if (node.type !== "FRAME") return;
+    if (limit > 0 && found.length >= limit) return;
+    if (matcher!(node)) found.push(node);
+    for (const child of node.children) walk(child);
   }
 
-  return walk(frame);
+  walk(frame);
+  return found;
 }
 
 /**
@@ -513,48 +539,79 @@ export function attachHoverToDescendants(
 }
 
 /**
- * Extended hover-candidate finder.
+ * Every node that should be probed with `CSS.forcePseudoState`.
  *
- * Returns ALL nodes that should be probed with `CSS.forcePseudoState`, by
- * combining two discovery strategies:
- *   1. Interactive tag/role detection (via `w2wFindInteractiveNodes`)
- *   2. Stylesheet-derived selectors (passed in as `extraSelectors`)
+ * Candidates come from ONE source: the `:hover` selectors parsed out of
+ * document.styleSheets by the content script's `collectHoverSelectors()`
+ * (passed in as `extraSelectors` — the "trigger" half of each rule). Each
+ * selector contributes every node it matches, deduped by node reference.
  *
- * The extra selectors come from the content script's `collectHoverSelectors()`
- * — they are the "trigger" half of each `:hover` selector parsed from
- * document.styleSheets. For each extra selector, we walk the tree to find
- * the matching W2WFrameNode and add it to the result (deduped by node ref).
+ * An element earns a hover capture by being styled on hover, not by being a
+ * link or a button. The blanket interactive pool this used to union in stored
+ * a full re-serialized subtree for every `<a>`, `<button>`, `<input>`,
+ * `<select>`, `<textarea>` and `role=button|link|tab|menuitem|option` on the
+ * page — 1154 subtrees on stripe.com against html.to.design's 121, and 79% of
+ * the capture's bytes. It also consumed the whole `maxResults` budget on
+ * link-heavy pages, starving the stylesheet selectors that had real hover
+ * styling.
  *
  * @param frame Root W2WFrameNode to search
- * @param extraSelectors Additional CSS selectors from stylesheet parsing
- * @param maxResults Maximum nodes to return (default 200)
+ * @param extraSelectors `:hover` trigger selectors from stylesheet parsing
+ * @param maxResults Maximum nodes to return (default 500)
  */
 export function w2wFindHoverCandidates(
   frame: W2WFrameNode,
   extraSelectors: string[] = [],
   maxResults = 500,
 ): Array<{ node: W2WFrameNode; selector: string | null }> {
-  const base = w2wFindInteractiveNodes(frame, maxResults);
-  const results: Array<{ node: W2WFrameNode; selector: string | null }> = [...base];
-  const seen = new Set<W2WFrameNode>(base.map((r) => r.node));
-  let truncatedExtras = 0;
+  const results: Array<{ node: W2WFrameNode; selector: string | null }> = [];
+  // Keyed by the selector the CONSUMER will probe with, not by node identity.
+  // `buildSelectorForNode` gives every id-less node sharing a tag and classes
+  // the same string, and both consumers resolve it with a first-match-only
+  // query (`DOM.querySelector`; `document.querySelector` inside
+  // `extractSubtree`). A second node carrying that string is therefore handed
+  // the FIRST node's subtree — geometry included — after paying a full probe
+  // for it: querySelector + two forcePseudoState round trips + a 16ms settle +
+  // a subtree extraction. `.row:hover` over a 300-row table meant 300 probes
+  // for one usable answer, and the extension's loop has no time budget.
+  const claimed = new Set<string>();
+  let truncated = 0;
 
   for (const sel of extraSelectors) {
-    if (results.length >= maxResults) {
-      truncatedExtras++;
-      continue;
+    for (const node of findNodesBySelector(frame, sel)) {
+      const selector = buildSelectorForNode(node);
+      // No selector means no probe: both consumers `continue` past these, so
+      // carrying them only inflated the count and ate the cap.
+      if (selector === null || claimed.has(selector)) continue;
+      if (results.length >= maxResults) {
+        truncated++;
+        continue;
+      }
+      claimed.add(selector);
+      results.push({ node, selector });
     }
-    const node = findNodeBySelector(frame, sel);
-    if (!node) continue;
-    if (seen.has(node)) continue;
-    seen.add(node);
-    results.push({ node, selector: buildSelectorForNode(node) });
   }
 
-  if (truncatedExtras > 0) {
-     
+  // Nothing collected means the stylesheets could not be READ, far more often
+  // than it means the page has no hover styling: `collectHoverSelectors` walks
+  // `document.styleSheets`, and a cross-origin sheet throws SecurityError on
+  // `.cssRules` (apple.com and every other CDN-CSS page). Without a floor the
+  // capture ships no hover states at all — worse than the blanket pool this
+  // replaced. With one, the pool is used only where it is the sole source, and
+  // capped well below `maxResults` so a link farm cannot flood the payload.
+  if (results.length === 0) {
+    for (const candidate of w2wFindInteractiveNodes(frame, HOVER_FALLBACK_MAX)) {
+      if (candidate.selector === null || claimed.has(candidate.selector)) continue;
+      if (results.length >= HOVER_FALLBACK_MAX) break;
+      claimed.add(candidate.selector);
+      results.push(candidate);
+    }
+  }
+
+  if (truncated > 0) {
+
     console.warn(
-      `[w2w-hover] Truncated ${truncatedExtras} extra selectors past cap=${maxResults}`,
+      `[w2w-hover] Truncated ${truncated} hover candidates past cap=${maxResults}`,
     );
   }
 

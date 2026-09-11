@@ -311,8 +311,24 @@ export {
   parseHoverSelectorsFromCssText,
   splitHoverSelector,
   findNodeBySelector,
+  findNodesBySelector,
   attachHoverToDescendants,
 } from "./w2w-hover";
+
+// ============================================================================
+// HYDRATION WAIT - shared by both capture paths
+// ============================================================================
+
+export {
+  W2W_HYDRATION_EXPRESSION,
+  W2W_HYDRATION_TIMEOUT_MS,
+} from "./w2w-hydration";
+
+export {
+  captureTaintedCanvases,
+  MAX_CANVAS_SHOT_BYTES,
+  MAX_CANVAS_SHOT_TOTAL_BYTES,
+} from "./w2w-canvas-shots";
 
 // ============================================================================
 // RESOURCE GRAPH - Unified resource enumeration
