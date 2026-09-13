@@ -196,7 +196,9 @@ describe("owl-carousel v1 subtree (telex.ge category circles)", () => {
   });
 
   it("renders the carousel chain through createNodeInFigma (mock figma)", async () => {
-    const root = convertW2WToWireframe(page([abfnSubtree()]) as never, { layoutMode: "autoLayout" });
+    // htmlLayerNames: rendered SceneNodes only carry `name`, and this test
+    // uses DOM-derived names as tracers for subtree survival.
+    const root = convertW2WToWireframe(page([abfnSubtree()]) as never, { layoutMode: "autoLayout", htmlLayerNames: true });
     const parentWf = findByClass(root, "ab-fn-parent") as unknown as WireframeNode;
     expect(parentWf).not.toBeNull();
 

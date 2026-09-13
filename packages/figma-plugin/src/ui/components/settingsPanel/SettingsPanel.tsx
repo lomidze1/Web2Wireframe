@@ -46,6 +46,7 @@ export interface SettingsPanelProps {
   localCssVariablesMode?: "styles" | "direct";
   localLayoutMode?: "autoLayout" | "absolute";
   localAssetMode?: "placeholders" | "realAssets";
+  localOriginLinks?: boolean;
 
   // Handlers
   toggleViewport: (viewport: string, event?: Event) => void;
@@ -55,6 +56,8 @@ export interface SettingsPanelProps {
   setCssVariablesMode?: (mode: "styles" | "direct") => void;
   setLayoutMode?: (mode: "autoLayout" | "absolute") => void;
   setAssetMode?: (mode: "placeholders" | "realAssets") => void;
+  // Omit to hide the "Links" row (e.g. Screenshot import, which has no links).
+  setOriginLinks?: (enabled: boolean) => void;
   handleReset: () => void;
   handleSaveAsDefault: () => void;
 
@@ -182,6 +185,7 @@ export default function SettingsPanel({
   localCssVariablesMode,
   localLayoutMode,
   localAssetMode,
+  localOriginLinks,
   toggleViewport,
   setColorMode,
   setFontMode,
@@ -189,6 +193,7 @@ export default function SettingsPanel({
   setCssVariablesMode,
   setLayoutMode,
   setAssetMode,
+  setOriginLinks,
   handleReset,
   handleSaveAsDefault,
   hasOverrides,
@@ -277,13 +282,33 @@ export default function SettingsPanel({
       {!isExpanded && (
         <p class={styles.settingsHint}>
           <span class={styles.hintBulb}>💡</span> Try different settings —
-          colors, fonts and assets change the result a lot.
+          colors, fonts, links and assets change the result a lot.
         </p>
       )}
 
       {/* Collapsible Content */}
       {isExpanded && (
         <div class={styles.collapsibleContent} ref={contentRef}>
+          {/* Links — the source site's <a> hrefs, anchors and click-throughs */}
+          {setOriginLinks && (
+            <div class={styles.settingRow}>
+              <div class={styles.settingLabel}>
+                <span>🔗</span>
+                <span>Links</span>
+              </div>
+              <SegmentedToggle
+                ariaLabel="Links"
+                styles={styles}
+                value={localOriginLinks === false ? "off" : "on"}
+                onChange={(value) => setOriginLinks(value === "on")}
+                options={[
+                  { value: "on", label: "On" },
+                  { value: "off", label: "Off" },
+                ]}
+              />
+            </div>
+          )}
+
           {/* Colors */}
           <div class={styles.settingRow}>
             <div class={styles.settingLabel}>

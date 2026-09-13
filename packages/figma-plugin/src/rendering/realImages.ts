@@ -8,6 +8,8 @@ import { applyCornerRadii } from "./layout";
 import { parseImageSize, computeCoverCropTransform } from "./imageCrop";
 import { isRasterMasqueradeSvg, extractEmbeddedImageFromSvg } from "@w2w/shared";
 import { logger } from "../utils/logger";
+import { recordWarning } from "./diagnostics";
+import * as perf from "../utils/perf";
 
 // Base64 lookup table for pure JS decoding (Figma sandbox has no atob)
 const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -66,6 +68,29 @@ function isSvgDataUri(dataUri: string): boolean {
     dataUri.startsWith("data:image/svg") ||
     dataUri.trimStart().startsWith("<svg") ||
     dataUri.trimStart().startsWith("<?xml")
+  );
+}
+
+/**
+ * `url("#id")` → `url(#id)` in SVG markup.
+ *
+ * An SVG presentation attribute takes a `<FuncIRI>`, which has no quoted form,
+ * so a quoted reference simply dangles and the shape falls back to black. The
+ * capture bakes the COMPUTED paint back into the attribute, and
+ * `getComputedStyle().fill` serialises it the CSS way — with quotes — which is
+ * how stripe.com's gradient icons arrived as
+ * `fill="url(&quot;#apps-plus-gradient-id-:R9meupr6l6:&quot;)"` and rendered black.
+ *
+ * Only same-document references are touched. Quotes around a `data:` or `http:`
+ * URL are legal and load-bearing (an unquoted data URI containing a comma or
+ * parenthesis would not survive), so those are left exactly as they are.
+ */
+export function sanitizeSvgMarkup(markup: string): string {
+  // The quote may still be an entity: the markup is serialised HTML.
+  const QUOTE = String.raw`(?:&quot;|&#34;|&#39;|&apos;|["'])`;
+  return markup.replace(
+    new RegExp(String.raw`url\(\s*${QUOTE}\s*(#[^"'()&]*?)\s*${QUOTE}\s*\)`, "g"),
+    "url($1)",
   );
 }
 
@@ -153,6 +178,17 @@ export async function createRealImage(
   base64Data: string,
   context: RenderContext
 ): Promise<FrameNode> {
+  if (!__W2W_DEV_LOG__) return createRealImageInner(node, base64Data, context);
+  return perf.timed("node.image", () =>
+    createRealImageInner(node, base64Data, context)
+  );
+}
+
+async function createRealImageInner(
+  node: WireframeNode,
+  base64Data: string,
+  context: RenderContext
+): Promise<FrameNode> {
   const frame = figma.createFrame();
   frame.fills = []; // Clear Figma default white fill
   frame.name = node.name || "Image";
@@ -165,10 +201,16 @@ export async function createRealImage(
   // Fixed sizing to prevent collapse in auto-layout
   frame.layoutMode = "NONE";
 
+  // Which branch we were on when something threw, so the report can say
+  // "Missing or invalid SVG" rather than blaming the raster decoder.
+  let branch: "image" | "svg" = "image";
+
   try {
     // SVG handling
     if (isSvgDataUri(base64Data)) {
-      const svgString = svgDataUriToString(base64Data);
+      branch = "svg";
+      // A quoted FuncIRI (`url("#grad")`) dangles and paints black.
+      const svgString = sanitizeSvgMarkup(svgDataUriToString(base64Data));
 
       // Raster-masquerade SVG: Adobe Illustrator / "Save As SVG" exports that
       // wrap a base64 PNG/JPEG in an <image> tag with no real vector content.
@@ -210,7 +252,9 @@ export async function createRealImage(
         }
       }
 
-      const svgNode = figma.createNodeFromSvg(svgString);
+      const svgNode = __W2W_DEV_LOG__
+        ? perf.timedSync("node.svg", () => figma.createNodeFromSvg(svgString), true)
+        : figma.createNodeFromSvg(svgString);
       svgNode.resize(Math.max(node.width, 1), Math.max(node.height, 1));
       frame.appendChild(svgNode);
       return frame;
@@ -266,6 +310,17 @@ export async function createRealImage(
   } catch (error) {
     // Fallback: empty frame with surface color
     logger.warn("Failed to create real image", { name: node.name, error });
+    // Until now this grey box was the ONLY trace — indistinguishable from a
+    // deliberately grey element. Report it against the frame that replaced it.
+    recordWarning(context, {
+      category: branch,
+      message:
+        branch === "svg"
+          ? "Missing or invalid SVG — replaced with a placeholder"
+          : "Image could not be decoded — replaced with a placeholder",
+      nodeId: frame.id,
+      layerName: frame.name,
+    });
     const { hexToFigmaRGB } = await import("./colors");
     const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);
     frame.fills = [

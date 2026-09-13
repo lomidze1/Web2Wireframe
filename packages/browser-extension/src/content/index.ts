@@ -18,8 +18,18 @@ import {
 } from './extractor';
 import { injectPreCaptureStyles, removePreCaptureStyles } from './styles';
 
+declare global {
+  interface Window {
+    __w2wContentScriptLoaded?: boolean;
+  }
+}
+
 // Listen for messages from background script or popup
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+const handleMessage: Parameters<typeof chrome.runtime.onMessage.addListener>[0] = (
+  message,
+  _sender,
+  sendResponse,
+) => {
   if (message.type === "PING") {
     sendResponse({ status: "ready" });
     return true;
@@ -156,7 +166,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   return false;
-});
+};
+
+// The background may inject this file again via chrome.scripting when the
+// manifest-injected copy doesn't answer (w2wEnsureContentScript). Register
+// once per isolated world so a double injection can't answer messages twice.
+if (!window.__w2wContentScriptLoaded) {
+  window.__w2wContentScriptLoaded = true;
+  chrome.runtime.onMessage.addListener(handleMessage);
+}
 
 /**
  * Show selection mode overlay with cancel button

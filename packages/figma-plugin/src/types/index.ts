@@ -2,6 +2,64 @@
 // FIGMA-READY TYPES (from Browser Extension)
 // ============================================================================
 
+/**
+ * Import diagnostics — buckets mirroring the groups h2d shows in its report.
+ * `layout` has no producer yet; it exists so a future layout-degradation
+ * warning has a home instead of landing in `other`.
+ * Behaviour lives in rendering/diagnostics.ts.
+ */
+export type WarningCategory =
+  | "typography"
+  | "image"
+  | "svg"
+  | "layout"
+  | "fatal"
+  | "other";
+
+/** One entry in the post-import warning report. */
+export interface ImportWarning {
+  category: WarningCategory;
+  /** One human sentence: what was wanted, what happened instead. */
+  message: string;
+  /** Figma node id — present only when a node survived to be linked to. */
+  nodeId?: string;
+  /** Layer name, shown as the link text in the report. */
+  layerName?: string;
+  /**
+   * Per-instance specifics (sizes, counts) shown next to the layer. Kept out
+   * of `message` so identical problems collapse into one report row.
+   */
+  detail?: string;
+}
+
+/**
+ * A loss the converter can already see from the captured styles (an
+ * unsupported CSS filter, an iframe it can't import). Carried on the node and
+ * reported by the renderer once the Figma node exists, so the report row can
+ * select the layer.
+ */
+export interface PendingWarning {
+  category: WarningCategory;
+  message: string;
+  /** Only a loss when real assets were requested (placeholders mode draws none). */
+  realAssetsOnly?: boolean;
+}
+
+/**
+ * A content-bearing subtree the converter dropped because the capture caught it
+ * at `opacity: 0` — usually scroll-reveal content whose IntersectionObserver
+ * had not fired yet. The nodes never reach Figma, so there is no id to link to;
+ * the DOM-selector name is all the report can offer.
+ */
+export interface SkippedFrame {
+  /** DOM-selector name, e.g. `div.reveal` or `section#plugins`. */
+  layerName: string;
+  width: number;
+  height: number;
+  /** Captured nodes in the lost subtree, itself included. */
+  nodes: number;
+}
+
 /** RGBA color normalized to 0-1 range (Figma format) */
 export interface FigmaColor {
   r: number; // 0-1
@@ -45,6 +103,9 @@ export interface FigmaFill {
   center?: { x: number; y: number };
   shape?: RadialGradientShape; // circle or ellipse (default: ellipse)
   size?: RadialGradientSize; // CSS size keyword (default: farthest-corner)
+  // Explicit radius from `radial-gradient(100px 50px at …)`, in px.
+  // Overrides the size-keyword math in calculateRadialGradientTransform.
+  radius?: { x: number; y: number };
   // Element dimensions for proper gradient transform calculation
   elementWidth?: number;
   elementHeight?: number;
@@ -64,6 +125,13 @@ export interface FigmaFill {
   // cover/FILL layer, fills.ts upgrades the paint to CROP + imageTransform
   // so the author's crop focus survives (FILL always center-crops).
   position?: { x: number; y: number };
+  // Raw per-layer background-size / background-repeat / background-position
+  // strings. fills.ts combines them with the image's natural size into the
+  // h2d-style CROP/TILE layout (computeBackgroundLayout); the derived
+  // scaleMode above stays as the fallback when that fails.
+  cssSize?: string;
+  cssRepeat?: string;
+  cssPosition?: string;
   // CSS variable reference (e.g. "--primary-color") if this fill came from a var()
   cssVariable?: string;
 }
@@ -99,12 +167,50 @@ export interface FigmaEffect {
 // Types for nested wireframe data
 // ============================================================================
 
+/**
+ * A CSS 2D transform decomposed from the computed `matrix()` / `matrix3d()`.
+ *
+ * `a`..`d` are the raw 2x2 components in CSS order — `matrix(a, b, c, d, e, f)`
+ * means the columns are (a, b) and (c, d). Placement math uses these directly
+ * rather than recomposing from the decomposed angles, which avoids compounding
+ * rounding error; the named fields exist for thresholds and diagnostics.
+ */
+export interface CssTransform {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  /**
+   * Translation in px. Recorded for diagnostics only — the captured geometry is
+   * the AABB of the *already-transformed* element, so translation is baked into
+   * x/y before we ever see it.
+   */
+  translateX: number;
+  translateY: number;
+  /** Rotation in degrees, CSS clockwise-positive. */
+  rotation: number;
+  /** Length of the x-axis column. Always positive. */
+  scaleX: number;
+  /** Signed y-scale — negative when the matrix mirrors (e.g. `scaleX(-1)`). */
+  scaleY: number;
+  /** Horizontal skew in degrees. */
+  skewX: number;
+  /**
+   * A `matrix3d` carried a Z or perspective component that we dropped (Figma is
+   * strictly 2D). Set so the renderer can report it instead of silently
+   * flattening a 3D transform.
+   */
+  droppedZ?: boolean;
+}
+
 export interface WireframeNode {
   id: string;
   name: string;
   type: "frame" | "text" | "placeholder";
   tag: string;
   className?: string; // CSS class name(s) from the element
+  /** Converter-detected losses, reported at render time — see PendingWarning. */
+  pendingWarnings?: PendingWarning[];
   x: number;
   y: number;
   width: number;
@@ -114,10 +220,12 @@ export interface WireframeNode {
   position?: "static" | "relative" | "absolute" | "fixed" | "sticky";
   zIndex?: number; // CSS z-index — used for child ordering in Figma
   cssOrder?: number; // CSS order — used for flex child visual reordering
-  // CSS top/left offsets for position:fixed|sticky elements. Parsed to px.
-  // Used by nodes.ts re-parenting to place the element at its intended
-  // viewport offset instead of its DOM flow coordinate.
+  // CSS inset offsets for position:fixed|sticky elements. Parsed to px;
+  // `auto` stays undefined. Used by nodes.ts re-parenting to place the element
+  // at its intended viewport offset instead of its DOM flow coordinate, and by
+  // its promotion gate — a sticky element with no vertical inset never sticks.
   cssTop?: number;
+  cssBottom?: number;
   cssLeft?: number;
 
   // Layout
@@ -188,12 +296,27 @@ export interface WireframeNode {
   blendMode?: string; // CSS mix-blend-mode → Figma BlendMode
   // Overflow (for clipsContent)
   overflow?: "visible" | "hidden" | "scroll" | "auto";
+  // Which axes actually scroll, kept per-axis because `overflow` above
+  // collapses them (most-restrictive-wins) and loses that. Drives Figma's
+  // prototype `overflowDirection`; absent when nothing scrolls, which is
+  // Figma's own NONE default.
+  scrollDirection?: "BOTH" | "HORIZONTAL" | "VERTICAL";
+  // Raw CSS clip-path. Only `inset()` is expressible in Figma — see
+  // rendering/clipPath.ts, which turns it into clipsContent + cornerRadius.
+  clipPath?: string;
   // Centering (margin: 0 auto detected from original CSS)
   horizontallyCentered?: boolean;
   // Vertical centering via margin-top/bottom: auto (flex context)
   verticallyCenteredViaMargin?: boolean;
   // Self-alignment (for flex/grid children)
   alignSelf?: string;
+  /** The CSS `align-self` value this child needs a cross-axis wrapper for, or
+   *  absent when it needs none. Figma has no per-child cross-axis alignment
+   *  that survives a `layoutSizing*` write, so `alignWrappers.ts` turns this
+   *  into a `:align-<value>` frame the way h2d's `H8` does. Decided in
+   *  css-converter, where the parent's `display` and children are still in
+   *  reach — see {@link resolveAlignSelfWrapper}. */
+  alignSelfWrapper?: string;
   justifySelf?: string;
   // Margins for wrapper frame creation
   margin?: { top: number; right: number; bottom: number; left: number };
@@ -201,12 +324,24 @@ export interface WireframeNode {
   // Text
   textContent: string;
   styledSegments?: TextSegment[];  // Inline elements with different styles
+  // The segment texts already carry every separator the browser painted, so
+  // createTextNode must NOT insert its own space between them. Set by the
+  // inline run merge (rendering/textRunMerge.ts), where two runs that touched
+  // on screen are concatenated exactly as measured.
+  exactSegments?: boolean;
   listStyleType?: string;           // Bullet type for <li> elements
   fontSize: number;
   fontWeight: number;
   fontFamily: string;
   fontStyle?: string;                // CSS font-style (e.g. "italic", "oblique")
   fontFamilyList?: string[];         // Full CSS font-family fallback chain
+  // PostScript name of the font that ACTUALLY rendered this run
+  // (CSS.getPlatformFontsForNode). It encodes the cut and, for a variable
+  // font, the resolved axes — neither of which CSS carries: `font-stretch`
+  // and `font-variation-settings` are not captured. Used to refine the font
+  // request; a family name is NEVER derived from it (see
+  // `refineRequestFromPostScript`).
+  platformPostScript?: string;
   textAlign: string;
   lineHeight: number | string;
   letterSpacing: number;
@@ -221,6 +356,17 @@ export interface WireframeNode {
   // browser's actual per-line widths (e.g. [535, 550, 240] for a 3-line <p>)
   // instead of collapsing to a single line at max width.
   renderedTextWidths?: number[];
+  // The browser's per-visual-line text, in reading order — the same rows that
+  // produced `renderedTextWidths`, joined and text-transformed exactly as
+  // `textContent` was. Present only for genuinely multi-line text.
+  //
+  // `textContent` joins soft-wrapped rows with a space so Figma may still
+  // re-flow the copy; that hands the wrap to a SUBSTITUTED font, which can
+  // land on a different line count and overflow the box (stripe.com's stats
+  // heading: 2 browser lines → 3 Figma lines → +60px). `enforceMeasuredLineCount`
+  // (rendering/textLineGuard) uses these strings to re-bake the measured
+  // breaks as `\n` when — and only when — that actually happens.
+  measuredLines?: string[];
 
   // CSS max-width (px). When set, applied to Figma node as native TextNode.maxWidth
   // or FrameNode.maxWidth, enforcing a hard upper bound regardless of
@@ -235,6 +381,18 @@ export interface WireframeNode {
   cssMinWidth?: number;
   cssMinHeight?: number;
   cssMaxHeight?: number;
+  // Link URL for an <a> that renders no text (logo, icon, image card) —
+  // applied as an ON_CLICK/URL prototype reaction on the FRAME, because there
+  // are no glyphs to hang a hyperlink on. See attachLinkReaction in nodes.ts.
+  linkReactionUrl?: string;
+  // Same-page `#anchor` target id, from an <a href="#faq"> — the bare id, not
+  // the href. Kept apart from `linkReactionUrl` because a hash is an INTERNAL
+  // navigation target, not a URL action: it resolves to a Figma node id only
+  // once the tree has rendered. See rendering/anchorLinks.ts.
+  linkAnchorId?: string;
+  // This element's own `id` attribute — the destination side of the pair above.
+  anchorId?: string;
+
   // Absolute URL from the nearest <a href> ancestor — applied as
   // TextNode.hyperlink so imported links stay clickable.
   href?: string;
@@ -308,10 +466,10 @@ export interface WireframeNode {
   // color adjustment on the element's IMAGE paints (realImages.ts / fills.ts).
   filterGrayscale?: number;
 
-  // Static CSS rotation in degrees (clockwise, from the computed transform
-  // matrix). width/height/x/y remain the captured AABB; nodes.ts recovers the
-  // unrotated box via computeRotatedPlacement when applying the rotation.
-  rotation?: number;
+  // Static CSS transform decomposed from the computed matrix. width/height/x/y
+  // remain the captured AABB; nodes.ts recovers the untransformed box and the
+  // Figma `relativeTransform` via computeTransformPlacement.
+  transform?: CssTransform;
 
   // Nested children
   children: WireframeNode[];
@@ -340,9 +498,18 @@ export interface ExtractedCSSVariable {
   category?: string; // color, spacing, typography, etc.
 }
 
+/**
+ * Which import flow produced a render. Only URL and extension imports carry a
+ * page the developer can re-import, so only they get "Report this to the
+ * developer" in the import report.
+ */
+export type ImportSourceKind = "url" | "extension" | "html" | "screenshot";
+
 export interface RenderWireframeData {
   frames: WireframeFrame[];
   sourceUrl: string;
+  /** Which import flow sent this — see ImportSourceKind. */
+  kind?: ImportSourceKind;
   localStyles?: object;
   pluginColors: {
     // 5-color minimalist wireframe palette
@@ -362,6 +529,17 @@ export interface RenderWireframeData {
   textMode?: "semantic" | "lorem" | "website";
   assetMode?: "placeholders" | "realAssets";
   interactionMode?: "none" | "variants";
+  /** h2d parity: true = legacy tag#id / tag.class layer names;
+   *  false/absent (default) = semantic two-stage naming. */
+  htmlLayerNames?: boolean;
+  /** true = promote block containers whose captured rects prove a horizontal
+   *  row to HORIZONTAL auto-layout instead of absolute placement;
+   *  false/absent (default) = today's CSS-driven behaviour. */
+  geometryRows?: boolean;
+  /** The "Links" import option. false = the source site's links are left out
+   *  of the wireframe (text hyperlinks, non-text `<a>` click-through and
+   *  same-page `#anchor` jumps alike). true/absent = today's behaviour. */
+  originLinks?: boolean;
   /** Map of CSS-declared family → real (SFNT) family, derived from the page's
    *  @font-face entries. Lets the sandbox auto-apply an already-installed font
    *  registered under an anti-piracy-aliased name (e.g. CSS "Söhne" → installed
@@ -372,15 +550,42 @@ export interface RenderWireframeData {
    *  provide — telex.ge fakes bold from a single 400 file, and offering the
    *  nonexistent 700 reopened the font modal on every import. */
   fontDeclaredCuts?: Record<string, Array<{ weight: number; italic: boolean }>>;
+  /** CSS families served by ONE variable file (`font-weight: 1 1000`). Their
+   *  per-weight cuts are never demanded: the whole range lives in the file
+   *  already installed, so a "missing cut" would offer that same file again. */
+  fontVariableFamilies?: string[];
+  /** Per family, the styles its @font-face FILES install as. A weight with no
+   *  exact cut is only a real gap when the file behind it is missing too —
+   *  goodwill.ge's declared 500 is served by a file that installs as
+   *  "75 Bold", so the family was permanently "partial". */
+  fontFaceStyles?: Record<string, string[]>;
   /** Screenshot import: export the rendered frame back to the UI so it can be
    *  scored against the uploaded image. */
   compareToSource?: boolean;
+  /** Dev profiler only (stripped in production builds — see utils/perf.ts).
+   *  `Date.now()` at postMessage time; the sandbox subtracts it on arrival to
+   *  price the structured clone of this payload. */
+  sentAt?: number;
+  /** Dev profiler only. The UI iframe's own stage timings (label → ms), merged
+   *  into the sandbox table so one import prints one report. */
+  perfUi?: Record<string, number>;
 }
 
 /** Map from missing/website font name → replacement font name */
 export type FontMapping = Record<string, string>;
 
 // Context passed to render functions for style linking
+/**
+ * Same-page `#anchor` wiring for ONE viewport frame. Behaviour lives in
+ * rendering/anchorLinks.ts; the shape lives here because RenderContext carries it.
+ */
+export interface AnchorScope {
+  /** html `id` → Figma node id. First registration wins. */
+  targets: Map<string, string>;
+  /** `<a href="#hash">` nodes waiting for their destination to show up. */
+  pending: Array<{ node: SceneNode; hash: string }>;
+}
+
 export interface RenderContext {
   pluginColors: RenderWireframeData["pluginColors"];
   fontFamily: string;
@@ -406,6 +611,14 @@ export interface RenderContext {
   parentBackgroundColor?: { r: number; g: number; b: number } | null;
   // Parent container width for text sizing decisions
   parentWidth?: number;
+  /**
+   * May children of the current parent honour `layoutGrow: 1`?
+   *
+   * false when the parent's measured children do not fill it exactly — Figma
+   * would then divide space CSS never handed out (see growFitsContainer in
+   * rendering/layout.ts). Undefined means "not evaluated", i.e. allowed.
+   */
+  growEligible?: boolean;
   // Map from CSS variable name → PaintStyle (for variable-first linking)
   variableStyleMap?: Map<string, PaintStyle>;
   // Font that was detected as missing (popup substitution trigger)
@@ -429,12 +642,30 @@ export interface RenderContext {
   // faked bold) is nothing the download can fix, so it must not advertise a
   // Re-apply.
   fontDeclaredCuts?: Record<string, Array<{ weight: number; italic: boolean }>>;
+  // CSS families served by ONE variable file. Their near-weight draws are the
+  // best that exists, so they never earn a `w2w_original_cut` marker.
+  fontVariableFamilies?: string[];
+  // Per family, the styles its @font-face FILES install as — see
+  // `buildFontFaceStyles`. Used to tell a page's own weight mapping apart from
+  // a file the user is genuinely missing.
+  fontFaceStyles?: Record<string, string[]>;
   // Asset extraction mode
   assetMode?: "placeholders" | "realAssets";
   // Map from image URL → base64 data URI (for real asset rendering)
   assetsMap?: Map<string, string>;
+  // Original pixel size of images the import shrank to fit Figma's 4096px
+  // limit (main.ts). fills.ts measures backgrounds with it, so tiling and
+  // cropping keep the page's geometry.
+  imageNaturalSizes?: Map<string, { width: number; height: number }>;
   // Interaction mode for pseudo-state variants
   interactionMode?: "none" | "variants";
+  // "Links" import option. false = render no link of any kind: no
+  // TextNode.hyperlink, no ON_CLICK URL reaction on text-less <a> frames and
+  // no same-page #anchor SCROLL_TO. Absent/true = links included.
+  // Deliberately gated HERE (render time) rather than in the converter: the
+  // captured `href` also feeds `isLink`, which colours links in plugin-colour
+  // mode, so dropping it upstream would change the picture too.
+  originLinks?: boolean;
   // Collected ComponentSets from pseudo-state variant creation
   componentSets?: ComponentSetNode[];
   // Content-signature dedup cache for hover ComponentSets — one entry per
@@ -476,6 +707,18 @@ export interface RenderContext {
     hashToComponent: Map<string, ComponentNode>;
     hashToVariantIndex: Map<string, number>;
   };
+  // Same-page `#anchor` wiring for the frame currently being rendered. Set by
+  // the frame loop and cleared after it, so the off-canvas hover-master renders
+  // that run BEFORE the loop never pollute the map. One scope per viewport
+  // frame — see rendering/anchorLinks.ts.
+  anchorScope?: AnchorScope;
+  /**
+   * Called once for every node that reaches Figma. Drives the import loader's
+   * render progress — the only part of the bar that is measured rather than
+   * estimated (see utils/importProgress.ts). Kept optional: renders started
+   * outside the import loop (hover masters, tests) attach nothing.
+   */
+  onNodeRendered?: () => void;
   // Render statistics — incremented during traversal, logged at the end of
   // the import so we can diagnose dedup effectiveness.
   renderStats?: {
@@ -488,6 +731,14 @@ export interface RenderContext {
     // figma.notify at the end of the import — without this a 20%-incomplete
     // import looks identical to a perfect one.
     droppedNodes?: { name: string; error: string }[];
+    // Categorised, per-layer diagnostics (see rendering/diagnostics.ts).
+    // Superset of droppedNodes: every dropped subtree also lands here as a
+    // `fatal` warning, alongside font/image/SVG fallbacks that used to be
+    // completely silent. Surfaced in the UI as a clickable report.
+    warnings?: ImportWarning[];
+    // Warnings dropped after MAX_WARNINGS — counted so the report can say
+    // "and N more" instead of quietly under-reporting.
+    warningOverflow?: number;
   };
 }
 
@@ -511,9 +762,20 @@ export interface TextSegment {
   fontFamily?: string;
   fontFamilyList?: string[];  // Full CSS font-family fallback chain for this segment
   fontStyle?: string;  // CSS font-style (e.g. "italic", "oblique") for this run
+  platformPostScript?: string;  // PostScript name of the font that rendered this run
   isLink?: boolean;  // Is this an <a> element?
+  href?: string;     // This run's own link URL → per-range hyperlink
   tag?: string;      // Original tag (span, a, strong, etc.)
   textDecoration?: "underline" | "line-through" | "none";  // CSS text-decoration
+  // Per-run typography that used to flatten to the node-level value. Each is
+  // emitted only when this run's computed value DIFFERS from its host's.
+  letterSpacing?: number;  // px
+  textCase?: "UPPER" | "LOWER" | "SMALL_CAPS" | "ORIGINAL";
+  // Underline detail beyond the line kind. Only meaningful on an UNDERLINE
+  // run — Figma throws when these are set on a strikethrough.
+  textDecorationStyle?: "DOTTED" | "WAVY";
+  textDecorationColor?: string;
+  lineHeight?: number | string;  // px number or a CSS string ("16px", "150%", "1.5")
 }
 
 // Color stop for gradient parsing

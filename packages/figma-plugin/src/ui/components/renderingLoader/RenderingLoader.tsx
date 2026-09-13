@@ -1,29 +1,138 @@
 /** @jsx h */
 import { h } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import styles from "./RenderingLoader.css";
+import {
+  PHASE_LABELS,
+  PHASE_ORDER,
+  capturePercent,
+  mapRenderPercent,
+  mergeDisplay,
+  renderPhase,
+  type ImportPhase,
+} from "../../../utils/importProgress";
 
 export interface RenderingProgress {
-  step: string;           // Current step/status message
-  percent: number;        // Progress percentage 0-100
-  isComplete?: boolean;   // True when finished successfully
+  /** Current step/status message. */
+  step: string;
+  /**
+   * Progress in the SANDBOX's own 0–100 scale (what main.ts posts). It covers
+   * the render half only; the loader maps it onto 65–100. Ignored while
+   * `phase` is "capture", where the estimate curve drives instead.
+   */
+  percent: number;
+  /** True when finished successfully. */
+  isComplete?: boolean;
+  /** Defaults to the phase implied by `percent` — see `renderPhase`. */
+  phase?: ImportPhase;
+  /** When the capture phase began (`Date.now()`), for the estimate curve. */
+  startedAt?: number;
+  /** Calibrated expected capture duration, from previous imports. */
+  estimateMs?: number;
 }
 
 interface RenderingLoaderProps {
   isVisible: boolean;
   progress?: RenderingProgress;
-  onClose?: () => void;  // Optional callback to close manually
+  /** Close after a successful render (also fired by the auto-dismiss timer). */
+  onClose?: () => void;
+  /** Abort the in-flight capture. Only offered while the request is in flight. */
+  onCancel?: () => void;
 }
 
 /** How long the auto-dismiss progress bar runs once a render finishes. Kept
  *  in sync with the CSS keyframe duration in `RenderingLoader.css`. */
 const AUTO_DISMISS_MS = 3000;
 
-export default function RenderingLoader({ isVisible, progress, onClose }: RenderingLoaderProps) {
+/** Fraction of the remaining distance covered each frame (~0.5s to converge). */
+const EASE_PER_FRAME = 0.12;
+
+export default function RenderingLoader({
+  isVisible,
+  progress,
+  onClose,
+  onCancel,
+}: RenderingLoaderProps) {
   const isComplete = progress?.isComplete ?? false;
+  const phase: ImportPhase =
+    progress?.phase ?? renderPhase(progress?.percent ?? 0);
+  const startedAt = progress?.startedAt;
+  const estimateMs = progress?.estimateMs;
 
   const overlayRef = useRef<HTMLDivElement>(null);
   const doneBtnRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * What the ring actually shows. Held in state rather than derived, because
+   * it must only ever move forward: the sandbox batches its messages while it
+   * blocks, so milestones can arrive after the estimate curve has already
+   * passed them.
+   */
+  const [display, setDisplay] = useState(0);
+
+  // A fresh import starts from zero — otherwise the second import of a session
+  // would open at the first one's 100%.
+  useEffect(() => {
+    if (isVisible) setDisplay(0);
+  }, [isVisible]);
+
+  /**
+   * Was the overlay already up on the previous render? Tracked here, during
+   * render, because the reset above lands one frame too late: the component is
+   * never unmounted between imports (the tabs just flip `isVisible`), effects
+   * run after paint, and so every import from the second one on painted one
+   * frame of the previous import's full ring before dropping back.
+   */
+  const wasVisible = useRef(false);
+  const justOpened = isVisible && !wasVisible.current;
+  wasVisible.current = isVisible;
+
+  /** Where the bar is headed right now, on the 0–100 display scale. */
+  const target = isComplete
+    ? 100
+    : phase === "capture"
+      ? capturePercent(Date.now() - (startedAt ?? Date.now()), estimateMs ?? 0)
+      : mapRenderPercent(progress?.percent ?? 0);
+
+  /** What this frame actually paints — the opening frame shows the target the
+   *  effect below is about to seat, never the previous import's leftover. */
+  const shown = justOpened ? target : display;
+
+  // First paint of an import: sit on the target rather than crawling up to it
+  // from zero. (For a capture that target IS zero — the curve starts there.)
+  useEffect(() => {
+    if (!isVisible) return;
+    setDisplay((prev) => (prev === 0 ? target : prev));
+    // `target` is read once, deliberately: later moves belong to the loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, phase]);
+
+  // One motion model for the whole import: ease toward the current target
+  // every frame. h2d does the same thing with a fixed-duration tween per step
+  // (app.js:94900) — the difference is that ours re-aims continuously, so a
+  // slow capture decelerates instead of stalling, and a burst of node
+  // milestones is absorbed smoothly. The ring must NOT also be CSS-
+  // transitioned: a 0.8s transition restarted every frame crawls, which is
+  // exactly the bug this replaced.
+  useEffect(() => {
+    if (!isVisible) return;
+    const began = startedAt ?? Date.now();
+    let frame = 0;
+    const tick = () => {
+      setDisplay((prev) => {
+        const aim = isComplete
+          ? 100
+          : phase === "capture"
+            ? capturePercent(Date.now() - began, estimateMs ?? 0)
+            : mapRenderPercent(progress?.percent ?? 0);
+        const next = mergeDisplay(prev, prev + (aim - prev) * EASE_PER_FRAME);
+        return Math.abs(next - prev) < 0.05 ? prev : next;
+      });
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [isVisible, isComplete, phase, startedAt, estimateMs, progress?.percent]);
 
   // When the render completes, auto-dismiss after the progress bar finishes
   // so the user doesn't have to click Done. Clicking Done early unmounts the
@@ -47,11 +156,11 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
 
   if (!isVisible) return null;
 
-  // Calculate stroke dashoffset for progress ring (0-100 percent)
-  const radius = 45;
+  // Stroke dashoffset for the progress ring, as a 0–1 fraction of the circle.
+  const radius = 46;
   const circumference = 2 * Math.PI * radius;
-  const percent = progress?.percent ?? 0;
-  const strokeDashoffset = circumference - (percent / 100) * circumference;
+  const strokeDashoffset = circumference - (shown / 100) * circumference;
+  const activeIndex = PHASE_ORDER.indexOf(phase);
 
   return (
     <div
@@ -66,7 +175,6 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
         class={`${styles.loaderContainer} ${isComplete ? styles.complete : ""}`}
         aria-hidden="true"
       >
-        {/* SVG Circular Progress */}
         <svg class={styles.progressRing} viewBox="0 0 100 100">
           {/* Background track */}
           <circle
@@ -75,7 +183,7 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
             cy="50"
             r={radius}
             fill="none"
-            stroke-width="6"
+            stroke-width="4"
           />
           {/* Progress arc */}
           <circle
@@ -84,7 +192,7 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
             cy="50"
             r={radius}
             fill="none"
-            stroke-width="6"
+            stroke-width="4"
             stroke-linecap="round"
             stroke-dasharray={circumference}
             stroke-dashoffset={strokeDashoffset}
@@ -92,15 +200,14 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
           />
         </svg>
 
-        {/* Center content - animated dots */}
+        {/* Center: the live number while working, a checkmark once done. */}
         <div class={styles.centerContent}>
           {isComplete ? (
             <span class={styles.checkmark}>✓</span>
           ) : (
-            <span class={styles.dots}>
-              <span class={styles.dot}></span>
-              <span class={styles.dot}></span>
-              <span class={styles.dot}></span>
+            <span class={styles.percent}>
+              <span data-testid="loader-percent">{Math.round(shown)}</span>
+              <span class={styles.percentSign}>%</span>
             </span>
           )}
         </div>
@@ -115,6 +222,25 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
       >
         {progress?.step || "Preparing…"}
       </div>
+
+      {/* The four phases, so the wait has a shape: what is done, what is left. */}
+      <ol class={styles.phaseList} aria-hidden="true">
+        {PHASE_ORDER.map((p, i) => {
+          const state =
+            isComplete || i < activeIndex ? "done" : i === activeIndex ? "active" : "pending";
+          return (
+            <li
+              key={p}
+              data-testid={`step-${p}`}
+              data-state={state}
+              class={styles.phaseItem}
+            >
+              <span class={styles.phaseMark}>{state === "done" ? "✓" : ""}</span>
+              {PHASE_LABELS[p]}
+            </li>
+          );
+        })}
+      </ol>
 
       {/* Auto-dismiss progress bar — fills left→right over AUTO_DISMISS_MS so
           the user gets a visual countdown to the auto-close instead of having
@@ -134,6 +260,14 @@ export default function RenderingLoader({ isVisible, progress, onClose }: Render
           onClick={onClose}
         >
           Done
+        </button>
+      )}
+
+      {/* Cancel — only while the request is in flight. Once the sandbox starts
+          building nodes there is nothing left to abort. */}
+      {!isComplete && phase === "capture" && onCancel && (
+        <button type="button" class={styles.cancelBtn} onClick={onCancel}>
+          Cancel
         </button>
       )}
     </div>

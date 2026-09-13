@@ -150,6 +150,44 @@ bridge იჭერს; prod-ში no-op რჩება.
   `localhost:3999` build-ში დარჩა → build **fail**. ე.ი. ფიზიკურად ვერ აიტვირთება.
 - `localhost:3999` მხოლოდ `devAllowedDomains`-შია (published plugin იგნორირებს).
 
+## Import Profiler (`src/utils/perf.ts`)
+
+იმპორტის ტაიმინგის ცხრილი — h2d-ის `ue(label, fn)`-ის ანალოგი. **სანამ სიჩქარეზე
+იმუშავებ, ჯერ გაზომე** — 2026-08-31-ს სამი სესია `css-converter.ts`-ს ადანაშაულებდა,
+გაზომვამ კი აჩვენა, რომ ის იმპორტის 0.03%-ია, ხოლო 73% ერთ გამოტოვებულ
+`loadFontAsync`-ის ქეშში იჯდა.
+
+**API:**
+```ts
+perf.timed(label, fn)            // async ეტაპი
+perf.timedSync(label, fn)        // sync ეტაპი
+perf.timed(label, fn, true)      // nested — მშობლის შიგნით; TOTAL-ში არ შედის,
+                                 //          ცალკე სექციაში ms/call avg-ით
+perf.mark(label, ms)             // წინასწარ გაზომილი მონაკვეთი
+perf.count(label, n)             // მოცულობა (nodes, frames) — დროის გარეშე
+perf.handoff()                   // UI realm → sandbox (label → ms)
+perf.report()                    // ფორმატირებული ცხრილი + ცხრილს ასუფთავებს
+```
+
+**გამოყენება:** `npm run watch` → `node scripts/devlog-server.mjs` → Figma-ში
+plugin-ის სრული reload → იმპორტი. ცხრილი ავტომატურად იბეჭდება იმპორტის ბოლოს და
+dev-log bridge-ით ჩამოდის receiver-ის stdout-ში.
+
+**🔒 prod-safety:** იგივე `__W2W_DEV_LOG__` gate, რაც bridge-ს, ოღონდ **ყოველი
+call site-იც დაფარულია** (`if (!__W2W_DEV_LOG__) return inner(...)`) — ასე prod
+bundle-ში არც label-ის სტრიქონები რჩება და არც ერთი ზედმეტი closure hot path-ზე.
+`build-prod.mjs`-ის `FORBIDDEN`-ში `[w2w-perf]` სენტინელია → გაჟონვისას build
+**ვარდება**. ⚠️ ახალი ინსტრუმენტაციის დამატებისას **call site-იც დაფარე**, არა
+მარტო `perf.ts`-ის შიგნეული.
+
+⚠️ ცხრილის `TOTAL` **ორმაგად ითვლის** — `node.*` ლეიბლები `createWireframeFrame`-ის
+შიგნითაა, მაგრამ nested-ად მონიშნული არაა. რეალური ჯამი =
+`ui.fetch + ui.bridge + WALL-CLOCK`.
+
+**სერვერის მხარე:** `packages/api`-ს თავისი აქვს — `[W2W-PERF] <stage> <ms>`
+(`src/utils/stageTimer.ts`), `docker compose logs api`-ში. `console.log`-ზეა,
+რომელსაც `consoleGating.ts` production-ში ისედაც აჩუმებს.
+
 ## Warnings
 
 - **Preact, NOT React!** — `import { h } from 'preact'`, არა `import React`

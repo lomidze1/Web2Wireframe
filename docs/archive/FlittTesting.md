@@ -35,8 +35,8 @@ Code locations:
   - Existing unit tests: `packages/api/__tests__/flitt-*.test.ts`, `license-*.test.ts`
 Authoritative refs:
   - Architecture & roadmap: [docs/Flitt.md](Flitt.md)
-  - Payment plan: [docs/plans/PAYMENT-SYSTEM.md](plans/PAYMENT-SYSTEM.md)
-  - Pre-launch checklist: [docs/PRE-LAUNCH-CHECKLIST.md](PRE-LAUNCH-CHECKLIST.md)
+  - Payment plan: [docs/plans/PAYMENT-SYSTEM.md](../plans/PAYMENT-SYSTEM.md)
+  - Pre-launch checklist: წაშლილია (launch გავიარეთ 2026-06-21)
   - Memory: `reference_flitt-api.md` (signature algorithm verified)
 </context>
 

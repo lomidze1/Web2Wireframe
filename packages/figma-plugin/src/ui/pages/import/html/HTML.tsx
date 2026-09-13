@@ -1,5 +1,5 @@
 /** @jsx h */
-import { h } from "preact";
+import { h, Fragment } from "preact";
 import { useState, useEffect, useRef } from "preact/hooks";
 import styles from "./HTML.css";
 import importStyles from "../Import.css";
@@ -14,16 +14,26 @@ import { prepareFramesForRendering, type ExtractedElement } from "../../../share
 import type { WireframeFrame, WireframeNode } from "../../../../types";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
-import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
-import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
+import {
+  buildFontDownloads,
+  buildFontRealNames,
+  enrichFontsWithSfntNames,
+} from "../../../../utils/fontDownload";
+import {
+  buildFontDeclaredCuts,
+  buildFontFaceStyles,
+  buildVariableFontFamilies,
+  type FontCut,
+} from "../../../../utils/fontUtils";
 import HtmlWarningModal from "../../../components/modalPopup/HtmlWarningModal";
-import RenderingLoader, {
-  type RenderingProgress,
-} from "../../../components/renderingLoader/RenderingLoader";
+import RenderingLoader from "../../../components/renderingLoader/RenderingLoader";
+import { useImportProgress } from "../../../hooks/useImportProgress";
 import { validateHtml, type HtmlValidationResult } from "../../../../utils/validateHtml";
 
 const TAB_ID = "html";
 const STORAGE_KEY = "w2w_settings_expanded_html";
+/** Uploaded HTML/CSS are plain text; past this, it is not a page. */
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 const API_URL = API_BASE_URL;
 
@@ -44,17 +54,25 @@ interface RenderData {
   layoutMode: "autoLayout" | "absolute";
   fontRealNames?: Record<string, string>;
   fontDeclaredCuts?: Record<string, FontCut[]>;
+  fontVariableFamilies?: string[];
+  fontFaceStyles?: Record<string, string[]>;
 }
 
 export default function HTML() {
   const [htmlCode, setHtmlCode] = useState("");
   const [cssCode, setCssCode] = useState("");
+  // Code = paste, Files = upload. Session-only; the tab opens on Code.
+  const [inputMode, setInputMode] = useState<"code" | "files">("code");
+  const [htmlFileName, setHtmlFileName] = useState<string | null>(null);
+  const [cssFileName, setCssFileName] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<"html" | "css" | null>(null);
   const [importState, setImportState] = useState<ImportState>({
     status: "idle",
     message: "",
   });
-  const [showRenderingLoader, setShowRenderingLoader] = useState(false);
-  const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
+  // Loader state — covers the whole import, capture included.
+  const loader = useImportProgress("html");
+  const { applyRender, hide: hideLoader } = loader;
   const [expandedField, setExpandedField] = useState<"html" | "css" | null>(null);
   const [warningType, setWarningType] = useState<"html" | "css" | null>(null);
   const [htmlValidation, setHtmlValidation] = useState<HtmlValidationResult | null>(null);
@@ -74,6 +92,8 @@ export default function HTML() {
   const { config } = useConfig();
   const { refresh: refreshLicense } = useLicense();
   const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const htmlFileInputRef = useRef<HTMLInputElement>(null);
+  const cssFileInputRef = useRef<HTMLInputElement>(null);
 
   // Listen for messages from Figma plugin main thread
   useEffect(() => {
@@ -83,16 +103,15 @@ export default function HTML() {
 
       if (msg.type === "render-progress") {
         const { step, percent, isComplete } = msg.data;
-        setRenderingProgress({ step, percent, isComplete });
+        applyRender({ step, percent, isComplete });
 
         if (isComplete) {
           if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
           resetTimeoutRef.current = setTimeout(() => {
-            setShowRenderingLoader(false);
-            setRenderingProgress(undefined);
+            hideLoader();
             setImportState({ status: "idle", message: "" });
-            setHtmlCode("");
-            setCssCode("");
+            clearHtmlFile();
+            clearCssFile();
             resetTimeoutRef.current = null;
           }, 10000);
         }
@@ -104,8 +123,7 @@ export default function HTML() {
       }
 
       if (msg.type === "wireframe-error") {
-        setShowRenderingLoader(false);
-        setRenderingProgress(undefined);
+        hideLoader();
         setImportState({
           status: "error",
           message: msg.data.error || "Failed to create wireframe",
@@ -118,7 +136,94 @@ export default function HTML() {
       window.removeEventListener("message", handleMessage);
       if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
     };
-  }, []);
+  }, [applyRender, hideLoader]);
+
+  const clearHtmlFile = () => {
+    setHtmlCode("");
+    setHtmlFileName(null);
+  };
+
+  const clearCssFile = () => {
+    setCssCode("");
+    setCssFileName(null);
+  };
+
+  /**
+   * Bumped on every accepted file, per slot. A read that finishes after a
+   * newer pick has to go quiet: drop a 5 MB `slow.html` then a small
+   * `fast.html` and fast paints first, after which slow's `onload` silently
+   * replaced both the name and the markup — the user imported a file they had
+   * already replaced.
+   */
+  const readGeneration = useRef<{ html: number; css: number }>({ html: 0, css: 0 });
+
+  /** Reads an uploaded file into the same state the textareas feed, so the
+   *  import path below is identical for pasted and uploaded code. */
+  const acceptFile = (file: File, kind: "html" | "css") => {
+    const name = file.name.toLowerCase();
+    const matches =
+      kind === "html"
+        ? name.endsWith(".html") || name.endsWith(".htm")
+        : name.endsWith(".css");
+    if (!matches) {
+      setImportState({
+        status: "error",
+        message:
+          kind === "html"
+            ? "Only .html files can be uploaded here."
+            : "Only .css files can be uploaded here.",
+      });
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setImportState({
+        status: "error",
+        message: "File is too large to import (over 5 MB).",
+      });
+      return;
+    }
+
+    const generation = (readGeneration.current[kind] += 1);
+    const superseded = (): boolean => readGeneration.current[kind] !== generation;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (superseded()) return;
+      const text = typeof reader.result === "string" ? reader.result : "";
+      if (kind === "html") {
+        setHtmlCode(text);
+        setHtmlFileName(file.name);
+      } else {
+        setCssCode(text);
+        setCssFileName(file.name);
+      }
+      setImportState({ status: "idle", message: "" });
+    };
+    reader.onerror = () => {
+      if (superseded()) return;
+      setImportState({
+        status: "error",
+        message: `Could not read ${file.name}.`,
+      });
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFileInput = (e: Event, kind: "html" | "css") => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) acceptFile(file, kind);
+    // Let the same file be picked again after a clear.
+    input.value = "";
+  };
+
+  const handleFileDrop = (e: DragEvent, kind: "html" | "css") => {
+    e.preventDefault();
+    setDragOver(null);
+    if (importState.status === "loading") return;
+    const file = e.dataTransfer?.files?.[0];
+    if (file) acceptFile(file, kind);
+  };
 
   const sendToFigma = (data: RenderData, variableMode: "styles" | "direct") => {
     // Cancel any pending reset from previous import
@@ -126,11 +231,9 @@ export default function HTML() {
       clearTimeout(resetTimeoutRef.current);
       resetTimeoutRef.current = null;
     }
-    setShowRenderingLoader(true);
-    setRenderingProgress({
-      step: "Creating wireframe…",
-      percent: 0,
-    });
+    // The loader is already up (it opened with the capture); hand it over to
+    // the sandbox's own scale.
+    loader.applyRender({ step: "Creating wireframe…", percent: 0 });
     setImportState({ status: "loading", message: "" });
 
     parent.postMessage(
@@ -140,6 +243,7 @@ export default function HTML() {
           data: {
             frames: data.frames,
             sourceUrl: data.sourceUrl,
+            kind: "html",
             localStyles: data.localStyles,
             pluginColors: data.pluginColors,
             pluginFont: config.pluginFont,
@@ -151,8 +255,13 @@ export default function HTML() {
             layoutMode: data.layoutMode,
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            htmlLayerNames: config.htmlLayerNames,
+            geometryRows: config.geometryRows,
+            originLinks: settings.localOriginLinks,
             fontRealNames: data.fontRealNames,
             fontDeclaredCuts: data.fontDeclaredCuts,
+            fontVariableFamilies: data.fontVariableFamilies,
+            fontFaceStyles: data.fontFaceStyles,
           },
         },
       },
@@ -178,9 +287,13 @@ export default function HTML() {
     setImportState({ status: "loading", message: "Importing the HTML…" });
     settings.collapseSettings();
 
+    // The server round-trip is the long half — raise the loader now.
+    const controller = loader.beginCapture("Converting the HTML…");
+
     try {
       const response = await fetch(`${API_URL}/api/import-html`, {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: authHeader(),
@@ -201,10 +314,17 @@ export default function HTML() {
       });
 
       const { isAuthExpired } = await import("../../../shared/authEvents");
-      if (isAuthExpired(response)) return;
+      if (isAuthExpired(response)) {
+        // See Web.tsx: `loading` is what disables the button, so the auth
+        // branch has to clear it exactly like the quota branch below.
+        hideLoader();
+        setImportState({ status: "idle", message: "" });
+        return;
+      }
 
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
+        hideLoader();
         setImportState({ status: "idle", message: "" });
         return;
       }
@@ -218,10 +338,19 @@ export default function HTML() {
         );
       }
 
+      // Bank the capture duration only now, with a usable response in hand.
+      // Banking it the moment `fetch` resolved fed 200ms quota and auth
+      // rejections into the estimate, and a median of those pins the next
+      // import's ring at its ceiling for the whole capture.
+      loader.finishCapture();
+
       const data = await response.json();
 
-      // Store extracted fonts for font fallback download
+      // Store extracted fonts for font fallback download. See Web.tsx: the
+      // server ships no real (SFNT) names for formats it can't open, so the
+      // plugin reads them off the bound bytes before anything keys off them.
       if (data.fonts && Array.isArray(data.fonts)) {
+        data.fonts = await enrichFontsWithSfntNames(data.fonts);
         setExtractedFonts(data.fonts);
       }
 
@@ -284,13 +413,22 @@ export default function HTML() {
         layoutMode: settings.localLayoutMode,
         fontRealNames: buildFontRealNames(data.fonts),
         fontDeclaredCuts: buildFontDeclaredCuts(data.fonts),
+        fontVariableFamilies: Array.from(buildVariableFontFamilies(data.fonts)),
+        fontFaceStyles: buildFontFaceStyles(data.fonts),
       };
+
+      // The response landed, but reading it, decoding font names and cutting
+      // assets all take time the loader still offers Cancel for. Honour it.
+      if (controller.signal.aborted) return;
 
       sendToFigma(renderData, settings.localCssVariablesMode);
 
       // Import consumed a quota slot server-side — refresh the footer badge.
       void refreshLicense();
     } catch (error) {
+      // Cancel already closed the overlay and set its own message.
+      if (controller.signal.aborted) return;
+      hideLoader();
       setImportState({
         status: "error",
         message: toUserMessage(error, "Failed to import the HTML"),
@@ -332,57 +470,197 @@ export default function HTML() {
 
   return (
     <div class={styles.htmlContainer}>
-      {/* HTML Code Section */}
-      <div class={styles.codeSection}>
-        <div class={styles.codeLabelRow}>
-          <label class={styles.codeLabel} for="w2w-html-code" id="w2w-html-label">
-            HTML
-          </label>
+      {/* Input Mode — paste code or upload files */}
+      <div
+        class={`${importStyles.segmentGroup} ${styles.modeSwitch}`}
+        role="radiogroup"
+        aria-label="Input mode"
+      >
+        {(["code", "files"] as const).map((mode) => (
           <button
+            key={mode}
             type="button"
-            class={styles.maximizeBtn}
-            aria-label="Expand HTML editor"
-            title="Maximize"
-            onClick={() => setExpandedField("html")}
+            role="radio"
+            aria-checked={inputMode === mode}
+            class={`${importStyles.segmentItem} ${
+              inputMode === mode ? importStyles.segmentActive : ""
+            }`}
+            disabled={importState.status === "loading"}
+            onClick={() => setInputMode(mode)}
           >
-            ⛶
+            {mode === "code" ? "Code" : "Files"}
           </button>
-        </div>
-        <textarea
-          id="w2w-html-code"
-          class={styles.codeTextarea}
-          placeholder="Type or paste HTML code here."
-          value={htmlCode}
-          onInput={(e) => setHtmlCode((e.target as HTMLTextAreaElement).value)}
-          disabled={importState.status === "loading"}
-        />
+        ))}
       </div>
 
-      {/* CSS Code Section */}
-      <div class={styles.codeSection}>
-        <div class={styles.codeLabelRow}>
-          <label class={styles.codeLabel} for="w2w-css-code" id="w2w-css-label">
-            CSS (optional)
-          </label>
-          <button
-            type="button"
-            class={styles.maximizeBtn}
-            aria-label="Expand CSS editor"
-            title="Maximize"
-            onClick={() => setExpandedField("css")}
-          >
-            ⛶
-          </button>
-        </div>
-        <textarea
-          id="w2w-css-code"
-          class={styles.codeTextarea}
-          placeholder="Type or paste CSS code here. (optional)"
-          value={cssCode}
-          onInput={(e) => setCssCode((e.target as HTMLTextAreaElement).value)}
-          disabled={importState.status === "loading"}
-        />
-      </div>
+      {inputMode === "code" ? (
+        <Fragment>
+          {/* HTML Code Section */}
+          <div class={styles.codeSection}>
+            <div class={styles.codeLabelRow}>
+              <label class={styles.codeLabel} for="w2w-html-code" id="w2w-html-label">
+                HTML
+              </label>
+              <button
+                type="button"
+                class={styles.maximizeBtn}
+                aria-label="Expand HTML editor"
+                title="Maximize"
+                onClick={() => setExpandedField("html")}
+              >
+                ⛶
+              </button>
+            </div>
+            <textarea
+              id="w2w-html-code"
+              class={styles.codeTextarea}
+              placeholder="Type or paste HTML code here."
+              value={htmlCode}
+              onInput={(e) => setHtmlCode((e.target as HTMLTextAreaElement).value)}
+              disabled={importState.status === "loading"}
+            />
+          </div>
+
+          {/* CSS Code Section */}
+          <div class={styles.codeSection}>
+            <div class={styles.codeLabelRow}>
+              <label class={styles.codeLabel} for="w2w-css-code" id="w2w-css-label">
+                CSS (optional)
+              </label>
+              <button
+                type="button"
+                class={styles.maximizeBtn}
+                aria-label="Expand CSS editor"
+                title="Maximize"
+                onClick={() => setExpandedField("css")}
+              >
+                ⛶
+              </button>
+            </div>
+            <textarea
+              id="w2w-css-code"
+              class={styles.codeTextarea}
+              placeholder="Type or paste CSS code here. (optional)"
+              value={cssCode}
+              onInput={(e) => setCssCode((e.target as HTMLTextAreaElement).value)}
+              disabled={importState.status === "loading"}
+            />
+          </div>
+        </Fragment>
+      ) : (
+        <Fragment>
+          {/* HTML File Section */}
+          <div class={styles.codeSection}>
+            <div class={styles.codeLabelRow}>
+              <span class={styles.codeLabel}>HTML</span>
+            </div>
+            <div
+              class={`${styles.fileZone} ${dragOver === "html" ? styles.dragOver : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver("html");
+              }}
+              onDragLeave={() => setDragOver(null)}
+              onDrop={(e) => handleFileDrop(e, "html")}
+            >
+              <div class={styles.fileIcon}>⬚</div>
+              <div class={styles.fileCopy}>
+                <div class={styles.fileName}>
+                  {htmlFileName || "Drag-and-drop your .html file"}
+                </div>
+                <div class={styles.fileSubtext}>or select from your computer</div>
+                <div class={styles.fileActions}>
+                  <input
+                    type="file"
+                    ref={htmlFileInputRef}
+                    accept=".html,.htm"
+                    aria-label="Choose an HTML file"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleFileInput(e, "html")}
+                  />
+                  <button
+                    type="button"
+                    class={styles.browseBtn}
+                    onClick={() => htmlFileInputRef.current?.click()}
+                    disabled={importState.status === "loading"}
+                  >
+                    Browse
+                  </button>
+                  {htmlFileName && (
+                    <button
+                      type="button"
+                      class={styles.fileClearBtn}
+                      aria-label="Remove the HTML file"
+                      title="Remove"
+                      onClick={clearHtmlFile}
+                      disabled={importState.status === "loading"}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* CSS File Section */}
+          <div class={styles.codeSection}>
+            <div class={styles.codeLabelRow}>
+              <span class={styles.codeLabel}>CSS (optional)</span>
+            </div>
+            <div
+              class={`${styles.fileZone} ${dragOver === "css" ? styles.dragOver : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver("css");
+              }}
+              onDragLeave={() => setDragOver(null)}
+              onDrop={(e) => handleFileDrop(e, "css")}
+            >
+              <div class={styles.fileIcon}>⬚</div>
+              <div class={styles.fileCopy}>
+                <div class={styles.fileName}>
+                  {cssFileName || "Drag-and-drop your .css file"}
+                </div>
+                <div class={styles.fileSubtext}>or select from your computer</div>
+                <div class={styles.fileActions}>
+                  <input
+                    type="file"
+                    ref={cssFileInputRef}
+                    accept=".css"
+                    aria-label="Choose a CSS file"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleFileInput(e, "css")}
+                  />
+                  <button
+                    type="button"
+                    class={styles.browseBtn}
+                    onClick={() => cssFileInputRef.current?.click()}
+                    disabled={importState.status === "loading"}
+                  >
+                    Browse
+                  </button>
+                  {cssFileName && (
+                    <button
+                      type="button"
+                      class={styles.fileClearBtn}
+                      aria-label="Remove the CSS file"
+                      title="Remove"
+                      onClick={clearCssFile}
+                      disabled={importState.status === "loading"}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div class={styles.fileHint}>
+              Files linked from your HTML aren't loaded — add your CSS file here.
+            </div>
+          </div>
+        </Fragment>
+      )}
 
       {/* Status Message — live region so screen readers announce updates */}
       {importState.message && (
@@ -429,6 +707,8 @@ export default function HTML() {
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
         setAssetMode={settings.setAssetMode}
+        localOriginLinks={settings.localOriginLinks}
+        setOriginLinks={settings.setOriginLinks}
         localInteractionMode={settings.localInteractionMode}
         setInteractionMode={settings.setInteractionMode}
         handleReset={settings.handleReset}
@@ -513,14 +793,17 @@ export default function HTML() {
 
       {/* Rendering Loader Overlay */}
       <RenderingLoader
-        isVisible={showRenderingLoader}
-        progress={renderingProgress}
+        isVisible={loader.isVisible}
+        progress={loader.progress}
         onClose={() => {
-          setShowRenderingLoader(false);
-          setRenderingProgress(undefined);
+          hideLoader();
           setImportState({ status: "idle", message: "" });
-          setHtmlCode("");
-          setCssCode("");
+          clearHtmlFile();
+          clearCssFile();
+        }}
+        onCancel={() => {
+          loader.cancel();
+          setImportState({ status: "idle", message: "Import canceled" });
         }}
       />
     </div>

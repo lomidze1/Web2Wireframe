@@ -46,42 +46,41 @@ function findByClass(node: unknown, cls: string): Record<string, unknown> | null
   return null;
 }
 
-function convertWithTransform(transform: string): Record<string, unknown> | null {
+function rotationOf(transform: string): number | undefined {
   const el = makeFrame({
     styles: { display: 'block', transform },
     classList: ['rotated'],
   });
   const root = convertW2WToWireframe(page([el]) as never, { layoutMode: "autoLayout" });
-  return findByClass(root, 'rotated');
+  const node = findByClass(root, 'rotated');
+  return (node?.transform as { rotation: number } | undefined)?.rotation;
 }
 
 describe("rotation extraction from computed transform", () => {
   it("extracts 30° clockwise from matrix", () => {
     // rotate(30deg) → matrix(cos, sin, -sin, cos, 0, 0)
-    const node = convertWithTransform('matrix(0.866025, 0.5, -0.5, 0.866025, 0, 0)');
-    expect(node?.rotation as number).toBeCloseTo(30, 1);
+    expect(rotationOf('matrix(0.866025, 0.5, -0.5, 0.866025, 0, 0)')).toBeCloseTo(30, 1);
   });
 
   it("extracts negative rotation", () => {
-    const node = convertWithTransform('matrix(0.866025, -0.5, 0.5, 0.866025, 0, 0)');
-    expect(node?.rotation as number).toBeCloseTo(-30, 1);
+    expect(rotationOf('matrix(0.866025, -0.5, 0.5, 0.866025, 0, 0)')).toBeCloseTo(-30, 1);
   });
 
   it("ignores identity / translate-only matrices", () => {
-    expect(convertWithTransform('matrix(1, 0, 0, 1, 10, 20)')?.rotation).toBeUndefined();
-    expect(convertWithTransform('none')?.rotation).toBeUndefined();
+    expect(rotationOf('matrix(1, 0, 0, 1, 10, 20)')).toBeUndefined();
+    expect(rotationOf('none')).toBeUndefined();
   });
 
   it("ignores tiny rotations (mid-transition noise)", () => {
     // ~0.1° — below threshold
-    const node = convertWithTransform('matrix(0.9999985, 0.0017453, -0.0017453, 0.9999985, 0, 0)');
-    expect(node?.rotation).toBeUndefined();
+    expect(rotationOf('matrix(0.9999985, 0.0017453, -0.0017453, 0.9999985, 0, 0)')).toBeUndefined();
   });
 
-  it("skips skewed matrices (no faithful Figma equivalent)", () => {
-    // skewX(30deg) → matrix(1, 0, 0.577, 1, 0, 0)
-    const node = convertWithTransform('matrix(1, 0, 0.57735, 1, 0, 0)');
-    expect(node?.rotation).toBeUndefined();
+  it("keeps skewed matrices, reporting zero rotation", () => {
+    // skewX(30deg) → matrix(1, 0, 0.577, 1, 0, 0). These used to be rejected
+    // outright; the full decomposition now carries the skew (see
+    // css-transform.test.ts) and the rotation component is genuinely 0.
+    expect(rotationOf('matrix(1, 0, 0.57735, 1, 0, 0)')).toBeCloseTo(0, 4);
   });
 });
 

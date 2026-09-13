@@ -39,7 +39,10 @@ function page(children: Record<string, unknown>[]): Record<string, unknown> {
 function findByTagName(node: unknown, name: string): Record<string, unknown> | null {
   if (!node || typeof node !== 'object') return null;
   const obj = node as Record<string, unknown>;
-  if (typeof obj.name === 'string' && obj.name.includes(name)) return obj;
+  // Layer names are semantic now — match on the preserved tag/className
+  // fields instead of the incidental DOM-derived name.
+  if (typeof obj.tag === 'string' && obj.tag.includes(name)) return obj;
+  if (typeof obj.className === 'string' && obj.className.includes(name)) return obj;
   for (const c of (obj.children as unknown[]) ?? []) {
     const hit = findByTagName(c, name);
     if (hit) return hit;

@@ -593,11 +593,19 @@ describe("HTML Tab", () => {
       const { container } = render(<HTML />);
       await triggerGenerate(container, "<h1>Hello</h1>");
 
+      // The loader asks the sandbox for its timing history on mount, so the
+      // render message is no longer the first thing posted.
       await waitFor(() => {
-        expect(parent.postMessage).toHaveBeenCalled();
+        expect(
+          (parent.postMessage as ReturnType<typeof vi.fn>).mock.calls.some(
+            (c) => c[0]?.pluginMessage?.type === "render-wireframe"
+          )
+        ).toBe(true);
       });
 
-      const call = (parent.postMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+      const call = (parent.postMessage as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0]?.pluginMessage?.type === "render-wireframe"
+      )!;
       const msg = call[0].pluginMessage;
       expect(msg.type).toBe("render-wireframe");
       expect(msg.data.sourceUrl).toBe("html-import");
@@ -668,13 +676,19 @@ describe("HTML Tab", () => {
       await triggerGenerate(container, "<h1>Test</h1>");
 
       await waitFor(() => {
-        expect(parent.postMessage).toHaveBeenCalled();
+        expect(
+          (parent.postMessage as ReturnType<typeof vi.fn>).mock.calls.some(
+            (c) => c[0]?.pluginMessage?.type === "render-wireframe"
+          )
+        ).toBe(true);
       });
 
       expect(mockRenderingLoaderProps.current.isVisible).toBe(true);
-      expect(mockRenderingLoaderProps.current.progress).toEqual({
-        step: "Creating wireframe…",
-        percent: 0,
+      await waitFor(() => {
+        expect(mockRenderingLoaderProps.current.progress).toMatchObject({
+          step: "Creating wireframe…",
+          percent: 0,
+        });
       });
     });
   });
@@ -702,10 +716,11 @@ describe("HTML Tab", () => {
       });
 
       await waitFor(() => {
-        expect(mockRenderingLoaderProps.current.progress).toEqual({
+        expect(mockRenderingLoaderProps.current.progress).toMatchObject({
           step: "Creating nodes...",
           percent: 50,
           isComplete: false,
+          phase: "building",
         });
       });
     });

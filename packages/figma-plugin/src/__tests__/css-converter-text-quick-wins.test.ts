@@ -167,9 +167,30 @@ describe("vertical centering → textAlignVertical (geometry-derived)", () => {
     expect(text.textAlignVertical).toBe('BOTTOM');
   });
 
-  it("plain block host emits nothing (Figma default TOP)", () => {
+  it("plain block host with top-hugging ink in a taller box emits nothing (Figma default TOP)", () => {
+    // host 100px tall, ink 25px hugging the top — NOT a box-equals-ink case
     const text = convertText({}, [makeText('Top label')]);
     expect(text.textAlignVertical).toBeUndefined();
+  });
+
+  it("box equal to the ink box defaults to CENTER (h2d parity)", () => {
+    // h2d sets textAlignVertical CENTER on every TEXT node; when the node box
+    // IS the measured ink box, CENTER cancels ascent/descent differences of a
+    // substituted font (Figma's default TOP positions text by the FALLBACK
+    // font's ascent, floating it high or low).
+    const text = convertText(
+      { height: 25, styles: { display: 'block' } },
+      [makeText('Nav link')],
+    );
+    expect(text.textAlignVertical).toBe('CENTER');
+  });
+
+  it("box within 4px of the ink box also defaults to CENTER", () => {
+    const text = convertText(
+      { height: 28, styles: { display: 'block' } },
+      [makeText('Snug label', { y: 1, height: 25 })],
+    );
+    expect(text.textAlignVertical).toBe('CENTER');
   });
 });
 
@@ -187,10 +208,33 @@ describe("line-height: normal on multi-line text → derived px", () => {
     expect(text.lineHeight).toBe(28);
   });
 
-  it("single-line text keeps 'normal'", () => {
+  it("single-line text pins the measured run height as px lineHeight", () => {
+    // `normal` used to stay unset here, so Figma applied the SUBSTITUTED
+    // font's default leading — most of a page's text (nav links, buttons,
+    // labels, table cells) drifted. The captured run height is a real
+    // browser measurement, so pin it.
     const text = convertText(
       { styles: { display: 'block', lineHeight: 'normal' } },
       [makeText('only line')],
+    );
+    expect(text.lineHeight).toBe(25);
+  });
+
+  it("single row of multiple runs uses the tallest run's height", () => {
+    const text = convertText(
+      { styles: { display: 'block', lineHeight: 'normal' } },
+      [
+        makeText('small', { y: 0, height: 18 }),
+        makeText('BIG', { y: 0, x: 60, height: 25 }),
+      ],
+    );
+    expect(text.lineHeight).toBe(25);
+  });
+
+  it("keeps 'normal' when the only measurement is implausibly small", () => {
+    const text = convertText(
+      { styles: { display: 'block', lineHeight: 'normal' } },
+      [makeText('sliver', { height: 3 })],
     );
     expect(text.lineHeight).toBe('normal');
   });

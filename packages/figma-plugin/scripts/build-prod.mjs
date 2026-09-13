@@ -70,11 +70,12 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   });
 }
 
-// Prod-safety gate: the dev-only log bridge (src/utils/devLogger.ts) must be
-// dead-code-eliminated from the published bundle. If any sentinel survives,
-// the bundle is unsafe to publish — fail the build hard.
+// Prod-safety gate: the dev-only log bridge (src/utils/devLogger.ts) and the
+// dev-only import profiler (src/utils/perf.ts) must be dead-code-eliminated
+// from the published bundle. If any sentinel survives, the bundle is unsafe to
+// publish — fail the build hard.
 const buildDir = path.resolve(__dirname, "..", "build");
-const FORBIDDEN = ["__W2W_DEVLOG__", "localhost:3999"];
+const FORBIDDEN = ["__W2W_DEVLOG__", "localhost:3999", "[w2w-perf]"];
 
 function assertNoDevLoggerLeak() {
   let files = [];
@@ -95,10 +96,10 @@ function assertNoDevLoggerLeak() {
   }
   if (leaks.length > 0) {
     throw new Error(
-      `[build-prod] DEV LOGGER LEAKED INTO PRODUCTION BUNDLE — refusing to ship:\n  ${leaks.join("\n  ")}`,
+      `[build-prod] DEV-ONLY CODE LEAKED INTO PRODUCTION BUNDLE — refusing to ship:\n  ${leaks.join("\n  ")}`,
     );
   }
-  console.log("[build-prod] prod-safety gate passed — no dev-logger code in bundle");
+  console.log("[build-prod] prod-safety gate passed — no dev-only code in bundle");
 }
 
 async function main() {

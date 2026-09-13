@@ -168,6 +168,21 @@ describe("collapseMarginWrappers — rule 1: sole child", () => {
     expect(child.margin).toEqual(sides({ top: -12, bottom: 20 }));
   });
 
+  it("a wholly negative margin survives collapse AND still earns a wrapper", () => {
+    // Pins both halves of the bleed fix together, which is the only way to
+    // pin either: `clearIfEmpty`'s `=== 0` guard is unreachable on its own
+    // (the parent bails out above it), and `needsMarginWrapper`'s `!== 0` is
+    // worthless if the margin has already been deleted by the time it runs.
+    // stripe.com's `div.stats-section__stats-menu` is this exact node.
+    const child = node({ margin: sides({ left: -15, right: -15 }) });
+    const parent = node({ children: [child] });
+
+    collapseExactly(parent);
+
+    expect(child.margin).toEqual(sides({ left: -15, right: -15 }));
+    expect(needsMarginWrapper(child.margin)).toBe(true);
+  });
+
   it("works on a HORIZONTAL parent too", () => {
     const child = node({ margin: sides({ left: 12, right: 6 }) });
     const parent = node({ layoutMode: "HORIZONTAL", children: [child] });
@@ -532,5 +547,68 @@ describe("collapseMarginWrappers — guards", () => {
     collapseMarginWrappers(parent);
 
     expect(parent.padding).toEqual(sides());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Margin collapsing through a block parent
+// ---------------------------------------------------------------------------
+
+/**
+ * glinc.io: `<div class="reveal"><header style="margin-bottom:52px">…</header></div>`.
+ * CSS collapses the header's bottom margin THROUGH the block parent, so the
+ * parent measures 218px — exactly its child — and the next sibling starts 52px
+ * lower. Folding that 52 into the parent's padding therefore has nowhere to go:
+ * a 218px-tall frame cannot also hold 52px of bottom padding, and the gap
+ * simply disappeared.
+ */
+describe("collapseMarginWrappers — margin collapsing through a block parent", () => {
+  it("hands a sole child's bottom margin to the parent when the parent's box has no room", () => {
+    const child = node({ height: 218, margin: sides({ bottom: 52 }) });
+    const parent = node({ layoutMode: "NONE", height: 218, children: [child] });
+
+    collapseMarginWrappers(parent);
+
+    expect(parent.padding.bottom).toBe(0);
+    expect(child.margin).toBeUndefined();
+    expect(parent.margin).toEqual(sides({ bottom: 52 }));
+  });
+
+  it("still folds into padding when the parent's box does have room", () => {
+    const child = node({ height: 218, margin: sides({ bottom: 52 }) });
+    const parent = node({ layoutMode: "NONE", height: 270, children: [child] });
+
+    collapseMarginWrappers(parent);
+
+    expect(parent.padding.bottom).toBe(52);
+    expect(child.margin).toBeUndefined();
+    expect(parent.margin).toBeUndefined();
+  });
+
+  it("the handed-up margin reaches the grandparent as itemSpacing", () => {
+    const header = node({ height: 218, margin: sides({ bottom: 52 }) });
+    const reveal = node({ layoutMode: "NONE", height: 218, y: 0, children: [header] });
+    const list = node({ layoutMode: "GRID", height: 391, y: 270 });
+    const container = node({
+      layoutMode: "NONE",
+      height: 661,
+      children: [reveal, list],
+    });
+
+    collapseMarginWrappers(container);
+
+    expect(reveal.padding.bottom).toBe(0);
+    expect(container.itemSpacing).toBe(52);
+    expect(reveal.margin).toBeUndefined();
+  });
+
+  it("leaves a flex parent alone — margins do not collapse in a flex container", () => {
+    const child = node({ height: 218, margin: sides({ bottom: 52 }) });
+    const parent = node({ layoutMode: "VERTICAL", height: 218, children: [child] });
+
+    collapseMarginWrappers(parent);
+
+    expect(parent.padding.bottom).toBe(52);
+    expect(parent.margin).toBeUndefined();
   });
 });

@@ -748,3 +748,134 @@ function escapeHtml(text: string): string {
   };
   return text.replace(/[&<>"']/g, (char) => map[char]);
 }
+
+// ============================================================================
+// Import report — the plugin's one-click "Report this to the developer"
+// ============================================================================
+
+export interface ImportReportEmailData {
+  reportId: string;
+  figmaUserId: string;
+  /** From the user's License (Figma OAuth backfill); null when none is on file. */
+  email: string | null;
+  sourceUrl: string;
+  kind: "url" | "extension";
+  viewports: number[];
+  issues: { category: string; message: string; count: number }[];
+  /** Warnings the plugin's collector dropped past its cap. */
+  overflow: number;
+}
+
+export interface ImportReportFollowUpData {
+  reportId: string;
+  figmaUserId: string;
+  email: string | null;
+  message: string;
+}
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+const layersLabel = (count: number): string =>
+  `${count} ${count === 1 ? "layer" : "layers"}`;
+
+function generateImportReportText(d: ImportReportEmailData): string {
+  const lines = [
+    `Import report ${d.reportId}`,
+    "",
+    `Site:      ${d.sourceUrl}`,
+    `Import:    ${d.kind}`,
+    `Viewports: ${d.viewports.join(", ") || "—"}`,
+    `User:      ${d.email ?? "no email on file"} (Figma ${d.figmaUserId})`,
+    "",
+    "Issues:",
+    ...d.issues.map(
+      (i) => `  - [${i.category}] ${i.message} — ${layersLabel(i.count)}`,
+    ),
+  ];
+  if (d.overflow > 0) {
+    lines.push(`  …and ${d.overflow} more warnings past the plugin's cap`);
+  }
+  lines.push(
+    "",
+    d.email
+      ? "Reply to this email to answer the user."
+      : "No email on file — the user can't be answered by email.",
+  );
+  return lines.join("\n");
+}
+
+function generateImportReportHtml(d: ImportReportEmailData): string {
+  const url = escapeHtml(d.sourceUrl);
+  const cell = "padding:4px 8px;border-bottom:1px solid #eee;";
+  const rows = d.issues
+    .map(
+      (i) =>
+        `<tr><td style="${cell}color:#666">${escapeHtml(i.category)}</td>` +
+        `<td style="${cell}">${escapeHtml(i.message)}</td>` +
+        `<td style="${cell}text-align:right;white-space:nowrap">${layersLabel(i.count)}</td></tr>`,
+    )
+    .join("");
+  const user = d.email ? escapeHtml(d.email) : "<em>no email on file</em>";
+  return (
+    `<div style="font-family:system-ui,sans-serif;font-size:14px;color:#111">` +
+    `<h2 style="margin:0 0 12px">Import report ${escapeHtml(d.reportId)}</h2>` +
+    `<p style="margin:0 0 4px"><strong>Site:</strong> <a href="${url}">${url}</a></p>` +
+    `<p style="margin:0 0 4px"><strong>Import:</strong> ${escapeHtml(d.kind)} · ` +
+    `<strong>Viewports:</strong> ${escapeHtml(d.viewports.join(", ") || "—")}</p>` +
+    `<p style="margin:0 0 12px"><strong>User:</strong> ${user} (Figma ${escapeHtml(d.figmaUserId)})</p>` +
+    `<table style="border-collapse:collapse">` +
+    `<tr><th style="${cell}text-align:left">Category</th><th style="${cell}text-align:left">Issue</th>` +
+    `<th style="${cell}text-align:right">Layers</th></tr>${rows}</table>` +
+    (d.overflow > 0
+      ? `<p style="color:#666">…and ${d.overflow} more warnings past the plugin's cap</p>`
+      : "") +
+    `<p style="color:#666;margin-top:16px">${
+      d.email ? "Reply to this email to answer the user." : "No email on file — the user can't be answered by email."
+    }</p></div>`
+  );
+}
+
+/**
+ * The report lands in the support inbox with Reply-To set to the user, so
+ * telling them "fixed" is one click. Never throws — see sendWithRetry.
+ */
+export async function sendImportReportEmail(data: ImportReportEmailData) {
+  const n = data.issues.length;
+  const subject =
+    `[Import report] ${hostnameOf(data.sourceUrl)} — ` +
+    `${n} ${n === 1 ? "issue" : "issues"} (${data.kind})`;
+  return sendWithRetry("import_report", () =>
+    getResend().emails.send({
+      from: config.email.noreplyEmail,
+      to: config.email.supportToEmail,
+      subject,
+      html: generateImportReportHtml(data),
+      text: generateImportReportText(data),
+      ...(data.email ? { replyTo: data.email } : {}),
+    }),
+  );
+}
+
+/** The optional note a user adds after reporting — threads under the report id. */
+export async function sendImportReportFollowUp(data: ImportReportFollowUpData) {
+  const signature = `${data.email ?? "no email on file"} (Figma ${data.figmaUserId})`;
+  return sendWithRetry("import_report_note", () =>
+    getResend().emails.send({
+      from: config.email.noreplyEmail,
+      to: config.email.supportToEmail,
+      subject: `[Import report ${data.reportId}] Follow-up note`,
+      html:
+        `<div style="font-family:system-ui,sans-serif;font-size:14px;color:#111">` +
+        `<p style="white-space:pre-wrap">${escapeHtml(data.message)}</p>` +
+        `<p style="color:#666">— ${escapeHtml(signature)}</p></div>`,
+      text: `${data.message}\n\n— ${signature}`,
+      ...(data.email ? { replyTo: data.email } : {}),
+    }),
+  );
+}

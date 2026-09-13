@@ -1,7 +1,7 @@
 # Adoption plan — techniques from Figma's capture extension
 
 **Date:** 2026-08-09
-**Source of findings:** `docs/research/figma-extension/README.md` (gitignored research copy
+**Source of findings:** `_research/figma-extension/README.md` (gitignored research copy
 of Figma extension 1.3.24 = the acquired html.to.design engine).
 **Status:** proposal. Nothing here is implemented. No code changed.
 
@@ -222,4 +222,4 @@ commit → API deploy first if `api`/`shared` moved → then plugin publish + We
 
 This plan describes **mechanisms** observed in third-party code. Implementations must be
 written from scratch against our own types. No lines are copied from
-`docs/research/figma-extension/` (which is gitignored and never shipped).
+`_research/figma-extension/` (which is gitignored and never shipped).

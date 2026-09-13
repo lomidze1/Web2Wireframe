@@ -1,3 +1,5 @@
+import { DEV_LOG_ENABLED } from "./devLog";
+
 /**
  * Silence non-essential console output in production extension builds.
  *
@@ -7,9 +9,11 @@
  *
  * Call once from each isolated JS context: background service worker,
  * content script entry, popup, and options page.
+ *
+ * The dev-log build (`W2W_DEV_LOG=1`, see ./devLog) keeps console.log live.
  */
 export function gateConsoleInProduction(): void {
-  if (import.meta.env.PROD) {
+  if (import.meta.env.PROD && !DEV_LOG_ENABLED) {
     const noop = (): void => undefined;
     /* eslint-disable no-console -- the helper's whole purpose is to
      * mutate console.{log,debug,info,trace} into no-ops. */

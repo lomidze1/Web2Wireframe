@@ -155,7 +155,13 @@ describe("same-family rescue picks the nearest cut", () => {
     expect(textNode!.fontName.style).toBe("Light Italic");
   });
 
-  it("a weight-900 node still gets the Black cut", async () => {
+  it("an upright weight-900 node stays upright rather than taking Black Italic", async () => {
+    // CSS Fonts Level 4 filters SLANT before weight: an upright run only takes
+    // an italic cut when the family has no upright cut at all. This install
+    // has three (Light, Thin, Ultralight), so the 900 run gets the nearest of
+    // those — which is also what the browser rendered. The previous ranking
+    // traded slant for weight ("right mass, wrong slant") and picked the one
+    // italic in the family.
     const textNode = await createTextNode(
       makeNode({ fontWeight: 900 }),
       "Inter",
@@ -164,6 +170,17 @@ describe("same-family rescue picks the nearest cut", () => {
 
     expect(textNode).not.toBeNull();
     expect(textNode!.fontName.family).toBe("SF Pro Display");
+    expect(textNode!.fontName.style).toBe("Light");
+  });
+
+  it("an italic weight-900 node does take Black Italic", async () => {
+    const textNode = await createTextNode(
+      makeNode({ fontWeight: 900, fontStyle: "italic" }),
+      "Inter",
+      makeContext(),
+    );
+
+    expect(textNode).not.toBeNull();
     expect(textNode!.fontName.style).toBe("Black Italic");
   });
 });

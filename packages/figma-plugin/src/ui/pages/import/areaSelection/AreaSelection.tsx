@@ -14,12 +14,19 @@ import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal"
 import RenderingLoader, {
   type RenderingProgress,
 } from "../../../components/renderingLoader/RenderingLoader";
+import { useImportProgress } from "../../../hooks/useImportProgress";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
+import * as perf from "../../../../utils/perf";
 import { prepareFramesForRendering } from "../../../shared/absoluteModeRenderer";
 import { useTabSettings } from "../../../hooks/useTabSettings";
 import SettingsPanel from "../../../components/settingsPanel";
 import { buildFontDownloads, buildFontRealNames, enrichFontsFromAssets } from "../../../../utils/fontDownload";
-import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
+import {
+  buildFontDeclaredCuts,
+  buildFontFaceStyles,
+  buildVariableFontFamilies,
+  type FontCut,
+} from "../../../../utils/fontUtils";
 
 // ============================================================================
 // FIGMA-READY TYPES - matching Browser_Extension's shared/types.ts
@@ -249,9 +256,9 @@ export default function AreaSelection() {
   // "Download fonts (.zip)" button can appear when fonts are missing locally.
   // Mirrors the pattern used by Web.tsx and HTML.tsx.
   const [extractedFonts, setExtractedFonts] = useState<unknown[]>([]);
-  // Rendering loader state
-  const [showRenderingLoader, setShowRenderingLoader] = useState(false);
-  const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
+  // Loader state — covers the whole import, file decode included.
+  const loader = useImportProgress("file");
+  const { applyRender, hide: hideLoader } = loader;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileDataRef = useRef<File | null>(null);
   const renderTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -269,7 +276,7 @@ export default function AreaSelection() {
 
       if (msg.type === "render-progress") {
         const { step, percent, isComplete } = msg.data;
-        setRenderingProgress({ step, percent, isComplete });
+        applyRender({ step, percent, isComplete });
         renderingProgressRef.current = { step, percent, isComplete };
 
         // Clear safety timeout — sandbox is responding
@@ -282,8 +289,7 @@ export default function AreaSelection() {
         if (isComplete) {
           if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
           resetTimeoutRef.current = setTimeout(() => {
-            setShowRenderingLoader(false);
-            setRenderingProgress(undefined);
+            hideLoader();
             renderingProgressRef.current = undefined;
             setImportState({ status: "idle", message: "" });
             setFileName(null);
@@ -318,8 +324,7 @@ export default function AreaSelection() {
           clearTimeout(renderTimeoutRef.current);
           renderTimeoutRef.current = null;
         }
-        setShowRenderingLoader(false);
-        setRenderingProgress(undefined);
+        hideLoader();
         renderingProgressRef.current = undefined;
         setImportState({
           status: "error",
@@ -333,7 +338,7 @@ export default function AreaSelection() {
       window.removeEventListener("message", handleMessage);
       if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
     };
-  }, []);
+  }, [applyRender, hideLoader]);
 
   const acceptFile = (file: File) => {
     // Reject implausibly large uploads up front. A legit capture is a few MB;
@@ -426,16 +431,14 @@ export default function AreaSelection() {
       clearTimeout(resetTimeoutRef.current);
       resetTimeoutRef.current = null;
     }
-    // Show the rendering loader
-    setShowRenderingLoader(true);
-    setRenderingProgress({
-      step: "Preparing wireframe data…",
-      percent: 0,
-    });
+    // The loader is already up (it opened with the file decode); hand it over
+    // to the sandbox's own scale.
+    loader.applyRender({ step: "Preparing wireframe data…", percent: 0 });
     setImportState({ status: "loading", message: "" });
 
     // Transform text content based on textMode (lorem, semantic, or website)
     // This must happen BEFORE converting to wireframe nodes
+    const transformStartedAt = Date.now();
     const transformedFrames = transformFramesData(
       captureResult.frames as unknown as Parameters<typeof transformFramesData>[0],
       {
@@ -490,6 +493,8 @@ export default function AreaSelection() {
       }
     }
 
+    perf.mark("ui.transform", Date.now() - transformStartedAt);
+
     // Send to Figma main thread with all options from inline settings
     renderingProgressRef.current = { step: "Preparing wireframe data…", percent: 0 };
     parent.postMessage(
@@ -499,6 +504,7 @@ export default function AreaSelection() {
           data: {
             frames: framesData,
             sourceUrl: captureResult.url,
+            kind: "extension",
             pluginColors: config.pluginColors,
             pluginFont: config.pluginFont,
             cssVariables: captureResult.cssVariables || [],
@@ -509,8 +515,18 @@ export default function AreaSelection() {
             textMode: settings.localTextMode,
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            htmlLayerNames: config.htmlLayerNames,
+            geometryRows: config.geometryRows,
+            originLinks: settings.localOriginLinks,
             fontRealNames: buildFontRealNames(capturedFonts),
             fontDeclaredCuts: buildFontDeclaredCuts(capturedFonts),
+            fontVariableFamilies: Array.from(buildVariableFontFamilies(capturedFonts)),
+            fontFaceStyles: buildFontFaceStyles(capturedFonts),
+            // Dev profiler (stripped in production): `sentAt` prices the
+            // structured clone of this payload, `perfUi` carries the iframe's
+            // own stage timings so the sandbox prints one combined table.
+            sentAt: __W2W_DEV_LOG__ ? Date.now() : undefined,
+            perfUi: perf.handoff(),
           },
         },
       },
@@ -520,8 +536,7 @@ export default function AreaSelection() {
     // Safety timeout: if sandbox doesn't respond within 60s, assume failure
     renderTimeoutRef.current = setTimeout(() => {
       if (renderingProgressRef.current?.percent === 0) {
-        setShowRenderingLoader(false);
-        setRenderingProgress(undefined);
+        hideLoader();
         renderingProgressRef.current = undefined;
         setImportState({
           status: "error",
@@ -555,9 +570,11 @@ export default function AreaSelection() {
     }
 
     setImportState({ status: "loading", message: "Importing the file…" });
+    const controller = loader.beginCapture("Reading the capture file…");
 
     try {
       // 1. Read file as ArrayBuffer
+      const decodeStartedAt = Date.now();
       const arrayBuffer = await fileDataRef.current.arrayBuffer();
       const fileBytes = new Uint8Array(arrayBuffer);
 
@@ -572,22 +589,24 @@ export default function AreaSelection() {
       if (format === "w2w" || format === "w2w-v2") {
         // Hardened .w2w container (current keyed-tag or legacy "W2W2") —
         // unscramble + decrypt + gunzip + msgpack.
-        setImportState({ status: "loading", message: "Decoding data…" });
+        loader.setCaptureStep("Decoding data…");
         rawData = (await decodeW2W(fileBytes)) as
           | MultiFrameCaptureResult
           | SingleViewportCaptureResult;
       } else if (format === "gzip-legacy") {
         // Legacy .w2w — gzip + msgpack (pre-hardening exports).
-        setImportState({ status: "loading", message: "Decompressing…" });
+        loader.setCaptureStep("Decompressing…");
         const decompressedData = await gunzip(new Uint8Array(arrayBuffer));
 
-        setImportState({ status: "loading", message: "Decoding data…" });
+        loader.setCaptureStep("Decoding data…");
         rawData = decode(decompressedData) as MultiFrameCaptureResult | SingleViewportCaptureResult;
       } else {
         throw new Error(
           "Only .w2w files exported from the Web2Wireframe extension can be imported here.",
         );
       }
+
+      perf.mark("ui.decodeW2W", Date.now() - decodeStartedAt);
 
       // Convert to unified multi-frame format (handles both old single-viewport and new multi-frame format)
       const unifiedResult = toUnifiedFormat(rawData);
@@ -602,8 +621,9 @@ export default function AreaSelection() {
       // after a successful decode so an invalid file never consumes a slot.
       // Forward the decoded metadata so the server can attribute the import in
       // the admin history (the .w2w file itself never leaves the client).
-      const response = await fetch(`${API_BASE_URL}/api/import-w2w-file`, {
+      const response = await perf.timed("ui.fetch", () => fetch(`${API_BASE_URL}/api/import-w2w-file`, {
         method: "POST",
+        signal: controller.signal,
         headers: {
           Authorization: authHeader(),
           "Content-Type": "application/json",
@@ -621,14 +641,21 @@ export default function AreaSelection() {
           cssVariablesMode: settings.localCssVariablesMode,
           layoutMode: settings.localLayoutMode,
         }),
-      });
+      }));
 
       const { isAuthExpired } = await import("../../../shared/authEvents");
-      if (isAuthExpired(response)) return;
+      if (isAuthExpired(response)) {
+        // See Web.tsx: `loading` is what disables the button, so the auth
+        // branch has to clear it exactly like the quota branch below.
+        hideLoader();
+        setImportState({ status: "idle", message: "" });
+        return;
+      }
 
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
         // QuotaExceededModal shows via the w2w:quota-exceeded event.
+        hideLoader();
         setImportState({ status: "idle", message: "" });
         return;
       }
@@ -637,14 +664,25 @@ export default function AreaSelection() {
         throw new Error(httpErrorMessage(response.status));
       }
 
+      // Bank the capture duration only now, with a usable response in hand.
+      // Banking it the moment `fetch` resolved fed 200ms quota and auth
+      // rejections into the estimate, and a median of those pins the next
+      // import's ring at its ceiling for the whole capture.
+      loader.finishCapture();
+
+      // The response landed, but reading it, decoding font names and cutting
+      // assets all take time the loader still offers Cancel for. Honour it.
+      if (controller.signal.aborted) return;
+
       // Render directly using inline settings (no modal)
       await processAndRender(unifiedResult);
 
       // Refresh the footer badge to reflect the just-incremented count.
       void refreshLicense();
     } catch (error) {
-      setShowRenderingLoader(false);
-      setRenderingProgress(undefined);
+      // Cancel already closed the overlay and set its own message.
+      if (controller.signal.aborted) return;
+      hideLoader();
       setImportState({
         status: "error",
         message:
@@ -760,6 +798,8 @@ export default function AreaSelection() {
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
         setAssetMode={settings.setAssetMode}
+        localOriginLinks={settings.localOriginLinks}
+        setOriginLinks={settings.setOriginLinks}
         setInteractionMode={settings.setInteractionMode}
         handleReset={settings.handleReset}
         handleSaveAsDefault={settings.handleSaveAsDefault}
@@ -790,11 +830,14 @@ export default function AreaSelection() {
 
       {/* Rendering Loader Overlay */}
       <RenderingLoader
-        isVisible={showRenderingLoader}
-        progress={renderingProgress}
+        isVisible={loader.isVisible}
+        progress={loader.progress}
+        onCancel={() => {
+          loader.cancel();
+          setImportState({ status: "idle", message: "Import canceled" });
+        }}
         onClose={() => {
-          setShowRenderingLoader(false);
-          setRenderingProgress(undefined);
+          hideLoader();
           setImportState({ status: "idle", message: "" });
           setFileName(null);
           fileDataRef.current = null;

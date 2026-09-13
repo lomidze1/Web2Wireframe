@@ -10,7 +10,7 @@
 > **one-time $16 / 30-day** model (`docs/plans/PAYMENT-SYSTEM.md`). AI Generation
 > removed; `ai-generation-backup` branch created. Plugin UI overhaul + Figma
 > OAuth-verified identity done. Remaining: Flitt sandbox testing + Figma/Chrome
-> store submissions — see `docs/PRE-LAUNCH-CHECKLIST.md`.
+> store submissions — ორივე დასრულდა (launch 2026-06-21).
 
 ---
 

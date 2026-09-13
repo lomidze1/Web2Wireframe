@@ -5,6 +5,7 @@
  */
 
 import { cssColorToFigmaRGB } from "./colors";
+import { parseInsetClipPath, insetClips } from "./clipPath";
 import { fontWeightToStyle } from "./styles";
 import {
   computeHoverSignature,
@@ -324,10 +325,26 @@ export function applyCssDiffToNode(
       }
 
       case "clip-path": {
-        const clips = parseClipPathToClipsContent(value);
-        if (clips !== null) {
-          frame.clipsContent = clips;
+        // Same parser as the base render path (rendering/clipPath.ts), so a
+        // hover clip-path behaves exactly like a default-state one. The old
+        // code here mapped ANY inset() to `clipsContent = true`, which turned
+        // the hide-me form — `inset(0px 0px 100%)` — into a visible clipped
+        // box instead of hiding the frame.
+        if (!value || value === "none") {
+          frame.clipsContent = false;
+          break;
         }
+        const clip = parseInsetClipPath(value, frame.width, frame.height);
+        if (!clip || clip.isNoOp) break;
+        if (clip.fullyClipped) {
+          frame.visible = false;
+          break;
+        }
+        if (clip.radius !== null) {
+          const maxRadius = Math.min(frame.width, frame.height) / 2;
+          frame.cornerRadius = Math.min(clip.radius, maxRadius);
+        }
+        if (insetClips(clip)) frame.clipsContent = true;
         break;
       }
 
@@ -750,19 +767,6 @@ function parseTextShadowToEffects(ts: string): Effect[] {
     if (parsed) effects.push(parsed);
   }
   return effects;
-}
-
-/**
- * Parse CSS `clip-path` into a simple clipsContent boolean.
- * Returns:
- *   - true  if inset(...) — the element clips its content
- *   - false if none
- *   - null  if unsupported (circle, polygon, path, url, ellipse) — no-op
- */
-function parseClipPathToClipsContent(cp: string): boolean | null {
-  if (!cp || cp === "none") return false;
-  if (/^inset\s*\(/.test(cp)) return true;
-  return null; // unsupported
 }
 
 // ============================================================================

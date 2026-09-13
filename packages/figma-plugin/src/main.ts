@@ -21,9 +21,11 @@
 import { showUI } from "@create-figma-plugin/utilities";
 import { installDevLogger } from "./utils/devLogger";
 import { logger } from "./utils/logger";
+import * as perf from "./utils/perf";
 import { errorHandler, ErrorCode } from "./utils/errorHandler";
 import type {
   WireframeFrame,
+  WireframeNode,
   RenderContext,
   FontMapping,
   RenderWireframeData,
@@ -38,7 +40,19 @@ import {
   createWireframeFrame,
 } from "./rendering";
 import { convertW2WToWireframe } from "./rendering/css-converter";
+import { planOversizedImages } from "./utils/figmaImageLimit";
+import { resetFontFailures } from "./rendering/fontLoader";
 import { extractHostname } from "./rendering/hostname";
+import {
+  createAnchorScope,
+  resolveAnchorReactions,
+  registerFlowStartingPoints,
+} from "./rendering/anchorLinks";
+import {
+  buildNotifySummary,
+  buildRelaunchSummary,
+  recordWarning,
+} from "./rendering/diagnostics";
 import {
   collectAllFonts,
   collectFontUsage,
@@ -57,8 +71,39 @@ import {
 import {
   rebindOriginalFonts,
   collectTextNodesIn,
+  composeRebindablePayload,
   countRebindableNodes,
+  type RebindableCount,
 } from "./rendering/rebindFonts";
+import { collectTextNodesChunked } from "./rendering/rebindScan";
+import { countNodes } from "./rendering/treeSimplify";
+import {
+  nodeProgressPercent,
+  shouldEmitNodeProgress,
+} from "./utils/importProgress";
+
+/**
+ * clientStorage key + window for the loader's capture-duration history, kept
+ * per import kind (`{ url: [...], file: [...] }`) — a two-second `.w2w` decode
+ * must not become a URL capture's estimate. Deliberately NOT part of
+ * `w2w_plugin_config`: that shape is snapshot on first open and changing it
+ * needs a CONFIG_VERSION migration.
+ */
+const TIMING_KEY = "w2w_import_timing";
+const TIMING_SAMPLES = 5;
+
+/**
+ * Dev profiler helper: tally the converted tree by node type so the stage
+ * timings can be read as ms/node. Walk-only — it never touches the render
+ * path, so it stays out of the hot loop.
+ */
+function countTreeNodes(node: WireframeNode | null | undefined): void {
+  if (!node) return;
+  perf.count("nodes", 1);
+  if (node.type === "text") perf.count("textNodes", 1);
+  else if (node.type === "placeholder") perf.count("imageNodes", 1);
+  for (const child of node.children || []) countTreeNodes(child);
+}
 
 // ============================================================================
 // Main Plugin Function
@@ -78,38 +123,65 @@ export default function () {
     autoOriginal: FontMapping;
   } | null = null;
 
+  // Dev profiler: wall-clock start of the current import, so the stage table
+  // can be compared against the time the user actually waited.
+  let renderStartedAt = 0;
+
   // Count text nodes on the current page still awaiting original-font re-apply
   // (they carry a non-empty `w2w_original_font` marker — imported with a
   // substituted font). The UI uses this to conditionally show the
   // "Re-apply fonts" footer button only when there's actually work to do.
-  const postRebindableCount = () => {
-    try {
-      const pageNodes = figma.currentPage.findAll(
-        (n) => n.type === "TEXT",
-      ) as TextNode[];
-      const page = countRebindableNodes(pageNodes);
+  //
+  // The walk is chunked and cancellable (see rendering/rebindScan.ts): a page
+  // holding a dozen imported sites is hundreds of thousands of nodes, and
+  // scanning them in one synchronous findAll() blocked Figma's main thread —
+  // the plugin opened with its URL field frozen for a second or two.
+  let scanToken = 0;
+  /** Last completed page-wide count, reused while the document is unchanged. */
+  let cachedPageCount: RebindableCount | null = null;
+  /** Whether `documentchange` is available to invalidate the cache above. */
+  let documentChangeWatched = false;
 
-      // Scope to the current selection too, so the footer button can offer a
-      // "Re-apply to selection" action. The rebind handler already honours the
-      // same selection-or-page scope, so the label matches what will happen.
+  const postRebindableCount = async (pageDirty = true) => {
+    const token = ++scanToken;
+    const isCancelled = () => token !== scanToken;
+    if (pageDirty) cachedPageCount = null;
+
+    try {
+      let page = cachedPageCount;
+      if (!page) {
+        const pageNodes = await collectTextNodesChunked(
+          figma.currentPage.children,
+          { isCancelled },
+        );
+        if (!pageNodes) return; // superseded by a newer scan
+        page = countRebindableNodes(pageNodes);
+        cachedPageCount = page;
+      }
+
+      // Scope to the current selection, so every number the modal shows —
+      // header count, per-font list, button label — describes what Re-apply
+      // will actually touch. The rebind handler honours the same
+      // selection-or-page scope.
       const selection = figma.currentPage.selection;
-      const selectionCount =
+      const selectionNodes =
         selection.length > 0
-          ? countRebindableNodes(
-              collectTextNodesIn(selection as unknown as SceneNode[]),
-            ).count
-          : 0;
+          ? await collectTextNodesChunked(selection as unknown as SceneNode[], {
+              isCancelled,
+            })
+          : [];
+      if (!selectionNodes) return;
+      if (isCancelled()) return;
 
       figma.ui.postMessage({
         type: "rebindable-count",
-        data: {
-          count: page.count,
-          families: page.families,
-          selectionCount,
-          // Per-layer detail so the modal can render a clickable per-font
-          // list ("h1.u-text" → select & zoom).
-          layers: page.layers,
-        },
+        // Per-layer detail rides along so the modal can render a clickable
+        // per-font list ("h1.u-text" → select & zoom).
+        data: composeRebindablePayload(
+          page,
+          countRebindableNodes(selectionNodes),
+          selection.length > 0,
+        ),
       });
     } catch {
       // Page scan can fail on unusual/huge docs — non-fatal, just skip.
@@ -117,11 +189,21 @@ export default function () {
   };
 
   // Switching Figma pages changes which nodes are in scope; refresh the count.
-  figma.on("currentpagechange", () => postRebindableCount());
+  figma.on("currentpagechange", () => void postRebindableCount());
 
   // Selecting a frame changes the re-apply scope — refresh so the footer button
   // can reflect "Re-apply to selection" when the selection holds pending fonts.
-  figma.on("selectionchange", () => postRebindableCount());
+  // Only the selection is re-walked (the page's count is unchanged unless the
+  // document was edited, which `documentchange` below invalidates), and bursts
+  // from drag-selecting are coalesced.
+  let selectionTimer: ReturnType<typeof setTimeout> | null = null;
+  figma.on("selectionchange", () => {
+    if (selectionTimer) clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(() => {
+      selectionTimer = null;
+      void postRebindableCount(!documentChangeWatched);
+    }, 150);
+  });
 
   // Editing the canvas changes it too — deleting the imported frames must hide
   // the "Re-apply fonts" button, not leave it pointing at nothing. documentchange
@@ -132,9 +214,11 @@ export default function () {
       if (rescanTimer) clearTimeout(rescanTimer);
       rescanTimer = setTimeout(() => {
         rescanTimer = null;
-        postRebindableCount();
+        void postRebindableCount();
       }, 400);
     });
+    // The cache above is only safe while edits invalidate it.
+    documentChangeWatched = true;
   } catch {
     // documentchange needs the `documentAccess: dynamic-page` manifest flag and
     // isn't available in every host/test env — the other refresh points remain.
@@ -148,11 +232,30 @@ export default function () {
     }
     // UI asks how many text nodes still need their original font re-applied.
     if (msg.type === "count-rebindable-fonts") {
-      postRebindableCount();
+      void postRebindableCount();
       return;
     }
     // A layer row in the Re-apply modal was clicked — select it on canvas and
     // bring it into view so the user sees which element the font refers to.
+    // The Re-apply modal's per-font picker needs the families this machine
+    // can actually offer. Figma's list includes its own web fonts, so it is
+    // never just what the OS has installed.
+    if (msg.type === "list-installed-fonts") {
+      try {
+        const avail =
+          typeof figma.listAvailableFontsAsync === "function"
+            ? await figma.listAvailableFontsAsync()
+            : [];
+        const families = Array.from(
+          new Set(avail.map((f) => f.fontName.family)),
+        ).sort((a, b) => a.localeCompare(b));
+        figma.ui.postMessage({ type: "installed-fonts", data: { families } });
+      } catch {
+        figma.ui.postMessage({ type: "installed-fonts", data: { families: [] } });
+      }
+      return;
+    }
+
     if (msg.type === "select-rebind-layer") {
       const nodeId: unknown = msg.data?.nodeId;
       if (typeof nodeId !== "string") return;
@@ -172,8 +275,33 @@ export default function () {
       }
       return;
     }
+    // A row in the post-import report was clicked. Same behaviour as
+    // select-rebind-layer above, but any SceneNode qualifies — the report
+    // links to frames and images too, not only text.
+    if (msg.type === "select-import-warning-layer") {
+      const nodeId: unknown = msg.data?.nodeId;
+      if (typeof nodeId !== "string") return;
+      try {
+        const node =
+          typeof figma.getNodeByIdAsync === "function"
+            ? await figma.getNodeByIdAsync(nodeId)
+            : figma.getNodeById(nodeId);
+        if (node && "visible" in node) {
+          figma.currentPage.selection = [node as SceneNode];
+          figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
+        } else {
+          figma.notify("Layer no longer exists");
+        }
+      } catch {
+        figma.notify("Layer no longer exists");
+      }
+      return;
+    }
     // Handle font fallback choice from popup
     if (msg.type === "font-fallback-choice") {
+      // The user may have just installed the downloaded fonts — stale
+      // failure entries would keep steering this render to fallbacks.
+      resetFontFailures();
       if (pendingRenderData) {
         const { executeRender, autoOriginal } = pendingRenderData;
         const fontMapping: FontMapping = msg.data.fontMapping || {};
@@ -195,7 +323,7 @@ export default function () {
           } catch {
             /* rebind best-effort — markers remain for a manual Re-apply */
           }
-          postRebindableCount();
+          void postRebindableCount();
         }
       }
       return;
@@ -204,7 +332,26 @@ export default function () {
     // Handle render-wireframe message
     if (msg.type === "render-wireframe") {
       try {
+      // Fonts may have been installed since the last import — let failed
+      // loadFontAsync probes retry (successes stay cached; see fontLoader.ts).
+      resetFontFailures();
       const data = msg.data as RenderWireframeData;
+
+      // Dev profiler: the UI iframe and this sandbox are separate realms with
+      // separate perf tables, so the UI ships its rows with the message and we
+      // replay them here. `sentAt` closes the one gap neither side can time on
+      // its own — the postMessage structured clone of a multi-MB payload.
+      if (__W2W_DEV_LOG__) {
+        perf.reset();
+        renderStartedAt = Date.now();
+        if (typeof data.sentAt === "number") {
+          perf.mark("ui.bridge", Date.now() - data.sentAt);
+        }
+        for (const [label, ms] of Object.entries(data.perfUi || {})) {
+          perf.mark(label, ms);
+        }
+        perf.count("frames", data.frames?.length || 0);
+      }
       const {
         frames,
         sourceUrl,
@@ -218,6 +365,9 @@ export default function () {
         textMode,
         assetMode,
         interactionMode,
+        htmlLayerNames,
+        geometryRows,
+        originLinks,
       } = data;
 
       // Default colors if not provided
@@ -248,39 +398,21 @@ export default function () {
       // net but is now a no-op for content-script-format frames (its
       // guard checks isPlaceholderTree, so populated trees are skipped).
       // ----------------------------------------------------------------------
-      prePassConvertFrames(frames as Parameters<typeof prePassConvertFrames>[0], {
-        layoutMode: (layoutMode || "autoLayout") as "absolute" | "autoLayout",
-        interactionMode: (interactionMode || "none") as "none" | "variants",
-      });
+      // Subtrees the converter dropped as fully transparent. Reported to the
+      // user once `renderContext.renderStats` exists (it does not yet — the
+      // conversion has to run before the font check reads the tree).
+      const skippedFrames = perf.timedSync("prePassConvert", () =>
+        prePassConvertFrames(frames as Parameters<typeof prePassConvertFrames>[0], {
+          layoutMode: (layoutMode || "autoLayout") as "absolute" | "autoLayout",
+          interactionMode: (interactionMode || "none") as "none" | "variants",
+          htmlLayerNames: htmlLayerNames === true,
+          geometryRows: geometryRows === true,
+        })
+      );
 
-      // TEMP GRID DIAGNOSTIC — remove after debugging paco.me grid placement.
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const root: any = frames[0]?.tree;
-        let total = 0;
-        let gridCount = 0;
-        const gridLines: string[] = [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const walk = (n: any) => {
-          if (!n) return;
-          total++;
-          if (n.layoutMode === "GRID") {
-            gridCount++;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const kids = (n.children || [])
-              .map((c: any) => `${c.tag}(gcs=${c.gridColumnStart},w=${Math.round(c.width)})`)
-              .join(", ");
-            gridLines.push(`<${n.tag}> cols="${n.gridTemplateColumns}" gap=${n.gridColumnGap} kids=[${kids}]`);
-          }
-          (n.children || []).forEach(walk);
-        };
-        walk(root);
-        logger.info(
-          `[GRID-DIAG] layoutModeOpt=${layoutMode} format=${frames[0]?.capturedData ? "W2W" : "legacy"} total=${total} gridNodes=${gridCount} rootTag=${root?.tag} rootLayout=${root?.layoutMode}`
-        );
-        gridLines.slice(0, 25).forEach((l) => logger.info("[GRID-DIAG] " + l));
-      } catch (e) {
-        logger.warn("[GRID-DIAG] failed", { e: String(e) });
+      // Payload size, so the timings below can be read as ms/node.
+      if (__W2W_DEV_LOG__) {
+        for (const f of frames) countTreeNodes(f?.tree);
       }
 
       // Determine font family based on fontMode
@@ -375,6 +507,8 @@ export default function () {
             frameData.tree = convertW2WToWireframe(capturedFrame, {
               layoutMode: (layoutMode || 'autoLayout') as 'absolute' | 'autoLayout',
               interactionMode: interactionMode || 'none',
+              htmlLayerNames: htmlLayerNames === true,
+              geometryRows: geometryRows === true,
             });
           } catch (err) {
             logger.warn("Pre-pass tree conversion failed", { error: err });
@@ -398,9 +532,8 @@ export default function () {
             // Nest plugin styles under `{hostname}/Plugin` so multi-site
             // imports in Plugin Colors mode don't collide (e.g. importing
             // Tesla then Apple no longer overwrites `--accent`).
-            const pluginStyleMap = await createPluginColorStyles(
-              colors,
-              `${derivedHostname}/Plugin`,
+            const pluginStyleMap = await perf.timed("colorStyles", () =>
+              createPluginColorStyles(colors, `${derivedHostname}/Plugin`)
             );
             logger.info("Created plugin color styles", {
               styleCount: pluginStyleMap.size,
@@ -425,10 +558,8 @@ export default function () {
           figma.notify("Creating website color styles…", { timeout: 1500 });
 
           try {
-            const result = await createUnifiedWebsiteColorStyles(
-              frames,
-              cssVariables || [],
-              derivedHostname
+            const result = await perf.timed("colorStyles", () =>
+              createUnifiedWebsiteColorStyles(frames, cssVariables || [], derivedHostname)
             );
             logger.info("Created unified website color styles", {
               colorStyleCount: result.colorStyleMap.size,
@@ -448,8 +579,16 @@ export default function () {
       // Pre-process: merge capturedData assets into frame assets before building assetsMap
       const FIGMA_SUPPORTED_MIMES = new Set(["image/png", "image/jpeg", "image/gif"]);
 
-      // Collect assets that need conversion (AVIF/WebP → JPEG)
-      const assetsToConvert: Array<{ url: string; dataUri: string; frameIdx: number }> = [];
+      // Images the UI iframe has to convert (it has Canvas/createImageBitmap,
+      // the sandbox does not): a format Figma cannot take (AVIF/WebP), or a
+      // size over Figma's 4096px limit (utils/figmaImageLimit.ts). One job per
+      // url, even when several viewport frames carry it.
+      const conversionJobs = new Map<string, { url: string; dataUri: string; frameIdxs: number[] }>();
+      const queueConversion = (url: string, dataUri: string, frameIdx: number): void => {
+        const job = conversionJobs.get(url);
+        if (!job) conversionJobs.set(url, { url, dataUri, frameIdxs: [frameIdx] });
+        else if (!job.frameIdxs.includes(frameIdx)) job.frameIdxs.push(frameIdx);
+      };
 
       for (let fi = 0; fi < frames.length; fi++) {
         const fd = frames[fi] as WireframeFrame;
@@ -463,9 +602,11 @@ export default function () {
 
               if (mime.startsWith('image/') && mime !== 'image/svg+xml' && !FIGMA_SUPPORTED_MIMES.has(mime)) {
                 // Need conversion — collect for batch UI conversion
-                assetsToConvert.push({ url, dataUri, frameIdx: fi });
+                queueConversion(url, dataUri, fi);
               } else {
-                // Supported format — use directly
+                // Supported format — use directly. An oversized one is queued
+                // below; if its conversion fails this raw entry stays, and the
+                // render reports it exactly as before.
                 fd.assets[url] = dataUri;
               }
             }
@@ -473,25 +614,53 @@ export default function () {
         }
       }
 
-      // Convert unsupported image formats via UI iframe (has Canvas/createImageBitmap)
-      if (assetsToConvert.length > 0 && assetMode === "realAssets") {
+      // Over Figma's 4096px limit — read off the converted trees, i.e. the exact
+      // urls the renderer will look up, whatever flow filled the assets.
+      for (const job of planOversizedImages(frames as WireframeFrame[])) {
+        for (const fi of job.frameIdxs) queueConversion(job.url, job.dataUri, fi);
+      }
+
+      // Original sizes of the images the conversion shrinks — fills.ts measures
+      // backgrounds with them.
+      const imageNaturalSizes = new Map<string, { width: number; height: number }>();
+
+      // Convert via UI iframe (has Canvas/createImageBitmap)
+      if (conversionJobs.size > 0 && assetMode === "realAssets") {
         figma.ui.postMessage({
           type: "render-progress",
           data: { step: "Converting images for Figma...", percent: 8 },
         });
 
-        logger.info("Converting unsupported images via UI iframe", {
-          count: assetsToConvert.length,
+        logger.info("Converting images via UI iframe", {
+          count: conversionJobs.size,
         });
 
-        // Send to UI for conversion and wait for response
-        const convertedAssets = await new Promise<Array<{ url: string; dataUri: string; frameIdx: number }>>((resolve) => {
+        type ConvertedAsset = {
+          url: string;
+          dataUri: string;
+          width?: number;
+          height?: number;
+          originalWidth?: number;
+          originalHeight?: number;
+        };
+
+        // Send to UI for conversion and collect results as they arrive
+        const convertedAssets = await perf.timed("assetsConvert", () => new Promise<ConvertedAsset[]>((resolve) => {
+          const results: ConvertedAsset[] = [];
           // Temporarily add handler (will be overridden by next onmessage call)
           const origHandler = figma.ui.onmessage;
+          let settled = false;
+          const finish = (): void => {
+            if (settled) return;
+            settled = true;
+            figma.ui.onmessage = origHandler;
+            resolve(results);
+          };
           figma.ui.onmessage = (msg) => {
-            if (msg.type === "assets-converted") {
-              figma.ui.onmessage = origHandler;
-              resolve(msg.data?.convertedAssets || []);
+            if (msg.type === "asset-converted") {
+              if (msg.data?.url && msg.data?.dataUri) results.push(msg.data as ConvertedAsset);
+            } else if (msg.type === "assets-converted") {
+              finish();
             } else if (origHandler) {
               origHandler(msg, { origin: '' } as never);
             }
@@ -499,22 +668,36 @@ export default function () {
 
           figma.ui.postMessage({
             type: "convert-assets",
-            data: { assets: assetsToConvert },
+            data: { assets: Array.from(conversionJobs.values()).map(({ url, dataUri }) => ({ url, dataUri })) },
           });
 
-          // Timeout after 30s
-          setTimeout(() => resolve([]), 30000);
-        });
+          // Timeout after 30s — keep whatever arrived.
+          setTimeout(finish, 30000);
+        }));
 
-        // Merge converted assets
+        // Merge converted assets into every frame that carries them
         for (const converted of convertedAssets) {
-          const fd = frames[converted.frameIdx] as WireframeFrame;
-          if (!fd.assets) fd.assets = {};
-          fd.assets[converted.url] = converted.dataUri;
+          const job = conversionJobs.get(converted.url);
+          if (!job) continue;
+          for (const fi of job.frameIdxs) {
+            const fd = frames[fi] as WireframeFrame;
+            if (!fd.assets) fd.assets = {};
+            fd.assets[converted.url] = converted.dataUri;
+          }
+          if (
+            converted.originalWidth && converted.originalHeight &&
+            (converted.width !== converted.originalWidth || converted.height !== converted.originalHeight)
+          ) {
+            imageNaturalSizes.set(converted.url, {
+              width: converted.originalWidth,
+              height: converted.originalHeight,
+            });
+          }
         }
         logger.info("Image conversion complete", {
           converted: convertedAssets.length,
-          requested: assetsToConvert.length,
+          requested: conversionJobs.size,
+          downscaled: imageNaturalSizes.size,
         });
       }
 
@@ -549,9 +732,15 @@ export default function () {
         originalFontNames,
         fontRealNames: data.fontRealNames,
         fontDeclaredCuts: data.fontDeclaredCuts,
+        fontVariableFamilies: data.fontVariableFamilies,
+        fontFaceStyles: data.fontFaceStyles,
         assetMode: assetMode || "placeholders",
         assetsMap,
+        imageNaturalSizes,
         interactionMode: interactionMode || "none",
+        // "Links" option — absent means ON, so only an explicit false silences
+        // the site's links (old payloads keep today's behaviour).
+        originLinks: originLinks !== false,
         componentSets: [],
         hoverComponentCache: new Map(),
         renderStats: {
@@ -563,15 +752,27 @@ export default function () {
         },
       };
 
+      // Replay the pre-pass's transparent-subtree drops into the report. They
+      // happened before this context existed, and they are not render errors —
+      // the converter removed them on purpose — so they carry no node id.
+      for (const skipped of skippedFrames) {
+        recordWarning(renderContext, {
+          category: "layout",
+          message: "Hidden at capture time (opacity: 0) — skipped",
+          layerName: skipped.layerName,
+          detail:
+            `${skipped.nodes} layer(s) · ` +
+            `${Math.round(skipped.width)}×${Math.round(skipped.height)}px`,
+        });
+      }
+
       // Create effect styles (Phase 2) — shared shadow/blur library. Plugin
       // color mode returns empty map because effects are stripped upstream
       // for clean wireframes.
       if (variableMode === "styles") {
         try {
-          const effectStyleMap = await createEffectStyles(
-            frames,
-            derivedHostname,
-            effectiveColorMode
+          const effectStyleMap = await perf.timed("otherStyles", () =>
+            createEffectStyles(frames, derivedHostname, effectiveColorMode)
           );
           renderContext.effectStyleMap = effectStyleMap;
           logger.info("Created effect styles", {
@@ -593,12 +794,14 @@ export default function () {
         });
 
         try {
-          const textStyleMap = await createTextStyles(
-            frames,
-            fontFamily,
-            effectiveFontMode,
-            originalFontNames,
-            derivedHostname
+          const textStyleMap = await perf.timed("otherStyles", () =>
+            createTextStyles(
+              frames,
+              fontFamily,
+              effectiveFontMode,
+              originalFontNames,
+              derivedHostname
+            )
           );
           renderContext.textStyleMap = textStyleMap;
           logger.info("Created text styles", {
@@ -613,7 +816,9 @@ export default function () {
       // get promoted to a reusable GridStyle. Nested sub-grids remain inline.
       if (variableMode === "styles") {
         try {
-          const gridStyleMap = await createGridStyles(frames, derivedHostname);
+          const gridStyleMap = await perf.timed("otherStyles", () =>
+            createGridStyles(frames, derivedHostname)
+          );
           renderContext.gridStyleMap = gridStyleMap;
           logger.info("Created grid styles", {
             styleCount: gridStyleMap.size,
@@ -654,7 +859,9 @@ export default function () {
       ) {
         try {
           const { buildIconLibrary } = await import("./rendering/svgLibrary");
-          const iconLib = await buildIconLibrary(frames, { componentIndex: 1 });
+          const iconLib = await perf.timed("iconLibrary", () =>
+            buildIconLibrary(frames, { componentIndex: 1 })
+          );
           if (iconLib) {
             renderContext.iconLibrary = iconLib;
             renderContext.componentWrappers!.push(iconLib.wrapper);
@@ -683,9 +890,8 @@ export default function () {
           // Sequential index continues after the icon library (so icons are
           // Component 1 and hover sets follow as Component 2, 3, …).
           const startIndex = renderContext.iconLibrary ? 2 : 1;
-          const registry = await buildHoverMasterRegistry(
-            frames,
-            renderContext,
+          const registry = await perf.timed("hoverRegistry", () =>
+            buildHoverMasterRegistry(frames, renderContext),
           );
           renderContext.hoverMasterRegistry = registry;
           // Phase C (h2d-parity): collect "Component N" wrapper FRAMEs (with
@@ -717,6 +923,32 @@ export default function () {
       try {
         const createdFrames: FrameNode[] = [];
 
+        // Real render progress. Every node passes through createNodeInFigma,
+        // and the converted trees say how many there are — so the stretch that
+        // used to jump 30 → 85 in silence is now measured. The renderer drops
+        // some nodes and invents wrappers, so the ratio is approximate and
+        // `nodeProgressPercent` clamps it below the "frames done" milestone.
+        const totalTreeNodes = frames.reduce(
+          (sum, f) => sum + (f.tree ? countNodes(f.tree) : 0),
+          0
+        );
+        let renderedNodes = 0;
+        let lastSentPercent = 0;
+        let currentBuildStep = "Building elements…";
+        renderContext.onNodeRendered = () => {
+          renderedNodes++;
+          if (!shouldEmitNodeProgress(renderedNodes)) return;
+          const percent = Math.round(
+            nodeProgressPercent(renderedNodes, totalTreeNodes)
+          );
+          if (percent === lastSentPercent) return;
+          lastSentPercent = percent;
+          figma.ui.postMessage({
+            type: "render-progress",
+            data: { step: currentBuildStep, percent },
+          });
+        };
+
         for (let i = 0; i < frames.length; i++) {
           const viewportWidth = frames[i].viewportWidth;
           figma.notify(`Processing viewport ${i + 1}/${frames.length}…`, {
@@ -724,14 +956,14 @@ export default function () {
           });
 
           // Calculate progress
-          const frameStartProgress = 25 + (i / frames.length) * 60;
           const frameEndProgress = 25 + ((i + 1) / frames.length) * 60;
 
+          currentBuildStep = `Building elements for ${viewportWidth}px...`;
           figma.ui.postMessage({
             type: "render-progress",
             data: {
-              step: `Building elements for ${viewportWidth}px...`,
-              percent: Math.round(frameStartProgress + 5),
+              step: currentBuildStep,
+              percent: Math.round(nodeProgressPercent(renderedNodes, totalTreeNodes)),
             },
           });
 
@@ -752,12 +984,21 @@ export default function () {
             frameData.assets = { ...frameData.assets, ...assetMap };
           }
 
-          const wireframeFrame = await createWireframeFrame(
-            frameData,
-            sourceUrl,
-            renderContext,
-            i
-          );
+          // Same-page `#anchor` wiring, scoped to THIS viewport frame: desktop
+          // and mobile captures both contain `id="faq"`, and a shared map would
+          // wire the mobile nav to the desktop section.
+          const anchorScope = createAnchorScope();
+          renderContext.anchorScope = anchorScope;
+          let wireframeFrame: FrameNode;
+          try {
+            wireframeFrame = await perf.timed("createWireframeFrame", () =>
+              createWireframeFrame(frameData, sourceUrl, renderContext, i)
+            );
+          } finally {
+            renderContext.anchorScope = undefined;
+          }
+          // Node ids only exist once rendered, so the hashes resolve now.
+          await perf.timed("anchorReactions", () => resolveAnchorReactions(anchorScope));
           createdFrames.push(wireframeFrame);
 
           figma.ui.postMessage({
@@ -772,6 +1013,10 @@ export default function () {
           });
         }
 
+        // Everything past this point (Components section, orphan sweep) has
+        // its own milestones — stop the node counter from talking over them.
+        renderContext.onNodeRendered = undefined;
+
         // Wrap frame(s) in a Section
         figma.notify("Grouping frames in Section…", { timeout: 1000 });
 
@@ -783,7 +1028,6 @@ export default function () {
           },
         });
 
-        // Create Section
         const section = figma.createSection();
 
         // Same extractHostname used for style-prefix — keeps section name
@@ -833,9 +1077,25 @@ export default function () {
           maxHeight + sectionPadding * 2
         );
 
+        // Give Presentation mode a way in — one starting point per viewport.
+        // Runs after the frames are parented into the Section so the flows
+        // point at nodes that are settled on the page.
+        registerFlowStartingPoints(createdFrames);
+
         const viewport = figma.viewport.center;
         section.x = viewport.x - section.width / 2;
         section.y = viewport.y - section.height / 2;
+
+        // Stamp the import's state onto the Section itself, so months later
+        // the canvas still says what happened — Figma shows the summary under
+        // the plugin's relaunch button in the right-hand panel.
+        try {
+          section.setRelaunchData({
+            open: buildRelaunchSummary(renderContext.renderStats?.warnings),
+          });
+        } catch {
+          // setRelaunchData is unavailable in some hosts/tests — never fatal.
+        }
 
         const selectionTarget: SceneNode[] = [section];
 
@@ -895,10 +1155,8 @@ export default function () {
         try {
           const { collectRenderOrphans } = await import("./rendering/orphanSweep");
           const keepIds = new Set(selectionTarget.map((n) => n.id));
-          const orphans = collectRenderOrphans(
-            figma.currentPage.children,
-            preexistingPageIds,
-            keepIds,
+          const orphans = perf.timedSync("orphanSweep", () =>
+            collectRenderOrphans(figma.currentPage.children, preexistingPageIds, keepIds),
           );
           for (const orphan of orphans) {
             try { orphan.remove(); } catch { /* non-fatal */ }
@@ -934,18 +1192,48 @@ export default function () {
           }
         );
 
-        // Surface silently-dropped subtrees. Without this a partially-lost
-        // import is indistinguishable from a perfect one (prod logger is a
-        // no-op, so the per-child catch messages never reach anyone).
-        const droppedNodes = renderContext.renderStats?.droppedNodes;
-        if (droppedNodes && droppedNodes.length > 0) {
-          logger.warn("Dropped nodes during render", {
-            count: droppedNodes.length,
-            samples: droppedNodes.slice(0, 20),
+        // Surface everything that quietly degraded: lost subtrees, substituted
+        // fonts, images and SVGs replaced by placeholders. Without this a
+        // partially-lost import is indistinguishable from a perfect one (the
+        // prod logger is a no-op, so none of it reaches anyone). The toast is
+        // the headline; the report modal in the UI carries the clickable list.
+        const warnings = renderContext.renderStats?.warnings ?? [];
+        const warningOverflow = renderContext.renderStats?.warningOverflow ?? 0;
+        if (warnings.length > 0) {
+          logger.warn("Import produced warnings", {
+            count: warnings.length,
+            overflow: warningOverflow,
+            samples: warnings.slice(0, 20),
           });
-          figma.notify(
-            `⚠️ ${droppedNodes.length} element(s) could not be rendered and were skipped`,
-            { timeout: 5000 }
+          figma.notify(`⚠️ ${buildNotifySummary(warnings)}`, { timeout: 5000 });
+        }
+
+        // Hand the list to the UI, which holds the report; the sandbox keeps
+        // the node ids so a click can come back as select-import-warning-layer.
+        // The origin rides along for "Report this to the developer": only a
+        // URL/extension import carries a page the developer can re-import.
+        figma.ui.postMessage({
+          type: "import-report",
+          data: {
+            warnings,
+            overflow: warningOverflow,
+            sourceUrl,
+            kind: data.kind,
+            viewports: frames.map((f) => f.viewportWidth),
+          },
+        });
+
+        // Dev profiler: one table per import, out through the dev-log bridge.
+        // Gated at the call site so the `[w2w-perf]` sentinel never reaches a
+        // production bundle (scripts/build-prod.mjs greps for it).
+        if (__W2W_DEV_LOG__) {
+          const wall = Date.now() - renderStartedAt;
+          logger.info(
+            perf.report() +
+              "\n  " +
+              "WALL-CLOCK (since message)".padEnd(28) +
+              String(wall).padStart(8) +
+              "ms"
           );
         }
 
@@ -993,7 +1281,7 @@ export default function () {
 
         // The fresh import may have introduced substituted-font text — refresh
         // the count so the "Re-apply fonts" button surfaces if needed.
-        postRebindableCount();
+        void postRebindableCount();
       } catch (error) {
         errorHandler.handle({
           code: ErrorCode.WIREFRAME_CREATION_FAILED,
@@ -1025,10 +1313,14 @@ export default function () {
         const fontUsage = collectFontUsage(frames);
         // The real-name map goes in too: a cut is only truly missing when
         // neither the CSS family nor its real (SFNT) family ships it.
-        const { missing, missingCuts: rawMissingCuts } = await checkFontsAvailability(
-          allFonts,
-          fontUsage,
-          data.fontRealNames || {},
+        const { missing, missingCuts: rawMissingCuts } = await perf.timed("checkFonts", () =>
+          checkFontsAvailability(
+            allFonts,
+            fontUsage,
+            data.fontRealNames || {},
+            new Set(data.fontVariableFamilies || []),
+            data.fontFaceStyles || {},
+          ),
         );
         // A cut is only worth offering when some @font-face actually declares
         // a matching face — telex.ge fakes bold from one 400 file, and the
@@ -1095,7 +1387,7 @@ export default function () {
             } catch {
               /* rebind best-effort — markers remain for a manual Re-apply */
             }
-            postRebindableCount();
+            void postRebindableCount();
             return;
           }
 
@@ -1157,10 +1449,25 @@ export default function () {
     if (msg.type === "rebind-original-fonts") {
       try {
         const selection = figma.currentPage.selection;
-        const scope =
+        const pageNodes = () =>
+          figma.currentPage.findAll((n) => n.type === "TEXT") as TextNode[];
+        const selected =
           selection.length > 0
             ? collectTextNodesIn(selection as unknown as SceneNode[])
-            : (figma.currentPage.findAll((n) => n.type === "TEXT") as TextNode[]);
+            : [];
+        // A selection with nothing pending falls back to the page — the same
+        // rule `buildRebindableCountPayload` follows. Without it the modal
+        // showed page-wide numbers while the button acted on a clean
+        // selection, so clicking it did nothing at all.
+        const scope =
+          countRebindableNodes(selected).count > 0 ? selected : pageNodes();
+
+        // Families the user chose to replace instead of install (see the
+        // Re-apply modal's per-font picker).
+        const substitutions =
+          msg.data && typeof msg.data.substitutions === "object"
+            ? (msg.data.substitutions as Record<string, string>)
+            : undefined;
 
         if (scope.length === 0) {
           figma.notify("Re-apply fonts: nothing to scan in this scope.");
@@ -1171,7 +1478,7 @@ export default function () {
           return;
         }
 
-        const result = await rebindOriginalFonts(scope);
+        const result = await rebindOriginalFonts(scope, substitutions);
         const cumulative = result.previouslyRebound + result.rebound;
 
         // Mirror the outcome into the UI — the Re-apply modal stays open and
@@ -1225,7 +1532,41 @@ export default function () {
       }
       // Markers are cleared on successful re-apply — refresh so the button
       // hides once everything is re-applied (and stays if fonts still missing).
-      postRebindableCount();
+      void postRebindableCount();
+      return;
+    }
+
+    // Capture-duration history for the import loader's estimate. Kept in its
+    // OWN clientStorage key rather than the plugin config: config is snapshot
+    // on first open and needs a CONFIG_VERSION migration to change shape, and
+    // a progress-bar hint is not worth putting existing users through one.
+    if (msg.type === "save-timing") {
+      try {
+        const stored =
+          ((await figma.clientStorage.getAsync(TIMING_KEY)) as
+            | Record<string, number[]>
+            | undefined) ?? {};
+        const kind: string = msg.data.kind || "url";
+        stored[kind] = [...(stored[kind] ?? []), msg.data.captureMs].slice(
+          -TIMING_SAMPLES
+        );
+        await figma.clientStorage.setAsync(TIMING_KEY, stored);
+      } catch (err) {
+        logger.warn("Failed to save import timing", { error: err });
+      }
+      return;
+    }
+
+    if (msg.type === "load-timing") {
+      try {
+        const stored = (await figma.clientStorage.getAsync(TIMING_KEY)) as
+          | Record<string, number[]>
+          | undefined;
+        figma.ui.postMessage({ type: "timing-loaded", data: stored ?? {} });
+      } catch (err) {
+        logger.warn("Failed to load import timing", { error: err });
+        figma.ui.postMessage({ type: "timing-loaded", data: {} });
+      }
       return;
     }
 

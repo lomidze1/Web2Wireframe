@@ -27,11 +27,14 @@ export interface RebindResultInfo {
 interface RebindFontsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Text layers on the current page still carrying a substituted font. */
+  /** Text layers still carrying a substituted font, in the scope Re-apply
+   *  will act on — the selection when it holds any, the page otherwise. */
   count: number;
-  /** How many of those layers fall inside the current Figma selection. When
-   *  > 0, Re-apply targets the selection, so the modal says so. */
+  /** How many layers fall inside the current Figma selection. When > 0,
+   *  Re-apply targets the selection and `count` is already scoped to it. */
   selectionCount?: number;
+  /** Page-wide total, for the "N of M on this page" line while scoped. */
+  pageCount?: number;
   /** Families those layers are waiting for (from the sandbox's
    *  `rebindable-count` message). */
   missingFonts: string[];
@@ -40,6 +43,16 @@ interface RebindFontsModalProps {
   layers?: RebindLayerInfo[];
   /** Fires when a layer row is clicked — the sandbox selects & zooms to it. */
   onSelectLayer?: (id: string) => void;
+  /** True when the user has something selected on canvas — even if it holds
+   *  nothing pending. Distinguishes "page scope, nothing selected" from
+   *  "your selection is already clean". */
+  selectionActive?: boolean;
+  /** Families this Figma can offer, for the per-font "use instead" picker. */
+  installedFonts?: string[];
+  /** The user's picks so far, as `pendingFamily → chosenFamily`. */
+  choices?: Record<string, string>;
+  /** Fires when a pick changes. An empty `chosen` clears it. */
+  onChoiceChange?: (family: string, chosen: string) => void;
   /** Fires the actual `rebind-original-fonts` action. */
   onReapply: () => void;
   /** True while the sandbox is walking & rebinding nodes — the button shows
@@ -96,9 +109,14 @@ export default function RebindFontsModal({
   onClose,
   count,
   selectionCount = 0,
+  pageCount = 0,
   missingFonts,
   layers = [],
   onSelectLayer,
+  selectionActive,
+  installedFonts,
+  choices,
+  onChoiceChange,
   onReapply,
   isReapplying = false,
   result = null,
@@ -161,6 +179,28 @@ export default function RebindFontsModal({
                           </span>
                         </summary>
                         <div class={styles.accordionContent}>
+                          {installedFonts && installedFonts.length > 0 && (
+                            <div class={local.rebindChoiceRow}>
+                              <span>Use instead</span>
+                              <select
+                                class={styles.dropdown}
+                                value={choices?.[family] ?? ""}
+                                onChange={(e) =>
+                                  onChoiceChange?.(
+                                    family,
+                                    (e.target as HTMLSelectElement).value,
+                                  )
+                                }
+                              >
+                                <option value="">Keep {family}</option>
+                                {installedFonts.map((f) => (
+                                  <option key={f} value={f}>
+                                    {f}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                           {familyLayers.map((l) => (
                             <button
                               key={l.id}
@@ -186,9 +226,15 @@ export default function RebindFontsModal({
               )}
               {scopedToSelection && (
                 <div class={local.rebindFontList}>
-                  Your selection holds{" "}
-                  <strong class={local.rebindSelCount}>{selectionCount}</strong> of these —
+                  Scoped to your selection —{" "}
+                  <strong class={local.rebindSelCount}>{selectionCount}</strong>
+                  {pageCount > selectionCount ? ` of ${pageCount} on this page` : ""}.
                   Re-apply will target the selection.
+                </div>
+              )}
+              {!scopedToSelection && selectionActive && (
+                <div class={local.rebindFontList}>
+                  Your selection has none pending — showing the whole page.
                 </div>
               )}
             </div>

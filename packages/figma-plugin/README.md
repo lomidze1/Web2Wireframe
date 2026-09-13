@@ -13,9 +13,9 @@ Figma plugin UI for converting websites to wireframes.
 ## Import Types
 
 - **Web** — URL import via Plugin_Backend
-- **Screenshot** — Screenshot upload (planned)
-- **HTML** — Raw HTML input (planned)
-- **Area Selection** — Element selection (planned)
+- **Screenshot** — Screenshot upload (AI-powered reconstruction)
+- **HTML** — Raw HTML paste
+- **Area Selection** — Element selection via browser extension
 - **Browser Extension** — CDP capture bridge
 
 ## Setup

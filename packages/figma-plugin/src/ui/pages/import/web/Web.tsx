@@ -12,16 +12,25 @@ import { API_BASE_URL } from "../../../shared/apiConfig";
 import { looksLikeBlockPage } from "../../../shared/blockPageDetection";
 import { requestImportTab } from "../../../shared/importTabEvents";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
+import * as perf from "../../../../utils/perf";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
 import type { WireframeFrame, WireframeNode } from "../../../../types";
 import { validateUrl } from "../../../../utils/urlValidation";
 import SettingsPanel from "../../../components/settingsPanel";
 import FontFallbackModal from "../../../components/modalPopup/FontFallbackModal";
-import { buildFontDownloads, buildFontRealNames } from "../../../../utils/fontDownload";
-import { buildFontDeclaredCuts, type FontCut } from "../../../../utils/fontUtils";
-import RenderingLoader, {
-  type RenderingProgress,
-} from "../../../components/renderingLoader/RenderingLoader";
+import {
+  buildFontDownloads,
+  buildFontRealNames,
+  enrichFontsWithSfntNames,
+} from "../../../../utils/fontDownload";
+import {
+  buildFontDeclaredCuts,
+  buildFontFaceStyles,
+  buildVariableFontFamilies,
+  type FontCut,
+} from "../../../../utils/fontUtils";
+import RenderingLoader from "../../../components/renderingLoader/RenderingLoader";
+import { useImportProgress } from "../../../hooks/useImportProgress";
 
 const TAB_ID = "web";
 const STORAGE_KEY = "w2w_settings_expanded_web";
@@ -57,6 +66,8 @@ interface RenderData {
   layoutMode: "autoLayout" | "absolute";
   fontRealNames?: Record<string, string>;
   fontDeclaredCuts?: Record<string, FontCut[]>;
+  fontVariableFamilies?: string[];
+  fontFaceStyles?: Record<string, string[]>;
 }
 
 export default function Web() {
@@ -65,9 +76,9 @@ export default function Web() {
     status: "idle",
     message: "",
   });
-  // Rendering loader state
-  const [showRenderingLoader, setShowRenderingLoader] = useState(false);
-  const [renderingProgress, setRenderingProgress] = useState<RenderingProgress | undefined>();
+  // Loader state — covers the whole import, capture included.
+  const loader = useImportProgress("url");
+  const { applyRender, hide: hideLoader } = loader;
   // Font fallback modal state
   const [showFontModal, setShowFontModal] = useState(false);
   const [fontModalData, setFontModalData] = useState<{
@@ -98,14 +109,13 @@ export default function Web() {
 
       if (msg.type === "render-progress") {
         const { step, percent, isComplete } = msg.data;
-        setRenderingProgress({ step, percent, isComplete });
+        applyRender({ step, percent, isComplete });
 
         // When complete, show success state then close
         if (isComplete) {
           if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
           resetTimeoutRef.current = setTimeout(() => {
-            setShowRenderingLoader(false);
-            setRenderingProgress(undefined);
+            hideLoader();
             setImportState({ status: "idle", message: "" });
             setUrl("");
             resetTimeoutRef.current = null;
@@ -119,8 +129,7 @@ export default function Web() {
       }
 
       if (msg.type === "wireframe-error") {
-        setShowRenderingLoader(false);
-        setRenderingProgress(undefined);
+        hideLoader();
         setImportState({
           status: "error",
           message: msg.data.error || "Failed to create wireframe",
@@ -133,7 +142,7 @@ export default function Web() {
       window.removeEventListener("message", handleMessage);
       if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
     };
-  }, []);
+  }, [applyRender, hideLoader]);
 
   /**
    * Send render message to Figma
@@ -144,12 +153,9 @@ export default function Web() {
       clearTimeout(resetTimeoutRef.current);
       resetTimeoutRef.current = null;
     }
-    // Show the rendering loader
-    setShowRenderingLoader(true);
-    setRenderingProgress({
-      step: "Creating wireframe…",
-      percent: 0,
-    });
+    // The loader is already up (it opened with the capture); hand it over to
+    // the sandbox's own scale.
+    loader.applyRender({ step: "Creating wireframe…", percent: 0 });
     setImportState({ status: "loading", message: "" });
 
     parent.postMessage(
@@ -159,6 +165,7 @@ export default function Web() {
           data: {
             frames: data.frames,
             sourceUrl: data.sourceUrl,
+            kind: "url",
             localStyles: data.localStyles,
             pluginColors: data.pluginColors,
             pluginFont: config.pluginFont,
@@ -170,8 +177,18 @@ export default function Web() {
             layoutMode: data.layoutMode, // "autoLayout" or "absolute"
             assetMode: settings.localAssetMode,
             interactionMode: settings.localInteractionMode,
+            htmlLayerNames: config.htmlLayerNames,
+            geometryRows: config.geometryRows,
+            originLinks: settings.localOriginLinks,
             fontRealNames: data.fontRealNames,
             fontDeclaredCuts: data.fontDeclaredCuts,
+            fontVariableFamilies: data.fontVariableFamilies,
+            fontFaceStyles: data.fontFaceStyles,
+            // Dev profiler (stripped in production): `sentAt` prices the
+            // structured clone of this payload, `perfUi` carries the iframe's
+            // own stage timings so the sandbox prints one combined table.
+            sentAt: __W2W_DEV_LOG__ ? Date.now() : undefined,
+            perfUi: perf.handoff(),
           },
         },
       },
@@ -225,10 +242,15 @@ export default function Web() {
     // Collapse settings panel so user can see loading status
     settings.collapseSettings();
 
+    // The capture is the long half of the import — raise the loader now, not
+    // once the response lands.
+    const controller = loader.beginCapture("Capturing the website…");
+
     try {
       // Call backend API
-      const response = await fetch(`${API_URL}/api/import-url`, {
+      const response = await perf.timed("ui.fetch", () => fetch(`${API_URL}/api/import-url`, {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: authHeader(),
@@ -246,13 +268,21 @@ export default function Web() {
           layoutMode: settings.localLayoutMode,
           pluginColors: config.pluginColors, // Send full 6-color palette
         }),
-      });
+      }));
 
       const { isAuthExpired } = await import("../../../shared/authEvents");
-      if (isAuthExpired(response)) return;
+      if (isAuthExpired(response)) {
+        // Reset the state too: `loading` is what disables the Import button,
+        // and ConnectionGate is about to swap in the Connect screen. Without
+        // this the overlay closes onto a dead "Importing…" button.
+        hideLoader();
+        setImportState({ status: "idle", message: "" });
+        return;
+      }
 
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
+        hideLoader();
         setImportState({ status: "idle", message: "" });
         return;
       }
@@ -266,10 +296,23 @@ export default function Web() {
         );
       }
 
-      const data = await response.json();
+      // Bank the capture duration only now, with a usable response in hand.
+      // Banking it the moment `fetch` resolved fed 200ms quota and auth
+      // rejections into the estimate, and a median of those pins the next
+      // import's ring at its ceiling for the whole capture.
+      loader.finishCapture();
 
-      // Store extracted fonts for font fallback download
+      const data = await perf.timed("ui.parseJson", () => response.json());
+
+      // Store extracted fonts for font fallback download. The server reads a
+      // face's real (SFNT) names only for the formats it can open — a WOFF1
+      // site (goodwill.ge) arrives with none — so read them here from the
+      // bytes it did bind, same as the extension path does with its `.w2w`
+      // asset map. Everything below keys off this enriched list.
       if (data.fonts && Array.isArray(data.fonts)) {
+        data.fonts = await perf.timed("ui.fontNames", () =>
+          enrichFontsWithSfntNames(data.fonts),
+        );
         setExtractedFonts(data.fonts);
       }
 
@@ -280,6 +323,7 @@ export default function Web() {
       // useless frame — instead, point the user at the Browser Extension, which
       // captures from their real, already-authenticated browser.
       if (looksLikeBlockPage(rawFrames)) {
+        hideLoader();
         setImportState({
           status: "error",
           message:
@@ -297,6 +341,7 @@ export default function Web() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isW2WFormat = rawFrames.length > 0 && (rawFrames[0] as any)?.tree?.type === "FRAME";
 
+      const transformStartedAt = Date.now();
       let frames: WireframeFrame[];
       if (isW2WFormat) {
         // W2W format: pass tree as capturedData, main.ts will convert via convertW2WToWireframe()
@@ -336,6 +381,7 @@ export default function Web() {
           }
         );
       }
+      perf.mark("ui.transform", Date.now() - transformStartedAt);
 
       // Prepare render data
       const renderData: RenderData = {
@@ -350,14 +396,25 @@ export default function Web() {
         layoutMode: settings.localLayoutMode,
         fontRealNames: buildFontRealNames(data.fonts),
         fontDeclaredCuts: buildFontDeclaredCuts(data.fonts),
+        fontVariableFamilies: Array.from(buildVariableFontFamilies(data.fonts)),
+        fontFaceStyles: buildFontFaceStyles(data.fonts),
       };
 
       // Always use the user's configured CSS variables mode from settings
+      // The response landed, but reading it, decoding font names and cutting
+      // assets all take time the loader still offers Cancel for. Honour it.
+      if (controller.signal.aborted) return;
+
       sendToFigma(renderData, settings.localCssVariablesMode);
 
       // Import consumed a quota slot server-side — refresh the footer badge.
       void refreshLicense();
     } catch (error) {
+      // Cancel already closed the overlay and set its own message.
+      if (controller.signal.aborted) return;
+      // Every failure hands over to the inline panel, which says more than the
+      // overlay could (bot-protection handoff, extension link, retry).
+      hideLoader();
       setImportState({
         status: "error",
         message: toUserMessage(error, "Failed to import website"),
@@ -518,6 +575,8 @@ export default function Web() {
         setCssVariablesMode={settings.setCssVariablesMode}
         setLayoutMode={settings.setLayoutMode}
         setAssetMode={settings.setAssetMode}
+        localOriginLinks={settings.localOriginLinks}
+        setOriginLinks={settings.setOriginLinks}
         localInteractionMode={settings.localInteractionMode}
         setInteractionMode={settings.setInteractionMode}
         handleReset={settings.handleReset}
@@ -549,13 +608,16 @@ export default function Web() {
 
       {/* Rendering Loader Overlay */}
       <RenderingLoader
-        isVisible={showRenderingLoader}
-        progress={renderingProgress}
+        isVisible={loader.isVisible}
+        progress={loader.progress}
         onClose={() => {
-          setShowRenderingLoader(false);
-          setRenderingProgress(undefined);
+          hideLoader();
           setImportState({ status: "idle", message: "" });
           setUrl("");
+        }}
+        onCancel={() => {
+          loader.cancel();
+          setImportState({ status: "idle", message: "Import canceled" });
         }}
       />
     </div>

@@ -28,6 +28,7 @@ import {
 import { convertEffectsToFigma } from "./fills";
 import { parseGridTemplate } from "@w2w/shared";
 import { logger } from "../utils/logger";
+import { orderWeightsBySpec } from "./fontIndex";
 
 // ============================================================================
 // Paint Key Serialization
@@ -1307,24 +1308,48 @@ const MAX_TEXT_STYLES = 50;
  *
  * Each bucket includes alternative spellings used by various fonts in Figma
  * ("SemiBold", "Semi Bold", "DemiBold", …) before falling back to neighbour
- * weights. Within neighbour fallbacks the LIGHTER neighbour comes first
- * (perceptually closer for wireframe rendering — going heavier makes text
- * look bolder than the source).
+ * weights. Neighbours follow the CSS Fonts Level 4 fallback ordering
+ * (see `orderWeightsBySpec`): above 500 the HEAVIER neighbour is tried first,
+ * below 400 the lighter one. This list previously reached for the lighter
+ * neighbour at every weight, which is why a 600 heading on a family without a
+ * Semibold rendered as Medium — a step light — instead of Bold.
  */
+const WEIGHT_BUCKETS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
+
+/** Every spelling Figma families use for a weight bucket, preferred first. */
+const WEIGHT_SPELLINGS: Readonly<Record<number, string[]>> = {
+  100: ["Thin", "Hairline"],
+  200: ["ExtraLight", "Extra Light", "UltraLight", "Ultra Light"],
+  300: ["Light"],
+  400: ["Regular", "Normal", "Book"],
+  500: ["Medium"],
+  600: ["Semibold", "SemiBold", "Semi Bold", "DemiBold", "Demi Bold"],
+  700: ["Bold"],
+  800: ["ExtraBold", "Extra Bold", "UltraBold", "Ultra Bold"],
+  900: ["Black", "Heavy"],
+};
+
+/** Snap a CSS weight to its bucket. Boundaries lean to the lighter side
+ *  (550 → Medium, not Semibold) — unchanged from the original ladder. */
+function weightBucket(weight: number): number {
+  if (weight <= 150) return 100;
+  if (weight <= 250) return 200;
+  if (weight <= 350) return 300;
+  if (weight <= 450) return 400;
+  if (weight <= 550) return 500;
+  if (weight <= 650) return 600;
+  if (weight <= 750) return 700;
+  if (weight <= 850) return 800;
+  return 900;
+}
+
 export function fontWeightToStyleCandidates(weight: number): string[] {
-  if (weight <= 150) return ["Thin", "Hairline", "ExtraLight", "Extra Light", "UltraLight", "Ultra Light", "Light", "Regular"];
-  // 200 — ExtraLight first (with spellings), then LIGHTER neighbour (Thin)
-  // before HEAVIER (Light). Same perceptual rule as 600 — don't overshoot.
-  if (weight <= 250) return ["ExtraLight", "Extra Light", "UltraLight", "Ultra Light", "Thin", "Light", "Regular"];
-  if (weight <= 350) return ["Light", "ExtraLight", "Extra Light", "Regular"];
-  if (weight <= 450) return ["Regular", "Normal", "Book"];
-  if (weight <= 550) return ["Medium", "Regular", "Semibold", "SemiBold", "Semi Bold"];
-  // 600 — Semibold first (with all spellings), then LIGHTER neighbour (Medium)
-  // before HEAVIER (Bold). Going heavier visually overshoots the source weight.
-  if (weight <= 650) return ["Semibold", "SemiBold", "Semi Bold", "DemiBold", "Demi Bold", "Medium", "Bold"];
-  if (weight <= 750) return ["Bold", "Semibold", "SemiBold", "Semi Bold", "ExtraBold", "Extra Bold"];
-  if (weight <= 850) return ["ExtraBold", "Extra Bold", "UltraBold", "Ultra Bold", "Bold", "Black"];
-  return ["Black", "Heavy", "ExtraBold", "Extra Bold", "Bold"];
+  const order = orderWeightsBySpec(weightBucket(weight), WEIGHT_BUCKETS);
+  const out: string[] = [];
+  for (const bucket of order) {
+    for (const spelling of WEIGHT_SPELLINGS[bucket]) out.push(spelling);
+  }
+  return Array.from(new Set(out));
 }
 
 /**
@@ -1421,9 +1446,22 @@ export function orderStylesByProximity(
       (italic === targetItalic ? 0 : ITALIC_MISMATCH_COST)
     );
   };
+  // Equal distance is a real tie (Medium and Bold are both 100 off a 600 run),
+  // and the spec breaks it directionally: at or above 400 the heavier cut
+  // wins, below 400 the lighter one. Falling back on the input order here
+  // meant deferring to Figma's alphabetical listing.
+  const direction = (style: string): number => {
+    const { weight } = parseStyleName(style);
+    return targetWeight >= 400 ? -weight : weight;
+  };
   return installed
     .map((style, index) => ({ style, index, cost: cost(style) }))
-    .sort((a, b) => a.cost - b.cost || a.index - b.index)
+    .sort(
+      (a, b) =>
+        a.cost - b.cost ||
+        direction(a.style) - direction(b.style) ||
+        a.index - b.index,
+    )
     .map((entry) => entry.style);
 }
 

@@ -371,11 +371,15 @@ describe("Screenshot", () => {
 
       fireEvent.click(findImportButton(container));
 
-      await vi.waitFor(() => {
-        expect(postMessageSpy).toHaveBeenCalled();
+      // The loader asks the sandbox for its timing history on mount, so the
+      // render message is no longer the first thing posted.
+      const call = await vi.waitFor(() => {
+        const found = postMessageSpy.mock.calls.find(
+          (c: any) => c[0]?.pluginMessage?.type === "render-wireframe"
+        );
+        expect(found).toBeTruthy();
+        return found!;
       });
-
-      const call = postMessageSpy.mock.calls[0];
       const msg = (call[0] as { pluginMessage: { type: string; data: Record<string, unknown> } }).pluginMessage;
       expect(msg.type).toBe("render-wireframe");
       expect(msg.data.sourceUrl).toBe("screenshot://uploaded");
@@ -514,11 +518,15 @@ describe("Screenshot", () => {
 
       fireEvent.click(findImportButton(container));
 
-      await vi.waitFor(() => {
-        expect(postMessageSpy).toHaveBeenCalled();
+      // The loader asks the sandbox for its timing history on mount, so the
+      // render message is no longer the first thing posted.
+      const call = await vi.waitFor(() => {
+        const found = postMessageSpy.mock.calls.find(
+          (c: any) => c[0]?.pluginMessage?.type === "render-wireframe"
+        );
+        expect(found).toBeTruthy();
+        return found!;
       });
-
-      const call = postMessageSpy.mock.calls[0];
       const msg = (call[0] as { pluginMessage: { data: Record<string, unknown> } })
         .pluginMessage;
       expect(msg.data.assetMode).toBe("realAssets");
@@ -697,11 +705,15 @@ describe("Screenshot", () => {
 
       fireEvent.click(findImportButton(container));
 
-      await vi.waitFor(() => {
-        expect(postMessageSpy).toHaveBeenCalled();
+      // The loader asks the sandbox for its timing history on mount, so the
+      // render message is no longer the first thing posted.
+      const call = await vi.waitFor(() => {
+        const found = postMessageSpy.mock.calls.find(
+          (c: any) => c[0]?.pluginMessage?.type === "render-wireframe"
+        );
+        expect(found).toBeTruthy();
+        return found!;
       });
-
-      const call = postMessageSpy.mock.calls[0];
       const msg = (call[0] as { pluginMessage: { data: Record<string, unknown> } })
         .pluginMessage;
       expect(msg.data.compareToSource).toBe(true);
@@ -747,11 +759,15 @@ describe("Screenshot", () => {
 
       fireEvent.click(findImportButton(container));
 
-      await vi.waitFor(() => {
-        expect(postMessageSpy).toHaveBeenCalled();
+      // The loader asks the sandbox for its timing history on mount, so the
+      // render message is no longer the first thing posted.
+      const call = await vi.waitFor(() => {
+        const found = postMessageSpy.mock.calls.find(
+          (c: any) => c[0]?.pluginMessage?.type === "render-wireframe"
+        );
+        expect(found).toBeTruthy();
+        return found!;
       });
-
-      const call = postMessageSpy.mock.calls[0];
       const msg = (call[0] as { pluginMessage: { type: string; data: Record<string, unknown> } }).pluginMessage;
       // colorMode should come from settings, which defaults to "website"
       expect(msg.data.colorMode).toBe("website");
@@ -820,6 +836,62 @@ describe("Screenshot", () => {
       const errorMsg = await findByText("Rendering failed");
       expect(errorMsg).toBeTruthy();
       expect(getByText("Import")).toBeTruthy();
+    });
+  });
+
+  /**
+   * The Screenshot tab has the widest window between "response landed" and
+   * "sandbox told to render": asset cutting reads the source file and crops one
+   * region per observed placeholder, which is seconds on a tall screenshot. The
+   * loader is still in `capture` phase for all of it — i.e. still offering
+   * Cancel — so both post-response rules have to hold here too.
+   */
+  describe("Screenshot — the window after the response lands", () => {
+    const savedTimings = (spy: any) =>
+      spy.mock.calls.filter((c: any) => c[0]?.pluginMessage?.type === "save-timing");
+
+    function mockQuotaResponse() {
+      const body = { error: "limit_exceeded" };
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 403,
+          clone: () => ({ json: () => Promise.resolve(body) }),
+          json: () => Promise.resolve(body),
+        })
+      ) as unknown as typeof fetch;
+    }
+
+    it("banks a capture sample for an import that succeeded", async () => {
+      mockSuccessResponse();
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+      await vi.waitFor(() => expect(findImportButton(container).disabled).toBe(false));
+
+      fireEvent.click(findImportButton(container));
+
+      await vi.waitFor(() => expect(savedTimings(postMessageSpy)).toHaveLength(1));
+      expect(savedTimings(postMessageSpy)[0][0].pluginMessage.data.kind).toBe("screenshot");
+    });
+
+    it("banks nothing for a quota rejection", async () => {
+      // A 403 comes back in milliseconds. Banked as a sample, three of them pull
+      // the median low enough that the next real import's ring saturates at its
+      // ceiling in the first second and then sits there.
+      mockQuotaResponse();
+      const { container } = render(<Screenshot />);
+      simulateImageUpload(container);
+      await vi.waitFor(() => expect(findImportButton(container).disabled).toBe(false));
+
+      fireEvent.click(findImportButton(container));
+
+      await vi.waitFor(() => expect(findImportButton(container).disabled).toBe(false));
+      expect(savedTimings(postMessageSpy)).toEqual([]);
+      expect(
+        postMessageSpy.mock.calls.some(
+          (c: any) => c[0]?.pluginMessage?.type === "render-wireframe"
+        )
+      ).toBe(false);
     });
   });
 });

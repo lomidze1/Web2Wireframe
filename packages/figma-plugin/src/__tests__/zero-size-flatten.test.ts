@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { convertW2WToWireframe } from '../rendering/css-converter';
 import type { W2WFrameNode, Quad } from '@w2w/shared';
+import type { WireframeNode } from '../types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -175,11 +176,16 @@ describe('Zero-size wrapper flattening', () => {
   });
 
   it('does NOT flatten normal-size wrappers', () => {
+    // The nav is INSET inside the wrapper (8px of padding). A child that
+    // exactly filled its parent would be folded away by the single-child
+    // collapse in treeSimplify.ts — a different pass, with its own tests —
+    // and the fixture could then no longer tell us anything about the
+    // zero-size rule, which is what this test is about.
     const child = makeFrame({
       tag: 'nav',
-      x: 0,
-      y: 0,
-      width: 1440,
+      x: 8,
+      y: 8,
+      width: 1424,
       height: 44,
       styles: {},
       children: [],
@@ -190,8 +196,8 @@ describe('Zero-size wrapper flattening', () => {
       x: 0,
       y: 0,
       width: 1440,
-      height: 44,
-      styles: { display: 'block' },
+      height: 60,
+      styles: { display: 'block', paddingTop: '8px', paddingLeft: '8px' },
       children: [child],
     });
 
@@ -371,9 +377,18 @@ describe('Visibility filtering in CSS converter', () => {
     const bodyNode = result.children![0];
     const navItemNode = bodyNode.children![0];
 
-    // Only the visible trigger group, flyout pruned
-    expect(navItemNode.children!.length).toBe(1);
-    expect(navItemNode.children![0].className).toBe('globalnav-submenu-trigger-group');
+    // The flyout is pruned, which leaves the trigger <ul> as the only child of
+    // div.globalnav-item — and it fills that div exactly, so the single-child
+    // collapse (treeSimplify.ts) folds the two into one layer carrying both
+    // class names. What this test pins is the pruning: no part of the hidden
+    // flyout survives anywhere in the subtree.
+    expect(navItemNode.className).toContain('globalnav-item');
+    expect(navItemNode.className).toContain('globalnav-submenu-trigger-group');
+
+    const findClass = (n: WireframeNode, cls: string): boolean =>
+      (n.className ?? '').split(' ').includes(cls) ||
+      (n.children ?? []).some((c) => findClass(c, cls));
+    expect(findClass(result, 'globalnav-submenu-link-store')).toBe(false);
   });
 
   it('skips children with opacity:0 (curtain overlay)', () => {

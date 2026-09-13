@@ -1,0 +1,12 @@
+{
+  "api": "1.0.0",
+  "editorType": ["figma", "figjam"],
+  "id": "w2w-tree-dump-dev",
+  "name": "W2W Tree Dump (dev)",
+  "main": "code.js",
+  "ui": "ui.html",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:3998"]
+  }
+}

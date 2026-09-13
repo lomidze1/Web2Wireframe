@@ -18,6 +18,10 @@ import RebindFontsModal, {
 import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
 import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
+import ImportReportModal, {
+  type ReportSource,
+} from "./components/modalPopup/ImportReportModal";
+import type { ImportWarning } from "../types";
 
 import ConnectFigma from "./components/ConnectFigma";
 import {
@@ -27,6 +31,8 @@ import {
 } from "./shared/licenseClient";
 import { API_BASE_URL } from "./shared/apiConfig";
 import { hasTransparentPixel } from "./shared/imageAlpha";
+import { mayHaveAlpha } from "./shared/figmaImageConvert";
+import { fitWithinFigmaLimit } from "../utils/figmaImageLimit";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
 import { onImportTabRequest } from "./shared/importTabEvents";
@@ -167,6 +173,16 @@ function AppContent() {
   // selection. Drives the footer button's scoped "Re-apply to selection" label;
   // the sandbox's rebind action already honours the same selection-or-page scope.
   const [selectionRebindableCount, setSelectionRebindableCount] = useState(0);
+  /** Whether anything is selected on canvas, pending or not — lets the modal
+   *  say "your selection is already clean" instead of silently widening. */
+  const [selectionActive, setSelectionActive] = useState(false);
+  /** Families this Figma can offer, for the modal's per-font picker. */
+  const [installedFontFamilies, setInstalledFontFamilies] = useState<string[]>([]);
+  /** The user's substitutions: pending family → chosen family. */
+  const [fontChoices, setFontChoices] = useState<Record<string, string>>({});
+  // Page-wide total, kept alongside the scoped count so the modal can say
+  // "6 of 1069 on this page" when a section is selected.
+  const [pageRebindableCount, setPageRebindableCount] = useState(0);
   // Per-layer detail for the modal's collapsible per-font list — each entry
   // is { id, name, families }; clicking a row selects & zooms to the layer.
   const [rebindableLayers, setRebindableLayers] = useState<
@@ -181,6 +197,54 @@ function AppContent() {
   const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
     number | null
   >(null);
+  // Post-import diagnostics: categorised warnings with the node ids the
+  // sandbox collected during rendering. The report opens itself, because the
+  // whole point is that the user learns WHICH layers degraded — a toast they
+  // can dismiss without reading is what we had before.
+  const [importWarnings, setImportWarnings] = useState<ImportWarning[]>([]);
+  const [importWarningOverflow, setImportWarningOverflow] = useState(0);
+  const [isImportReportOpen, setIsImportReportOpen] = useState(false);
+  const [importReportSource, setImportReportSource] = useState<ReportSource>();
+
+  // Post-import report from the sandbox (main.ts posts `import-report` right
+  // after the success toast). An empty list is still sent — it clears a stale
+  // report from a previous import.
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg.type !== "import-report") return;
+      const raw = msg.data?.warnings;
+      const warnings: ImportWarning[] = Array.isArray(raw)
+        ? raw.filter(
+            (w: unknown): w is ImportWarning =>
+              !!w &&
+              typeof (w as ImportWarning).category === "string" &&
+              typeof (w as ImportWarning).message === "string",
+          )
+        : [];
+      const overflow =
+        typeof msg.data?.overflow === "number" ? msg.data.overflow : 0;
+      setImportWarnings(warnings);
+      setImportWarningOverflow(overflow);
+      // Where the import came from — the report's "Report this to the
+      // developer" button only appears for a reportable (URL/extension) one.
+      const data = msg.data ?? {};
+      setImportReportSource(
+        typeof data.sourceUrl === "string"
+          ? {
+              sourceUrl: data.sourceUrl,
+              kind: typeof data.kind === "string" ? (data.kind as ReportSource["kind"]) : undefined,
+              viewports: Array.isArray(data.viewports)
+                ? data.viewports.filter((v: unknown): v is number => typeof v === "number")
+                : [],
+            }
+          : undefined,
+      );
+      setIsImportReportOpen(warnings.length > 0);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
   // Listen for quota-exceeded events dispatched by import API callers
   // (see shared/quotaEvents.ts → isQuotaExceeded).
@@ -201,6 +265,15 @@ function AppContent() {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
+      if (msg?.type === "installed-fonts") {
+        const families = msg.data?.families;
+        setInstalledFontFamilies(
+          Array.isArray(families)
+            ? families.filter((f: unknown): f is string => typeof f === "string")
+            : [],
+        );
+        return;
+      }
       if (msg?.type === "rebind-result") {
         // Sandbox finished (or failed) a re-apply run — release the modal's
         // busy button and surface the outcome inline.
@@ -218,6 +291,12 @@ function AppContent() {
       const selectionCount = msg.data?.selectionCount;
       setSelectionRebindableCount(
         typeof selectionCount === "number" ? selectionCount : 0,
+      );
+      const selActive = msg.data?.selectionActive;
+      setSelectionActive(selActive === true);
+      const pageCount = msg.data?.pageCount;
+      setPageRebindableCount(
+        typeof pageCount === "number" ? pageCount : (count ?? 0),
       );
       const layers = msg.data?.layers;
       setRebindableLayers(
@@ -262,7 +341,7 @@ function AppContent() {
       const msg = event.data?.pluginMessage;
       if (!msg || msg.type !== "convert-assets") return;
 
-      const assets: Array<{ url: string; dataUri: string; frameIdx: number }> = msg.data?.assets || [];
+      const assets: Array<{ url: string; dataUri: string }> = msg.data?.assets || [];
       if (assets.length === 0) {
         parent.postMessage({ pluginMessage: { type: "assets-converted", data: { convertedAssets: [] } } }, "*");
         return;
@@ -270,8 +349,6 @@ function AppContent() {
 
       // Convert each asset via Canvas
       const convertAll = async () => {
-        const results: Array<{ url: string; dataUri: string; frameIdx: number }> = [];
-
         for (const asset of assets) {
           try {
             // Create image from data URI
@@ -287,31 +364,45 @@ function AppContent() {
             // transparent WebP/AVIF logo converted to JPEG flattens onto
             // black. Detect transparency and export those as PNG; fully
             // opaque images keep JPEG 0.85 (smaller).
+            // Figma rejects anything over 4096px (utils/figmaImageLimit.ts),
+            // so an oversized image is drawn into a canvas that fits.
+            const originalWidth = img.naturalWidth;
+            const originalHeight = img.naturalHeight;
+            const { width, height } = fitWithinFigmaLimit(originalWidth, originalHeight);
             const canvas = document.createElement("canvas");
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
+            canvas.width = width;
+            canvas.height = height;
             const ctx = canvas.getContext("2d");
             if (!ctx) throw new Error("No 2d context");
-            ctx.drawImage(img, 0, 0);
+            ctx.drawImage(img, 0, 0, width, height);
 
             let needsPng = false;
-            try {
-              const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-              needsPng = hasTransparentPixel(rgba);
-            } catch {
-              // getImageData failed (tainted canvas) — assume opaque.
+            if (mayHaveAlpha(asset.dataUri)) {
+              try {
+                const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                needsPng = hasTransparentPixel(rgba);
+              } catch {
+                // getImageData failed (tainted canvas) — assume opaque.
+              }
             }
             const convertedDataUri = needsPng
               ? canvas.toDataURL("image/png")
               : canvas.toDataURL("image/jpeg", 0.85);
 
-            results.push({ url: asset.url, dataUri: convertedDataUri, frameIdx: asset.frameIdx });
+            // One message per asset: the sandbox keeps whatever arrived if its
+            // 30s window closes before the batch does.
+            parent.postMessage({
+              pluginMessage: {
+                type: "asset-converted",
+                data: { url: asset.url, dataUri: convertedDataUri, width, height, originalWidth, originalHeight },
+              },
+            }, "*");
           } catch {
             // Image conversion failed — skip this asset (falls back to placeholder).
           }
         }
 
-        parent.postMessage({ pluginMessage: { type: "assets-converted", data: { convertedAssets: results } } }, "*");
+        parent.postMessage({ pluginMessage: { type: "assets-converted", data: {} } }, "*");
       };
 
       convertAll();
@@ -389,6 +480,12 @@ function AppContent() {
           // Opens the info modal (install → select → re-apply); the modal's
           // own button fires the actual `rebind-original-fonts` action.
           setIsRebindOpen(true);
+          // The per-font "use instead" picker needs the families this Figma
+          // can offer; ask now so the list is there when the user expands one.
+          parent.postMessage(
+            { pluginMessage: { type: "list-installed-fonts" } },
+            "*",
+          );
         }}
       />
     </div>
@@ -406,6 +503,26 @@ function AppContent() {
       isOpen={isExtensionOpen}
       onClose={() => setIsExtensionOpen(false)}
     />
+    <ImportReportModal
+      isOpen={isImportReportOpen}
+      onClose={() => setIsImportReportOpen(false)}
+      warnings={importWarnings}
+      overflow={importWarningOverflow}
+      source={importReportSource}
+      onSelectLayer={(nodeId) => {
+        // Sandbox selects the layer and zooms to it. The report stays open so
+        // the user can walk down the list without reopening it each time.
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "select-import-warning-layer",
+              data: { nodeId },
+            },
+          },
+          "*",
+        );
+      }}
+    />
     <RebindFontsModal
       isOpen={isRebindOpen}
       onClose={() => {
@@ -415,6 +532,18 @@ function AppContent() {
       }}
       count={rebindableCount}
       selectionCount={selectionRebindableCount}
+      pageCount={pageRebindableCount}
+      selectionActive={selectionActive}
+      installedFonts={installedFontFamilies}
+      choices={fontChoices}
+      onChoiceChange={(family, chosen) =>
+        setFontChoices((prev) => {
+          const next = { ...prev };
+          if (chosen) next[family] = chosen;
+          else delete next[family];
+          return next;
+        })
+      }
       missingFonts={rebindableFamilies}
       layers={rebindableLayers}
       onSelectLayer={(id) => {
@@ -435,7 +564,13 @@ function AppContent() {
         setIsReapplying(true);
         setRebindResult(null);
         parent.postMessage(
-          { pluginMessage: { type: "rebind-original-fonts" } },
+          {
+            pluginMessage: {
+              type: "rebind-original-fonts",
+              // Families the user chose to replace rather than install.
+              data: { substitutions: fontChoices },
+            },
+          },
           "*",
         );
       }}

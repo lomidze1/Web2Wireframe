@@ -16,9 +16,8 @@ import {
 } from "../../../shared/imageDownscale";
 import type { CropSource } from "../../../shared/screenshotCrop";
 import SettingsPanel from "../../../components/settingsPanel";
-import RenderingLoader, {
-  type RenderingProgress,
-} from "../../../components/renderingLoader/RenderingLoader";
+import RenderingLoader from "../../../components/renderingLoader/RenderingLoader";
+import { useImportProgress } from "../../../hooks/useImportProgress";
 
 const TAB_ID = "screenshot";
 const STORAGE_KEY = "w2w_settings_expanded_screenshot";
@@ -63,7 +62,9 @@ export default function Screenshot() {
     heatmapUrl: string | null;
   } | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(false);
-  const [progress, setProgress] = useState<RenderingProgress | undefined>();
+  // Loader state — covers the whole run: AI analysis, asset cutting, render.
+  const loader = useImportProgress("screenshot");
+  const { applyRender, hide: hideLoader } = loader;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const analysisTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -109,7 +110,7 @@ export default function Screenshot() {
         // estimated analysis phase.
         stopAnalysisTicker();
         const { step, percent, isComplete } = msg.data;
-        setProgress({ step, percent, isComplete });
+        applyRender({ step, percent, isComplete });
       }
       if (msg.type === "wireframe-created") {
         setIsGenerating(false);
@@ -117,7 +118,7 @@ export default function Screenshot() {
       if (msg.type === "wireframe-error") {
         stopAnalysisTicker();
         setIsGenerating(false);
-        setProgress(undefined);
+        hideLoader();
         setError(msg.data.error || "Failed to create wireframe");
       }
       if (msg.type === "wireframe-exported" && cropSourceRef.current) {
@@ -135,7 +136,7 @@ export default function Screenshot() {
       window.removeEventListener("message", handleMessage);
       stopAnalysisTicker();
     };
-  }, [stopAnalysisTicker]);
+  }, [stopAnalysisTicker, applyRender, hideLoader]);
 
   // Shared entry point for all three input sources (file picker, drag &
   // drop, clipboard paste): read → downscale → preview.
@@ -228,7 +229,9 @@ export default function Screenshot() {
 
     // Estimated progress for the analysis phase — the request itself reports
     // nothing until it returns.
-    setProgress({ step: ANALYSIS_STAGES[0].step, percent: ANALYSIS_STAGES[0].percent });
+    // The AI analysis is the long half and reports nothing until it returns —
+    // the loader estimates it, exactly like a URL capture.
+    const controller = loader.beginCapture(ANALYSIS_STAGES[0].step);
     stopAnalysisTicker();
 
     // Tall pages: additionally cut the ORIGINAL file into overlapping
@@ -259,7 +262,7 @@ export default function Screenshot() {
           { after: 150, step: "Almost there — this is a large page…", percent: 20 },
         ]
       : ANALYSIS_STAGES;
-    setProgress({ step: stages[0].step, percent: stages[0].percent });
+    loader.setCaptureStep(stages[0].step);
     const startedAt = Date.now();
     analysisTimerRef.current = setInterval(() => {
       const elapsed = (Date.now() - startedAt) / 1000;
@@ -267,12 +270,13 @@ export default function Screenshot() {
       for (const candidate of stages) {
         if (elapsed >= candidate.after) stage = candidate;
       }
-      setProgress({ step: stage.step, percent: stage.percent });
+      loader.setCaptureStep(stage.step);
     }, ANALYSIS_TICK_MS);
 
     try {
       const response = await fetch(`${API_URL}/api/import-screenshot`, {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json", Authorization: authHeader() },
         body: JSON.stringify({
           figmaUserId: config.figmaUserId,
@@ -303,15 +307,18 @@ export default function Screenshot() {
 
       const { isAuthExpired } = await import("../../../shared/authEvents");
       if (isAuthExpired(response)) {
+        // See Web.tsx: without the reset the Import button stays disabled for
+        // the rest of the session.
         stopAnalysisTicker();
-        setProgress(undefined);
+        hideLoader();
+        setIsGenerating(false);
         return;
       }
 
       const { isQuotaExceeded } = await import("../../../shared/quotaEvents");
       if (await isQuotaExceeded(response)) {
         stopAnalysisTicker();
-        setProgress(undefined);
+        hideLoader();
         setIsGenerating(false);
         return;
       }
@@ -321,6 +328,12 @@ export default function Screenshot() {
         throw new Error(errData.error || httpErrorMessage(response.status));
       }
 
+      // Bank the capture duration only now, with a usable response in hand.
+      // Banking it the moment `fetch` resolved fed 200ms quota and auth
+      // rejections into the estimate, and a median of those pins the next
+      // import's ring at its ceiling for the whole capture.
+      loader.finishCapture();
+
       const data = await response.json();
       if (!data.success) throw new Error(data.error || "Screenshot analysis failed");
 
@@ -328,7 +341,9 @@ export default function Screenshot() {
 
       // Analysis is done; the sandbox takes over reporting from 25%.
       stopAnalysisTicker();
-      setProgress({ step: "Cutting assets from the screenshot…", percent: 22 });
+      // Still local work, not the sandbox — keep the estimate running rather
+      // than jumping into the render segment early.
+      loader.setCaptureStep("Cutting assets from the screenshot…");
 
       // Real Assets: the screenshot itself is the only pixel source, so cut
       // each observed placeholder out of the original file. Best-effort —
@@ -344,6 +359,13 @@ export default function Screenshot() {
         }
       }
 
+      // The response landed, but reading it, decoding font names and cutting
+      // assets all take time the loader still offers Cancel for. Honour it.
+      if (controller.signal.aborted) {
+        setIsGenerating(false);
+        return;
+      }
+
       // Send to Figma sandbox for rendering
       parent.postMessage(
         {
@@ -352,6 +374,7 @@ export default function Screenshot() {
             data: {
               frames,
               sourceUrl: data.sourceUrl,
+              kind: "screenshot",
               pluginColors: data.pluginColors,
               pluginFont: config.pluginFont,
               variableMode: "direct",
@@ -371,14 +394,19 @@ export default function Screenshot() {
       void refreshLicense();
     } catch (err: unknown) {
       stopAnalysisTicker();
-      setProgress(undefined);
+      // Cancel already closed the overlay.
+      if (controller.signal.aborted) {
+        setIsGenerating(false);
+        return;
+      }
+      hideLoader();
       setIsGenerating(false);
       setError(toUserMessage(err, "Screenshot analysis failed"));
     }
     // `settings` is the full hook return value (collapseSettings + local*
     // state) — include it whole; eslint's exhaustive-deps can't track the
     // individual fields we use across the callback body.
-  }, [image, textMode, config, settings, refreshLicense, stopAnalysisTicker]);
+  }, [image, textMode, config, settings, refreshLicense, stopAnalysisTicker, loader, hideLoader, assetMode, fontMode, layoutMode]);
 
   return (
     <div class={styles.screenshotContainer}>
@@ -520,9 +548,14 @@ export default function Screenshot() {
       )}
 
       <RenderingLoader
-        isVisible={progress !== undefined}
-        progress={progress}
-        onClose={() => setProgress(undefined)}
+        isVisible={loader.isVisible}
+        progress={loader.progress}
+        onClose={hideLoader}
+        onCancel={() => {
+          stopAnalysisTicker();
+          loader.cancel();
+          setIsGenerating(false);
+        }}
       />
     </div>
   );

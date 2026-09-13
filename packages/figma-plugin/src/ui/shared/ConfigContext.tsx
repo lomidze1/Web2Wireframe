@@ -25,8 +25,14 @@ export interface PluginColors {
  * only ever reaches brand-new installs. See `deepMergeConfig`.
  *
  * v2 (2026-07-16): colorMode/fontMode/textMode/assetMode → website-faithful.
+ * v3 (2026-08-27): htmlLayerNames added (h2d's "HTML layer names" toggle,
+ *                  default OFF = semantic layer naming).
+ * v4 (2026-08-30): geometryRows added (promote block containers whose captured
+ *                  rects prove a horizontal row, default OFF = CSS layout).
+ * v5 (2026-08-31): originLinks added (the "Links" import option, default ON =
+ *                  today's behaviour of carrying the site's links along).
  */
-export const CONFIG_VERSION = 2;
+export const CONFIG_VERSION = 5;
 
 export interface PluginConfig {
   // Absent on configs written before CONFIG_VERSION existed (treated as v1).
@@ -43,6 +49,17 @@ export interface PluginConfig {
   cssVariablesDefault: "styles" | "direct";
   layoutModeDefault: "autoLayout" | "absolute";
   interactionMode: "none" | "variants";
+  // h2d parity: true = legacy tag#id / tag.class layer names; false
+  // (default) = semantic two-stage naming ("Header", "Link - Sign in", …).
+  htmlLayerNames: boolean;
+  // true = a block container whose children's captured rects prove a
+  // left-to-right row becomes a HORIZONTAL auto-layout; false (default) = the
+  // CSS decides, and an unproven block container stays absolute.
+  geometryRows: boolean;
+  // true (default) = the source site's links come along: text hyperlinks,
+  // click-through on text-less <a> frames and same-page #anchor jumps.
+  // false = the wireframe carries no links at all; the picture is unchanged.
+  originLinks: boolean;
   // Figma user identity (re-emitted by sandbox on every plugin open;
   // primary key for License lookups). Not persisted to clientStorage —
   // sandbox always overwrites with the live `figma.currentUser?.id`.
@@ -95,6 +112,9 @@ export const DEFAULT_CONFIG: PluginConfig = {
   cssVariablesDefault: "direct",
   layoutModeDefault: "autoLayout",
   interactionMode: "none",
+  htmlLayerNames: false,
+  geometryRows: false,
+  originLinks: true,
   // Figma user id starts null until sandbox responds to `get-current-user`.
   figmaUserId: null,
 };
@@ -159,11 +179,36 @@ export function deepMergeConfig(defaults: PluginConfig, saved: Partial<PluginCon
   // load), so without this they would never see the new defaults. Scoped to
   // the four output modes — viewports, fonts and layout prefs are left alone.
   // Anything saved at v2 or later is a deliberate choice and is preserved.
-  if ((saved.configVersion ?? 1) < CONFIG_VERSION) {
+  // Compares against 2 (not CONFIG_VERSION) so later bumps never re-fire it.
+  if ((saved.configVersion ?? 1) < 2) {
     merged.colorMode = defaults.colorMode;
     merged.fontMode = defaults.fontMode;
     merged.textMode = defaults.textMode;
     merged.assetMode = defaults.assetMode;
+  }
+
+  // Migration → v3: stamp in htmlLayerNames (default false = semantic
+  // naming) for configs snapshotted before the key existed. A true saved at
+  // v3+ is a deliberate opt-in to DOM-selector names and is preserved.
+  if ((saved.configVersion ?? 1) < 3) {
+    merged.htmlLayerNames = defaults.htmlLayerNames;
+  }
+
+  // Migration → v4: stamp in geometryRows (default false = today's CSS-driven
+  // layout) for configs snapshotted before the key existed. A true saved at
+  // v4+ is a deliberate opt-in and is preserved.
+  if ((saved.configVersion ?? 1) < 4) {
+    merged.geometryRows = defaults.geometryRows;
+  }
+
+  // Migration → v5: stamp in originLinks (default true = links come along, as
+  // they always have) for configs snapshotted before the key existed. A false
+  // saved at v5+ is a deliberate opt-out and is preserved.
+  if ((saved.configVersion ?? 1) < 5) {
+    merged.originLinks = defaults.originLinks;
+  }
+
+  if ((saved.configVersion ?? 1) < CONFIG_VERSION) {
     merged.configVersion = CONFIG_VERSION;
   }
 

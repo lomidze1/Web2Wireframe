@@ -1,9 +1,9 @@
 # Extension Identity Parity Plan — h2d-style "Your Plan" + User + Logout + Upgrade
 
-> Planning artifact written per [docs/Prompter.md](../Prompter.md) (XML-tagged feature design).
+> Planning artifact written per `~/.claude/Prompter.md` (XML-tagged feature design).
 > Status: **DRAFT — pending owner approval.** No code changes yet.
 > Date: 2026-05-26.
-> Supersedes: Layer A from [docs/audit-browser-extension-plan.md](../audit-browser-extension-plan.md) (Layer A shipped 2026-05-25 as content cleanup; this plan is Layer B + h2d-parity UI).
+> Supersedes: Layer A from [audit-browser-extension-plan.md](./audit-browser-extension-plan.md) (Layer A shipped 2026-05-25 as content cleanup; this plan is Layer B + h2d-parity UI).
 
 ---
 

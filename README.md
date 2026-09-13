@@ -22,6 +22,15 @@ Convert websites to pixel-perfect Figma wireframes using Chrome DevTools Protoco
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+## Documentation
+
+| სად | რა |
+|-----|-----|
+| [docs/](docs/) | გადაწყვეტილებები, გეგმები, runbook-ები, ბიზნესი — [`docs/README.md`](docs/README.md) = რუკა |
+| [CLAUDE.md](CLAUDE.md) | არქიტექტურა, ბრძანებები, სამუშაო წესები (აგენტებისთვის) |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Docker + deploy |
+| [social-agent/](social-agent/) | სოც-არხების გეგმა, ვიდეო, სცენარები |
+
 ## Quick Start
 
 ```bash

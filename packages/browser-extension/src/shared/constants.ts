@@ -6,9 +6,22 @@
  * must not be imported by @w2w/api or the figma-plugin.
  */
 
-// API Endpoints — production default. For local development, override the
-// backend URL via the extension's Options page (settings.backendUrl).
-export const API_URL = "https://api.web2wireframe.design";
+// API Endpoints — production default.
+//
+// 🔴 USE_LOCAL_API MUST BE `false` IN EVERY COMMIT AND EVERY WEB STORE UPLOAD.
+// Same rule, and the same reason, as the plugin's `USE_PRODUCTION` flag in
+// `packages/figma-plugin/src/ui/shared/apiConfig.ts`: shipping the wrong side of
+// this switch points a published build at a machine that is not there.
+//
+// Flip to `true` only to test an unpacked `dist/` against the local API, then
+// flip it back. The Options page (`settings.backendUrl`) overrides this at
+// runtime and is the better route when it is reachable — this flag exists
+// because Chrome's "Extension options" button does not always open.
+const USE_LOCAL_API = false;
+
+export const API_URL = USE_LOCAL_API
+  ? "http://localhost:3002"
+  : "https://api.web2wireframe.design";
 export const API_ENDPOINTS = {
   IMPORT_CDP: `${API_URL}/api/import-cdp`,
   IMPORT_URL: `${API_URL}/api/import-url`,

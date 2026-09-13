@@ -153,3 +153,96 @@ describe('bakeSvgPresentation', () => {
     ).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Gradient stops — stripe.com
+// ---------------------------------------------------------------------------
+
+/**
+ * stripe.com's gradient icons colour their stops through CSS custom properties
+ * scoped to the <svg> itself:
+ *
+ *   <stop stop-color="var(--icon-gradient-start)">
+ *
+ * Figma's SVG parser has no variable resolution, so an unbaked stop imported as
+ * black and the whole icon with it. The browser resolves it — getComputedStyle
+ * on the stop returns the real colour — so the bake has to carry stop-color too.
+ */
+describe('bakeSvgPresentation — gradient stops', () => {
+  const GRADIENT_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' +
+    '<path fill="url(#g)" d="M0 0h24v24H0z"/>' +
+    '<defs><linearGradient id="g">' +
+    '<stop stop-color="var(--icon-gradient-start)"/>' +
+    '<stop offset="1" stop-color="var(--icon-gradient-end)"/>' +
+    '</linearGradient></defs></svg>';
+
+  it('bakes the resolved stop-color, replacing the var() reference', () => {
+    const { original, clone } = makeSvg(GRADIENT_SVG);
+
+    bakeSvgPresentation(
+      original,
+      clone,
+      styleByTag({ stop: { 'stop-color': 'rgb(127, 125, 252)', 'stop-opacity': '1' } }),
+    );
+
+    for (const stop of Array.from(clone.querySelectorAll('stop'))) {
+      expect(stop.getAttribute('stop-color')).toBe('rgb(127, 125, 252)');
+    }
+    expect(clone.outerHTML).not.toContain('var(--icon-gradient');
+  });
+
+  it('bakes stop-opacity as well', () => {
+    const { original, clone } = makeSvg(GRADIENT_SVG);
+
+    bakeSvgPresentation(
+      original,
+      clone,
+      styleByTag({ stop: { 'stop-color': 'rgb(1, 2, 3)', 'stop-opacity': '0.5' } }),
+    );
+
+    expect(clone.querySelector('stop')?.getAttribute('stop-opacity')).toBe('0.5');
+  });
+
+  it('never writes stop-color onto an element that is not a stop', () => {
+    // getComputedStyle answers stop-color on ANY element — with the initial
+    // black. Writing it everywhere would put `stop-color="rgb(0, 0, 0)"` on 7
+    // of this icon's 10 elements: pure noise in the payload.
+    const { original, clone } = makeSvg(GRADIENT_SVG);
+
+    bakeSvgPresentation(
+      original,
+      clone,
+      // Every tag reports the property, exactly as the browser does.
+      styleByTag({
+        svg: { 'stop-color': 'rgb(0, 0, 0)' },
+        path: { 'stop-color': 'rgb(0, 0, 0)' },
+        defs: { 'stop-color': 'rgb(0, 0, 0)' },
+        lineargradient: { 'stop-color': 'rgb(0, 0, 0)' },
+        stop: { 'stop-color': 'rgb(127, 125, 252)' },
+      }),
+    );
+
+    for (const el of [clone, ...Array.from(clone.querySelectorAll('*'))]) {
+      if (el.tagName.toLowerCase() === 'stop') continue;
+      expect(el.hasAttribute('stop-color')).toBe(false);
+    }
+  });
+
+  it('still bakes the ordinary paint properties on every element', () => {
+    const { original, clone } = makeSvg(GRADIENT_SVG);
+
+    bakeSvgPresentation(
+      original,
+      clone,
+      styleByTag({
+        svg: OUTLINE_ICON_STYLE,
+        path: OUTLINE_ICON_STYLE,
+        stop: { 'stop-color': 'rgb(1, 2, 3)' },
+      }),
+    );
+
+    expect(clone.querySelector('path')?.getAttribute('stroke')).toBe('rgb(37, 99, 235)');
+    expect(clone.getAttribute('fill')).toBe('none');
+  });
+});

@@ -22,6 +22,7 @@
  */
 
 import { fontCutExactStyles, fontStyleCandidates, orderStylesByProximity, parseStyleName } from "./styles";
+import { normalizeFamilyKey, resolveInstalledCandidates } from "./fontIndex";
 import { isServerFallbackFamily } from "../utils/fontUtils";
 import { logger } from "../utils/logger";
 
@@ -160,11 +161,81 @@ export function countRebindableNodes(
   return { count, families: Array.from(families).sort(), layers };
 }
 
+/** What the sandbox posts to the Re-apply modal: {@link RebindableCount} for
+ *  the scope Re-apply will actually act on, plus the page total for context. */
+export interface RebindableCountPayload extends RebindableCount {
+  /** Rebindable layers inside the current selection. `0` means page scope. */
+  selectionCount: number;
+  /** Rebindable layers on the whole page, whatever the scope. */
+  pageCount: number;
+  /** True when the user HAS a selection — whether or not it holds anything
+   *  pending. Without it the modal cannot tell "no selection, page scope"
+   *  from "a selection that turned out clean", and the second case reads as
+   *  the tool ignoring the selection while it quietly shows other frames. */
+  selectionActive: boolean;
+}
+
+/**
+ * Describe the scope Re-apply will act on.
+ *
+ * `rebindOriginalFonts` runs over the SELECTION when it holds rebindable text
+ * and over the page otherwise, so the numbers the modal shows must follow the
+ * same rule. Reporting page-wide totals beside a "Re-apply to selection"
+ * button promised 1069 layers where 6 would change.
+ */
+export function buildRebindableCountPayload(
+  pageNodes: Array<Pick<TextNode, "getPluginData" | "id" | "name">>,
+  selectionNodes: Array<Pick<TextNode, "getPluginData" | "id" | "name">>,
+  /** Whether anything is selected on canvas. Defaults to "there are nodes in
+   *  `selectionNodes`", which is only wrong for a selection holding no text. */
+  selectionActive = selectionNodes.length > 0,
+): RebindableCountPayload {
+  const page = countRebindableNodes(pageNodes);
+  const selection =
+    selectionNodes.length > 0
+      ? countRebindableNodes(selectionNodes)
+      : { count: 0, families: [], layers: [] };
+
+  return composeRebindablePayload(page, selection, selectionActive);
+}
+
+/**
+ * Same payload, from counts that were tallied separately.
+ *
+ * The sandbox rescans the page only when the document actually changed; a
+ * plain selection change reuses the page's last result and re-walks just the
+ * selection, which is what keeps clicking a large imported frame from
+ * freezing Figma.
+ */
+export function composeRebindablePayload(
+  page: RebindableCount,
+  selection: RebindableCount,
+  selectionActive: boolean,
+): RebindableCountPayload {
+  // A selection holding nothing rebindable falls back to page scope, matching
+  // what the rebind handler does with it.
+  const scoped = selection.count > 0 ? selection : page;
+  return {
+    count: scoped.count,
+    families: scoped.families,
+    layers: scoped.layers,
+    selectionCount: selection.count,
+    pageCount: page.count,
+    selectionActive,
+  };
+}
+
 /** Style ladder tried in order when the node's current style isn't available
  *  on the now-installed font (e.g. user installed PSA Regular but the node
  *  was rendered with Medium). Mirrors the conventional cuts most fonts ship
  *  with. */
 const STYLE_FALLBACK_LADDER = ["Regular", "Bold", "Medium", "Light", "Normal"];
+
+/** How many ranked index candidates a rebind will try to load before falling
+ *  back to the legacy ladder. A face rarely registers more than a handful of
+ *  spellings; the cap keeps a pathological family from issuing hundreds of
+ *  rejected loads per node. */
+const MAX_INDEX_CANDIDATES = 12;
 
 /** All spelling variants for the requested style's weight bucket ("Semi Bold"
  *  → Semibold, SemiBold, Semi Bold, DemiBold, …), so a node rendered as Inter
@@ -247,9 +318,21 @@ export function collectTextNodesIn(roots: SceneNode[]): TextNode[] {
 }
 
 /**
- * Try to load `family` with the requested style first, then walk a small
- * ladder of common cuts. Returns the style that loaded, or `null` if every
- * attempt failed.
+ * Resolve `family` to a cut that is actually installed, and load it. Returns
+ * the (family, style) pair that loaded — never the requested spelling — or
+ * `null` if every attempt failed.
+ *
+ * The returned FAMILY matters as much as the style: the name a face registers
+ * under is frequently not the name we asked for. stripe.com's Söhne VF names
+ * itself "Söhne VF" in its `name` table but installs as "S?hne VF" (mangled
+ * ö), and the site's CSS asks for "SourceCodePro" while the installed font is
+ * "Source Code Pro". Handing the requested spelling to `node.fontName` throws
+ * in both cases.
+ *
+ * So we ask the shared font index first — the same resolution the renderer
+ * uses (text.ts `resolveFamilyCut`). It matches on a normalized family key and
+ * returns the exact installed strings. The legacy ladder stays as the fallback
+ * for hosts with no `listAvailableFontsAsync`.
  *
  * Each attempt is logged so the user can see exactly which (family, style)
  * pairs succeeded vs threw, and what the underlying error message was — key
@@ -261,7 +344,30 @@ async function loadFontWithFallback(
   preferredStyle: string,
   trace: { nodeId: string; attempts: Array<{ family: string; style: string; ok: boolean; error?: string }> },
   installedStyles: Map<string, string[]>,
-): Promise<string | null> {
+): Promise<{ family: string; style: string } | null> {
+  const attempt = async (fam: string, style: string): Promise<boolean> => {
+    try {
+      await figma.loadFontAsync({ family: fam, style });
+      trace.attempts.push({ family: fam, style, ok: true });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      trace.attempts.push({ family: fam, style, ok: false, error: message });
+      return false;
+    }
+  };
+
+  const { weight, italic } = parseStyleName(preferredStyle);
+  // Walk the ranked candidates rather than trusting the single best: Figma
+  // lists fonts it cannot load, so the winner may throw while a real cut of
+  // the same face waits one place down (see rankInIndex).
+  const indexCandidates = await resolveInstalledCandidates({ family, weight, italic });
+  for (const cut of indexCandidates.slice(0, MAX_INDEX_CANDIDATES)) {
+    if (await attempt(cut.family, cut.style)) {
+      return { family: cut.family, style: cut.style };
+    }
+  }
+
   const tried = new Set<string>();
   // The conventional ladder first; then, as a last resort, the family's ACTUAL
   // installed styles. This is what rescues fonts that only ship non-standard
@@ -269,7 +375,7 @@ async function loadFontWithFallback(
   // + style "Buch", which neither the node's style nor the ladder ever names.
   const actual = orderActualStyles(
     preferredStyle,
-    installedStyles.get(family) ?? [],
+    installedStyles.get(normalizeFamilyKey(family)) ?? [],
   );
   const candidates = [
     preferredStyle,
@@ -280,14 +386,7 @@ async function loadFontWithFallback(
   for (const style of candidates) {
     if (tried.has(style)) continue;
     tried.add(style);
-    try {
-      await figma.loadFontAsync({ family, style });
-      trace.attempts.push({ family, style, ok: true });
-      return style;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      trace.attempts.push({ family, style, ok: false, error: message });
-    }
+    if (await attempt(family, style)) return { family, style };
   }
   return null;
 }
@@ -299,7 +398,16 @@ async function loadFontWithFallback(
  */
 export async function rebindOriginalFonts(
   nodes: TextNode[],
+  /** Families the user chose to REPLACE rather than wait for, as
+   *  `markerFamily → chosenFamily`. Söhne and Geist Variable are licensed:
+   *  no download makes them installable, so without a way to say "use this
+   *  instead" the modal waits forever. The marker's own name is still what we
+   *  report as missing — that is the font the layer asked for. */
+  substitutions?: Record<string, string>,
 ): Promise<RebindResult> {
+  /** The family to actually load for a marker — the user's pick when they
+   *  made one, the marker itself otherwise. */
+  const chosen = (family: string): string => substitutions?.[family] || family;
   let rebound = 0;
   let skippedMixed = 0;
   let total = 0;
@@ -318,17 +426,22 @@ export async function rebindOriginalFonts(
 
   // Map of installed family → its actual available styles, fetched once. Lets
   // loadFontWithFallback rescue fonts whose only styles are non-standard names
-  // (Söhne ships "Buch", not "Regular"). Guarded so unit envs without the
-  // font API simply fall back to the conventional style ladder.
+  // (Söhne ships "Buch", not "Regular"). Keyed NORMALIZED so a face installed
+  // under a mangled or differently-spaced spelling is still reachable when the
+  // index itself is unavailable. Guarded so unit envs without the font API
+  // simply fall back to the conventional style ladder.
   const installedStyles = new Map<string, string[]>();
   try {
     if (typeof figma.listAvailableFontsAsync === "function") {
       const avail = await figma.listAvailableFontsAsync();
       for (const f of avail) {
-        const fam = f.fontName.family;
-        const arr = installedStyles.get(fam);
+        const key = normalizeFamilyKey(f.fontName.family);
+        // "" is what a CJK-only name normalizes to — bucketing those together
+        // would offer one CJK family's cuts for another (see isSameFamilyName).
+        if (!key) continue;
+        const arr = installedStyles.get(key);
         if (arr) arr.push(f.fontName.style);
-        else installedStyles.set(fam, [f.fontName.style]);
+        else installedStyles.set(key, [f.fontName.style]);
       }
     }
   } catch {
@@ -380,7 +493,7 @@ export async function rebindOriginalFonts(
 
       let applied: { family: string; style: string } | null = null;
       let attempts = 0;
-      for (const family of pendingCut.families) {
+      for (const family of pendingCut.families.map(chosen)) {
         for (const style of fontCutExactStyles(pendingCut.weight, pendingCut.italic)) {
           attempts++;
           try {
@@ -507,20 +620,20 @@ export async function rebindOriginalFonts(
         const fbTrace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
         let allRunsSet = true;
         for (const r of interRuns) {
-          const loaded = await loadFontWithFallback(originalFamily, r.fontName.style, fbTrace, installedStyles);
+          const loaded = await loadFontWithFallback(chosen(originalFamily), r.fontName.style, fbTrace, installedStyles);
           if (loaded === null) {
             allRunsSet = false;
             stillMissing.add(originalFamily);
             continue;
           }
           try {
-            node.setRangeFontName(r.start, r.end, { family: originalFamily, style: loaded });
+            node.setRangeFontName(r.start, r.end, loaded);
           } catch (err) {
             allRunsSet = false;
             stillMissing.add(originalFamily);
             fbTrace.attempts.push({
-              family: originalFamily,
-              style: loaded,
+              family: loaded.family,
+              style: loaded.style,
               ok: false,
               error: `setRangeFontName(${r.start},${r.end}): ${err instanceof Error ? err.message : String(err)}`,
             });
@@ -574,7 +687,7 @@ export async function rebindOriginalFonts(
         } catch {
           /* fall back to "Regular" */
         }
-        const loaded = await loadFontWithFallback(s.family, curStyle, segTrace, installedStyles);
+        const loaded = await loadFontWithFallback(chosen(s.family), curStyle, segTrace, installedStyles);
         if (loaded === null) {
           // Dead server-fallback run (pre-fix server import) — heal by
           // ignoring it; the marker clears below if nothing real failed.
@@ -584,7 +697,7 @@ export async function rebindOriginalFonts(
           continue;
         }
         try {
-          node.setRangeFontName(s.start, s.end, { family: s.family, style: loaded });
+          node.setRangeFontName(s.start, s.end, loaded);
           anyRunSet = true;
         } catch (err) {
           allRunsSet = false;
@@ -593,8 +706,8 @@ export async function rebindOriginalFonts(
           // node" when instance text was overridden after the marker was
           // stamped) — a font-load failure it is not, and the trace must say so.
           segTrace.attempts.push({
-            family: s.family,
-            style: loaded,
+            family: loaded.family,
+            style: loaded.style,
             ok: false,
             error: `setRangeFontName(${s.start},${s.end}): ${err instanceof Error ? err.message : String(err)}`,
           });
@@ -653,9 +766,9 @@ export async function rebindOriginalFonts(
 
     const currentStyle = (node.fontName as FontName).style;
     const trace = { nodeId: node.id, attempts: [] as Array<{ family: string; style: string; ok: boolean; error?: string }> };
-    const loadedStyle = await loadFontWithFallback(originalFamily, currentStyle, trace, installedStyles);
+    const loaded = await loadFontWithFallback(chosen(originalFamily), currentStyle, trace, installedStyles);
 
-    if (loadedStyle === null) {
+    if (loaded === null) {
       // Self-heal: a server-fallback family (Liberation Sans, Noto * CJK …)
       // that fails to load is a dead marker from a pre-fix server import —
       // clear it silently instead of reporting an un-installable family.
@@ -686,7 +799,9 @@ export async function rebindOriginalFonts(
     }
 
     try {
-      node.fontName = { family: originalFamily, style: loadedStyle };
+      // The RESOLVED pair, not the requested spelling — see
+      // loadFontWithFallback: the installed family name is often different.
+      node.fontName = loaded;
       // Stamp the "done" marker first (carries the family for diagnostics
       // and so a future Re-apply pass can count cumulative rebinds even
       // after the original marker is gone). Then clear the original marker
@@ -699,7 +814,7 @@ export async function rebindOriginalFonts(
         family: originalFamily,
         requestedStyle: currentStyle,
         outcome: "rebound",
-        appliedStyle: loadedStyle,
+        appliedStyle: loaded.style,
         attemptsTried: trace.attempts.length,
         chars: charsPreview,
       });
@@ -712,7 +827,7 @@ export async function rebindOriginalFonts(
         family: originalFamily,
         requestedStyle: currentStyle,
         outcome: "setFailed",
-        appliedStyle: loadedStyle,
+        appliedStyle: loaded.style,
         attemptsTried: trace.attempts.length,
         firstError: err instanceof Error ? err.message : String(err),
         chars: charsPreview,
@@ -732,7 +847,9 @@ export async function rebindOriginalFonts(
       count: failures.length,
       installedStylesForMissing: Array.from(stillMissing).map((f) => ({
         family: f,
-        styles: installedStyles.get(f) ?? "(absent from listAvailableFontsAsync)",
+        styles:
+          installedStyles.get(normalizeFamilyKey(f)) ??
+          "(absent from listAvailableFontsAsync)",
       })),
       failures: failures.slice(0, 40),
     });

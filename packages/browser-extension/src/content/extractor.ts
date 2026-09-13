@@ -42,8 +42,11 @@ import {
   extractRightmostCompound,
 } from './hover-parser';
 import { bakeSvgPresentation } from './svg-style-baker';
+import { rasterizeCanvases, MAX_CANVAS_TOTAL_BYTES } from './canvas-raster';
+import { captureVideoFrames } from './video-frame';
 
 import { SKIP_TAGS, isHidden, isOffscreen, isHorizontalScrollContainer } from './visibility';
+import { DEV_LOG_ENABLED } from './dev-log-flag';
 import {
   CSS_PROPERTIES,
   NUMERIC_PROPERTIES,
@@ -62,6 +65,64 @@ const MAX_DEPTH = 30;
 /** Counter for tagging elements with data-w2w-idx (used by service worker for CDP font lookup) */
 let nodeIndexCounter = 0;
 
+/**
+ * `<canvas>` bitmaps exported by the pre-pass, keyed by element.
+ *
+ * A canvas has no children and no background to read, so the traversal has
+ * nothing to render without this. Filled by rasterizeCanvases() before the
+ * traversal starts, because reading a WebGL canvas has to await a frame
+ * callback and traverseElement() is synchronous.
+ */
+const canvasBitmaps = new WeakMap<HTMLCanvasElement, string>();
+
+/**
+ * Current frame of each posterless `<video>`, exported by the pre-pass — the
+ * poster's stand-in when the page has none (apple.com hero tiles).
+ */
+const videoFrames = new WeakMap<HTMLVideoElement, string>();
+
+/** Bytes the canvas pass put into `$url` — the video pass gets the rest. */
+function canvasBytesSpent(): number {
+  let spent = 0;
+  try {
+    for (const canvas of Array.from(document.querySelectorAll('canvas'))) {
+      spent += canvasBitmaps.get(canvas)?.length ?? 0;
+    }
+  } catch {
+    // Unqueryable document — the video pass will find nothing either.
+  }
+  return spent;
+}
+
+/**
+ * Dev-log build only: why the traversal dropped elements, handed back to the
+ * service worker with EXTRACT_DOM. `large` names the big ones — a dropped
+ * section shows up there. Undefined outside extractPage() (hover subtrees).
+ */
+export interface SkipStats {
+  counts: Record<string, number>;
+  large: string[];
+}
+let skipStats: SkipStats | undefined;
+
+function noteSkip(reason: string, el: Element, rect?: DOMRect): void {
+  if (!DEV_LOG_ENABLED || !skipStats) return;
+  skipStats.counts[reason] = (skipStats.counts[reason] ?? 0) + 1;
+  const r = rect ?? el.getBoundingClientRect();
+  if (r.width * r.height < 20000 || skipStats.large.length >= 40) return;
+  const cs = getComputedStyle(el);
+  const id = el.id ? `#${el.id}` : '';
+  const cls =
+    typeof el.className === 'string' && el.className.trim()
+      ? '.' + el.className.trim().split(/\s+/).slice(0, 3).join('.')
+      : '';
+  skipStats.large.push(
+    `${reason} ${el.tagName.toLowerCase()}${id}${cls} ${Math.round(r.width)}x${Math.round(r.height)} ` +
+      `@${Math.round(r.left)},${Math.round(r.top + window.scrollY)} ` +
+      `opacity=${cs.opacity} visibility=${cs.visibility} display=${cs.display}`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -71,6 +132,8 @@ export interface ExtractPageResult {
   frame: W2WFrameNode;
   /** Number of text-hosting elements tagged with data-w2w-idx */
   textHostCount: number;
+  /** Dev-log build only — see SkipStats. */
+  skipStats?: SkipStats;
 }
 
 /**
@@ -83,6 +146,7 @@ export interface ExtractPageResult {
  */
 export async function extractPage(): Promise<ExtractPageResult> {
   nodeIndexCounter = 0;
+  skipStats = DEV_LOG_ENABLED ? { counts: {}, large: [] } : undefined;
 
   // 0. Wait for web fonts + in-flight images before measuring anything.
   //    Text line-breaking (Range.getClientRects) measured with a fallback
@@ -90,6 +154,15 @@ export async function extractPage(): Promise<ExtractPageResult> {
   //    empty currentSrc/naturalWidth. Both waits are capped so a hung
   //    resource can never stall the capture.
   await waitForRenderReadiness();
+
+  // 0b. Export <canvas> bitmaps. A pre-pass, not a post-pass: reading a WebGL
+  //     canvas has to await a frame callback, and traverseElement() below is
+  //     synchronous, so the bitmaps must already be in hand when it runs.
+  await rasterizeCanvases(canvasBitmaps);
+
+  // 0c. Current frame of every posterless, loaded <video>. Shares the canvas
+  //     payload budget — both ride in `$url` — so it gets what they left.
+  captureVideoFrames(videoFrames, MAX_CANVAS_TOTAL_BYTES - canvasBytesSpent());
 
   // 1. Inject pre-capture styles
   injectPreCaptureStyles();
@@ -144,7 +217,9 @@ export async function extractPage(): Promise<ExtractPageResult> {
       Array.from(__verifyFonts).slice(0, 10),
     );
 
-    return { doc, frame, textHostCount: nodeIndexCounter };
+    const stats = skipStats;
+    skipStats = undefined;
+    return { doc, frame, textHostCount: nodeIndexCounter, skipStats: stats };
   } catch (err) {
     removePreCaptureStyles();
     cleanupMarkers();
@@ -156,11 +231,63 @@ export async function extractPage(): Promise<ExtractPageResult> {
 // Render readiness (fonts + images)
 // ---------------------------------------------------------------------------
 
+/** Cap on images promoted and awaited — a page with hundreds of lazy images shouldn't stall. */
+const IMAGE_WAIT_CAP = 50;
+
+/**
+ * Resume the lazy images the capture will include but the browser is still
+ * deferring. The auto-scroll cannot reach every one — stripe.com keeps 8 in
+ * horizontal carousels and 3 under a `visibility:hidden` stack — and a deferred
+ * image has no `currentSrc`, so its `$url` fell back to `<img src>`, a URL the
+ * browser never requested and no asset lookup can find (7 grey placeholders on
+ * a stripe URL import). `loading="eager"` resumes the load; for a `<picture>`
+ * the browser still picks its own `<source>`.
+ *
+ * Only images with a layout box — the traversal drops the rest — and at most
+ * {@link IMAGE_WAIT_CAP}, in document order. The attribute is left eager: it
+ * cannot unload anything, and the extractor does not record it. Never throws.
+ */
+export function promoteLazyImages(doc: Document = document): number {
+  let promoted = 0;
+  try {
+    for (const img of Array.from(doc.querySelectorAll('img'))) {
+      if (promoted >= IMAGE_WAIT_CAP) break;
+      if (img.getAttribute('loading') !== 'lazy') continue;
+      if (img.complete && img.naturalWidth > 0) continue;
+      let hasBox = false;
+      try {
+        const r = img.getBoundingClientRect();
+        hasBox = r.width > 0 && r.height > 0;
+      } catch {
+        hasBox = false;
+      }
+      if (!hasBox) continue;
+      img.setAttribute('loading', 'eager');
+      promoted++;
+    }
+  } catch {
+    /* promotion is best-effort */
+  }
+  return promoted;
+}
+
+/**
+ * The images worth awaiting: still pending, with a src, and not still deferred
+ * by `loading="lazy"` — `decode()` never settles on a deferred image, so one
+ * in the set used to hold the whole wait at its cap (2.5s on every stripe.com
+ * extraction, for nothing).
+ */
+export function imagesToAwait(doc: Document = document): HTMLImageElement[] {
+  return Array.from(doc.querySelectorAll('img'))
+    .filter((img) => !img.complete && img.src && img.getAttribute('loading') !== 'lazy')
+    .slice(0, IMAGE_WAIT_CAP);
+}
+
 /**
  * Wait until web fonts are loaded and visible images are decoded, with hard
  * timeouts (fonts 3s, images 2.5s) so a slow resource never blocks capture.
  */
-async function waitForRenderReadiness(): Promise<void> {
+export async function waitForRenderReadiness(): Promise<void> {
   const sleep = (ms: number): Promise<void> => new Promise((res) => setTimeout(res, ms));
 
   try {
@@ -172,9 +299,8 @@ async function waitForRenderReadiness(): Promise<void> {
   }
 
   try {
-    const pending = Array.from(document.images)
-      .filter((img) => !img.complete && img.src)
-      .slice(0, 50); // cap the wait set — a page with hundreds of lazy images shouldn't stall
+    promoteLazyImages();
+    const pending = imagesToAwait();
     if (pending.length > 0) {
       await Promise.race([
         Promise.all(pending.map((img) => img.decode().catch(() => undefined))),
@@ -373,12 +499,18 @@ function traverseElement(
   inScroller = false
 ): W2WFrameNode | null {
   // Depth limit
-  if (depth > MAX_DEPTH) return null;
+  if (depth > MAX_DEPTH) {
+    noteSkip('depth', el);
+    return null;
+  }
 
   const tag = el.tagName.toLowerCase();
 
   // Skip non-visual tags
-  if (SKIP_TAGS.has(tag)) return null;
+  if (SKIP_TAGS.has(tag)) {
+    noteSkip('skipTag', el);
+    return null;
+  }
 
   // Check if SVG — handle as SVG node type (returned as frame with svg child)
   if (el instanceof SVGElement && tag === 'svg') {
@@ -386,7 +518,10 @@ function traverseElement(
   }
 
   // Visibility filtering
-  if (isHidden(el)) return null;
+  if (isHidden(el)) {
+    noteSkip('hidden', el);
+    return null;
+  }
 
   // Get bounding rect and computed styles
   const rect = el.getBoundingClientRect();
@@ -400,7 +535,10 @@ function traverseElement(
   // Skip offscreen elements. The scroller itself is still culled when it sits
   // entirely off-page (off-canvas menus), so this test uses the INHERITED flag;
   // only its descendants get the exemption.
-  if (!inScroller && isOffscreen(rect, viewportWidth)) return null;
+  if (!inScroller && isOffscreen(rect, viewportWidth)) {
+    noteSkip('offscreen', el, rect);
+    return null;
+  }
   const insideScroller = inScroller || isHorizontalScrollContainer(el, computed);
 
   // Extract geometry (round to 2 decimals)
@@ -423,7 +561,12 @@ function traverseElement(
     const img = el as HTMLImageElement;
     $url = img.currentSrc || img.src || img.dataset.src;
   } else if (tag === 'video') {
-    $url = (el as HTMLVideoElement).poster;
+    // Poster first; the pre-pass frame only when the page has none.
+    $url = (el as HTMLVideoElement).poster || videoFrames.get(el as HTMLVideoElement);
+  } else if (tag === 'canvas') {
+    // Exported by the pre-pass in extractPage(); absent when the canvas paints
+    // nothing, or is tainted and cannot be read back.
+    $url = canvasBitmaps.get(el as HTMLCanvasElement);
   }
 
   // Background image URL
@@ -520,7 +663,10 @@ function traverseElement(
   if (isZeroSize && children.length === 0) {
     const hasDirectText = el.textContent?.trim();
     const isInline = computed.display === 'inline' || computed.display === 'inline-block';
-    if (!hasDirectText || !isInline) return null;
+    if (!hasDirectText || !isInline) {
+      noteSkip('zeroSize', el, rect);
+      return null;
+    }
   }
 
   // Tag element for CDP font lookup (service worker will use data-w2w-idx)
@@ -629,10 +775,35 @@ function extractTextNodes(
   let lineStart = 0;
   let prevTop = -Infinity;
 
+  // A character outside the BMP (emoji, rare CJK) occupies TWO UTF-16 code
+  // units — a high surrogate followed by a low one — that render as a single
+  // glyph. Range offsets and String.slice() both count code units, so a line
+  // boundary landing between the halves would cut the glyph in two and leave a
+  // lone surrogate at the end of one line and the start of the next (both
+  // render as U+FFFD). A browser never wraps inside a pair, so the low half is
+  // skipped entirely below: it is never treated as a boundary candidate, and
+  // the high half is measured across both units so the rect covers the glyph.
+  const isHighSurrogate = (code: number): boolean => (code & 0xfc00) === 0xd800;
+  const isLowSurrogate = (code: number): boolean => (code & 0xfc00) === 0xdc00;
+
   for (let i = 0; i <= textLength; i++) {
+    // Second half of a surrogate pair — not a legal break point, and its own
+    // rect is meaningless. Skip without touching prevTop, so the next index
+    // still compares against the glyph's real top.
+    if (
+      i > 0 && i < textLength &&
+      isLowSurrogate(text.charCodeAt(i)) &&
+      isHighSurrogate(text.charCodeAt(i - 1))
+    ) {
+      continue;
+    }
+
     const charRange = document.createRange();
     charRange.setStart(textNode, Math.min(i, textLength));
-    charRange.setEnd(textNode, Math.min(i + 1, textLength));
+    // Measure the whole glyph when this index starts a surrogate pair.
+    const charEnd =
+      i < textLength && isHighSurrogate(text.charCodeAt(i)) ? i + 2 : i + 1;
+    charRange.setEnd(textNode, Math.min(charEnd, textLength));
 
     let charTop: number;
     if (i < textLength) {
@@ -728,7 +899,10 @@ function createSVGNode(svgEl: SVGElement): W2WSVGNode | null {
       }
     }
     // If still zero after all fallbacks, skip
-    if (w < 1 && h < 1) return null;
+    if (w < 1 && h < 1) {
+      noteSkip('svgZero', svgEl, rect);
+      return null;
+    }
   }
 
   const x = round(rect.left);
@@ -785,7 +959,10 @@ function createSVGAsFrame(
         }
       }
     }
-    if (w < 1 && h < 1) return null;
+    if (w < 1 && h < 1) {
+      noteSkip('svgZero', svgEl, rect);
+      return null;
+    }
   }
 
   const x = rect.left;

@@ -72,7 +72,12 @@ function hasNegativeMargin(child: WireframeNode): boolean {
 function clearIfEmpty(child: WireframeNode): void {
   const m = child.margin;
   if (!m) return;
-  if (m.top <= 0 && m.right <= 0 && m.bottom <= 0 && m.left <= 0) {
+  // Exactly zero, not `<= 0`. A negative margin DOES trigger a wrapper now
+  // (layout.ts `createBleedWrapper`), so dropping it here would silently
+  // delete the bleed. Unreachable today — `collapseMarginWrappers` skips any
+  // parent whose kids include a negative margin — but this is the only thing
+  // standing between that guard and a lost wrapper if it is ever widened.
+  if (m.top === 0 && m.right === 0 && m.bottom === 0 && m.left === 0) {
     child.margin = undefined;
   }
 }
@@ -81,11 +86,42 @@ function clearIfEmpty(child: WireframeNode): void {
 // Rule 1 — sole flow child → parent padding
 // ---------------------------------------------------------------------------
 
+/** Global geometry epsilon — h2d's `fe`, as in css-converter. */
+const GEOMETRY_EPSILON = 0.51;
+
+/**
+ * Did this bottom margin collapse THROUGH the parent?
+ *
+ * In a block container with no bottom padding or border, CSS collapses the
+ * last child's bottom margin with the parent's own: the margin leaves the
+ * parent's box and spaces it from its NEXT SIBLING instead. The capture shows
+ * that plainly — the parent measures exactly as tall as its child, with no
+ * room for the margin (glinc.io `.reveal`: 218px around a 218px `<header>`
+ * carrying `margin-bottom: 52px`, with the next section starting at 270).
+ *
+ * Folding such a margin into the parent's padding is what
+ * `collapseSoleChild`'s "FIXED parent insets the child either way" reasoning
+ * misses: there is nothing to inset into, so the 52px gap simply vanished.
+ *
+ * Only block parents qualify — margins never collapse in a flex container.
+ */
+function bottomMarginCollapsedThrough(
+  parent: WireframeNode,
+  child: WireframeNode,
+  bottom: number,
+): boolean {
+  if (parent.layoutMode !== "NONE") return false;
+  if (bottom <= 0) return false;
+  return child.y + child.height + bottom > parent.height + GEOMETRY_EPSILON;
+}
+
 /**
  * A lone child's margin is indistinguishable from parent padding: the wrapper
  * sits between the parent's content box and the child on all four sides, which
  * is precisely what padding does. Holds whether the parent HUGs (it grows by
- * the same amount either way) or is FIXED (the child is inset either way).
+ * the same amount either way) or is FIXED (the child is inset either way) —
+ * unless the margin never lived inside the parent's box at all, which is what
+ * `bottomMarginCollapsedThrough` detects.
  */
 function collapseSoleChild(parent: WireframeNode, kids: WireframeNode[]): void {
   if (kids.length !== 1) return;
@@ -93,12 +129,27 @@ function collapseSoleChild(parent: WireframeNode, kids: WireframeNode[]): void {
   const m = child.margin;
   if (!m) return;
 
+  const bottom = clamp(m.bottom);
+  const throughParent = bottomMarginCollapsedThrough(parent, child, bottom);
+
   parent.padding = {
     top: parent.padding.top + clamp(m.top),
     right: parent.padding.right + clamp(m.right),
-    bottom: parent.padding.bottom + clamp(m.bottom),
+    bottom: parent.padding.bottom + (throughParent ? 0 : bottom),
     left: parent.padding.left + clamp(m.left),
   };
+  if (throughParent) {
+    // Put it where CSS put it: on the parent, between it and its next sibling.
+    // `collapseMarginWrappers` walks bottom-up, so the grandparent's rules see
+    // this margin on the same sweep and fold it into their itemSpacing.
+    const own = parent.margin;
+    parent.margin = {
+      top: own?.top ?? 0,
+      right: own?.right ?? 0,
+      bottom: (own?.bottom ?? 0) + bottom,
+      left: own?.left ?? 0,
+    };
+  }
   child.margin = undefined;
 }
 
@@ -257,7 +308,13 @@ function collapseUniformCrossAxis(
  * absolute mode positions children by x/y and never builds a wrapper.
  */
 export function collapseMarginWrappers(root: WireframeNode): void {
+  // Bottom-up: a node's own margin is only ever read by its PARENT's pass and
+  // only ever written by its own (`collapseSoleChild` hands a collapsed-through
+  // margin upward), so visiting children first lets that new margin reach the
+  // grandparent's rules on the same sweep. For every other rule the order is
+  // immaterial — they read and write strictly within one parent/kids pair.
   const visit = (parent: WireframeNode): void => {
+    parent.children.forEach(visit);
     const kids = flowChildren(parent);
     if (isAutoLayoutParent(parent) && !kids.some(hasNegativeMargin)) {
       const axes = axesOf(parent);
@@ -267,7 +324,6 @@ export function collapseMarginWrappers(root: WireframeNode): void {
       collapseUniformMainAxis(parent, kids, axes);
       kids.forEach(clearIfEmpty);
     }
-    parent.children.forEach(visit);
   };
   visit(root);
 }

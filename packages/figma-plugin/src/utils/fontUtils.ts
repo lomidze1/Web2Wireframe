@@ -9,6 +9,7 @@
 
 import type { WireframeNode, FontMapping } from "../types";
 import { fontCutExactStyles, isItalicStyle } from "../rendering/styles";
+import { isSameFamilyName, normalizeFamilyKey, resolveInstalledCut } from "../rendering/fontIndex";
 
 // ============================================================================
 // Icon Font Detection
@@ -36,7 +37,19 @@ export function isIconFont(fontFamily: string): boolean {
 }
 
 /**
- * True when the text is nothing but Private Use Area codepoints (plus
+ * Code-point ranges that only ever carry icon glyphs — the private use areas
+ * plus the control ranges, matching html.to.design's icon-run detector.
+ */
+const ICON_CODEPOINT_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x0000, 0x001f],     // C0 controls
+  [0x007f, 0x009f],     // DEL + C1 controls
+  [0xe000, 0xf8ff],     // BMP Private Use Area
+  [0xf0000, 0xffffd],   // Supplementary Private Use Area-A
+  [0x100000, 0x10fffd], // Supplementary Private Use Area-B
+];
+
+/**
+ * True when the text is nothing but private-use / control codepoints (plus
  * whitespace) — the signature of an icon-font glyph rendered as text.
  * Site-specific icon fonts (e.g. CS-Cart's "glyphs" / "uni2-icons") never
  * match ICON_FONT_PATTERNS by name, so PUA-only content is the reliable
@@ -48,7 +61,8 @@ export function isPuaOnlyText(text: string): boolean {
   if (!chars) return false;
   for (const ch of chars) {
     const cp = ch.codePointAt(0);
-    if (cp === undefined || cp < 0xe000 || cp > 0xf8ff) return false;
+    if (cp === undefined) return false;
+    if (!ICON_CODEPOINT_RANGES.some(([lo, hi]) => cp >= lo && cp <= hi)) return false;
   }
   return true;
 }
@@ -125,11 +139,26 @@ const SERVER_FALLBACK_PATTERNS = [
   // machine, so CDP's platform-font lookup reports these verbatim — and Figma
   // never lists them, no @font-face ships them, no ZIP can carry them.
   /^\./,
+  // CSS keywords that resolve to whatever the OS uses for its own UI. They
+  // name no file: `system-ui` is already a generic, but `-apple-system` and
+  // `BlinkMacSystemFont` ride along in nearly every modern font stack and were
+  // reaching the modal as a "missing family" the user could never install
+  // (goodwill.ge opened the download panel for exactly this).
+  /^-apple-system/i,
+  /^BlinkMacSystemFont$/i,
 ];
 
 /** True when `family` is a fallback no download can ever supply — a Linux
- *  capture-container face or a hidden OS system face (see patterns above). */
+ *  capture-container face, a hidden OS system face (see patterns above), or a
+ *  CSS generic keyword.
+ *
+ *  The generics belong here for the same reason the patterns do: `ui-sans-serif`
+ *  names whatever the OS picks, never a file. The availability check already
+ *  skipped them, but the Re-apply MARKER path (which asks this predicate) did
+ *  not — one stripe.com import left 14 layers waiting on `ui-sans-serif`
+ *  forever, with nothing installable to end the wait. */
 export function isServerFallbackFamily(family: string): boolean {
+  if (CSS_GENERIC_FONTS.has(family.trim().toLowerCase())) return true;
   return SERVER_FALLBACK_PATTERNS.some((p) => p.test(family));
 }
 
@@ -359,7 +388,15 @@ const REGULARISH_STYLE_TOKENS = ["regular", "book", "buch", "normal", "roman", "
 export async function checkFontsAvailability(
   allFonts: Set<string>,
   usage?: Map<string, FontCut[]>,
-  realNames?: FontMapping
+  realNames?: FontMapping,
+  /** Families served by one variable file — see
+   *  {@link buildVariableFontFamilies}. Their per-weight cuts are never
+   *  demanded once the family itself is installed. */
+  variableFamilies?: ReadonlySet<string>,
+  /** Per family, the styles its @font-face FILES install as — see
+   *  {@link buildFontFaceStyles}. Once all of them are on the machine there is
+   *  nothing left to download, whatever the exact-cut probe says. */
+  faceStyles?: Record<string, string[]>
 ): Promise<{ available: string[]; missing: string[]; missingCuts: Record<string, FontCut[]> }> {
   const available: string[] = [];
   const missing: string[] = [];
@@ -370,20 +407,35 @@ export async function checkFontsAvailability(
   // Icon fonts use extra styles like "Solid", "Brands"
   const iconStylesExtra = ["Solid", "Brands", "Thin"];
 
-  // Set of every installed family name, used as a final check for fonts whose
-  // ONLY cut is a non-standard style name the ladder above never names — e.g.
-  // Söhne installs as "Copyright Klim Type Foundry" with the single style
-  // "Buch". Without this, such an installed font is wrongly reported missing.
+  // Set of every installed family, used as a final check for fonts whose ONLY
+  // cut is a non-standard style name the ladder above never names — e.g. Söhne
+  // installs as "Copyright Klim Type Foundry" with the single style "Buch".
+  // Without this, such an installed font is wrongly reported missing.
+  //
+  // Keyed NORMALIZED (see normalizeFamilyKey): the name a face registers under
+  // routinely differs from the one we ask for — stripe.com's Söhne VF installs
+  // as "S?hne VF" (mangled ö) and its CSS "SourceCodePro" is the installed
+  // "Source Code Pro". An exact compare reports both missing and reopens the
+  // download modal on every single import. The rebind step resolves the exact
+  // (family, style) pair through the same normalized index.
   let installedFamilies = new Set<string>();
   const installedStyles = new Map<string, string[]>();
   try {
     if (typeof figma.listAvailableFontsAsync === "function") {
       const avail = await figma.listAvailableFontsAsync();
-      installedFamilies = new Set(avail.map((f) => f.fontName.family));
+      // Empty keys are dropped: a CJK-only name normalizes to "" and would
+      // otherwise report every CJK family as installed (see isSameFamilyName).
+      installedFamilies = new Set(
+        avail
+          .map((f) => normalizeFamilyKey(f.fontName.family))
+          .filter((k) => k.length > 0),
+      );
       for (const f of avail) {
-        const list = installedStyles.get(f.fontName.family);
+        const key = normalizeFamilyKey(f.fontName.family);
+        if (!key) continue;
+        const list = installedStyles.get(key);
         if (list) list.push(f.fontName.style);
-        else installedStyles.set(f.fontName.family, [f.fontName.style]);
+        else installedStyles.set(key, [f.fontName.style]);
       }
     }
   } catch {
@@ -394,6 +446,32 @@ export async function checkFontsAvailability(
    *  the renderer's neighbour fallbacks (300 → Regular) would otherwise report
    *  an absent Light as present and hide it from the download. */
   const cutLoads = async (families: string[], cut: FontCut): Promise<boolean> => {
+    // Ask the index first: it matches on a normalized family key, so a face
+    // installed under another spelling still answers. stripe.com asks for
+    // "SourceCodePro" at 500 while the machine has "Source Code Pro" with a
+    // Medium — probing the exact name missed it and offered a download for a
+    // font already present. `exact` keeps the strictness this check needs.
+    const indexed = await resolveInstalledCut({
+      family: families[0],
+      weight: cut.weight,
+      italic: cut.italic,
+      exact: true,
+    });
+    // Only when the hit IS one of the families we asked about. The index also
+    // registers a font under its style-words-stripped name, so "Space Grotesk
+    // Light"/SemiBold answers a "Space Grotesk" query — a different family,
+    // and borrowing its cut would hide a genuinely missing one.
+    const indexedIsSameFamily =
+      !!indexed &&
+      families.some((f) => isSameFamilyName(f, indexed.family));
+    if (indexed && indexedIsSameFamily) {
+      try {
+        await figma.loadFontAsync({ family: indexed.family, style: indexed.style });
+        return true;
+      } catch {
+        /* listed but unloadable — fall through to the spelling probes */
+      }
+    }
     for (const fam of families) {
       for (const style of fontCutExactStyles(cut.weight, cut.italic)) {
         try {
@@ -409,7 +487,7 @@ export async function checkFontsAvailability(
     // renderer's same-family rescue lands on it.
     if (!cut.italic && cut.weight >= 350 && cut.weight <= 450) {
       for (const fam of families) {
-        const actual = installedStyles.get(fam) ?? [];
+        const actual = installedStyles.get(normalizeFamilyKey(fam)) ?? [];
         if (actual.some((s) => {
           const sl = s.toLowerCase();
           return REGULARISH_STYLE_TOKENS.some((t) => sl.includes(t));
@@ -460,11 +538,31 @@ export async function checkFontsAvailability(
         else absent.push(cut);
       }
 
-      if (anyLoaded || familiesToTry.some((f) => installedFamilies.has(f))) {
+      if (
+        anyLoaded ||
+        familiesToTry.some((f) => {
+          const k = normalizeFamilyKey(f);
+          return k.length > 0 && installedFamilies.has(k);
+        })
+      ) {
         // The family exists in Figma — it keeps its name on every node via the
         // renderer's same-family rescue. Only the absent cuts are worth shipping.
         available.push(font);
-        if (absent.length > 0) missingCuts[font] = absent;
+        // …except for a variable family: its whole declared range lives in the
+        // one file already installed, so an "absent" cut names a download that
+        // would ship that very file again — the modal could never close.
+        // Same verdict when every FILE this family declares is already
+        // installed: a weight with no exact cut (goodwill.ge's 500, served by
+        // a file that installs as "75 Bold") is the page's own mapping, not a
+        // download the user is missing.
+        const nothingLeftToInstall = allFaceFilesInstalled(
+          faceStyles?.[font],
+          familiesToTry,
+          installedStyles,
+        );
+        if (!variableFamilies?.has(font) && !nothingLeftToInstall && absent.length > 0) {
+          missingCuts[font] = absent;
+        }
       } else {
         // Nothing of this family loads — it degrades to Inter, so it's the
         // modal's business as a whole family.
@@ -522,7 +620,8 @@ export async function checkFontsAvailability(
     // Final check: the family is installed, but only under a style name none
     // of the ladders tried (e.g. Söhne's "Buch"). Presence in the installed
     // list is enough — the rebind step resolves the exact cut later.
-    if (!isAvailable && installedFamilies.has(font)) {
+    const fontKey = normalizeFamilyKey(font);
+    if (!isAvailable && fontKey.length > 0 && installedFamilies.has(fontKey)) {
       isAvailable = true;
     }
 
@@ -590,9 +689,19 @@ export function partitionMissingFonts(
   const autoOriginal: FontMapping = {};
   const stillMissing: string[] = [];
 
+  // Normalized, for the same reason checkFontsAvailability is: a face rarely
+  // registers under the exact name its `name` table advertises ("Söhne VF" →
+  // "S?hne VF"). The marker keeps the real name; the rebind step resolves it.
+  const installedKeys = new Set(
+    Array.from(installedFamilies, (f) => normalizeFamilyKey(f)).filter(
+      (k) => k.length > 0,
+    ),
+  );
+
   for (const css of missing) {
     const real = realNames[css];
-    if (real && real !== css && installedFamilies.has(real)) {
+    const realKey = real ? normalizeFamilyKey(real) : "";
+    if (real && real !== css && realKey.length > 0 && installedKeys.has(realKey)) {
       autoOriginal[css] = real;
     } else {
       stillMissing.push(css);
@@ -724,6 +833,41 @@ export function buildFontDeclaredCuts(
 }
 
 /**
+ * Families served by a VARIABLE face — one file spanning a weight range.
+ *
+ * A `@font-face` that declares `font-weight: 1 1000` ships a single binary
+ * covering every weight in between; the OS registers it once and Figma
+ * surfaces it as named instances ("Buch", "Leicht", …), never as a Light or a
+ * Medium. Probing for those cuts therefore reports them missing and the
+ * download modal offers the very file already installed — a loop no download
+ * can end (stripe.com's `sohne-var`).
+ *
+ * Detected from the declaration itself: {@link parseCssWeights} returns more
+ * than one weight only for a range, so a single face contributing ≥2 weights
+ * is variable.
+ */
+export function buildVariableFontFamilies(
+  extractedFonts?: unknown[],
+): Set<string> {
+  const variable = new Set<string>();
+  if (!extractedFonts) return variable;
+  for (const ef of extractedFonts) {
+    const font = ef as {
+      family?: string;
+      fontFamily?: string;
+      weight?: string | number;
+      fontWeight?: string | number;
+    };
+    const family = font.fontFamily || font.family;
+    if (!family) continue;
+    if (parseCssWeights(String(font.fontWeight ?? font.weight ?? "400")).length > 1) {
+      variable.add(family);
+    }
+  }
+  return variable;
+}
+
+/**
  * True when the site's @font-face entries can actually supply `cut` — the
  * weight is declared outright, or sits inside a declared range/pair at the
  * same slant. Absent or empty declaration data answers `false`: callers that
@@ -753,6 +897,100 @@ export function declaresCut(
  * declared weights brackets it). Families absent from `declaredCuts` pass
  * through untouched — no declaration info is not evidence of absence.
  */
+/**
+ * Every style an @font-face's own FILE installs as, keyed by each name that
+ * face answers to (its CSS family, its real family, and its full name).
+ *
+ * A declared cut and the file behind it are two different things: goodwill.ge
+ * declares `font-weight: 500`, but the file that serves it installs as
+ * "75 Bold". No 500 cut can ever exist on the machine, so the exact-cut probe
+ * reported the family permanently "partial" and the modal kept offering a
+ * download of files the user already had. Comparing the FILES — these styles
+ * against what the family really ships — answers the question the download is
+ * actually asking: is there anything left to install?
+ */
+/**
+ * True when every style in `styles` is already installed under one of
+ * `families` — i.e. the download ZIP would ship nothing new.
+ *
+ * Styles are compared normalized: what a face's `name` table calls
+ * "55 Roman" is what Figma lists, but spacing and case are not worth a
+ * mismatch.
+ */
+function allFaceFilesInstalled(
+  styles: string[] | undefined,
+  families: string[],
+  installedStyles: Map<string, string[]>,
+): boolean {
+  if (!styles || styles.length === 0) return false;
+
+  const installed = new Set<string>();
+  for (const family of families) {
+    for (const style of installedStyles.get(normalizeFamilyKey(family)) ?? []) {
+      installed.add(normalizeFamilyKey(style));
+    }
+  }
+  if (installed.size === 0) return false;
+
+  return styles.every((s) => installed.has(normalizeFamilyKey(s)));
+}
+
+export function buildFontFaceStyles(
+  extractedFonts?: unknown[],
+): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  if (!extractedFonts) return map;
+
+  // Grouped by REAL family: that is the unit the machine installs, so "is
+  // anything still missing?" is a question about the whole group, not about
+  // the one face whose name happened to be measured.
+  const styles = new Map<string, string[]>();
+  const aliases = new Map<string, Set<string>>();
+
+  for (const ef of extractedFonts) {
+    const font = ef as {
+      family?: string;
+      fontFamily?: string;
+      realFamily?: string;
+      realSubfamily?: string;
+    };
+    const style = font.realSubfamily?.trim();
+    const real = font.realFamily?.trim();
+    if (!style || !real) continue;
+
+    const list = styles.get(real) ?? [];
+    if (!list.includes(style)) list.push(style);
+    styles.set(real, list);
+
+    // Every name this face can be asked for: the CSS family the page declares,
+    // the real family, and the full name CDP measures.
+    const names = aliases.get(real) ?? new Set<string>();
+    const css = font.fontFamily || font.family;
+    if (css) names.add(css);
+    names.add(real);
+    names.add(`${real} ${style}`);
+    aliases.set(real, names);
+  }
+
+  // UNION, never overwrite. One CSS family name can belong to several real
+  // families — `font-family: Foo` served by "Foo Text" for body weights and
+  // "Foo Display" for headings is an ordinary shape. Assigning let the last
+  // group win, and `allFaceFilesInstalled` then compared against half the
+  // list, concluded nothing was left to install, and suppressed a cut that
+  // really was missing.
+  aliases.forEach((names, real) => {
+    const own = styles.get(real) ?? [];
+    names.forEach((name) => {
+      const merged = map[name] ?? [];
+      for (const style of own) {
+        if (!merged.includes(style)) merged.push(style);
+      }
+      map[name] = merged;
+    });
+  });
+  return map;
+}
+
 export function filterMissingCutsToDeclared(
   missingCuts: Record<string, FontCut[]>,
   declaredCuts: Record<string, FontCut[]>,

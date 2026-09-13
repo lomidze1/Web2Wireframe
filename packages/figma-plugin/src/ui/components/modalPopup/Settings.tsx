@@ -31,6 +31,8 @@ interface CollapsibleState {
   assets: boolean;
   cssVariables: boolean;
   layoutMode: boolean;
+  layerNames: boolean;
+  geometryRows: boolean;
   interactions: boolean;
 }
 
@@ -48,6 +50,8 @@ const DEFAULT_COLLAPSED: CollapsibleState = {
   assets: true,
   cssVariables: true,
   layoutMode: true,
+  layerNames: true,
+  geometryRows: true,
   interactions: true,
 };
 
@@ -1431,6 +1435,156 @@ export default function Settings({
                             <span>
                               Position elements with exact pixel coordinates
                               matching the original website layout.
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </Fragment>
+                  )}
+                </div>
+
+                {/* Layer Names - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.layerNames ? styles.configSectionActive : ""}`}
+                >
+                  <button
+                    type="button"
+                    class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.layerNames}
+                    onClick={() => toggleCollapse("layerNames")}
+                  >
+                    <span>Layer Names</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.layerNames ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
+                    >
+                      ▾
+                    </span>
+                  </button>
+                  {!collapsed.layerNames && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Choose how imported layers are named in the layers
+                        panel.
+                      </div>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            !config.htmlLayerNames ? styles.radioItemActive : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-layer-names"
+                            value="semantic"
+                            checked={!config.htmlLayerNames}
+                            onChange={() =>
+                              updateConfig({ htmlLayerNames: false })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Semantic</strong>
+                            <span>
+                              Readable names like Header, Nav, Button and
+                              Background — a clean document outline.
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.htmlLayerNames ? styles.radioItemActive : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-layer-names"
+                            value="html"
+                            checked={config.htmlLayerNames}
+                            onChange={() =>
+                              updateConfig({ htmlLayerNames: true })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>HTML layer names</strong>
+                            <span>
+                              Name layers after their HTML tag, id and class
+                              (div.hero, nav#main).
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+                    </Fragment>
+                  )}
+                </div>
+
+                {/* Layout Inference - Collapsible */}
+                <div
+                  class={`${styles.configSection} ${!collapsed.geometryRows ? styles.configSectionActive : ""}`}
+                >
+                  <button
+                    type="button"
+                    class={styles.configTitleCollapsible}
+                    aria-expanded={!collapsed.geometryRows}
+                    onClick={() => toggleCollapse("geometryRows")}
+                  >
+                    <span>Layout Inference</span>
+                    <span
+                      class={`${styles.collapseArrow} ${collapsed.geometryRows ? "" : styles.collapseArrowOpen}`}
+                      aria-hidden="true"
+                    >
+                      ▾
+                    </span>
+                  </button>
+                  {!collapsed.geometryRows && (
+                    <Fragment>
+                      <div class={styles.configSubtitle}>
+                        Choose what decides whether a container becomes an auto
+                        layout row.
+                      </div>
+                      <div class={styles.configOptions}>
+                        <label
+                          class={`${styles.radioItem} ${
+                            !config.geometryRows ? styles.radioItemActive : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-geometry-rows"
+                            value="css"
+                            checked={!config.geometryRows}
+                            onChange={() =>
+                              updateConfig({ geometryRows: false })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>CSS layout</strong>
+                            <span>
+                              Follow the page's own layout rules. Containers the
+                              CSS does not describe keep their exact captured
+                              positions.
+                            </span>
+                          </div>
+                        </label>
+                        <label
+                          class={`${styles.radioItem} ${
+                            config.geometryRows ? styles.radioItemActive : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="config-geometry-rows"
+                            value="geometry"
+                            checked={config.geometryRows}
+                            onChange={() =>
+                              updateConfig({ geometryRows: true })
+                            }
+                          />
+                          <div class={styles.radioLabel}>
+                            <strong>Measured rows</strong>
+                            <span>
+                              Also read the captured positions: elements sitting
+                              side by side become a real auto layout row instead
+                              of fixed boxes.
                             </span>
                           </div>
                         </label>

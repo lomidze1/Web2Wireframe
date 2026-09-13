@@ -3,7 +3,7 @@
  * Converts FigmaFill[], FigmaStroke[], FigmaEffect[] to Figma native formats
  */
 
-import type { FigmaFill, FigmaStroke, FigmaEffect, RenderContext } from "../types";
+import type { FigmaFill, FigmaStroke, FigmaEffect, FigmaColor, RenderContext } from "../types";
 import {
   cssColorToFigmaRGB,
   hexToFigmaRGB,
@@ -17,7 +17,10 @@ import {
   calculateRadialGradientTransform,
   calculateLinearGradientTransform,
 } from "./gradients";
-import { parseImageSize, computeCoverCropTransform } from "./imageCrop";
+import { parseImageSize, computeCoverCropTransform, computeBackgroundLayout } from "./imageCrop";
+import { logger } from "../utils/logger";
+import { recordWarning } from "./diagnostics";
+import * as perf from "../utils/perf";
 
 // ============================================================================
 // Blend Mode Mapping (CSS mix-blend-mode / background-blend-mode → Figma)
@@ -72,11 +75,28 @@ function paintBlendMode(fill: FigmaFill): BlendMode {
  * Figma fills are bottom-to-top (first = bottom layer)
  * So we REVERSE the order at the end!
  */
+/**
+ * The size a background image was painted at on the page: the original of an
+ * image the import shrank to fit Figma's 4096px limit (recorded by main.ts),
+ * otherwise the bytes' own header. `background-size: auto` tiles and crops by
+ * it, so measuring the shrunk copy would tile at the wrong scale.
+ */
+function paintedImageSize(
+  url: string | undefined,
+  bytes: Uint8Array,
+  context: RenderContext,
+): { width: number; height: number } | null {
+  return (url && context.imageNaturalSizes?.get(url)) || parseImageSize(bytes);
+}
+
 export function convertFillsToPaints(
   fills: FigmaFill[] | undefined,
   context: RenderContext,
   tag?: string,
-  className?: string
+  className?: string,
+  /** The node these paints are destined for — used only to attribute a
+   *  failed background-image decode to a clickable layer in the report. */
+  owner?: { id?: string; name?: string }
 ): Paint[] {
   if (!fills || fills.length === 0) return [];
 
@@ -242,7 +262,12 @@ export function convertFillsToPaints(
         break;
 
       case "IMAGE_PLACEHOLDER": {
-        const dataUri = fill.imageUrl ? context.assetsMap?.get(fill.imageUrl) : undefined;
+        // Same rule as the placeholder path in nodes.ts: a `data:` url is the
+        // payload itself (a <canvas> bitmap), never a pointer into the map.
+        const dataUri = fill.imageUrl
+          ? context.assetsMap?.get(fill.imageUrl) ??
+            (fill.imageUrl.startsWith("data:") ? fill.imageUrl : undefined)
+          : undefined;
         // SVG data URIs cannot be consumed by figma.createImage (would throw).
         // Vector conversion for background SVGs is handled upstream in
         // css-converter (synthetic child placeholder). Skip raster path for SVGs.
@@ -274,20 +299,59 @@ export function convertFillsToPaints(
                 if (p < bufLen) bytes[p++] = ((b & 15) << 4) | (c >> 2);
                 if (p < bufLen) bytes[p++] = ((c & 3) << 6) | d;
               }
-              const image = figma.createImage(bytes);
+              const image = __W2W_DEV_LOG__
+                ? perf.timedSync("node.bgImage", () => figma.createImage(bytes), true)
+                : figma.createImage(bytes);
               let scaleMode = fill.scaleMode ?? "FILL";
+              let imageTransform: Transform | undefined;
+              let tileScalingFactor: number | undefined;
+
+              // h2d-style pipeline: when the converter forwarded the raw
+              // background-size/repeat/position strings and the natural size
+              // is readable, compute the painted size and the exact CROP/TILE
+              // layout. The legacy FILL/FIT path below stays the fallback.
+              if (
+                (fill.cssSize !== undefined ||
+                  fill.cssRepeat !== undefined ||
+                  fill.cssPosition !== undefined) &&
+                fill.elementWidth &&
+                fill.elementHeight
+              ) {
+                const natural = paintedImageSize(fill.imageUrl, bytes, context);
+                if (natural) {
+                  const layout = computeBackgroundLayout(
+                    natural.width,
+                    natural.height,
+                    fill.elementWidth,
+                    fill.elementHeight,
+                    fill.cssSize,
+                    fill.cssRepeat,
+                    fill.cssPosition
+                  );
+                  if (layout) {
+                    if (layout.mode === "TILE") {
+                      scaleMode = "TILE";
+                      tileScalingFactor = Math.max(0.01, Math.min(4, layout.scalingFactor));
+                    } else {
+                      scaleMode = "CROP";
+                      imageTransform = layout.transform as Transform;
+                    }
+                  }
+                }
+              }
 
               // background-position on a cover layer → CROP + imageTransform.
               // FILL always center-crops; the author's focus point (e.g.
               // `center 30%` hero) needs the crop rectangle spelled out.
-              let imageTransform: Transform | undefined;
               if (
+                !imageTransform &&
+                tileScalingFactor === undefined &&
                 scaleMode === "FILL" &&
                 fill.position &&
                 fill.elementWidth &&
                 fill.elementHeight
               ) {
-                const size = parseImageSize(bytes);
+                const size = paintedImageSize(fill.imageUrl, bytes, context);
                 if (size) {
                   const crop = computeCoverCropTransform(
                     size.width,
@@ -316,8 +380,11 @@ export function convertFillsToPaints(
                 ...(scaleMode === "TILE"
                   ? {
                       scalingFactor: (() => {
+                        if (tileScalingFactor !== undefined) {
+                          return tileScalingFactor;
+                        }
                         if (fill.tileSize && fill.tileSize.width > 0) {
-                          const natural = parseImageSize(bytes);
+                          const natural = paintedImageSize(fill.imageUrl, bytes, context);
                           if (natural && natural.width > 0) {
                             const factor = fill.tileSize.width / natural.width;
                             if (isFinite(factor) && factor > 0) {
@@ -341,8 +408,27 @@ export function convertFillsToPaints(
               break;
             }
           } catch {
-            // Image load failed — fall through to solid surface color fallback
+            // Image load failed — fall through to solid surface color fallback.
+            // Report it: the solid grey that replaces the background is
+            // otherwise indistinguishable from a designed one.
+            recordWarning(context, {
+              category: "image",
+              message: "Background image could not be decoded — replaced with a solid fill",
+              nodeId: owner?.id,
+              layerName: owner?.name,
+            });
           }
+        }
+        // Real assets were asked for and this background never arrived — the
+        // flat fill below is a loss, not the design. (Placeholders mode draws
+        // it on purpose; SVG backgrounds are rendered upstream as a child.)
+        if (!dataUri && fill.imageUrl && context.assetMode === "realAssets") {
+          recordWarning(context, {
+            category: "image",
+            message: "Background image couldn't be loaded — replaced with a solid fill",
+            nodeId: owner?.id,
+            layerName: owner?.name,
+          });
         }
         // Fallback: solid surface color
         const surfaceRgb = hexToFigmaRGB(context.pluginColors.surface);
@@ -366,6 +452,230 @@ export function convertFillsToPaints(
 // Stroke Conversion
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// Two-color border gradients (h2d parity: uD app.js:46135, mD :46646,
+// CD :47261). Figma allows ONE stroke paint per frame, so mixed border colors
+// are reproduced with a hard-edged gradient whose split line follows the
+// border edge / miter diagonal.
+// ----------------------------------------------------------------------------
+
+/** Row-major affine {a,b,c,d,e,f} — the transformation-matrix convention
+ *  h2d composes its border gradients with. */
+type Affine = { a: number; b: number; c: number; d: number; e: number; f: number };
+
+const affTranslate = (tx: number, ty: number): Affine =>
+  ({ a: 1, b: 0, c: 0, d: 1, e: tx, f: ty });
+
+const affRotate = (rad: number): Affine => {
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 };
+};
+
+const affScale = (sx: number, sy: number): Affine =>
+  ({ a: sx, b: 0, c: 0, d: sy, e: 0, f: 0 });
+
+/** m1 · m2 — m2 is applied to a point first. */
+const affMultiply = (m1: Affine, m2: Affine): Affine => ({
+  a: m1.a * m2.a + m1.c * m2.b,
+  b: m1.b * m2.a + m1.d * m2.b,
+  c: m1.a * m2.c + m1.c * m2.d,
+  d: m1.b * m2.c + m1.d * m2.d,
+  e: m1.a * m2.e + m1.c * m2.f + m1.e,
+  f: m1.b * m2.e + m1.d * m2.f + m1.f,
+});
+
+const affCompose = (...ms: Affine[]): Affine => ms.reduce(affMultiply);
+
+/** Scale around a pivot point. */
+const affScaleAt = (sx: number, sy: number, cx: number, cy: number): Affine =>
+  affCompose(affTranslate(cx, cy), affScale(sx, sy), affTranslate(-cx, -cy));
+
+/** Affine → Figma Transform rows, snapping float noise to 0 (h2d's xc). */
+const affToTransform = (m: Affine): Transform => {
+  const snap = (v: number) => (Math.abs(v) < 1e-10 ? 0 : v);
+  return [
+    [snap(m.a), snap(m.c), snap(m.e)],
+    [snap(m.b), snap(m.d), snap(m.f)],
+  ];
+};
+
+function strokeColorsEqual(a: FigmaColor, b: FigmaColor): boolean {
+  const eps = 1e-4;
+  return (
+    Math.abs(a.r - b.r) < eps &&
+    Math.abs(a.g - b.g) < eps &&
+    Math.abs(a.b - b.b) < eps &&
+    Math.abs((a.a ?? 1) - (b.a ?? 1)) < eps
+  );
+}
+
+/**
+ * Build the two-color border gradient paint, or null when the arrangement
+ * has no h2d mapping (the caller then falls back to the first color and
+ * logs it). Sides are CSS order: [top, right, bottom, left].
+ */
+function twoColorBorderPaint(
+  colors: (FigmaColor | undefined)[],
+  weights: number[],
+  width: number,
+  height: number,
+): GradientPaint | null {
+  const visible = [0, 1, 2, 3].filter((i) => colors[i] && weights[i] > 0);
+
+  const gradientStop = (color: FigmaColor, position: number) => ({
+    position,
+    color: { r: color.r, g: color.g, b: color.b, a: color.a ?? 1 },
+  });
+
+  // --- Exactly two visible sides → hard-split linear (h2d mD) -------------
+  if (visible.length === 2) {
+    const has = (i: number) => visible.includes(i);
+    let start: FigmaColor;
+    let end: FigmaColor;
+    let m: Affine;
+    if (has(0) && has(3)) {
+      // top + left: split along the top-left miter diagonal
+      const b = Math.atan2(weights[0], weights[3]);
+      start = colors[3]!;
+      end = colors[0]!;
+      m = affCompose(affTranslate(0, 0.5), affRotate(b), affScale(1, height / width));
+    } else if (has(1) && has(2)) {
+      // right + bottom
+      const b = Math.atan2(weights[2], weights[1]);
+      start = colors[2]!;
+      end = colors[1]!;
+      m = affCompose(
+        affTranslate(0, 0.5),
+        affRotate(b),
+        affTranslate(-1, -1),
+        affScale(1, height / width),
+      );
+    } else if (has(2) && has(3)) {
+      // bottom + left
+      const b = Math.atan2(weights[2], weights[3]);
+      start = colors[3]!;
+      end = colors[2]!;
+      m = affCompose(
+        affTranslate(0, 0.5),
+        affRotate(-b),
+        affTranslate(0, -1),
+        affScale(1, height / width),
+      );
+    } else if (has(0) && has(1)) {
+      // top + right
+      const b = Math.atan2(weights[0], weights[1]);
+      start = colors[0]!;
+      end = colors[1]!;
+      m = affCompose(
+        affTranslate(0, 0.5),
+        affRotate(-b),
+        affTranslate(-1, 0),
+        affScale(1, height / width),
+      );
+    } else if (has(1) && has(3)) {
+      // left + right (opposite): split at the left border's inner edge
+      start = colors[3]!;
+      end = colors[1]!;
+      m = affTranslate(-weights[3] / width, 0);
+    } else {
+      // top + bottom (opposite): split at the bottom border's inner edge
+      start = colors[2]!;
+      end = colors[0]!;
+      m = affCompose(
+        affTranslate(0, 0.5),
+        affRotate(Math.PI / 2),
+        affTranslate(-0.5, weights[2] / height - 1),
+      );
+    }
+    return {
+      type: "GRADIENT_LINEAR",
+      gradientStops: [gradientStop(start, 0), gradientStop(end, 0)],
+      gradientTransform: affToTransform(m),
+    };
+  }
+
+  // --- One side differs → diamond with miter joins (h2d CD) ---------------
+  // q = the side OPPOSITE the uniquely-colored one; the diamond is centered
+  // on the unique side's edge midpoint so its contour follows the miters.
+  let q = -1;
+  let unique = -1;
+  let common: FigmaColor | undefined;
+  if (visible.length === 3) {
+    const missing = [0, 1, 2, 3].find((i) => !visible.includes(i))!;
+    const p1 = (missing + 1) % 4;
+    const p2 = (missing + 3) % 4;
+    if (
+      strokeColorsEqual(colors[p1]!, colors[p2]!) &&
+      weights[p1] === weights[p2] &&
+      !strokeColorsEqual(colors[(missing + 2) % 4]!, colors[p1]!)
+    ) {
+      q = missing;
+      unique = (missing + 2) % 4;
+      common = colors[p1];
+    }
+  } else if (visible.length === 4) {
+    for (let d = 0; d < 4; d++) {
+      const others = [0, 1, 2, 3].filter(
+        (i) => i !== d && strokeColorsEqual(colors[i]!, colors[d]!),
+      );
+      if (others.length !== 0) continue;
+      const s = (d + 1) % 4;
+      const h = (d + 3) % 4;
+      if (weights[s] !== weights[h]) return null;
+      // The miter apex of side d must fit inside the box, else the diamond
+      // cannot represent the join (h2d's size condition).
+      const ratio = weights[d] / weights[s];
+      const apex = (ratio * (d === 0 || d === 2 ? width : height)) / 2;
+      const g = (d + 2) % 4;
+      if ((d === 0 || d === 2 ? height : width) - weights[g] > apex) {
+        q = g;
+        unique = d;
+        common = colors[s];
+      }
+      break;
+    }
+  }
+  if (q === -1 || !common || !colors[unique]) return null;
+
+  const k = width / height;
+  let m: Affine;
+  switch (q) {
+    case 0: // unique side = bottom
+      m = affCompose(
+        affTranslate(0, -0.5),
+        affScaleAt(1, weights[1] / (k * weights[2]), 0.5, 1),
+      );
+      break;
+    case 1: // unique side = left
+      m = affCompose(
+        affTranslate(0.5, 0),
+        affScaleAt((k * weights[0]) / weights[3], 1, 0, 0.5),
+      );
+      break;
+    case 2: // unique side = top
+      m = affCompose(
+        affTranslate(0, 0.5),
+        affScaleAt(1, weights[1] / (k * weights[0]), 0.5, 0),
+      );
+      break;
+    default: // q = 3, unique side = right
+      m = affCompose(
+        affTranslate(-0.5, 0),
+        affScaleAt((k * weights[0]) / weights[1], 1, 1, 0.5),
+      );
+      break;
+  }
+  return {
+    type: "GRADIENT_DIAMOND",
+    gradientStops: [
+      gradientStop(colors[unique]!, 0.9999999),
+      gradientStop(common, 1),
+    ],
+    gradientTransform: affToTransform(m),
+  };
+}
+
 /**
  * Convert FigmaStroke[] to Figma strokes.
  *
@@ -383,7 +693,9 @@ export function convertFillsToPaints(
  */
 export function convertStrokesToFigma(
   strokes: FigmaStroke[] | undefined,
-  context?: RenderContext
+  context?: RenderContext,
+  frameWidth?: number,
+  frameHeight?: number
 ): {
   paints: Paint[];
   weight: number;
@@ -397,8 +709,11 @@ export function convertStrokesToFigma(
   // Pick representative (first) stroke for color/style.
   const firstStroke = strokes[0];
 
-  // Accumulate per-side weights across all strokes.
+  // Accumulate per-side weights across all strokes. Also track per-side
+  // colors (CSS order [top, right, bottom, left]) for the two-color
+  // gradient path below.
   const perSide = { top: 0, right: 0, bottom: 0, left: 0 };
+  const sideColors: (FigmaColor | undefined)[] = [undefined, undefined, undefined, undefined];
   let anySides = false;
   let allSidesFlag = false;
   for (const s of strokes) {
@@ -408,13 +723,17 @@ export function convertStrokesToFigma(
       perSide.right = Math.max(perSide.right, s.weight);
       perSide.bottom = Math.max(perSide.bottom, s.weight);
       perSide.left = Math.max(perSide.left, s.weight);
+      sideColors[0] = sideColors[0] ?? s.color;
+      sideColors[1] = sideColors[1] ?? s.color;
+      sideColors[2] = sideColors[2] ?? s.color;
+      sideColors[3] = sideColors[3] ?? s.color;
       continue;
     }
     anySides = true;
-    if (s.sides.top) perSide.top = Math.max(perSide.top, s.weight);
-    if (s.sides.right) perSide.right = Math.max(perSide.right, s.weight);
-    if (s.sides.bottom) perSide.bottom = Math.max(perSide.bottom, s.weight);
-    if (s.sides.left) perSide.left = Math.max(perSide.left, s.weight);
+    if (s.sides.top) { perSide.top = Math.max(perSide.top, s.weight); sideColors[0] = sideColors[0] ?? s.color; }
+    if (s.sides.right) { perSide.right = Math.max(perSide.right, s.weight); sideColors[1] = sideColors[1] ?? s.color; }
+    if (s.sides.bottom) { perSide.bottom = Math.max(perSide.bottom, s.weight); sideColors[2] = sideColors[2] ?? s.color; }
+    if (s.sides.left) { perSide.left = Math.max(perSide.left, s.weight); sideColors[3] = sideColors[3] ?? s.color; }
     if (s.sides.top && s.sides.right && s.sides.bottom && s.sides.left) {
       allSidesFlag = true;
     }
@@ -431,6 +750,42 @@ export function convertStrokesToFigma(
   const representativeWeight = isUniform
     ? perSide.top
     : Math.max(perSide.top, perSide.right, perSide.bottom, perSide.left);
+
+  // Two-color borders (h2d uD/mD/CD): Figma has ONE stroke paint per frame,
+  // so `border-bottom: red` + `border-top: blue` used to collapse to red.
+  // Exactly two distinct visible colors with a uniform SOLID style become a
+  // hard-edged gradient paint; anything more complex falls back to the first
+  // color — logged, not silent (h2d does the same).
+  if (context?.colorMode !== "plugin" && frameWidth && frameHeight) {
+    const visibleColors: FigmaColor[] = [];
+    for (let i = 0; i < 4; i++) {
+      const c = sideColors[i];
+      if (!c || (c.a ?? 1) === 0) continue;
+      if (!visibleColors.some((v) => strokeColorsEqual(v, c))) visibleColors.push(c);
+    }
+    const uniformSolid = strokes.every((s) => s.style === "SOLID");
+    if (visibleColors.length === 2 && uniformSolid) {
+      const weights = [perSide.top, perSide.right, perSide.bottom, perSide.left];
+      const gradient = twoColorBorderPaint(sideColors, weights, frameWidth, frameHeight);
+      if (gradient) {
+        return {
+          paints: [gradient],
+          weight: isUniform
+            ? perSide.top
+            : Math.max(perSide.top, perSide.right, perSide.bottom, perSide.left),
+          individualWeights: isUniform ? undefined : perSide,
+          style: firstStroke.style,
+        };
+      }
+      logger.warn("Unsupported mixed border colors — falling back to first color", {
+        colors: visibleColors.length,
+      });
+    } else if (visibleColors.length > 2 || (visibleColors.length === 2 && !uniformSolid)) {
+      logger.warn("Unsupported mixed border colors — falling back to first color", {
+        colors: visibleColors.length,
+      });
+    }
+  }
 
   // In plugin colors mode: ALL strokes/borders use text color (#11151A)
   let paints: Paint[];

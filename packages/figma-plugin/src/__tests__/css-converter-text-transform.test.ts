@@ -121,9 +121,12 @@ describe("convertW2WToWireframe — text-transform", () => {
     const el = makeFrame({
       tag: 'a',
       styles: { display: 'block', textTransform: 'uppercase' },
+      // Laid out as the browser would: the runs sit side by side with a real
+      // word gap between them. Overlapping boxes would read as one word, since
+      // the separator now follows the measured gap (joinRowRuns).
       children: [
-        makeText('Get', { color: 'rgb(255, 0, 0)' }),
-        makeText('Pro', { x: 40, color: 'rgb(0, 0, 255)' }),
+        makeText('Get', { width: 30, quad: [0, 0, 30, 0, 30, 16, 0, 16], color: 'rgb(255, 0, 0)' }),
+        makeText('Pro', { x: 40, width: 30, quad: [40, 0, 70, 0, 70, 16, 40, 16], color: 'rgb(0, 0, 255)' }),
       ],
     });
     const root = convertW2WToWireframe(page([el]) as never, { layoutMode: "autoLayout" });

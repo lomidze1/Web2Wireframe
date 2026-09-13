@@ -178,3 +178,18 @@
 .rebindBtn:not(:disabled):active {
   transform: translateY(0) scale(0.98);
 }
+
+/* Per-font substitute picker inside a family's accordion. */
+.rebindChoiceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 10px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.rebindChoiceRow select {
+  flex: 1;
+  min-width: 0;
+}
