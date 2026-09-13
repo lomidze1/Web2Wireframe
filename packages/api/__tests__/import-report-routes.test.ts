@@ -128,6 +128,21 @@ describe("POST /api/import-report", () => {
     expect(mockSendReport).not.toHaveBeenCalled();
   });
 
+  it("logs why a report was rejected — field paths and rule codes, never the values", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await request(makeApp())
+      .post("/api/import-report")
+      .set("Authorization", authHeader(newUser()))
+      .send(report({ kind: "html", viewports: [1439.5], sourceUrl: "https://secret.example/?token=abc123" }));
+
+    const logged = warn.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(logged).toContain("[ImportReport]");
+    expect(logged).toMatch(/kind/);
+    expect(logged).toMatch(/viewports\.0/);
+    expect(logged).not.toMatch(/secret\.example|token=abc123|html|1439/);
+    warn.mockRestore();
+  });
+
   it("emails the report with the caller's License email and returns a report id", async () => {
     const user = newUser();
     const res = await request(makeApp())

@@ -48,7 +48,7 @@ const server = http.createServer((req, res) => {
         const entries = JSON.parse(body);
         for (const e of Array.isArray(entries) ? entries : [entries]) {
           const tag = LEVEL_TAG[e.level] ?? e.level ?? "LOG ";
-          const ctx = e.ctx === "main" ? "main" : "ui  ";
+          const ctx = e.ctx === "main" ? "main" : e.ctx === "sw" ? "sw  " : "ui  ";
           process.stdout.write(`${ts()} [${ctx}] ${tag} ${e.msg}\n`);
         }
       } catch {

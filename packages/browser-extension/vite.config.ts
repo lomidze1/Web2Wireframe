@@ -33,6 +33,8 @@ export default defineConfig({
   plugins: [preact(), copyManifestPlugin()],
   publicDir: "public",
   base: "./", // Use relative paths for Chrome extension compatibility
+  // Dev-log bridge (src/shared/devLog.ts): on only for `W2W_DEV_LOG=1 npm run build`.
+  define: { __W2W_DEV_LOG__: JSON.stringify(process.env.W2W_DEV_LOG === "1") },
   build: {
     outDir: "dist",
     emptyOutDir: true,

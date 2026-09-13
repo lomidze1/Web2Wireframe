@@ -75,6 +75,20 @@ function paintBlendMode(fill: FigmaFill): BlendMode {
  * Figma fills are bottom-to-top (first = bottom layer)
  * So we REVERSE the order at the end!
  */
+/**
+ * The size a background image was painted at on the page: the original of an
+ * image the import shrank to fit Figma's 4096px limit (recorded by main.ts),
+ * otherwise the bytes' own header. `background-size: auto` tiles and crops by
+ * it, so measuring the shrunk copy would tile at the wrong scale.
+ */
+function paintedImageSize(
+  url: string | undefined,
+  bytes: Uint8Array,
+  context: RenderContext,
+): { width: number; height: number } | null {
+  return (url && context.imageNaturalSizes?.get(url)) || parseImageSize(bytes);
+}
+
 export function convertFillsToPaints(
   fills: FigmaFill[] | undefined,
   context: RenderContext,
@@ -303,7 +317,7 @@ export function convertFillsToPaints(
                 fill.elementWidth &&
                 fill.elementHeight
               ) {
-                const natural = parseImageSize(bytes);
+                const natural = paintedImageSize(fill.imageUrl, bytes, context);
                 if (natural) {
                   const layout = computeBackgroundLayout(
                     natural.width,
@@ -337,7 +351,7 @@ export function convertFillsToPaints(
                 fill.elementWidth &&
                 fill.elementHeight
               ) {
-                const size = parseImageSize(bytes);
+                const size = paintedImageSize(fill.imageUrl, bytes, context);
                 if (size) {
                   const crop = computeCoverCropTransform(
                     size.width,
@@ -370,7 +384,7 @@ export function convertFillsToPaints(
                           return tileScalingFactor;
                         }
                         if (fill.tileSize && fill.tileSize.width > 0) {
-                          const natural = parseImageSize(bytes);
+                          const natural = paintedImageSize(fill.imageUrl, bytes, context);
                           if (natural && natural.width > 0) {
                             const factor = fill.tileSize.width / natural.width;
                             if (isFinite(factor) && factor > 0) {

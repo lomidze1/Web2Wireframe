@@ -31,6 +31,8 @@ import {
 } from "./shared/licenseClient";
 import { API_BASE_URL } from "./shared/apiConfig";
 import { hasTransparentPixel } from "./shared/imageAlpha";
+import { mayHaveAlpha } from "./shared/figmaImageConvert";
+import { fitWithinFigmaLimit } from "../utils/figmaImageLimit";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
 import { onImportTabRequest } from "./shared/importTabEvents";
@@ -339,7 +341,7 @@ function AppContent() {
       const msg = event.data?.pluginMessage;
       if (!msg || msg.type !== "convert-assets") return;
 
-      const assets: Array<{ url: string; dataUri: string; frameIdx: number }> = msg.data?.assets || [];
+      const assets: Array<{ url: string; dataUri: string }> = msg.data?.assets || [];
       if (assets.length === 0) {
         parent.postMessage({ pluginMessage: { type: "assets-converted", data: { convertedAssets: [] } } }, "*");
         return;
@@ -347,8 +349,6 @@ function AppContent() {
 
       // Convert each asset via Canvas
       const convertAll = async () => {
-        const results: Array<{ url: string; dataUri: string; frameIdx: number }> = [];
-
         for (const asset of assets) {
           try {
             // Create image from data URI
@@ -364,31 +364,45 @@ function AppContent() {
             // transparent WebP/AVIF logo converted to JPEG flattens onto
             // black. Detect transparency and export those as PNG; fully
             // opaque images keep JPEG 0.85 (smaller).
+            // Figma rejects anything over 4096px (utils/figmaImageLimit.ts),
+            // so an oversized image is drawn into a canvas that fits.
+            const originalWidth = img.naturalWidth;
+            const originalHeight = img.naturalHeight;
+            const { width, height } = fitWithinFigmaLimit(originalWidth, originalHeight);
             const canvas = document.createElement("canvas");
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
+            canvas.width = width;
+            canvas.height = height;
             const ctx = canvas.getContext("2d");
             if (!ctx) throw new Error("No 2d context");
-            ctx.drawImage(img, 0, 0);
+            ctx.drawImage(img, 0, 0, width, height);
 
             let needsPng = false;
-            try {
-              const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-              needsPng = hasTransparentPixel(rgba);
-            } catch {
-              // getImageData failed (tainted canvas) — assume opaque.
+            if (mayHaveAlpha(asset.dataUri)) {
+              try {
+                const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                needsPng = hasTransparentPixel(rgba);
+              } catch {
+                // getImageData failed (tainted canvas) — assume opaque.
+              }
             }
             const convertedDataUri = needsPng
               ? canvas.toDataURL("image/png")
               : canvas.toDataURL("image/jpeg", 0.85);
 
-            results.push({ url: asset.url, dataUri: convertedDataUri, frameIdx: asset.frameIdx });
+            // One message per asset: the sandbox keeps whatever arrived if its
+            // 30s window closes before the batch does.
+            parent.postMessage({
+              pluginMessage: {
+                type: "asset-converted",
+                data: { url: asset.url, dataUri: convertedDataUri, width, height, originalWidth, originalHeight },
+              },
+            }, "*");
           } catch {
             // Image conversion failed — skip this asset (falls back to placeholder).
           }
         }
 
-        parent.postMessage({ pluginMessage: { type: "assets-converted", data: { convertedAssets: results } } }, "*");
+        parent.postMessage({ pluginMessage: { type: "assets-converted", data: {} } }, "*");
       };
 
       convertAll();

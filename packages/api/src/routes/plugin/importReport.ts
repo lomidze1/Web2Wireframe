@@ -85,6 +85,15 @@ router.post(
   async (req: Request, res: Response) => {
     const parsed = reportSchema.safeParse(req.body);
     if (!parsed.success) {
+      // Without this a rejected report vanishes silently. Paths and rule codes
+      // only — zod's messages echo the received values, and a URL can carry a
+      // token.
+      console.warn(
+        "[ImportReport] rejected report:",
+        parsed.error.issues
+          .map((i) => `${i.path.join(".") || "(root)"}: ${i.code}`)
+          .join(", "),
+      );
       res.status(400).json({ success: false, error: "invalid_report" });
       return;
     }

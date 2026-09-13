@@ -40,6 +40,7 @@ import {
   createWireframeFrame,
 } from "./rendering";
 import { convertW2WToWireframe } from "./rendering/css-converter";
+import { planOversizedImages } from "./utils/figmaImageLimit";
 import { resetFontFailures } from "./rendering/fontLoader";
 import { extractHostname } from "./rendering/hostname";
 import {
@@ -578,8 +579,16 @@ export default function () {
       // Pre-process: merge capturedData assets into frame assets before building assetsMap
       const FIGMA_SUPPORTED_MIMES = new Set(["image/png", "image/jpeg", "image/gif"]);
 
-      // Collect assets that need conversion (AVIF/WebP → JPEG)
-      const assetsToConvert: Array<{ url: string; dataUri: string; frameIdx: number }> = [];
+      // Images the UI iframe has to convert (it has Canvas/createImageBitmap,
+      // the sandbox does not): a format Figma cannot take (AVIF/WebP), or a
+      // size over Figma's 4096px limit (utils/figmaImageLimit.ts). One job per
+      // url, even when several viewport frames carry it.
+      const conversionJobs = new Map<string, { url: string; dataUri: string; frameIdxs: number[] }>();
+      const queueConversion = (url: string, dataUri: string, frameIdx: number): void => {
+        const job = conversionJobs.get(url);
+        if (!job) conversionJobs.set(url, { url, dataUri, frameIdxs: [frameIdx] });
+        else if (!job.frameIdxs.includes(frameIdx)) job.frameIdxs.push(frameIdx);
+      };
 
       for (let fi = 0; fi < frames.length; fi++) {
         const fd = frames[fi] as WireframeFrame;
@@ -593,9 +602,11 @@ export default function () {
 
               if (mime.startsWith('image/') && mime !== 'image/svg+xml' && !FIGMA_SUPPORTED_MIMES.has(mime)) {
                 // Need conversion — collect for batch UI conversion
-                assetsToConvert.push({ url, dataUri, frameIdx: fi });
+                queueConversion(url, dataUri, fi);
               } else {
-                // Supported format — use directly
+                // Supported format — use directly. An oversized one is queued
+                // below; if its conversion fails this raw entry stays, and the
+                // render reports it exactly as before.
                 fd.assets[url] = dataUri;
               }
             }
@@ -603,25 +614,53 @@ export default function () {
         }
       }
 
-      // Convert unsupported image formats via UI iframe (has Canvas/createImageBitmap)
-      if (assetsToConvert.length > 0 && assetMode === "realAssets") {
+      // Over Figma's 4096px limit — read off the converted trees, i.e. the exact
+      // urls the renderer will look up, whatever flow filled the assets.
+      for (const job of planOversizedImages(frames as WireframeFrame[])) {
+        for (const fi of job.frameIdxs) queueConversion(job.url, job.dataUri, fi);
+      }
+
+      // Original sizes of the images the conversion shrinks — fills.ts measures
+      // backgrounds with them.
+      const imageNaturalSizes = new Map<string, { width: number; height: number }>();
+
+      // Convert via UI iframe (has Canvas/createImageBitmap)
+      if (conversionJobs.size > 0 && assetMode === "realAssets") {
         figma.ui.postMessage({
           type: "render-progress",
           data: { step: "Converting images for Figma...", percent: 8 },
         });
 
-        logger.info("Converting unsupported images via UI iframe", {
-          count: assetsToConvert.length,
+        logger.info("Converting images via UI iframe", {
+          count: conversionJobs.size,
         });
 
-        // Send to UI for conversion and wait for response
-        const convertedAssets = await perf.timed("assetsConvert", () => new Promise<Array<{ url: string; dataUri: string; frameIdx: number }>>((resolve) => {
+        type ConvertedAsset = {
+          url: string;
+          dataUri: string;
+          width?: number;
+          height?: number;
+          originalWidth?: number;
+          originalHeight?: number;
+        };
+
+        // Send to UI for conversion and collect results as they arrive
+        const convertedAssets = await perf.timed("assetsConvert", () => new Promise<ConvertedAsset[]>((resolve) => {
+          const results: ConvertedAsset[] = [];
           // Temporarily add handler (will be overridden by next onmessage call)
           const origHandler = figma.ui.onmessage;
+          let settled = false;
+          const finish = (): void => {
+            if (settled) return;
+            settled = true;
+            figma.ui.onmessage = origHandler;
+            resolve(results);
+          };
           figma.ui.onmessage = (msg) => {
-            if (msg.type === "assets-converted") {
-              figma.ui.onmessage = origHandler;
-              resolve(msg.data?.convertedAssets || []);
+            if (msg.type === "asset-converted") {
+              if (msg.data?.url && msg.data?.dataUri) results.push(msg.data as ConvertedAsset);
+            } else if (msg.type === "assets-converted") {
+              finish();
             } else if (origHandler) {
               origHandler(msg, { origin: '' } as never);
             }
@@ -629,22 +668,36 @@ export default function () {
 
           figma.ui.postMessage({
             type: "convert-assets",
-            data: { assets: assetsToConvert },
+            data: { assets: Array.from(conversionJobs.values()).map(({ url, dataUri }) => ({ url, dataUri })) },
           });
 
-          // Timeout after 30s
-          setTimeout(() => resolve([]), 30000);
+          // Timeout after 30s — keep whatever arrived.
+          setTimeout(finish, 30000);
         }));
 
-        // Merge converted assets
+        // Merge converted assets into every frame that carries them
         for (const converted of convertedAssets) {
-          const fd = frames[converted.frameIdx] as WireframeFrame;
-          if (!fd.assets) fd.assets = {};
-          fd.assets[converted.url] = converted.dataUri;
+          const job = conversionJobs.get(converted.url);
+          if (!job) continue;
+          for (const fi of job.frameIdxs) {
+            const fd = frames[fi] as WireframeFrame;
+            if (!fd.assets) fd.assets = {};
+            fd.assets[converted.url] = converted.dataUri;
+          }
+          if (
+            converted.originalWidth && converted.originalHeight &&
+            (converted.width !== converted.originalWidth || converted.height !== converted.originalHeight)
+          ) {
+            imageNaturalSizes.set(converted.url, {
+              width: converted.originalWidth,
+              height: converted.originalHeight,
+            });
+          }
         }
         logger.info("Image conversion complete", {
           converted: convertedAssets.length,
-          requested: assetsToConvert.length,
+          requested: conversionJobs.size,
+          downscaled: imageNaturalSizes.size,
         });
       }
 
@@ -683,6 +736,7 @@ export default function () {
         fontFaceStyles: data.fontFaceStyles,
         assetMode: assetMode || "placeholders",
         assetsMap,
+        imageNaturalSizes,
         interactionMode: interactionMode || "none",
         // "Links" option — absent means ON, so only an explicit false silences
         // the site's links (old payloads keep today's behaviour).

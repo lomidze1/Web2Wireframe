@@ -1977,6 +1977,16 @@ function applyChildInAutoLayout(
   // CSS lengths are untransformed; the node's size is the scaled AABB.
   const { sx: boundSx, sy: boundSy } = cssBoundScales(child.transform);
 
+  // Figma accepts min/max sizes only on a node with auto layout of its own or
+  // an auto-layout parent. A bleed wrapper (negative margin) is a NONE frame,
+  // so its child qualifies only through its own layout — otherwise the write
+  // throws and the whole child is dropped (apple.com `p.tile-callout`). The
+  // bleed child is FIXED at its measured size, so skipping loses nothing.
+  const childTakesSizeLimits =
+    !wrapper ||
+    wrapper.layoutMode !== "NONE" ||
+    ("layoutMode" in childNode && childNode.layoutMode !== "NONE");
+
   if (typeof child.cssMaxWidth === "number" && child.cssMaxWidth > 0) {
     const maxW = child.cssMaxWidth * boundSx;
     const wrapperMaxW = maxW
@@ -1985,26 +1995,27 @@ function applyChildInAutoLayout(
     if (wrapper && "maxWidth" in wrapper) {
       wrapper.maxWidth = wrapperMaxW;
     }
-    if ("maxWidth" in childNode) {
+    if (childTakesSizeLimits && "maxWidth" in childNode) {
       (childNode as FrameNode | TextNode).maxWidth = maxW;
     }
   }
 
   // CSS min-width / min-height / max-height → native Figma constraints.
-  // Only legal on auto-layout children — which is exactly this code path.
+  // Legal on auto-layout children — this code path, except a bleed-wrapped
+  // child without its own auto layout (see childTakesSizeLimits).
   // These keep the imported layout behaving like the source CSS when the
   // designer edits content (a min-height hero holds its floor when its text
   // shrinks; a FILL child can't collapse below its CSS min-width).
   // Math.max: applyCapturedMinSize may already have pinned a larger
   // captured-size floor on this frame — the CSS value must not lower it.
   if (typeof child.cssMinWidth === "number" && child.cssMinWidth > 0) {
-    if ("minWidth" in childNode) {
+    if (childTakesSizeLimits && "minWidth" in childNode) {
       const fc = childNode as FrameNode | TextNode;
       fc.minWidth = Math.max(fc.minWidth ?? 0, child.cssMinWidth * boundSx);
     }
   }
   if (typeof child.cssMinHeight === "number" && child.cssMinHeight > 0) {
-    if ("minHeight" in childNode) {
+    if (childTakesSizeLimits && "minHeight" in childNode) {
       const fc = childNode as FrameNode | TextNode;
       fc.minHeight = Math.max(fc.minHeight ?? 0, child.cssMinHeight * boundSy);
     }
@@ -2015,7 +2026,7 @@ function applyChildInAutoLayout(
     // Sanity: ignore a max that contradicts an also-present min.
     (typeof child.cssMinHeight !== "number" || child.cssMaxHeight >= child.cssMinHeight)
   ) {
-    if ("maxHeight" in childNode) {
+    if (childTakesSizeLimits && "maxHeight" in childNode) {
       (childNode as FrameNode | TextNode).maxHeight = child.cssMaxHeight * boundSy;
     }
   }

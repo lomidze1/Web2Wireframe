@@ -48,12 +48,58 @@ import { state, updateProgress } from "../state";
 import { getSettings } from "../utils/settings";
 import { categorizeCSSVariable } from "../utils/misc";
 import { autoScrollPage } from "./legacy";
+import { captureWebglCanvases } from "./webgl-canvas-shots";
+import { DEV_LOG_ENABLED, devWarn } from "../../shared/devLog";
+import type { SkipStats } from "../../content/extractor";
 
 // =============================================================================
 
 /** CSS-pixel height of the emulated viewport. The page is captured full-height
  *  by scrolling, so this only seeds the layout viewport (and `vh` units). */
 const VIEWPORT_HEIGHT = 900;
+
+export const W2W_REFRESH_PAGE_MESSAGE = "Refresh this page and try again.";
+export const W2W_RESTRICTED_PAGE_MESSAGE =
+  "Chrome doesn't allow capturing this page (chrome:// pages, Chrome Web Store). Open a regular website and try again.";
+
+async function w2wPingContentScript(tabId: number): Promise<boolean> {
+  try {
+    const res = await chrome.tabs.sendMessage(tabId, { type: "PING" });
+    return res?.status === "ready";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Make sure a live content script answers in the tab before the capture
+ * messages it. After an extension reload / auto-update, already-open tabs keep
+ * the OLD instance's content script, which can no longer receive messages —
+ * and the capture never reloads the page — so inject a fresh copy. Chrome's
+ * raw "Receiving end does not exist." never reaches the popup.
+ */
+export async function w2wEnsureContentScript(tabId: number): Promise<void> {
+  if (await w2wPingContentScript(tabId)) return;
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content/index.js"],
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[W2W] Content script injection failed:", msg);
+    throw new Error(
+      /cannot access|cannot be scripted|chrome:\/\/|edge:\/\//i.test(msg)
+        ? W2W_RESTRICTED_PAGE_MESSAGE
+        : W2W_REFRESH_PAGE_MESSAGE,
+    );
+  }
+
+  if (!(await w2wPingContentScript(tabId))) {
+    throw new Error(W2W_REFRESH_PAGE_MESSAGE);
+  }
+}
 
 /**
  * W2W page capture using content script DOM traversal.
@@ -83,6 +129,11 @@ export async function handleCapturePageW2W(
     const tab = await chrome.tabs.get(tabId);
     if (!tab.url) throw new Error("Cannot capture this page");
     console.log("[W2W] Starting content script capture for:", tab.url);
+
+    // Before the CDP attach (restricted pages fail before the debugger infobar
+    // shows) and before the first sendMessage. Pinned by a source-order guard
+    // in w2w-content-script.test.ts.
+    await w2wEnsureContentScript(tabId);
 
     // [W2W-VERIFY] === instrumentation: track CDP usage during this capture ===
     console.group("%c[W2W-VERIFY] === CAPTURE SESSION START ===", "color: #4CAF50; font-weight: bold");
@@ -115,6 +166,18 @@ export async function handleCapturePageW2W(
     // then hides. Restored in the `finally`. Pinned by a source-order guard in
     // w2w-scrollbars.test.ts.
     await w2wHideScrollbars(client);
+
+    // The API boots the page under prefers-reduced-motion, and sites like
+    // stripe.com then show their graphics finished. This tab is live: when the
+    // user already scrolled, the site's reduced-motion handler cancels the
+    // entrances in flight and leaves their START style (opacity 0) — so finish
+    // them first, then switch. Once per session, before the first viewport
+    // override. Pinned by a source-order guard in w2w-reduced-motion.test.ts.
+    const finishedBeforeSwitch = await w2wFinishRunningAnimations(client);
+    await w2wEmulateReducedMotion(client);
+    console.log(
+      `[W2W] Reduced motion emulated (${finishedBeforeSwitch} running animations finished first)`,
+    );
 
     const viewports = options.viewports.length > 0 ? options.viewports : [1440];
     const captures: W2WFrameCapture[] = [];
@@ -196,6 +259,13 @@ export async function handleCapturePageW2W(
       });
       await new Promise((resolve) => setTimeout(resolve, 200));
 
+      // Entrances the auto-scroll or the width change just started are still in
+      // flight — take them to their end right before the DOM is read.
+      const finishedBeforeRead = await w2wFinishRunningAnimations(client);
+      if (finishedBeforeRead > 0) {
+        console.log(`[W2W] Finished ${finishedBeforeRead} running animations before extraction at ${label}`);
+      }
+
       // --- Content Script DOM Extraction (per viewport) ---
       updateProgress(
         baseProgress + perViewportBudget * 0.3,
@@ -209,10 +279,11 @@ export async function handleCapturePageW2W(
         throw new Error(`Content script extraction failed: ${extractResult?.error || "unknown"}`);
       }
 
-      const { doc, frame, textHostCount } = extractResult.data as {
+      const { doc, frame, textHostCount, skipStats } = extractResult.data as {
         doc: W2WDocMeta;
         frame: W2WFrameNode;
         textHostCount: number;
+        skipStats?: SkipStats;
       };
       console.log(
         `[W2W] DOM extracted at ${label}: ${w2wCountNodes(frame)} nodes, ${textHostCount} text hosts`,
@@ -221,6 +292,10 @@ export async function handleCapturePageW2W(
         `%c[W2W-VERIFY-CONTENT] Content script extracted ${w2wCountNodes(frame)} nodes, ${textHostCount} text-hosts at ${label}`,
         "color: #2196F3",
       );
+      if (DEV_LOG_ENABLED && skipStats) {
+        devWarn(`[W2W-SKIP] ${label}: extractor dropped ${JSON.stringify(skipStats.counts)}`);
+        for (const line of skipStats.large) devWarn(`[W2W-SKIP]   ${line}`);
+      }
 
       // --- Platform Fonts via CDP (per viewport) ---
       updateProgress(
@@ -245,6 +320,7 @@ export async function handleCapturePageW2W(
           `%c[W2W-VERIFY-CDP] About to call CSS.getPlatformFontsForNode for ${idxResult.nodeIds.length} text elements at ${label}`,
           "color: #FF9800",
         );
+        let fontFailures = 0;
         for (const nodeId of idxResult.nodeIds) {
           try {
             const fontsResult = await client.send<{
@@ -285,7 +361,13 @@ export async function handleCapturePageW2W(
             }
           } catch {
             // Skip elements that can't be queried
+            fontFailures++;
           }
+        }
+        if (DEV_LOG_ENABLED && fontFailures > 0) {
+          devWarn(
+            `[W2W-MISS] ${label}: CSS.getPlatformFontsForNode failed on ${fontFailures}/${idxResult.nodeIds.length} hosts`,
+          );
         }
 
         // Read every host's own text now, AFTER the measurements: a label that
@@ -333,6 +415,7 @@ export async function handleCapturePageW2W(
       );
       if (interactiveNodes.length > 0) {
         let hoverCount = 0;
+        const hoverFailed: string[] = [];
 
         let precaptureInjected = false;
         try {
@@ -353,7 +436,10 @@ export async function handleCapturePageW2W(
                 { nodeId: docRoot.root.nodeId, selector },
               );
               __verifyCDPCalls.hoverDomQuery++;
-              if (!qResult.nodeId) continue;
+              if (!qResult.nodeId) {
+                hoverFailed.push(`${selector} (not found)`);
+                continue;
+              }
 
               await client.send("CSS.forcePseudoState", {
                 nodeId: qResult.nodeId,
@@ -381,6 +467,7 @@ export async function handleCapturePageW2W(
               }
             } catch {
               // Skip elements that fail hover capture
+              hoverFailed.push(selector);
             }
           }
         } finally {
@@ -395,6 +482,12 @@ export async function handleCapturePageW2W(
           }
         }
         console.log(`[W2W] Hover states captured at ${label}: ${hoverCount}`);
+        if (DEV_LOG_ENABLED && hoverFailed.length > 0) {
+          devWarn(
+            `[W2W-MISS] ${label}: hover failed on ${hoverFailed.length}/${interactiveNodes.length}: ` +
+              hoverFailed.slice(0, 8).join(" | "),
+          );
+        }
       }
 
       // Cleanup data-w2w-idx markers (they'll be re-injected on next reload)
@@ -411,6 +504,10 @@ export async function handleCapturePageW2W(
       // the duration of each shot, and it has to run before this viewport's
       // frame is banked because it fills the frame in place.
       await captureTaintedCanvases(client, frame);
+      // WebGL canvases keep their pixels in the compositor only — the content
+      // script's read comes back empty for them. Same window as the tainted
+      // pass: it fills the frame in place. Pinned in webgl-canvas-shots.test.ts.
+      await captureWebglCanvases(client, frame);
 
       captures.push({ width: targetViewport, frame, doc });
 
@@ -490,6 +587,16 @@ export async function handleCapturePageW2W(
       }
 
       console.log(`[W2W] Assets extracted: ${Object.keys(assets).length}, missed: ${resourceMapMisses}`);
+      if (DEV_LOG_ENABLED && resourceMapMisses > 0) {
+        const stillMissing = new Set<string>();
+        for (const cap of captures) {
+          for (const url of w2wCollectImageUrls(cap.frame)) if (!assets[url]) stillMissing.add(url);
+        }
+        devWarn(
+          `[W2W-MISS] images not captured (${stillMissing.size}):\n  ` +
+            [...stillMissing].slice(0, 20).join("\n  "),
+        );
+      }
 
       captureStats = {
         skippedImageCount: resourceMapMisses,
@@ -732,6 +839,17 @@ export async function handleCapturePageW2W(
     }
 
     console.log(`[W2W] Final assets count: ${Object.keys(assets).length}`);
+    if (DEV_LOG_ENABLED) {
+      const facesWithoutBytes = w2wFonts
+        .filter((f) => f.src && !extractUrlsFromSrc(f.src).some((u) => assets[u]))
+        .map((f) => `${f.fontFamily} ${f.fontWeight} ${f.fontStyle}`);
+      if (facesWithoutBytes.length > 0) {
+        devWarn(
+          `[W2W-MISS] used font faces with no binary (${facesWithoutBytes.length}): ` +
+            facesWithoutBytes.join(" | "),
+        );
+      }
+    }
 
     // --- CSS Variables ---
     updateProgress(90, "Extracting CSS variables...");
@@ -782,6 +900,7 @@ export async function handleCapturePageW2W(
       // The style lives in the user's real tab, so unlike emulation state it
       // does not go away on detach — take it back out ourselves.
       await w2wShowScrollbars(client);
+      await w2wClearEmulatedMedia(client);
       try {
         await client.send("Emulation.clearDeviceMetricsOverride", {});
       } catch {
@@ -820,8 +939,9 @@ export async function w2wWaitForHydration(client: {
       awaitPromise: true,
       timeout: W2W_HYDRATION_TIMEOUT_MS,
     });
-  } catch {
+  } catch (err) {
     // A page that never goes idle is still worth capturing.
+    if (DEV_LOG_ENABLED) devWarn("[W2W-MISS] hydration wait failed — capturing anyway:", err);
   }
 }
 
@@ -884,6 +1004,83 @@ export async function w2wShowScrollbars(client: {
     });
   } catch {
     // Ignore — the tab may already be gone.
+  }
+}
+
+/**
+ * Finish the page's running time-based animations; evaluates to the number
+ * finished. Only RUNNING animations on the DOCUMENT timeline with a finite
+ * numeric end qualify: paused ones are scroll-scrubbed (finishing jumps them to
+ * their end frame), scroll-driven ones report a CSSUnitValue end, and infinite
+ * loops have no end. The stripe.com measurements behind each rule are in
+ * w2w-reduced-motion.test.ts.
+ */
+export const W2W_FINISH_RUNNING_ANIMATIONS_EXPRESSION = `(() => {
+  let finished = 0;
+  for (const animation of document.getAnimations()) {
+    if (animation.playState !== 'running' || animation.timeline !== document.timeline) continue;
+    const end = animation.effect && animation.effect.getComputedTiming
+      ? animation.effect.getComputedTiming().endTime
+      : undefined;
+    if (typeof end !== 'number' || !Number.isFinite(end)) continue;
+    try {
+      animation.finish();
+      finished++;
+    } catch (e) {
+      // playbackRate 0 and the like refuse — leave them as they are.
+    }
+  }
+  return finished;
+})()`;
+
+/**
+ * Take the entrance animations that are running right now to their end state.
+ * Returns how many were finished. Never throws — 0 when the page can't be read
+ * (Runtime.evaluate reports a page exception in `exceptionDetails`, it does not
+ * reject).
+ */
+export async function w2wFinishRunningAnimations(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<number> {
+  try {
+    const res = await client.send<{ result?: { value?: unknown }; exceptionDetails?: unknown }>(
+      "Runtime.evaluate",
+      { expression: W2W_FINISH_RUNNING_ANIMATIONS_EXPRESSION, returnByValue: true },
+    );
+    const value = res?.exceptionDetails ? undefined : res?.result?.value;
+    return typeof value === "number" ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Capture under `prefers-reduced-motion: reduce`, like the API path's
+ * `emulateReducedMotion`: a site's own accessibility branch then jumps its
+ * graphics to their finished state. The API emulates before the page boots; a
+ * live tab can't be re-booted, which is why the caller finishes the running
+ * animations first. Never throws.
+ */
+export async function w2wEmulateReducedMotion(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<void> {
+  try {
+    await client.send("Emulation.setEmulatedMedia", {
+      features: [{ name: "prefers-reduced-motion", value: "reduce" }],
+    });
+  } catch {
+    // Emulation is an improvement, never a precondition.
+  }
+}
+
+/** Undo {@link w2wEmulateReducedMotion} before the debugger detaches. Never throws. */
+export async function w2wClearEmulatedMedia(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<void> {
+  try {
+    await client.send("Emulation.setEmulatedMedia", { features: [] });
+  } catch {
+    // Ignore — the tab may already be gone; detach clears it anyway.
   }
 }
 
@@ -981,10 +1178,14 @@ export function w2wCountNodes(node: W2WNode): number {
   return count;
 }
 
-/** Collect all image URLs ($url) from the W2W tree. */
+/**
+ * Collect the image URLs ($url) the asset harvest has to fetch. An inline
+ * payload the plugin uses as-is (a canvas bitmap) is left out — see
+ * {@link w2wIsInlineReadyImage}.
+ */
 export function w2wCollectImageUrls(node: W2WNode, urls: string[] = []): string[] {
   if (node.type === "FRAME") {
-    if (node.$url) urls.push(node.$url);
+    if (node.$url && !w2wIsInlineReadyImage(node.$url)) urls.push(node.$url);
     for (const child of node.children) {
       w2wCollectImageUrls(child, urls);
     }
@@ -1064,6 +1265,28 @@ export function w2wSniffImageMime(base64: string): string | null {
   ) return "image/webp";
   if (head[0] === 0x3c) return "image/svg+xml"; // '<' — "<svg" or "<?xml"
   return null;
+}
+
+/** A base64 PNG/JPEG/GIF data URL in exactly the form the plugin builds its assets in. */
+const INLINE_READY_IMAGE = /^data:image\/(png|jpeg|gif);base64,([A-Za-z0-9+/]+={0,2})$/;
+
+/**
+ * Whether a `$url` is an image payload the plugin can use exactly as it is — a
+ * canvas bitmap, typically — so harvesting it would only store the same bytes
+ * twice more (as an asset's key and its content). The plugin reads such a URL
+ * straight from `$url` when the assets map has no entry, and would build the
+ * identical string from an asset anyway.
+ *
+ * Deliberately strict: anything today's fetch-and-sniff path still normalises
+ * stays on it — an uppercase scheme (the plugin's fallback is case-sensitive),
+ * non-canonical base64 (fetch percent-decodes, the plugin does not), a payload
+ * whose bytes contradict its label, and every format Figma cannot take as-is.
+ */
+export function w2wIsInlineReadyImage(url: string): boolean {
+  if (!url.startsWith("data:image/")) return false;
+  const match = url.match(INLINE_READY_IMAGE);
+  if (!match || match[2].length % 4 !== 0) return false;
+  return w2wSniffImageMime(match[2]) === `image/${match[1]}`;
 }
 
 /**

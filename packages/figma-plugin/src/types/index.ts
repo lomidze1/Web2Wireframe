@@ -653,6 +653,10 @@ export interface RenderContext {
   assetMode?: "placeholders" | "realAssets";
   // Map from image URL → base64 data URI (for real asset rendering)
   assetsMap?: Map<string, string>;
+  // Original pixel size of images the import shrank to fit Figma's 4096px
+  // limit (main.ts). fills.ts measures backgrounds with it, so tiling and
+  // cropping keep the page's geometry.
+  imageNaturalSizes?: Map<string, { width: number; height: number }>;
   // Interaction mode for pseudo-state variants
   interactionMode?: "none" | "variants";
   // "Links" import option. false = render no link of any kind: no

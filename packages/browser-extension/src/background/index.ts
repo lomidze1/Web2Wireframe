@@ -19,9 +19,12 @@
 /* eslint-disable no-console */
 
 import { gateConsoleInProduction } from "../shared/consoleGating";
+import { installSwDevLog } from "../shared/devLog";
 
 // Service worker is its own JS context — gate console here too.
 gateConsoleInProduction();
+// Dev-log build only (W2W_DEV_LOG=1): mirror SW console to 127.0.0.1:3999.
+installSwDevLog();
 
 import type { ExtensionMessage, CaptureOptions } from "@/shared/types";
 
