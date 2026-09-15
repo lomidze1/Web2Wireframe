@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { useEffect } from "react";
 import { BrowserRouter, useLocation } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AppRoutes from "./AppRoutes";
@@ -22,6 +23,9 @@ function App(): ReactElement {
     <AuthProvider>
       <BrowserRouter>
         <ScrollToTop />
+        {/* Cookieless pageview counting (Vercel Web Analytics). Client-only:
+            entry-server.tsx deliberately doesn't render it. */}
+        <Analytics />
         {/* S-H6: Skip-to-content link. Visually hidden until focused via
             Tab on page load (see `.skipLink` in global.scss). Keyboard
             and screen-reader users bypass the header nav in one keystroke

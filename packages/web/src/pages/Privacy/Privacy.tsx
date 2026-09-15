@@ -132,7 +132,10 @@ const Privacy = (): ReactElement => {
         content: (
           <p>
             W2W may use functional localStorage to remember preferences (for
-            example, UI settings). We do not use analytics, advertising, or
+            example, UI settings). We use Vercel Web Analytics to count page
+            visits (page, referring site, country, device type). It does not
+            use cookies, does not identify individual visitors, and does not
+            track you across other websites. We do not use advertising or
             tracking cookies.
           </p>
         ),

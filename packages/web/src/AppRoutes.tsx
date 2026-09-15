@@ -14,6 +14,7 @@ import Account from "./pages/Account/Account";
 import Signin from "./pages/Signin/Signin";
 import Renew from "./pages/Renew/Renew";
 import LandingPage from "./pages/Landing/LandingPage";
+import Go from "./pages/Go/Go";
 import { landingPages } from "./pages/Landing/landingData";
 import { docsNavigation } from "./pages/Docs/data/docsStructure";
 
@@ -68,6 +69,7 @@ export default function AppRoutes(): ReactElement {
       <Route path="/account" element={<Account />} />
       <Route path="/signin" element={<Signin />} />
       <Route path="/renew" element={<Renew />} />
+      <Route path="/go/:source" element={<Go />} />
     </Routes>
   );
 }
