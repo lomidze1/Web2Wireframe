@@ -1,0 +1,18 @@
+/* /go/<source> — brief hand-off screen before the redirect to Figma. */
+
+.page {
+  padding-top: 108px;
+  min-height: 40vh;
+}
+
+.lead {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--color-neutral-800);
+  margin: 0 0 16px;
+}
+
+.link {
+  font-size: 15px;
+  color: var(--color-accent-700);
+}

@@ -7,5 +7,7 @@ Disallow: /checkout
 Disallow: /checkout/
 Disallow: /renew
 Disallow: /signin
+# /go/<source> — click-counting redirects to the Figma plugin listing
+Disallow: /go/
 
 Sitemap: https://www.web2wireframe.design/sitemap.xml

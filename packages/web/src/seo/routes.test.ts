@@ -115,3 +115,13 @@ describe("keyword landing pages", () => {
     }
   });
 });
+
+// /go/<source> pages are click counters that redirect to Figma — prerendering
+// them would put redirect stubs into the sitemap and the search index.
+describe("/go redirect links", () => {
+  it("are never prerendered", () => {
+    expect(staticRoutes.filter((route) => route.startsWith("/go"))).toEqual(
+      [],
+    );
+  });
+});

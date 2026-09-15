@@ -9,7 +9,7 @@ export type CheckoutLinks = {
 // listing first. After install, the user upgrades from the plugin.
 // Published Figma Community plugin listing — canonical "install / start free"
 // destination (Pro upgrade happens in-plugin once installed).
-const FIGMA_PLUGIN_URL =
+export const FIGMA_PLUGIN_URL =
   "https://www.figma.com/community/plugin/1646327864971730293";
 
 export const checkoutLinks: CheckoutLinks = {
