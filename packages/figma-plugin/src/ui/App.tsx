@@ -36,6 +36,7 @@ import { fitWithinFigmaLimit } from "../utils/figmaImageLimit";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
 import { onImportTabRequest } from "./shared/importTabEvents";
+import { onPlanModalRequest } from "./shared/planEvents";
 import { onAuthExpired } from "./shared/authEvents";
 
 // Components
@@ -256,6 +257,12 @@ function AppContent() {
   // shared/importTabEvents.ts → requestImportTab).
   useEffect(() => {
     return onImportTabRequest(setImportTab);
+  }, []);
+
+  // Listen for Plan modal requests from inside a tab (see
+  // shared/planEvents.ts → requestPlanModal).
+  useEffect(() => {
+    return onPlanModalRequest(() => setIsPlanOpen(true));
   }, []);
 
   // Track how many text nodes still need their original font re-applied.

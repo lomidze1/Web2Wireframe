@@ -30,7 +30,13 @@ import {
   type FontCut,
 } from "../../../../utils/fontUtils";
 import RenderingLoader from "../../../components/renderingLoader/RenderingLoader";
+import NextStepCard, {
+  MOBILE_VIEWPORT,
+  type ImportSnapshot,
+} from "../../../components/nextStepCard/NextStepCard";
 import { useImportProgress } from "../../../hooks/useImportProgress";
+import { deriveQuota } from "../../../shared/quota";
+import { requestPlanModal } from "../../../shared/planEvents";
 
 const TAB_ID = "web";
 const STORAGE_KEY = "w2w_settings_expanded_web";
@@ -54,6 +60,9 @@ interface ImportState {
 const EXTENSION_URL =
   "https://chromewebstore.google.com/detail/web2wireframe/fcmicolldgpmpdkcdljkaaimmjmboipl";
 
+/** One-off settings for a single import (the next-step card's re-imports). */
+type ImportOverrides = Partial<ImportSnapshot>;
+
 interface RenderData {
   frames: unknown[];
   sourceUrl: string;
@@ -64,6 +73,7 @@ interface RenderData {
   fontMode: "plugin" | "website" | "lines";
   textMode: "website" | "lorem" | "semantic";
   layoutMode: "autoLayout" | "absolute";
+  assetMode: ImportSnapshot["assetMode"];
   fontRealNames?: Record<string, string>;
   fontDeclaredCuts?: Record<string, FontCut[]>;
   fontVariableFamilies?: string[];
@@ -94,11 +104,21 @@ export default function Web() {
   // Set when window.open() is refused, so the blocked panel offers a clickable
   // link the user can open manually.
   const [popupBlocked, setPopupBlocked] = useState(false);
+  // The last import that rendered — the next-step card re-imports from it. Kept
+  // apart from `url`, which is cleared when the loader closes.
+  const [lastImport, setLastImport] = useState<ImportSnapshot | null>(null);
+  const pendingImportRef = useRef<ImportSnapshot | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Use shared hook for all settings logic
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
-  const { refresh: refreshLicense } = useLicense();
+  const {
+    refresh: refreshLicense,
+    license,
+    isLoading: licenseLoading,
+    error: licenseError,
+  } = useLicense();
   const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for messages from Figma plugin main thread
@@ -113,6 +133,10 @@ export default function Web() {
 
         // When complete, show success state then close
         if (isComplete) {
+          if (pendingImportRef.current) {
+            setLastImport(pendingImportRef.current);
+            pendingImportRef.current = null;
+          }
           if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
           resetTimeoutRef.current = setTimeout(() => {
             hideLoader();
@@ -129,6 +153,7 @@ export default function Web() {
       }
 
       if (msg.type === "wireframe-error") {
+        pendingImportRef.current = null;
         hideLoader();
         setImportState({
           status: "error",
@@ -175,7 +200,7 @@ export default function Web() {
             fontMode: data.fontMode,
             textMode: data.textMode,
             layoutMode: data.layoutMode, // "autoLayout" or "absolute"
-            assetMode: settings.localAssetMode,
+            assetMode: data.assetMode,
             interactionMode: settings.localInteractionMode,
             htmlLayerNames: config.htmlLayerNames,
             geometryRows: config.geometryRows,
@@ -211,8 +236,10 @@ export default function Web() {
     );
   };
 
-  const handleImport = async () => {
-    const trimmedUrl = url.trim();
+  /** `overrides` apply to this import only — the tab's own (visible and
+   *  saved) settings are never touched. */
+  const handleImport = async (overrides: ImportOverrides = {}) => {
+    const trimmedUrl = (overrides.url ?? url).trim();
     if (!trimmedUrl) return;
 
     // Validate and normalize URL
@@ -225,6 +252,12 @@ export default function Web() {
       return;
     }
     const normalizedUrl = validation.url;
+    const effective = {
+      viewports: overrides.viewports ?? settings.localViewports,
+      colorMode: overrides.colorMode ?? settings.localColorMode,
+      fontMode: overrides.fontMode ?? settings.localFontMode,
+      assetMode: overrides.assetMode ?? settings.localAssetMode,
+    };
 
     // A previous import's 10s "reset to idle" timer may still be pending. It
     // would wipe this import's status message (and the URL field) mid-flight,
@@ -238,6 +271,7 @@ export default function Web() {
 
     setImportState({ status: "loading", message: "Importing the website…" });
     setPopupBlocked(false);
+    setLastImport(null);
 
     // Collapse settings panel so user can see loading status
     settings.collapseSettings();
@@ -259,11 +293,11 @@ export default function Web() {
           userId: `figma-user-${Date.now()}`, // Temporary user ID
           figmaUserId: config.figmaUserId,
           sourceUrl: normalizedUrl,
-          viewports: settings.localViewports.map(Number),
-          colorMode: settings.localColorMode,        // "plugin" | "website"
-          typographyMode: settings.localFontMode,     // "plugin" | "website" | "lines"
+          viewports: effective.viewports.map(Number),
+          colorMode: effective.colorMode,        // "plugin" | "website"
+          typographyMode: effective.fontMode,     // "plugin" | "website" | "lines"
           textMode: settings.localTextMode,
-          assetMode: settings.localAssetMode,
+          assetMode: effective.assetMode,
           cssVariablesMode: settings.localCssVariablesMode,
           layoutMode: settings.localLayoutMode,
           pluginColors: config.pluginColors, // Send full 6-color palette
@@ -368,8 +402,8 @@ export default function Web() {
         const transformedFrames = transformFramesData(
           rawFrames as Parameters<typeof transformFramesData>[0],
           {
-            colorMode: settings.localColorMode,
-            fontMode: settings.localFontMode,
+            colorMode: effective.colorMode,
+            fontMode: effective.fontMode,
             textMode: settings.localTextMode,
           }
         );
@@ -390,10 +424,11 @@ export default function Web() {
         localStyles: data.localStyles,
         pluginColors,
         cssVariables: data.cssVariables || [],
-        colorMode: settings.localColorMode,
-        fontMode: settings.localFontMode,
+        colorMode: effective.colorMode,
+        fontMode: effective.fontMode,
         textMode: settings.localTextMode,
         layoutMode: settings.localLayoutMode,
+        assetMode: effective.assetMode,
         fontRealNames: buildFontRealNames(data.fonts),
         fontDeclaredCuts: buildFontDeclaredCuts(data.fonts),
         fontVariableFamilies: Array.from(buildVariableFontFamilies(data.fonts)),
@@ -405,6 +440,7 @@ export default function Web() {
       // assets all take time the loader still offers Cancel for. Honour it.
       if (controller.signal.aborted) return;
 
+      pendingImportRef.current = { url: normalizedUrl, ...effective };
       sendToFigma(renderData, settings.localCssVariablesMode);
 
       // Import consumed a quota slot server-side — refresh the footer badge.
@@ -440,6 +476,7 @@ export default function Web() {
 
       {/* URL Input */}
       <input
+        ref={inputRef}
         id="w2w-url-input"
         type="url"
         class={styles.urlInput}
@@ -449,7 +486,10 @@ export default function Web() {
         aria-describedby={
           importState.status === "error" ? "w2w-url-error" : undefined
         }
-        onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+        onInput={(e) => {
+          setUrl((e.target as HTMLInputElement).value);
+          setLastImport(null);
+        }}
         onBlur={() => {
           const trimmed = url.trim();
           if (trimmed && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(trimmed)) {
@@ -463,6 +503,32 @@ export default function Web() {
           }
         }}
       />
+
+      {/* Next step after a successful import */}
+      {lastImport && !loader.isVisible && (
+        <NextStepCard
+          snapshot={lastImport}
+          quota={license && !licenseLoading && !licenseError ? deriveQuota(license) : null}
+          disabled={importState.status === "loading"}
+          onImportMobile={() =>
+            handleImport({ ...lastImport, viewports: [MOBILE_VIEWPORT] })
+          }
+          onAnotherPage={() => {
+            setUrl(`${new URL(lastImport.url).origin}/`);
+            inputRef.current?.focus();
+          }}
+          onWireframe={() =>
+            handleImport({
+              ...lastImport,
+              colorMode: "plugin",
+              fontMode: "plugin",
+              assetMode: "placeholders",
+            })
+          }
+          onDismiss={() => setLastImport(null)}
+          onSeePro={requestPlanModal}
+        />
+      )}
 
       {/* Status Message — live region so screen readers announce updates */}
       {importState.message && (
@@ -588,7 +654,7 @@ export default function Web() {
       {/* Import Button */}
       <button
         class={importStyles.btnPrimary}
-        onClick={handleImport}
+        onClick={() => handleImport()}
         disabled={isDisabled}
       >
         {importState.status === "loading" ? "Importing…" : "Import"}
@@ -611,6 +677,12 @@ export default function Web() {
         isVisible={loader.isVisible}
         progress={loader.progress}
         onClose={() => {
+          // Closing already resets the tab. The 10s fallback timer would
+          // otherwise fire later and wipe a URL the next-step card prefilled.
+          if (resetTimeoutRef.current) {
+            clearTimeout(resetTimeoutRef.current);
+            resetTimeoutRef.current = null;
+          }
           hideLoader();
           setImportState({ status: "idle", message: "" });
           setUrl("");
