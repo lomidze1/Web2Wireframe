@@ -234,5 +234,5 @@ Activation კარგია (83%), მაგრამ **მომხმარ�
 
 წყარო: Vercel → Analytics → Pages (`/go/` ფილტრი) + `/api/admin/stats` (ახალი 7 დღე).
 
-| კვირა | /go/linkedin | /go/x | /go/li-comment | /go/x-comment | /go/youtube | /go/bio | other | ახალი მომხმარებელი |
-|---|---|---|---|---|---|---|---|---|
+| კვირა | /go/linkedin | /go/x | /go/li-comment | /go/x-comment | /go/youtube | /go/x-bio | /go/li-bio | /go/yt-bio | other | ახალი მომხმარებელი |
+|---|---|---|---|---|---|---|---|---|---|---|

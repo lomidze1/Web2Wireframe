@@ -113,7 +113,9 @@ timezone `Asia/Tbilisi`). `list_channels` / `create_post` მას ითხო
 | LinkedIn კომენტარი | https://www.web2wireframe.design/go/li-comment |
 | X კომენტარი / reply | https://www.web2wireframe.design/go/x-comment |
 | YouTube (აღწერა, Short) | https://www.web2wireframe.design/go/youtube |
-| პროფილის bio (ყველა არხი) | https://www.web2wireframe.design/go/bio |
+| X-ის პროფილის ლინკი (bio) | https://www.web2wireframe.design/go/x-bio |
+| LinkedIn-ის პროფილის ლინკი | https://www.web2wireframe.design/go/li-bio |
+| YouTube-ის არხის ლინკი | https://www.web2wireframe.design/go/yt-bio |
 
 ახალ არხს ახალი სახელი სჭირდება (a-z, 0-9, `-`, მაქს. 30). კოდის შეცვლა
 საჭირო არ არის. არასწორი სახელი `other`-ად ითვლება.

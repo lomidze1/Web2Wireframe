@@ -76,7 +76,7 @@ owner-მა ეს პირდაპირ უარყო 2026-08-24-ს დ�
 ## კვირის ციფრი — `/go` დაწკაპუნებები vs ახალი მომხმარებელი
 
 ყოველ განხილვაზე `METRICS.md` → „/go ატრიბუცია“ ცხრილს ემატება ერთი row:
-კვირა | /go/linkedin | /go/x | /go/li-comment | /go/x-comment | /go/youtube | /go/bio | other | ახალი მომხმარებელი (`/api/admin/stats`, 7 დღე)
+კვირა | /go/linkedin | /go/x | /go/li-comment | /go/x-comment | /go/youtube | /go/x-bio | /go/li-bio | /go/yt-bio | other | ახალი მომხმარებელი (`/api/admin/stats`, 7 დღე)
 
 ## რეფერენსები
 
