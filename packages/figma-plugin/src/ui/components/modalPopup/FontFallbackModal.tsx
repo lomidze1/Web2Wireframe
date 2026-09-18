@@ -77,20 +77,6 @@ export default function FontFallbackModal({
     return initial;
   });
 
-  // Esc / explicit close defaults to the CSS-fallback path (safest default —
-  // never blocks the wireframe render).
-  const handleEscape = () => {
-    const mapping: FontMapping = {};
-    for (const font of missingFonts) {
-      const chain = fallbackChains?.[font];
-      mapping[font] = chain && chain.length > 0 ? chain[0] : pluginFont;
-    }
-    onChoice("fallback", mapping);
-  };
-  const { modalRef } = useModal({ isOpen, onClose: handleEscape });
-
-  if (!isOpen) return null;
-
   const handleFallback = () => {
     // Build mapping from CSS fallback chains
     const mapping: FontMapping = {};
@@ -105,6 +91,12 @@ export default function FontFallbackModal({
     }
     onChoice("fallback", mapping);
   };
+
+  // Esc / explicit close takes the same CSS-fallback path as "Use fallback
+  // fonts" (safest default — never blocks the wireframe render).
+  const { modalRef } = useModal({ isOpen, onClose: handleFallback });
+
+  if (!isOpen) return null;
 
   const handlePluginFontsClick = () => {
     setShowPluginDropdowns(true);
@@ -160,6 +152,15 @@ export default function FontFallbackModal({
         entries,
         (percent) => setZipProgress(percent)
       );
+      // Nothing packaged → an empty fonts.zip helps no one (notion.com). Name
+      // the fonts so the user can find them instead.
+      if (skippedEntries.length >= entries.length) {
+        setDownloadNotice({
+          kind: "error",
+          message: `We couldn't download these fonts automatically: ${missingFonts.join(", ")}. Find them by name, install them, then use "Re-apply fonts".`,
+        });
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -174,9 +175,7 @@ export default function FontFallbackModal({
       if (skippedEntries.length > 0) {
         setDownloadNotice({
           kind: "warning",
-          message: `${skippedEntries.length} font file${
-            skippedEntries.length === 1 ? "" : "s"
-          } could not be packaged (skipped).`,
+          message: `${skippedEntries.length} of ${entries.length} font files couldn't be downloaded. The ZIP has the rest.`,
         });
       }
     } catch {
@@ -210,7 +209,7 @@ export default function FontFallbackModal({
           <button
             type="button"
             class={styles.modalClose}
-            onClick={handleEscape}
+            onClick={handleFallback}
             aria-label="Use CSS fallback fonts and close"
           >
             ×

@@ -24,6 +24,7 @@ import ImportReportModal, {
 import type { ImportWarning } from "../types";
 
 import ConnectFigma from "./components/ConnectFigma";
+import LicenseReadyGate from "./components/LicenseReadyGate";
 import {
   applyAuthToken,
   clearAuthToken,
@@ -33,10 +34,13 @@ import { API_BASE_URL } from "./shared/apiConfig";
 import { hasTransparentPixel } from "./shared/imageAlpha";
 import { mayHaveAlpha } from "./shared/figmaImageConvert";
 import { fitWithinFigmaLimit } from "../utils/figmaImageLimit";
+import { applyColorFilterToPixels, parseColorFilter } from "../rendering/cssFilter";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
 import { onImportTabRequest } from "./shared/importTabEvents";
 import { onPlanModalRequest } from "./shared/planEvents";
+import WhatsNewModal from "./components/modalPopup/WhatsNewModal";
+import { useWhatsNew } from "./hooks/useWhatsNew";
 import { onAuthExpired } from "./shared/authEvents";
 
 // Components
@@ -146,7 +150,11 @@ function ConnectionGate() {
   // here — after Connect succeeded — so figmaUserId is reliably present.
   return (
     <LicenseProvider>
-      <AppContent />
+      {/* Same loading screen until the license is known, so the UI never
+          renders first-run content and then rearranges (see LicenseReadyGate). */}
+      <LicenseReadyGate fallback={<div class={styles.loadingScreen}>Loading…</div>}>
+        <AppContent />
+      </LicenseReadyGate>
     </LicenseProvider>
   );
 }
@@ -342,13 +350,25 @@ function AppContent() {
     if (days <= 3) setExpiringDaysRemaining(days);
   }, [license]);
 
+  // One-time "What's new" note (see hooks/useWhatsNew.ts). Suppressed while the
+  // expiry heads-up is up so two modals never stack.
+  const { isOpen: isWhatsNewOpen, close: closeWhatsNew } = useWhatsNew(
+    license,
+    expiringDaysRemaining !== null
+  );
+  // Closing the modal docks it as a banner under the Web tab's Import button;
+  // the banner's own × hides it for this session. Kept here, not in Web, so it
+  // survives switching tabs.
+  const [newsDocked, setNewsDocked] = useState(false);
+  const [newsBannerDismissed, setNewsBannerDismissed] = useState(false);
+
   // Handle asset conversion requests from sandbox (AVIF/WebP → JPEG via Canvas)
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const msg = event.data?.pluginMessage;
       if (!msg || msg.type !== "convert-assets") return;
 
-      const assets: Array<{ url: string; dataUri: string }> = msg.data?.assets || [];
+      const assets: Array<{ url: string; dataUri: string; filter?: string }> = msg.data?.assets || [];
       if (assets.length === 0) {
         parent.postMessage({ pluginMessage: { type: "assets-converted", data: { convertedAssets: [] } } }, "*");
         return;
@@ -383,8 +403,17 @@ function AppContent() {
             if (!ctx) throw new Error("No 2d context");
             ctx.drawImage(img, 0, 0, width, height);
 
+            // CSS color filter (utils/filteredImages.ts): recolour the pixels
+            // with the paint math — a tainted canvas throws and the sandbox
+            // keeps the unfiltered image.
+            if (asset.filter) {
+              const imageData = ctx.getImageData(0, 0, width, height);
+              applyColorFilterToPixels(imageData.data, parseColorFilter(asset.filter));
+              ctx.putImageData(imageData, 0, 0);
+            }
+
             let needsPng = false;
-            if (mayHaveAlpha(asset.dataUri)) {
+            if (asset.filter || mayHaveAlpha(asset.dataUri)) {
               try {
                 const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
                 needsPng = hasTransparentPixel(rgba);
@@ -441,7 +470,15 @@ function AppContent() {
   const renderImportContent = () => {
     switch (importTab) {
       case "web":
-        return <Web />;
+        return (
+          <Web
+            newsBanner={
+              newsDocked && !newsBannerDismissed
+                ? { onDismiss: () => setNewsBannerDismissed(true) }
+                : null
+            }
+          />
+        );
       case "screenshot":
         return <Screenshot />;
       case "html":
@@ -601,6 +638,11 @@ function AppContent() {
         setExpiringDaysRemaining(null);
         setIsPlanOpen(true);
       }}
+    />
+    <WhatsNewModal
+      isOpen={isWhatsNewOpen}
+      onClose={closeWhatsNew}
+      onDock={() => setNewsDocked(true)}
     />
     </Fragment>
   );

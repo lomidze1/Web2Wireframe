@@ -119,6 +119,29 @@ describe("opacity:0 content is skipped but reported", () => {
     expect(skipped).toEqual([]);
   });
 
+  // notion.com (user report 2026-09-17): its nav dropdown menus are
+  // `opacity: 0` AND `visibility: hidden` — closed menus, not lost content —
+  // and were reported as three "Hidden at capture time" rows.
+  it("says nothing about a closed menu that is also visibility:hidden", () => {
+    const { skipped } = convertWith(
+      frame({ opacity: 0, visibility: "hidden" }, [826, 256], [text("Product  Docs  Pricing")]),
+    );
+    expect(skipped).toEqual([]);
+  });
+
+  // notion.com: a marquee's transparent measuring twin sits on the same row as
+  // the visible marquee that shows the same content — nothing is lost.
+  it("says nothing about a transparent twin of a visible row", () => {
+    const placeholder = frame({ opacity: 0 }, [1440, 24], [text("G2's #1 knowledge base")], { classList: ["placeholder"] });
+    const marquee = frame({}, [2864, 24], [text("G2's #1 knowledge base")], { classList: ["marquee"] });
+    const skipped: SkippedFrame[] = [];
+    convertW2WToWireframe(
+      frame({}, [1440, 600], [frame({}, [1440, 24], [placeholder, marquee])]) as never,
+      { layoutMode: "autoLayout", onSkippedFrame: (s) => skipped.push(s) },
+    );
+    expect(skipped).toEqual([]);
+  });
+
   it("says nothing in variants mode, where the subtree is kept for hover", () => {
     const { skipped } = convertWith(revealWrapper, { interactionMode: "variants" });
     expect(skipped).toEqual([]);

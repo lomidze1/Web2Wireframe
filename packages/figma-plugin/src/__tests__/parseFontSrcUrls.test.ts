@@ -63,4 +63,13 @@ describe("parseFontSrcUrls", () => {
     const src = `url('/fonts/inter.woff2') format('woff2')`;
     expect(parseFontSrcUrls(src)).toEqual([]);
   });
+  // notion.com (user report 2026-09-16): minified CSS glues the descriptor to
+  // the URL. After the capture strips url(), "format" was read as part of the
+  // URL — every fetch 404'd and fonts.zip came out empty.
+  it("stops a bare URL at a glued format() / tech() descriptor", () => {
+    const a = "https://www.notion.com/front-static/fonts/NotionInter-Regular.woff2";
+    const b = "https://www.notion.com/front-static/fonts/NotionInter-Regular.woff";
+    expect(parseFontSrcUrls(`${a}format("woff2"),${b}format("woff")`)).toEqual([a, b]);
+    expect(parseFontSrcUrls(`${a}tech(variations)format("woff2")`)).toEqual([a]);
+  });
 });

@@ -115,6 +115,9 @@ export interface SettingsPanelProps {
 
   // Optional: hide viewports section (e.g. for AreaSelection where viewports are in the file)
   hideViewports?: boolean;
+  /** Bump to scroll the options into view again even when they are already
+   *  open (the next-step card's "Choose yourself"). */
+  scrollRequest?: number;
 }
 
 interface SegmentOption<T extends string> {
@@ -215,6 +218,7 @@ export default function SettingsPanel({
   disableInteractionsVariants,
   interactionsDisabledTooltip,
   hideViewports,
+  scrollRequest,
 }: SettingsPanelProps) {
   // When the section is opened, bring the whole options block into view so it
   // isn't left cut off below the fold. Only fires on the collapsed→expanded
@@ -230,6 +234,19 @@ export default function SettingsPanel({
     }
     prevExpanded.current = isExpanded;
   }, [isExpanded]);
+
+  // An explicit request scrolls to the options even when they are already open
+  // (opening from collapsed is covered above). The initial value never scrolls.
+  const prevScrollRequest = useRef(scrollRequest);
+  useEffect(() => {
+    if (scrollRequest !== prevScrollRequest.current && isExpanded) {
+      contentRef.current?.scrollIntoView?.({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+    prevScrollRequest.current = scrollRequest;
+  }, [scrollRequest]);
 
   return (
     <div class={containerClassName || styles.settingsBox}>

@@ -482,6 +482,64 @@ function makeMixedText(
   return node;
 }
 
+describe("rebindOriginalFonts — mixed node, current fonts not yet loaded", () => {
+  // Figma refuses to rewrite a range whose CURRENT font isn't loaded in this
+  // session: "Cannot write to node with unloaded font Inter Regular". A
+  // Re-apply run later in a fresh session hit exactly that on notion.com
+  // ("Michael Truell,Co-founder & CEO") and reported the font still missing.
+  function strictMixed(
+    ranges: Array<{ start: number; end: number; family: string; style: string }>,
+    marker: Record<string, string>,
+  ): MockTextNode {
+    const node = makeMixedText("strict", ranges, marker);
+    const set = node.setRangeFontName!;
+    node.setRangeFontName = (start, end, font) => {
+      const cur = node.getRangeFontName!(start, end) as { family: string; style: string };
+      const loaded = loadFontCalls.some((c) => c.family === cur.family && c.style === cur.style);
+      if (!loaded) {
+        throw new Error(`in setRangeFontName: Cannot write to node with unloaded font "${cur.family} ${cur.style}"`);
+      }
+      set(start, end, font);
+    };
+    (node as unknown as { getRangeAllFontNames: (s: number, e: number) => unknown[] }).getRangeAllFontNames = () =>
+      ranges.map((r) => ({ family: r.family, style: r.style }));
+    node.characters = "x".repeat(ranges[ranges.length - 1].end);
+    return node;
+  }
+
+  it("inter-run fallback loads the node's current fonts before writing", async () => {
+    const node = strictMixed(
+      [
+        { start: 0, end: 15, family: "Lyon Text Web", style: "Regular" },
+        { start: 15, end: 31, family: "Inter", style: "Regular" },
+      ],
+      { [ORIGINAL_FONT_PLUGIN_KEY]: "Lyon Text Web" },
+    );
+
+    const result = await rebindOriginalFonts([node as unknown as TextNode]);
+
+    expect(result.rebound).toBe(1);
+    const ranges = node.getStyledTextSegments!(["fontName"]);
+    expect((ranges[1].fontName as { family: string }).family).toBe("Lyon Text Web");
+  });
+
+  it("per-run markers load the node's current fonts before writing", async () => {
+    const node = strictMixed(
+      [
+        { start: 0, end: 15, family: "Lyon Text Web", style: "Regular" },
+        { start: 15, end: 31, family: "Inter", style: "Regular" },
+      ],
+      { [SEGMENT_FONT_PLUGIN_KEY]: JSON.stringify([{ start: 15, end: 31, family: "Lyon Text Web" }]) },
+    );
+
+    const result = await rebindOriginalFonts([node as unknown as TextNode]);
+
+    expect(result.rebound).toBe(1);
+    const ranges = node.getStyledTextSegments!(["fontName"]);
+    expect((ranges[1].fontName as { family: string }).family).toBe("Lyon Text Web");
+  });
+});
+
 describe("rebindOriginalFonts — mixed node fallback (no segment markers)", () => {
   it("rebinds every Inter run to the marker family, preserving per-run style", async () => {
     installedFontList = [

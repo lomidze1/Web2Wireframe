@@ -19,8 +19,11 @@ const SNAPSHOT: ImportSnapshot = {
   viewports: ["1440"],
   colorMode: "website",
   fontMode: "website",
+  textMode: "website",
   assetMode: "realAssets",
 };
+
+const WIREFRAME = { label: "✏️ Try wireframe style" };
 
 const finite = (remaining: number, limit = 10): QuotaInfo => ({
   unlimited: false,
@@ -33,11 +36,14 @@ function setup(overrides: {
   snapshot?: ImportSnapshot;
   quota?: QuotaInfo | null;
   disabled?: boolean;
+  nextStyle?: { label: string } | null;
+  showChooseYourself?: boolean;
 } = {}) {
   const handlers = {
     onImportMobile: vi.fn(),
     onAnotherPage: vi.fn(),
-    onWireframe: vi.fn(),
+    onTryStyle: vi.fn(),
+    onChooseYourself: vi.fn(),
     onDismiss: vi.fn(),
     onSeePro: vi.fn(),
   };
@@ -46,6 +52,8 @@ function setup(overrides: {
       snapshot={overrides.snapshot ?? SNAPSHOT}
       quota={overrides.quota === undefined ? finite(9) : overrides.quota}
       disabled={overrides.disabled ?? false}
+      nextStyle={overrides.nextStyle === undefined ? WIREFRAME : overrides.nextStyle}
+      showChooseYourself={overrides.showChooseYourself ?? true}
       {...handlers}
     />
   );
@@ -57,11 +65,32 @@ function setup(overrides: {
 }
 
 describe("NextStepCard — actions", () => {
-  it("offers mobile, another page and wireframe style after a desktop import", () => {
+  it("offers mobile, another page, the next style and choosing yourself", () => {
     const { button } = setup();
     expect(button(/mobile version/i)).toBeTruthy();
     expect(button(/another page/i)).toBeTruthy();
     expect(button(/wireframe style/i)).toBeTruthy();
+    expect(button(/choose yourself/i)).toBeTruthy();
+    // The longer label is only for when no ladder step is left.
+    expect(button(/pick your own settings/i)).toBeUndefined();
+  });
+
+  it("offers only the next style right after the first import", () => {
+    const { button } = setup({ showChooseYourself: false });
+    expect(button(/wireframe style/i)).toBeTruthy();
+    expect(button(/choose yourself/i)).toBeUndefined();
+  });
+
+  it("names whichever ladder step comes next", () => {
+    const { button } = setup({ nextStyle: { label: "📐 Try low-fi sketch" } });
+    expect(button(/low-fi sketch/i)).toBeTruthy();
+    expect(button(/wireframe style/i)).toBeUndefined();
+  });
+
+  it("keeps Choose yourself once every style was tried", () => {
+    const { button } = setup({ nextStyle: null });
+    expect(button(/^\S*\s*Try /)).toBeUndefined();
+    expect(button(/pick your own settings/i)).toBeTruthy();
   });
 
   it("skips the mobile action when 375 was already imported", () => {
@@ -69,17 +98,10 @@ describe("NextStepCard — actions", () => {
     expect(button(/mobile version/i)).toBeUndefined();
   });
 
-  it("skips the wireframe action when the import was already wireframe-styled", () => {
-    const { button } = setup({
-      snapshot: { ...SNAPSHOT, colorMode: "plugin", fontMode: "plugin", assetMode: "placeholders" },
-    });
-    expect(button(/wireframe style/i)).toBeUndefined();
-  });
-
   it("wires each action to its handler", () => {
-    const { button, handlers } = setup();
-    fireEvent.click(button(/mobile version/i)!);
-    expect(handlers.onImportMobile).toHaveBeenCalledTimes(1);
+    const first = setup();
+    fireEvent.click(first.button(/mobile version/i)!);
+    expect(first.handlers.onImportMobile).toHaveBeenCalledTimes(1);
 
     const second = setup();
     fireEvent.click(second.button(/another page/i)!);
@@ -87,7 +109,11 @@ describe("NextStepCard — actions", () => {
 
     const third = setup();
     fireEvent.click(third.button(/wireframe style/i)!);
-    expect(third.handlers.onWireframe).toHaveBeenCalledTimes(1);
+    expect(third.handlers.onTryStyle).toHaveBeenCalledTimes(1);
+
+    const fourth = setup();
+    fireEvent.click(fourth.button(/choose yourself/i)!);
+    expect(fourth.handlers.onChooseYourself).toHaveBeenCalledTimes(1);
   });
 
   it("dismisses on ✕", () => {
@@ -100,14 +126,16 @@ describe("NextStepCard — actions", () => {
     const { button } = setup({ disabled: true });
     expect(button(/mobile version/i)!.disabled).toBe(true);
     expect(button(/wireframe style/i)!.disabled).toBe(true);
+    // Opening the settings panel costs nothing and stays available.
+    expect(button(/choose yourself/i)!.disabled).toBe(false);
   });
 
   it("fires an importing action only once on a double click", () => {
     const { button, handlers } = setup();
-    const mobile = button(/mobile version/i)!;
-    fireEvent.click(mobile);
-    fireEvent.click(mobile);
-    expect(handlers.onImportMobile).toHaveBeenCalledTimes(1);
+    const style = button(/wireframe style/i)!;
+    fireEvent.click(style);
+    fireEvent.click(style);
+    expect(handlers.onTryStyle).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -137,6 +165,7 @@ describe("NextStepCard — free allowance", () => {
     expect(button(/mobile version/i)).toBeUndefined();
     expect(button(/wireframe style/i)).toBeUndefined();
     expect(button(/another page/i)).toBeTruthy();
+    expect(button(/choose yourself/i)).toBeTruthy();
     expect(button(/see pro/i)).toBeTruthy();
   });
 

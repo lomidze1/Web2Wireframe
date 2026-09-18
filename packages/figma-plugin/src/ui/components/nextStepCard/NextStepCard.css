@@ -41,6 +41,15 @@
   gap: var(--space-1);
 }
 
+.row {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.row > .action {
+  flex: 1;
+}
+
 .action {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);

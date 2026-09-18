@@ -60,6 +60,7 @@ import { enforceMeasuredLineCount } from "./textLineGuard";
 import { createPlaceholder } from "./placeholders";
 import { createRealImage } from "./realImages";
 import { extractHostname } from "./hostname";
+import { bakeColorFilter, parseColorFilter } from "./cssFilter";
 // wireframeLines import removed — fontMode "lines" uses FILLR font via text.ts
 
 // ============================================================================
@@ -757,12 +758,38 @@ export async function createNodeInFigma(
   // Same funnel, shipped: the import loader's only measured signal.
   context.onNodeRendered?.();
   const created = await createNodeInFigmaInner(node, context, depth);
+  // After the subtree exists: descendants bake their own filter first, so a
+  // nested filter composes inner → outer, as CSS paints it.
+  // Plugin color mode paints its own palette — recoloring it would only
+  // scramble the wireframe.
+  if (created && node.cssColorFilter && context.colorMode !== "plugin") {
+    bakeColorFilterWithReport(created, node, context);
+  }
   // "Links" option off → neither the `#anchor` links nor their targets are
   // registered, so resolveAnchorReactions has nothing to wire.
   if (created && context.anchorScope && context.originLinks !== false) {
     registerAnchorNode(context.anchorScope, node, created);
   }
   return created;
+}
+
+/** Bake `node.cssColorFilter` into `created`; report images it can't recolor. */
+export function bakeColorFilterWithReport(
+  created: SceneNode,
+  node: WireframeNode,
+  context: RenderContext
+): void {
+  const { unbakedImages } = bakeColorFilter(created, parseColorFilter(node.cssColorFilter), {
+    imagesPrebaked: node.imageFilterBaked === true,
+  });
+  if (unbakedImages > 0) {
+    recordWarning(context, {
+      category: "image",
+      message: "CSS filter isn't applied to images yet — image shown without it",
+      nodeId: created.id,
+      layerName: created.name || node.name,
+    });
+  }
 }
 
 async function createNodeInFigmaInner(
@@ -2050,6 +2077,11 @@ function applyChildInAutoLayout(
       // it exactly — otherwise Figma re-divides space the browser never gave.
       const grows = child.layoutGrow === 1 && context.growEligible !== false;
 
+      // HUG is legal only on a frame with auto layout of its own. A NONE bleed
+      // wrapper or a child the renderer kept absolute throws, and the per-child
+      // catch drops the whole subtree (chroniclehq.com). It stays FIXED.
+      const targetCanHug = target.layoutMode !== "NONE";
+
       // layoutGrow
       if (grows) {
         target.layoutGrow = 1;
@@ -2069,7 +2101,7 @@ function applyChildInAutoLayout(
         // Main axis = horizontal
         if (child.layoutSizingHorizontal === "FILL" || grows) {
           if (parentFrame.layoutSizingHorizontal === "HUG") {
-            target.layoutSizingHorizontal = "HUG";
+            if (targetCanHug) target.layoutSizingHorizontal = "HUG";
           } else {
             target.layoutSizingHorizontal = "FILL";
             if (child.horizontallyCentered && child.width < (context.parentWidth || Infinity)) {
@@ -2100,7 +2132,7 @@ function applyChildInAutoLayout(
         // Main axis = vertical
         if (child.layoutSizingVertical === "FILL" || grows) {
           if (parentFrame.layoutSizingVertical === "HUG") {
-            target.layoutSizingVertical = "HUG";
+            if (targetCanHug) target.layoutSizingVertical = "HUG";
           } else {
             target.layoutSizingVertical = "FILL";
           }
@@ -3147,8 +3179,11 @@ export function sortChildrenForStacking(
   // destroys it: stripe.com's bento cards stack `__border` (opaque) then
   // `__inner` (the artwork), and hoisting `__inner` buried the artwork under a
   // flat #E5EDF5 box.
+  // The in-flow content must be more than an image too: an image-only in-flow
+  // sibling has no copy to protect, and CSS paints positioned layers over it
+  // (notion.com bento: chart + prompt layers over the base screenshot).
   const hasInFlowSibling = children.some(
-    (c) => c.position !== "absolute" && c.position !== "fixed"
+    (c) => c.position !== "absolute" && c.position !== "fixed" && !isImageOnlySubtreeW(c)
   );
 
   const bgImages: WireframeNode[] = [];

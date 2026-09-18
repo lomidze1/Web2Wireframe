@@ -459,4 +459,20 @@ describe("SettingsPanel", () => {
     });
 
   });
+
+  it("scrolls the open options into view again on each explicit request", () => {
+    const scrollSpy = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollSpy;
+
+    const { rerender } = render(
+      <SettingsPanel {...defaultProps} isExpanded={true} scrollRequest={0} />
+    );
+    expect(scrollSpy).not.toHaveBeenCalled();
+
+    rerender(<SettingsPanel {...defaultProps} isExpanded={true} scrollRequest={1} />);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+
+    rerender(<SettingsPanel {...defaultProps} isExpanded={true} scrollRequest={2} />);
+    expect(scrollSpy).toHaveBeenCalledTimes(2);
+  });
 });

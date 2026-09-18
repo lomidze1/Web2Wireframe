@@ -146,15 +146,25 @@ beforeEach(() => {
 // Converter-level detection → node.pendingWarnings
 // ---------------------------------------------------------------------------
 
-describe("CSS filter functions Figma can't draw", () => {
-  it("flags each unsupported function (the white-logo recipe)", () => {
+describe("CSS filter functions", () => {
+  it("color functions ride to the renderer instead of being reported up front", () => {
     const node = convertChild(
       box("img", { filter: "brightness(0) invert(1)" }, { $url: "https://x.com/logo.png" }),
     );
+    expect(node.cssColorFilter).toBe("brightness(0) invert(1)");
+    expect(node.pendingWarnings).toBeUndefined();
+  });
+
+  it("-webkit-filter carries the same functions", () => {
+    const node = convertChild(box("div", { webkitFilter: "invert(1)" }));
+    expect(node.cssColorFilter).toBe("invert(1)");
+  });
+
+  it("still flags a function the renderer can't draw at all", () => {
+    const node = convertChild(box("div", { filter: "url(#duotone) invert(1)" }));
     const messages = (node.pendingWarnings ?? []).map((w) => w.message);
-    expect(messages).toHaveLength(2);
-    expect(messages[0]).toContain('"brightness()"');
-    expect(messages[1]).toContain('"invert()"');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain('"url()"');
   });
 
   it("stays quiet for supported functions and identity values", () => {
@@ -170,6 +180,68 @@ describe("CSS filter functions Figma can't draw", () => {
       ),
     );
     expect(node.pendingWarnings).toBeUndefined();
+    expect(node.cssColorFilter).toBe("grayscale(1)");
+  });
+});
+
+describe("CSS color filter at render time", () => {
+  const SOLID_BLACK = { type: "SOLID", color: { r: 0, g: 0, b: 0 }, opacity: 1, visible: true };
+
+  it("bakes invert(1) into the frame's paints — no warning", async () => {
+    const context = makeContext({ colorMode: "website" });
+    const created = (await createNodeInFigma(
+      makeNode({ fills: [SOLID_BLACK] as never, cssColorFilter: "invert(1)" }),
+      context,
+    )) as unknown as { fills: Array<{ color: { r: number } }> };
+
+    expect(created.fills[0].color.r).toBe(1);
+    expect(warningsOf(context).filter((w) => /filter/i.test(w.message))).toEqual([]);
+  });
+
+  it("plugin color mode keeps its palette untouched", async () => {
+    const plain = (await createNodeInFigma(
+      makeNode({ fills: [SOLID_BLACK] as never }),
+      makeContext(),
+    )) as unknown as { fills: Array<{ color: { r: number } }> };
+    const filtered = (await createNodeInFigma(
+      makeNode({ fills: [SOLID_BLACK] as never, cssColorFilter: "invert(1)" }),
+      makeContext(),
+    )) as unknown as { fills: Array<{ color: { r: number } }> };
+
+    expect(filtered.fills[0].color.r).toBe(plain.fills[0].color.r);
+  });
+
+  it("reports a raster image the filter could not recolor", async () => {
+    const context = makeContext();
+    const created = (await createNodeInFigma(
+      makeNode({ cssColorFilter: "brightness(0) invert(1)" }),
+      context,
+    )) as unknown as { fills: unknown[] };
+    created.fills = [{ type: "IMAGE", imageHash: "h", scaleMode: "FILL" }];
+    // Re-run on an image-filled frame: the report names the unrecolored image.
+    const context2 = makeContext({ colorMode: "website" });
+    const { bakeColorFilterWithReport } = await import("../rendering/nodes");
+    bakeColorFilterWithReport(created as never, makeNode({ cssColorFilter: "brightness(0) invert(1)" }), context2);
+    const messages = warningsOf(context2).map((w) => w.message);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(/isn't applied to images yet/);
+  });
+});
+
+describe("images recoloured before render", () => {
+  it("an owner whose images were baked in the UI iframe reports nothing", async () => {
+    const context = makeContext({ colorMode: "website" });
+    const created = (await createNodeInFigma(makeNode({}), makeContext())) as unknown as { fills: unknown[] };
+    created.fills = [{ type: "IMAGE", imageHash: "h", scaleMode: "FILL" }];
+    const { bakeColorFilterWithReport } = await import("../rendering/nodes");
+
+    bakeColorFilterWithReport(
+      created as never,
+      makeNode({ cssColorFilter: "brightness(0) invert(1)", imageFilterBaked: true }),
+      context,
+    );
+
+    expect(warningsOf(context)).toEqual([]);
   });
 });
 

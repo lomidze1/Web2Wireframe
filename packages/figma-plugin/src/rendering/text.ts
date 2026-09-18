@@ -486,7 +486,7 @@ import {
 import { convertFillsToPaints, convertStrokesToFigma, convertEffectsToFigma } from "./fills";
 import { recordWarning } from "./diagnostics";
 import { linkEffectStyleIfAvailable, linkFillStyleIfAvailable, linkStrokeStyleIfAvailable, parseFigmaLineHeight, lineHeightKeyStr, buildTextStyleKey, fontWeightToStyleCandidates, fontStyleCandidates, fontCutExactStyles, isItalicStyle, orderStylesByProximity, parseStyleName } from "./styles";
-import { declaresCut, isIconFont, isPuaOnlyText, stripFontStyleSuffix } from "../utils/fontUtils";
+import { declaresCut, genericFallbackFamily, isIconFont, isPuaOnlyText, stripFontStyleSuffix } from "../utils/fontUtils";
 import { isServerFallbackFamily, ORIGINAL_CUT_PLUGIN_KEY } from "./rebindFonts";
 import {
   getInstalledStylesFor,
@@ -906,7 +906,15 @@ async function createTextNodeInner(
     }
   } else {
     const nodeFont = node.fontFamily || fontFamily;
-    if (context?.fontMapping && context.fontMapping[nodeFont]) {
+    if (isIconFont(nodeFont) || isPuaOnlyText(node.textContent ?? "")) {
+      // Icon glyphs only exist in their own font — a mapped text font draws
+      // tofu (vaayu.tech webflow-icons, komplice.com FFIcons).
+      targetFont = nodeFont;
+    } else if (genericFallbackFamily(nodeFont)) {
+      // A CSS generic ("sans-serif") names no file; draw its installed
+      // stand-in, not the plugin font (clearstreet.io).
+      targetFont = genericFallbackFamily(nodeFont) as string;
+    } else if (context?.fontMapping && context.fontMapping[nodeFont]) {
       // Multi-font mapping: look up this specific font
       targetFont = context.fontMapping[nodeFont];
     } else if (context?.missingFont && nodeFont === context.missingFont) {
@@ -1328,7 +1336,9 @@ async function createTextNodeInner(
     // silent, so a page rendered entirely in Inter looked intentional.
     // Only a REAL substitution is worth reporting: drawing the wanted font
     // under Figma's own spelling is a success, not a warning.
-    if (!markerIsWhatWeDrew) recordWarning(context, {
+    // A generic drawn in its stand-in is the CSS meaning of the generic.
+    const drewGenericStandIn = genericFallbackFamily(node.fontFamily) === usedFontFamily;
+    if (!markerIsWhatWeDrew && !drewGenericStandIn) recordWarning(context, {
       category: "typography",
       message: `Font "${node.fontFamily}" not available — rendered with "${usedFontFamily}"`,
       nodeId: textNode.id,

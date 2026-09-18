@@ -11,6 +11,7 @@ export interface ImportSnapshot {
   viewports: string[];
   colorMode: PluginConfig["colorMode"];
   fontMode: PluginConfig["fontMode"];
+  textMode: PluginConfig["textMode"];
   assetMode: PluginConfig["assetMode"];
 }
 
@@ -22,15 +23,17 @@ interface NextStepCardProps {
   quota: QuotaInfo | null;
   /** An import is running — the importing actions wait for it. */
   disabled: boolean;
+  /** The next style-ladder step, or null once every step was tried. */
+  nextStyle: { label: string } | null;
+  /** "Choose yourself" appears only once a style has been tried — the first
+   *  step stays a single, obvious next click. */
+  showChooseYourself: boolean;
   onImportMobile: () => void;
   onAnotherPage: () => void;
-  onWireframe: () => void;
+  onTryStyle: () => void;
+  onChooseYourself: () => void;
   onDismiss: () => void;
   onSeePro: () => void;
-}
-
-function isWireframeStyled(s: ImportSnapshot): boolean {
-  return s.colorMode === "plugin" && s.fontMode !== "website" && s.assetMode === "placeholders";
 }
 
 const freeImports = (n: number) => `${n} free import${n === 1 ? "" : "s"}`;
@@ -38,16 +41,19 @@ const freeImports = (n: number) => `${n} free import${n === 1 ? "" : "s"}`;
 /**
  * Shown after a successful URL import. Most users import once and leave; the
  * ones who stay re-import the same site at another size or style — this puts
- * that second step one click away, and says plainly what is left of the free
+ * that next step one click away, and says plainly what is left of the free
  * allowance.
  */
 export default function NextStepCard({
   snapshot,
   quota,
   disabled,
+  nextStyle,
+  showChooseYourself,
   onImportMobile,
   onAnotherPage,
-  onWireframe,
+  onTryStyle,
+  onChooseYourself,
   onDismiss,
   onSeePro,
 }: NextStepCardProps) {
@@ -63,7 +69,7 @@ export default function NextStepCard({
   const finite = quota && !quota.unlimited ? quota : null;
   const canImport = !finite || finite.remaining > 0;
   const showMobile = canImport && !snapshot.viewports.includes(MOBILE_VIEWPORT);
-  const showWireframe = canImport && !isWireframeStyled(snapshot);
+  const showStyle = canImport && nextStyle !== null;
 
   return (
     <div class={styles.card} role="region" aria-label="Next steps">
@@ -93,19 +99,26 @@ export default function NextStepCard({
         <button type="button" class={styles.action} onClick={onAnotherPage}>
           📄 Import another page of this site
         </button>
-        {showWireframe && (
-          <button
-            type="button"
-            class={styles.action}
-            disabled={disabled}
-            onClick={once(onWireframe)}
-          >
-            ✏️ Try wireframe style
-          </button>
-        )}
+        <div class={styles.row}>
+          {showStyle && nextStyle && (
+            <button
+              type="button"
+              class={styles.action}
+              disabled={disabled}
+              onClick={once(onTryStyle)}
+            >
+              {nextStyle.label}
+            </button>
+          )}
+          {showChooseYourself && (
+            <button type="button" class={styles.action} onClick={onChooseYourself}>
+              {nextStyle === null ? "⚙️ Pick your own settings" : "⚙️ Choose yourself"}
+            </button>
+          )}
+        </div>
       </div>
 
-      {finite && finite.remaining > 0 && (showMobile || showWireframe) && (
+      {finite && finite.remaining > 0 && (showMobile || showStyle) && (
         <p class={styles.hint}>
           {finite.remaining === 1
             ? "Uses your last free import"
