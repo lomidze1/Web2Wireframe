@@ -54,16 +54,27 @@ vi.mock("../src/models/WebhookEvent.js", () => ({
   },
 }));
 
-vi.mock("../src/config/env.js", () => ({
-  config: {
-    flitt: {
-      merchantId: "1549901",
-      secretKey: "test",
-      baseUrl: "https://pay.flitt.test",
-    },
-    website: { baseUrl: "https://web2wireframe.test" },
+const mockCreditedOrderCreate = vi.fn();
+const mockCreditedOrderDelete = vi.fn();
+
+vi.mock("../src/models/CreditedOrder.js", () => ({
+  CreditedOrder: {
+    create: (...args: unknown[]) => mockCreditedOrderCreate(...args),
+    deleteOne: (...args: unknown[]) => mockCreditedOrderDelete(...args),
   },
 }));
+
+// Mutable so a test can blank the secret; hoisted for the vi.mock factory.
+const mockConfig = vi.hoisted(() => ({
+  flitt: {
+    merchantId: "1549901",
+    secretKey: "test",
+    baseUrl: "https://pay.flitt.test",
+  },
+  website: { baseUrl: "https://web2wireframe.test" },
+}));
+
+vi.mock("../src/config/env.js", () => ({ config: mockConfig }));
 
 const { webhookRouter } = await import("../src/routes/checkout/index.js");
 
@@ -81,6 +92,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockWebhookEventCreate.mockResolvedValue({});
   mockWebhookEventDelete.mockResolvedValue({ deletedCount: 1 });
+  mockCreditedOrderCreate.mockResolvedValue({});
+  mockCreditedOrderDelete.mockResolvedValue({ deletedCount: 1 });
 });
 
 // ============================================================================
@@ -141,14 +154,45 @@ describe("POST /api/webhooks/flitt — idempotency", () => {
     expect(mockApplyActivation).not.toHaveBeenCalled();
   });
 
-  it("uses payment_id as the dedup key when present", async () => {
+  // Security audit 2026-09-19 (#1): payment_id's JSON type is not covered by
+  // the signature (flittSign uses String(v)), so a key derived from it let
+  // the same signed payload be credited twice (123 vs "123"). The key is
+  // now order_id + order_status whatever payment_id looks like.
+  it.each([["pay_xyz"], [805243692]])(
+    "ignores payment_id (%s) and keys on order_id + order_status",
+    async (paymentId) => {
+      mockVerifyCallback.mockReturnValue(true);
+      await request(makeApp())
+        .post("/api/webhooks/flitt")
+        .send(approvedPayload({ payment_id: paymentId }));
+      expect(mockWebhookEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ transactionId: "w2w_pro_u-1_123_approved" }),
+      );
+    },
+  );
+
+  it("does not dedupe a reversal against its approval when payment_id is shared", async () => {
     mockVerifyCallback.mockReturnValue(true);
     await request(makeApp())
       .post("/api/webhooks/flitt")
-      .send(approvedPayload({ payment_id: "pay_xyz" }));
+      .send(approvedPayload({ order_status: "reversed", payment_id: "pay_same" }));
     expect(mockWebhookEventCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ transactionId: "pay_xyz" }),
+      expect.objectContaining({ transactionId: "w2w_pro_u-1_123_reversed" }),
     );
+  });
+
+  it("ignores the callback without touching state when the Flitt secret is empty", async () => {
+    mockConfig.flitt.secretKey = "";
+    try {
+      const res = await request(makeApp())
+        .post("/api/webhooks/flitt")
+        .send(approvedPayload());
+      expect(res.status).toBe(200);
+      expect(mockVerifyCallback).not.toHaveBeenCalled();
+      expect(mockWebhookEventCreate).not.toHaveBeenCalled();
+    } finally {
+      mockConfig.flitt.secretKey = "test";
+    }
   });
 
   it("falls back to order_id+order_status when payment_id is absent", async () => {
@@ -537,6 +581,33 @@ describe("POST /api/webhooks/flitt — one-time purchase", () => {
     expect(mockSendReceipt).not.toHaveBeenCalled();
   });
 
+  // Security audit 2026-09-19 (#1): WebhookEvent rows expire after 90 days,
+  // so a durable per-order marker is what stops a replayed approval from
+  // crediting Pro a second time.
+  it("does not credit an order that was already credited", async () => {
+    mockCreditedOrderCreate.mockRejectedValueOnce(
+      Object.assign(new Error("dup key"), { code: 11000 }),
+    );
+    const res = await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload());
+    expect(res.status).toBe(200);
+    expect(res.body.deduped).toBe(true);
+    expect(mockApplyOneTime).not.toHaveBeenCalled();
+    expect(mockSendReceipt).not.toHaveBeenCalled();
+  });
+
+  it("records the credited order before granting Pro", async () => {
+    await request(makeApp())
+      .post("/api/webhooks/flitt")
+      .send(oneTimePayload());
+    expect(mockCreditedOrderCreate).toHaveBeenCalledWith({
+      orderId: "w2w_pro_u-1_123",
+      figmaUserId: "u-1",
+    });
+    expect(mockApplyOneTime).toHaveBeenCalledTimes(1);
+  });
+
   it("duplicate one-time webhook (same payment_id) is deduped", async () => {
     mockWebhookEventCreate.mockRejectedValueOnce(
       Object.assign(new Error("dup key"), { code: 11000 }),
@@ -611,7 +682,11 @@ describe("POST /api/webhooks/flitt — dedup lease release on mutation failure",
 
     expect(res.status).toBe(200);
     expect(mockWebhookEventDelete).toHaveBeenCalledWith({
-      transactionId: "pay_rollback_1",
+      transactionId: "w2w_pro_u-1_123_approved",
+    });
+    // The durable credit marker is released too, so the retry can credit.
+    expect(mockCreditedOrderDelete).toHaveBeenCalledWith({
+      orderId: "w2w_pro_u-1_123",
     });
   });
 

@@ -35,6 +35,7 @@ vi.mock("../src/config/env.js", () => ({
   },
 }));
 
+const { signToken } = await import("../src/middleware/auth.js");
 const checkoutModule = await import("../src/routes/checkout/index.js");
 const checkoutRoutes = checkoutModule.default;
 
@@ -178,7 +179,7 @@ describe("POST /api/checkout/create", () => {
   // we just read one more field off the same document.
   // --------------------------------------------------------------------------
 
-  it("forwards license.email as senderEmail to createOneTimeCheckout", async () => {
+  it("forwards license.email as senderEmail when the caller's token owns figmaUserId", async () => {
     mockGetOrCreate.mockResolvedValue({
       figmaUserId: "u-1",
       email: "buyer@example.com",
@@ -192,6 +193,7 @@ describe("POST /api/checkout/create", () => {
     });
     await request(makeApp())
       .post("/api/checkout/create")
+      .set("Authorization", `Bearer ${signToken("u-1", process.env.AUTH_SECRET!)}`)
       .send({ figmaUserId: "u-1" });
     expect(mockCreateOneTimeCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -199,6 +201,55 @@ describe("POST /api/checkout/create", () => {
         senderEmail: "buyer@example.com",
       }),
     );
+  });
+
+  // Security audit 2026-09-19 (#3): figmaUserId in the body is not proof of
+  // identity. Without a matching token the stored email must not be bound
+  // to a checkout URL that goes back to an arbitrary caller.
+  it("omits senderEmail when the request has no token", async () => {
+    mockGetOrCreate.mockResolvedValue({
+      figmaUserId: "u-1",
+      email: "buyer@example.com",
+      plan: "free",
+      cycleEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+    mockCreateOneTimeCheckout.mockResolvedValue({
+      ok: true,
+      checkoutUrl: "https://pay.flitt.test/a",
+      orderId: "w2w_pro_a",
+    });
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "u-1" });
+    expect(res.status).toBe(200);
+    const callArg = mockCreateOneTimeCheckout.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(callArg.senderEmail).toBeUndefined();
+  });
+
+  it("omits senderEmail when the token belongs to a different user", async () => {
+    mockGetOrCreate.mockResolvedValue({
+      figmaUserId: "u-1",
+      email: "buyer@example.com",
+      plan: "free",
+      cycleEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+    mockCreateOneTimeCheckout.mockResolvedValue({
+      ok: true,
+      checkoutUrl: "https://pay.flitt.test/o",
+      orderId: "w2w_pro_o",
+    });
+    await request(makeApp())
+      .post("/api/checkout/create")
+      .set("Authorization", `Bearer ${signToken("attacker", process.env.AUTH_SECRET!)}`)
+      .send({ figmaUserId: "u-1" });
+    const callArg = mockCreateOneTimeCheckout.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(callArg.senderEmail).toBeUndefined();
   });
 
   it("calls createOneTimeCheckout without senderEmail when license.email is null", async () => {
