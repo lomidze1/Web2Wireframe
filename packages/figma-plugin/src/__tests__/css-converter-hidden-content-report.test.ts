@@ -212,3 +212,246 @@ describe("what counts as content worth reporting", () => {
     expect(skipped[0].nodes).toBe(3);
   });
 });
+
+/**
+ * State duplicates — the report's biggest source of false alarms.
+ *
+ * chroniclehq.com (user report 2026-09-20) produced eight "Hidden at capture
+ * time" rows, and all eight were UI that is hidden on the live page too: three
+ * hover-state label copies, four logo-rotator copies and one accordion panel.
+ * `hasVisibleRowTwin` missed every one for the same structural reason — a
+ * staged copy is not laid out exactly on top of the copy it replaces:
+ *
+ *   rotator / hover copy   staged with `transform: translateY(20px)`, so the
+ *                          CAPTURED box is 20px off the visible twin's, even
+ *                          though the two occupy the same layout slot
+ *   accordion panel        same element, same class, different text length —
+ *                          so a different height
+ *   hover label            neither box nor class in common with the visible
+ *                          copy, only the words
+ *
+ * The drop itself is unchanged; these boxes still leave the tree. What changes
+ * is that we stop calling them lost content.
+ */
+describe("state duplicates are dropped quietly", () => {
+  /** A frame at an explicit offset — the default helper pins everything to 0,0. */
+  function at(
+    x: number,
+    y: number,
+    styles: Record<string, unknown>,
+    rect: [number, number],
+    children: Record<string, unknown>[] = [],
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    const [width, height] = rect;
+    return {
+      ...frame(styles, rect, children, extra),
+      x,
+      y,
+      quad: [x, y, x + width, y, x + width, y + height, x, y + height],
+    };
+  }
+
+  /** Two siblings in one row wrapper; only the reports come back. */
+  function convertSiblings(...siblings: Record<string, unknown>[]): SkippedFrame[] {
+    const skipped: SkippedFrame[] = [];
+    convertW2WToWireframe(
+      frame({}, [1440, 600], [frame({}, [1440, 200], siblings)]) as never,
+      { layoutMode: "autoLayout", onSkippedFrame: (s) => skipped.push(s) },
+    );
+    return skipped;
+  }
+
+  // chroniclehq `div.logos_two` ×4 — a logo rotator whose off copies are
+  // staged 20px down. Untransformed, both copies share the same slot.
+  it("says nothing about a copy staged with translateY over its visible twin", () => {
+    expect(
+      convertSiblings(
+        at(145, 0, {}, [191, 80], [text("Adobe")], { classList: ["logo"] }),
+        at(145, 20, { opacity: 0, transform: "matrix(1, 0, 0, 1, 0, 20)" }, [191, 80],
+          [text("Meta")], { classList: ["logo"] }),
+      ),
+    ).toEqual([]);
+  });
+
+  // chroniclehq `div.musefeatures_item` — the closed accordion panels carry the
+  // same class as the open one but hold longer copy, so they are taller.
+  it("says nothing about a same-class panel of a different height", () => {
+    expect(
+      convertSiblings(
+        at(732, 0, {}, [504, 45], [text("Generate impressive slides")],
+          { classList: ["item", "open"] }),
+        at(732, 0, { opacity: 0 }, [504, 67], [text("Edit with AI, on brand, every time")],
+          { classList: ["item"] }),
+      ),
+    ).toEqual([]);
+  });
+
+  // chroniclehq `a.button_wrapper` — the hover label is a second copy of the
+  // same words, 10px lower and 20px taller. No box and no class in common.
+  it("says nothing about a hover copy that repeats the visible words", () => {
+    expect(
+      convertSiblings(
+        at(1183, 19.5, {}, [111, 14], [text("Try for free")]),
+        at(1183, 29.5, { opacity: 0, transform: "matrix(1, 0, 0, 1, 0, 20)" }, [111, 34],
+          [text("Try for free")]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still reports a hidden block whose content appears nowhere else", () => {
+    const skipped = convertSiblings(
+      at(0, 0, {}, [600, 80], [text("Trusted by 5000+ teams")], { classList: ["intro"] }),
+      at(0, 120, { opacity: 0 }, [600, 300], [text("The financial industry runs on us")],
+        { classList: ["reveal"] }),
+    );
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatchObject({ layerName: "div.reveal" });
+  });
+
+  // Guard for the keep/drop path: `isCrossfadeSlide` decides what is RENDERED,
+  // and it must keep comparing captured boxes. Measured on the stripe.com
+  // capture, teaching it untransformed boxes turns 11 reported rows into 21 —
+  // slides it was keeping start being dropped instead.
+  it("still keeps a crossfade slide stacked exactly on its visible twin", () => {
+    const skipped: SkippedFrame[] = [];
+    const tree = convertW2WToWireframe(
+      frame({}, [1440, 600], [frame({}, [870, 520], [
+        at(0, 0, {}, [870, 520], [text("Slide one")], { classList: ["slide", "current"] }),
+        at(0, 0, { opacity: 0 }, [870, 520], [text("Slide two")], { classList: ["slide"] }),
+      ])]) as never,
+      { layoutMode: "autoLayout", onSkippedFrame: (s) => skipped.push(s) },
+    ) as WireframeNode;
+
+    expect(skipped).toEqual([]);
+    expect(names(tree).join(" ")).toContain("Slide two");
+  });
+});
+
+/**
+ * Backdrops, stacked states and controls — stripe.com's remaining six rows.
+ *
+ * A fresh stripe.com import (2026-09-20) still listed six "Hidden at capture
+ * time" rows after the state-duplicate rules landed. Checked against the
+ * capture, five of the six are nothing a user lost:
+ *
+ *   canvas fallback   `div.hero-wave-animation__static` is the still image
+ *                     behind a live `<canvas>` sibling — 337,-107 1392x975
+ *                     wrapped around the canvas at 337,0 1393x761
+ *   second state      `div.connect-platform-graphic__payment-screen` is the
+ *                     "Thank you!" face of a payment card, stacked on the
+ *                     visible "Order Summary" face at the same x/y/width and
+ *                     a slightly different height (277 vs 257/264/260)
+ *   control           `button.platform-graphic__replay-button`, 40x40, no text
+ *
+ * The unifying idea for the first two: a transparent box that a VISIBLE
+ * sibling sits inside is not a hole. Siblings only overlap when one of them is
+ * out of flow, so the test fires on backdrops and stacked faces and on very
+ * little else.
+ */
+describe("backdrops and controls are dropped quietly", () => {
+  function at(
+    x: number, y: number,
+    styles: Record<string, unknown>,
+    rect: [number, number],
+    children: Record<string, unknown>[] = [],
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    const [width, height] = rect;
+    return {
+      ...frame(styles, rect, children, extra),
+      x, y,
+      quad: [x, y, x + width, y, x + width, y + height, x, y + height],
+    };
+  }
+
+  function convertSiblings(...siblings: Record<string, unknown>[]): SkippedFrame[] {
+    const skipped: SkippedFrame[] = [];
+    convertW2WToWireframe(
+      frame({}, [1440, 1200], [frame({}, [1440, 1000], siblings)]) as never,
+      { layoutMode: "autoLayout", onSkippedFrame: (s) => skipped.push(s) },
+    );
+    return skipped;
+  }
+
+  const icon = { type: "SVG", x: 0, y: 0, width: 16, height: 16,
+    quad: [0, 0, 16, 0, 16, 16, 0, 16], svg: "<svg/>" };
+
+  // stripe `hero-wave-animation__static` behind `hero-wave-animation__canvas`.
+  it("says nothing about a still image wrapped around a visible canvas", () => {
+    expect(
+      convertSiblings(
+        at(337, 0, {}, [1393, 761], [text("live canvas")], { tag: "canvas" }),
+        at(337, -107, { opacity: 0, position: "absolute" }, [1392, 975], [], {
+          classList: ["static"], $url: "https://example.com/wave.png",
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  // stripe `connect-platform-graphic__payment-screen` — same slot, taller.
+  it("says nothing about a second face stacked on the visible one", () => {
+    expect(
+      convertSiblings(
+        at(93, 2552, {}, [260, 257], [text("Order Summary Single class £20.00")],
+          { classList: ["screen", "screen--summary"] }),
+        at(93, 2552, { opacity: 0, position: "absolute" }, [260, 277],
+          [text("Thank you! Your payment was successful.")],
+          { classList: ["screen", "screen--success"] }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still reports a block that merely overlaps a small visible icon", () => {
+    // Covers 100% of the icon but only ~1% of itself — a real hole around it.
+    const skipped = convertSiblings(
+      at(0, 0, {}, [24, 24], [icon], { classList: ["badge"] }),
+      at(0, 0, { opacity: 0, position: "absolute" }, [600, 400],
+        [text("The financial industry runs on us")], { classList: ["reveal"] }),
+    );
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatchObject({ layerName: "div.reveal" });
+  });
+
+  it("still reports a block that only sits next to a visible sibling", () => {
+    const skipped = convertSiblings(
+      at(0, 0, {}, [600, 300], [text("Trusted by 5000+ teams")], { classList: ["intro"] }),
+      at(0, 320, { opacity: 0 }, [600, 300], [text("Built for serious business")],
+        { classList: ["reveal"] }),
+    );
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatchObject({ layerName: "div.reveal" });
+  });
+
+  // stripe `platform-graphic__replay-button`: its icon is the only reason
+  // `subtreeCarriesContent` passes it, and 40x40 just clears REPORTABLE_MIN.
+  it("says nothing about a small icon-only button", () => {
+    expect(
+      convertSiblings(
+        at(0, 0, {}, [1200, 600], [text("dashboard")], { classList: ["graphic"] }),
+        at(1288, 440, { opacity: 0, position: "absolute" }, [40, 40], [icon],
+          { tag: "button", classList: ["replay"] }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still reports a small button that carries words", () => {
+    const skipped = convertSiblings(
+      at(0, 0, {}, [1200, 600], [text("dashboard")], { classList: ["graphic"] }),
+      at(1288, 440, { opacity: 0, position: "absolute" }, [44, 40], [text("Buy")],
+        { tag: "button", classList: ["cta"] }),
+    );
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatchObject({ layerName: "button.cta" });
+  });
+
+  it("still reports a large icon-only button — too big to be an affordance", () => {
+    const skipped = convertSiblings(
+      at(0, 0, {}, [300, 100], [text("heading")], { classList: ["intro"] }),
+      at(0, 200, { opacity: 0, position: "absolute" }, [200, 120], [icon],
+        { tag: "button", classList: ["tile"] }),
+    );
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatchObject({ layerName: "button.tile" });
+  });
+});

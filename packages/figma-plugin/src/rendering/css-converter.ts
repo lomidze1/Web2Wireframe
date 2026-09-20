@@ -378,16 +378,37 @@ export function convertW2WToWireframe(
  * only the deeper `#__next` reads 1424px.
  *
  * Returns at least the node's own height (never shrinks).
+ *
+ * The walk stops at anything that clips its own vertical overflow: the browser
+ * does not scroll the page for content a `overflow: hidden` ancestor hides, so
+ * counting it inflates the root. chroniclehq.com's footer is 939px and clips,
+ * and the Lottie inside it is 783px tall in a 410px box — reading through it
+ * grew the page 286px past its real end and left a dead band under the footer.
+ *
+ * Scroll roots are the exception: `html`, `body` and the captured scrolling
+ * element routinely declare `overflow-y: scroll|auto` and yet are exactly what
+ * scrolls, so stopping there would re-break the case this function exists for
+ * (paco.me's body is `overflow-y: scroll` over a 1424px child).
  */
 export function maxDescendantBottom(node: W2WFrameNode): number {
   const rootY = node.y;
   let max = node.height;
+  const clipsVertically = (n: W2WFrameNode): boolean => {
+    if (n.tag === 'html' || n.tag === 'body' || n.isScrollingElt === true) return false;
+    const s = n.styles;
+    if (!s) return false;
+    const clips = (v: string) =>
+      v === 'hidden' || v === 'clip' || v === 'auto' || v === 'scroll';
+    // Vertical axis only — `overflow-x: auto` strips scroll sideways and clip
+    // nothing below them (see the full-bleed scroller handling below).
+    return clips(str(s.overflowY)) || clips(str(s.overflow));
+  };
   const walk = (n: W2WNode): void => {
     const bottom = n.y - rootY + n.height;
     if (bottom > max) max = bottom;
-    if (n.type === 'FRAME' && n.children) {
-      for (const child of n.children) walk(child);
-    }
+    if (n.type !== 'FRAME' || !n.children) return;
+    if (clipsVertically(n)) return;
+    for (const child of n.children) walk(child);
   };
   for (const child of node.children || []) walk(child);
   return max;
@@ -3555,16 +3576,15 @@ function parseEffects(
     effects.push(...shadowEffects);
   }
 
-  // Backdrop filter (blur)
+  // Backdrop filter (blur). A zero radius is dropped rather than pushed: it is
+  // a no-op that would still cost one of Figma's eight effect slots — the same
+  // reason no-op box-shadows are skipped below.
   const backdropFilter = str(s.backdropFilter);
   if (backdropFilter && backdropFilter !== 'none') {
     const blurMatch = backdropFilter.match(/blur\(([^)]+)\)/);
-    if (blurMatch) {
-      effects.push({
-        type: 'BACKGROUND_BLUR',
-        visible: true,
-        blurRadius: parseFloat(blurMatch[1]) || 0,
-      });
+    const blurRadius = blurMatch ? parseFloat(blurMatch[1]) || 0 : 0;
+    if (blurRadius > 0) {
+      effects.push({ type: 'BACKGROUND_BLUR', visible: true, blurRadius });
     }
   }
 
@@ -3588,13 +3608,16 @@ function parseEffects(
 
     // blur() — matched on the drop-shadow-stripped string so a blur radius
     // inside drop-shadow(...) is never misread as a layer blur.
+    //
+    // `blur(0px)` is skipped, not pushed: it is what a reveal animation leaves
+    // behind once it has settled, and it means "no blur". chroniclehq.com
+    // carries it on twelve wrappers — including a 969x654 hero with eighty
+    // descendants — and a LAYER_BLUR applies to the frame's whole subtree, so
+    // honouring those zeros as effects fogged the entire import.
     const blurMatch = filterWithoutDropShadows.match(/blur\(([^)]+)\)/);
-    if (blurMatch) {
-      effects.push({
-        type: 'LAYER_BLUR',
-        visible: true,
-        blurRadius: parseFloat(blurMatch[1]) || 0,
-      });
+    const blurRadius = blurMatch ? parseFloat(blurMatch[1]) || 0 : 0;
+    if (blurRadius > 0) {
+      effects.push({ type: 'LAYER_BLUR', visible: true, blurRadius });
     }
   }
 
@@ -5330,18 +5353,149 @@ function subtreePaints(node: W2WNode): boolean {
  * same box is what tells a deck apart from a lone hover overlay: apple.com's
  * globalnav-curtain has no such sibling, so it keeps being dropped.
  */
+/**
+ * The box this node would occupy with its translation undone.
+ *
+ * A staged copy — the off slide of a rotator, the hover face of a button — is
+ * almost always parked with `transform: translate(…)` while it waits. The
+ * captured geometry is the AABB of the already-transformed element, so the copy
+ * lands 20-odd pixels away from the twin whose slot it actually shares. Undoing
+ * the translation puts the two back in the same place.
+ *
+ * Only the translation: rotation and scale change what the box IS, not merely
+ * where it sits, and a rotated copy is not a stand-in for anything.
+ */
+function untranslatedBox(node: W2WFrameNode): { x: number; y: number } {
+  const transform = str(node.styles.transform);
+  const m = matrixArgs(transform, 'matrix') ?? matrixArgs(transform, 'matrix3d');
+  if (!m) return { x: node.x, y: node.y };
+  const [tx, ty] = m.length === 6 ? [m[4], m[5]] : m.length === 16 ? [m[12], m[13]] : [0, 0];
+  return { x: node.x - tx, y: node.y - ty };
+}
+
 /** An opaque sibling on the same row (same top and height) that overlaps it horizontally. */
 function hasVisibleRowTwin(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  const a = untranslatedBox(child);
   return siblings.some((sibling) => {
     if (sibling === child || sibling.type !== 'FRAME' || isFullyTransparentFrame(sibling)) return false;
     const other = sibling as W2WFrameNode;
+    const b = untranslatedBox(other);
     return (
-      Math.abs(other.y - child.y) <= CROSSFADE_BOX_TOLERANCE &&
+      Math.abs(b.y - a.y) <= CROSSFADE_BOX_TOLERANCE &&
       Math.abs(other.height - child.height) <= CROSSFADE_BOX_TOLERANCE &&
-      other.x < child.x + child.width &&
-      child.x < other.x + other.width
+      b.x < a.x + child.width &&
+      a.x < b.x + other.width
     );
   });
+}
+
+/**
+ * An opaque sibling carrying every class this node carries.
+ *
+ * One accordion panel is open and the rest are transparent; one tab pane shows
+ * and the rest wait. They are the same element in different states, so they
+ * share a class — and because their copy differs in length, their boxes do not,
+ * which is what puts them past `hasVisibleRowTwin`. A bare `class`-less node
+ * proves nothing, so an empty list never matches.
+ */
+function hasVisibleClassTwin(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  const classes = child.classList ?? [];
+  if (classes.length === 0) return false;
+  return siblings.some((sibling) => {
+    if (sibling === child || sibling.type !== 'FRAME' || isFullyTransparentFrame(sibling)) return false;
+    const other = (sibling as W2WFrameNode).classList ?? [];
+    return classes.every((c) => other.includes(c));
+  });
+}
+
+/** Every character in the subtree, in document order, whitespace-collapsed. */
+function subtreeText(node: W2WNode): string {
+  if (node.type === 'TEXT') return node.value ?? '';
+  if (node.type !== 'FRAME') return '';
+  return (node.children || []).map(subtreeText).join('');
+}
+
+/**
+ * An opaque sibling that says exactly the same words.
+ *
+ * A hover face shares neither box nor class with the label it replaces —
+ * chroniclehq's is 10px lower and 20px taller, both of them `class`-less
+ * `<span>`s. The words are the whole of the evidence, and they are enough: a
+ * transparent box repeating a visible sibling's text verbatim is a second state
+ * of it, not content the capture lost.
+ */
+function hasVisibleTextTwin(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  const mine = subtreeText(child).replace(/\s+/g, ' ').trim();
+  if (mine.length < 2) return false;
+  return siblings.some((sibling) => {
+    if (sibling === child || sibling.type !== 'FRAME' || isFullyTransparentFrame(sibling)) return false;
+    return subtreeText(sibling).replace(/\s+/g, ' ').trim() === mine;
+  });
+}
+
+/**
+ * A visible sibling sits INSIDE this transparent box.
+ *
+ * Two shapes on stripe.com, one idea. `hero-wave-animation__static` is the
+ * still image wrapped around a live `<canvas>` (337,-107 1392x975 over
+ * 337,0 1393x761); `connect-platform-graphic__payment-screen` is a card's
+ * "Thank you!" face stacked on the visible "Order Summary" face at the same
+ * x/y/width and a slightly taller box. Neither is a hole in the wireframe —
+ * something visible occupies that space — and siblings only overlap at all
+ * when one of them is out of flow, so this stays narrow.
+ *
+ * BOTH directions are required. Covering the sibling alone would suppress a
+ * 600x400 reveal that happens to sit over a 24x24 badge, where the hole is
+ * real and the badge is 1% of it.
+ *
+ * Raw captured boxes, NOT `untranslatedBox`: the canvas fallback carries a
+ * centring `matrix(1, 0, 0, 1, -696, -487.5)`, and undoing that would move it
+ * off the very thing it covers.
+ */
+function coversVisibleSibling(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  const ownArea = child.width * child.height;
+  if (ownArea <= 0) return false;
+  return siblings.some((sibling) => {
+    if (sibling === child || sibling.type !== 'FRAME' || isFullyTransparentFrame(sibling)) return false;
+    const other = sibling as W2WFrameNode;
+    const otherArea = other.width * other.height;
+    if (otherArea <= 0) return false;
+    const overlapW = Math.min(child.x + child.width, other.x + other.width) - Math.max(child.x, other.x);
+    const overlapH = Math.min(child.y + child.height, other.y + other.height) - Math.max(child.y, other.y);
+    if (overlapW <= 0 || overlapH <= 0) return false;
+    const overlap = overlapW * overlapH;
+    return overlap / otherArea >= 0.9 && overlap / ownArea >= 0.7;
+  });
+}
+
+/** Widest/tallest a `<button>` can be and still read as an affordance. */
+const CONTROL_MAX_SIDE = 48;
+
+/**
+ * A small, wordless button — a replay, close or scroll affordance.
+ *
+ * stripe's `platform-graphic__replay-button` is 40x40 with nothing but an icon
+ * inside, which is exactly why `subtreeCarriesContent` waves it through, and
+ * 40x40 only just clears `REPORTABLE_MIN`. A control that the page itself
+ * hides is not missing content. Anything carrying words stays reportable, and
+ * so does anything big enough to be a tile rather than an affordance.
+ */
+function isHiddenControl(child: W2WFrameNode): boolean {
+  const isButton = child.tag === 'button' || child.attr?.role === 'button';
+  if (!isButton) return false;
+  if (child.width > CONTROL_MAX_SIDE || child.height > CONTROL_MAX_SIDE) return false;
+  return subtreeText(child).trim() === '';
+}
+
+/** Is this transparent box a second state, a backdrop, or a control? */
+function isStateDuplicate(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  return (
+    hasVisibleRowTwin(child, siblings) ||
+    hasVisibleClassTwin(child, siblings) ||
+    hasVisibleTextTwin(child, siblings) ||
+    coversVisibleSibling(child, siblings) ||
+    isHiddenControl(child)
+  );
 }
 
 function isCrossfadeSlide(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
@@ -5458,9 +5612,11 @@ function shouldSkipInvisibleFrame(
       // than a missing one — but a content-bearing box goes on the record so
       // the import report can name what left.
       // Not reported: a closed menu (`visibility: hidden` too — no scroll
-      // brings it back) or a transparent twin of a visible row (a marquee's
-      // measuring copy) — nothing the page shows is lost (notion.com).
-      if (isFullyTransparent && !isInvisible && !hasVisibleRowTwin(child, siblings)) {
+      // brings it back) or a state duplicate of a sibling that IS showing — a
+      // marquee's measuring copy (notion.com), a rotator's off copy, a closed
+      // accordion panel, a hover face (chroniclehq.com). Nothing the page shows
+      // is lost, and calling it lost is what users mail back as a bug.
+      if (isFullyTransparent && !isInvisible && !isStateDuplicate(child, siblings)) {
         reportSkippedContent(child, options);
       }
       if (__W2W_DEV_LOG__) {

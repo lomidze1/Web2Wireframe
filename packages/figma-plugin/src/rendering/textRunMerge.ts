@@ -64,6 +64,13 @@ const ROW_MAX_GAP = 12;
 const HEIGHT_TOLERANCE = 1;
 /** Below this a gap is the browser painting nothing between the runs. */
 const VISIBLE_GAP = 2;
+/**
+ * Widest empty frame still readable as one space. A space glyph scales with the
+ * font, so the fixed `ROW_MAX_GAP` band is too tight — 11.18px at 54px on
+ * chroniclehq.com's hero. Twice the band covers display type without admitting
+ * layout boxes.
+ */
+const MAX_SPACE_FRAME_WIDTH = ROW_MAX_GAP * 2;
 /** Global geometry epsilon — h2d's `fe`, as in css-converter and treeSimplify. */
 const GEOMETRY_EPSILON = 0.51;
 
@@ -184,6 +191,67 @@ function rowSeparator(
   // would widen the gap the browser measured.
   if (/\s$/.test(a.textContent) || /^\s/.test(b.textContent)) return "";
   return gap >= VISIBLE_GAP ? " " : "";
+}
+
+/**
+ * The FRAME form of a painted space.
+ *
+ * Per-word animation libraries (GSAP SplitText, Splitting.js) rewrite a heading
+ * into one `<span>` per word plus `<span class="split-space"> </span>` for each
+ * space. The extractor drops whitespace-only text nodes
+ * (browser-extension/src/content/extractor.ts:719), so the space reaches us as
+ * a childless, inkless frame — a non-text sibling, which is precisely what ends
+ * a merge run. Recognising it lets `bridgedSeparator` step over it.
+ *
+ * Same refusals as `isBlankRun`: anything that paints, carries an identity, or
+ * is placed by rules the merged box would no longer present is not a space.
+ */
+function isGapFrame(n: WireframeNode): boolean {
+  if (n.type !== "frame") return false;
+  if (n.children.length > 0) return false;
+  if (n.isPlaceholder || n.imageUrl || n.computedStyles?.svgMarkup) return false;
+  if (paintsBox(n)) return false;
+  if (carriesHoverIdentity(n)) return false;
+  if (n.linkReactionUrl || n.linkAnchorId || n.anchorId) return false;
+  if (n.position === "absolute" || n.position === "fixed" || n.position === "sticky") return false;
+  if (n.transform != null) return false;
+  const m = n.margin;
+  if (m && (m.top || m.right || m.bottom || m.left)) return false;
+
+  // Below VISIBLE_GAP the browser painted nothing between the runs, so there is
+  // no space to restore; above the band it is a layout box, not a glyph.
+  return n.width >= VISIBLE_GAP && n.width <= MAX_SPACE_FRAME_WIDTH;
+}
+
+/**
+ * The separator for two runs separated by a space frame, or null to refuse.
+ *
+ * `rowSeparator` cannot serve here. In a HORIZONTAL parent it requires the gap
+ * to equal `itemSpacing`, and the whole point of this case is that the space
+ * owns a flow slot of its own: on chroniclehq.com's hero the parent's
+ * `itemSpacing` is 0 while the two words are 11.18px apart. The bridge has
+ * better evidence than a spacing match — the frame IS the space the browser
+ * measured, so the test is that it sits in the flow directly between the runs,
+ * touching each.
+ */
+function bridgedSeparator(
+  parent: WireframeNode,
+  a: WireframeNode,
+  gapFrame: WireframeNode,
+  b: WireframeNode,
+): string | null {
+  if (parent.layoutMode !== "HORIZONTAL" && parent.layoutMode !== "NONE") return null;
+  if (Math.abs(b.y - a.y) > Math.max(2, a.height * 0.2)) return null;
+  if (Math.abs(b.height - a.height) > HEIGHT_TOLERANCE) return null;
+
+  const slack = parent.layoutMode === "HORIZONTAL" ? parent.itemSpacing : 0;
+  const before = gapFrame.x - (a.x + a.width);
+  const after = b.x - (gapFrame.x + gapFrame.width);
+  if (Math.abs(before - slack) > GEOMETRY_EPSILON) return null;
+  if (Math.abs(after - slack) > GEOMETRY_EPSILON) return null;
+
+  if (/\s$/.test(a.textContent) || /^\s/.test(b.textContent)) return "";
+  return " ";
 }
 
 /**
@@ -374,7 +442,8 @@ export function mergeInlineTextRuns(root: WireframeNode): boolean {
     if (n.children.length === 0) return;
 
     const kept: WireframeNode[] = [];
-    for (const child of n.children) {
+    for (let i = 0; i < n.children.length; i++) {
+      const child = n.children[i];
       const prev = kept[kept.length - 1];
       if (prev && isMergeableRun(prev) && isMergeableRun(child) && compatible(prev, child)) {
         const separator = rowSeparator(n, prev, child);
@@ -383,6 +452,25 @@ export function mergeInlineTextRuns(root: WireframeNode): boolean {
           continue;
         }
       }
+
+      // Three-node bridge: run | space frame | run. Only when BOTH neighbours
+      // merge — `mergeRuns` widens the survivor across the frame's slot, so a
+      // bridged frame costs no later sibling a pixel, while a trailing one
+      // (nothing mergeable after it) would shorten a hugging row if removed.
+      const next = n.children[i + 1];
+      if (
+        prev && next &&
+        isGapFrame(child) &&
+        isMergeableRun(prev) && isMergeableRun(next) && compatible(prev, next)
+      ) {
+        const separator = bridgedSeparator(n, prev, child, next);
+        if (separator !== null) {
+          mergeRuns(n, prev, next, separator);
+          i++; // `next` was consumed along with the frame
+          continue;
+        }
+      }
+
       kept.push(child);
     }
 
