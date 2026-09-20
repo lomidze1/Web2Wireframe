@@ -6,6 +6,10 @@ green — a permanently red suite stops being a signal.
 
 Move a file back into its package when you start the implementation.
 
+**Only `.test.ts` files belong here.** Bug analyses and fix plans live in
+[`../specs/`](../specs/) — until 2026-09-20 ten of them were parked in this
+folder, which contradicted the rule above and left them unindexed.
+
 ## `text-boundary-spaces.test.ts`
 
 **Target:** `packages/browser-extension/src/content/extractor.ts` —
