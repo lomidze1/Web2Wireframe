@@ -49,7 +49,7 @@ describe('w2wWaitForHydration', () => {
 describe('capture order', () => {
   /**
    * A source-order guard, in the spirit of the API's `networkidle0` one. The
-   * wait is worthless after the scroll: `autoScrollPage` is what triggers the
+   * wait is worthless after the scroll: `w2wAutoScrollAndSampleReveals` is what triggers the
    * IntersectionObservers, so they have to exist first. Nothing else can pin
    * an ordering that lives inside a 900-line handler.
    */
@@ -64,7 +64,7 @@ describe('capture order', () => {
     const source = sources['./w2w.ts'];
 
     const hydrate = source.indexOf('await w2wWaitForHydration(client)');
-    const scroll = source.indexOf('await autoScrollPage(client)');
+    const scroll = source.indexOf('await w2wAutoScrollAndSampleReveals(client)');
 
     expect(hydrate).toBeGreaterThan(-1);
     expect(scroll).toBeGreaterThan(-1);

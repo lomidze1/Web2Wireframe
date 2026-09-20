@@ -40,8 +40,11 @@ import {
   w2wFindHoverCandidates,
   attachHoverToDescendants,
   orderUrlsByInstallability,
+  extractUrlsFromSrc,
   W2W_HYDRATION_EXPRESSION,
   W2W_HYDRATION_TIMEOUT_MS,
+  W2W_SCROLL_AND_SAMPLE_EXPRESSION,
+  W2W_SCROLL_AND_SAMPLE_TIMEOUT_MS,
   captureTaintedCanvases,
 } from "@w2w/shared";
 import { normalizeFontPayload } from "../fonts/decompressFont.js";
@@ -668,7 +671,6 @@ export async function extractWithContentScript(
       //      (font-display: swap with late onload, etc.)
       //   3. Server-side fetch — no CSP, no CORS in Node. Final safety net for
       //      fonts the browser never actually cached during render.
-      const bareUrlRegex = /https?:\/\/[^\s'"),]+/g;
       const mainFrameId = resourceGraph.frameId;
       let boundCount = 0;
       let strategy0Count = 0;
@@ -722,7 +724,9 @@ export async function extractWithContentScript(
         // whose name table normalizeFontPayload can't read → no realFamily,
         // and macOS/Windows can't install them (telex.ge shipped exactly
         // this). Same ordering as shared's extractFontBinaries.
-        const urls = orderUrlsByInstallability(font.src.match(bareUrlRegex) || []);
+        // Shared parser: also stops at a glued `format(` (minified CSS —
+        // notion.com bound 0/35 faces when "format" was read into the URL).
+        const urls = orderUrlsByInstallability(extractUrlsFromSrc(font.src));
 
         for (const url of urls) {
           // Strategy 0: live network capture (primary path).
@@ -931,46 +935,17 @@ export async function emulateReducedMotion(page: {
   }
 }
 
-/** Auto-scroll the page to trigger lazy-loaded content. */
-async function autoScrollPage(client: { send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T> }): Promise<void> {
-  const scrollDelay = 100;
-  const maxScrollTime = 30000;
-
+/**
+ * Auto-scroll the page to trigger lazy-loaded content, recording reversible
+ * scroll reveals on the way — see `W2W_SCROLL_AND_SAMPLE_EXPRESSION` in
+ * @w2w/shared (the extension runs the same expression).
+ */
+export async function autoScrollPage(client: { send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T> }): Promise<void> {
   try {
     await client.send("Runtime.evaluate", {
-      expression: `
-        (async () => {
-          // Step just under one viewport so every band of the page is inside
-          // the viewport at some sample — IntersectionObserver reports the
-          // state at the landing position, so a step LARGER than the viewport
-          // would skip lazy content entirely. The old fixed 400px stepped
-          // through a 900px viewport twice as often as needed: 4.8s of
-          // stripe.com's capture went here.
-          const scrollStep = Math.max(200, window.innerHeight - 100);
-          const scrollDelay = ${scrollDelay};
-          const maxTime = ${maxScrollTime};
-          const startTime = Date.now();
-          let totalHeight = 0;
-          let lastHeight = document.documentElement.scrollHeight;
-          while (Date.now() - startTime < maxTime) {
-            const currentHeight = document.documentElement.scrollHeight;
-            window.scrollBy(0, scrollStep);
-            totalHeight += scrollStep;
-            await new Promise(r => setTimeout(r, scrollDelay));
-            if (totalHeight >= currentHeight + 1000) {
-              if (document.documentElement.scrollHeight > lastHeight) {
-                lastHeight = document.documentElement.scrollHeight;
-                continue;
-              }
-              break;
-            }
-          }
-          window.scrollTo(0, 0);
-          await new Promise(r => setTimeout(r, 500));
-        })()
-      `,
+      expression: W2W_SCROLL_AND_SAMPLE_EXPRESSION,
       awaitPromise: true,
-      timeout: maxScrollTime + 5000,
+      timeout: W2W_SCROLL_AND_SAMPLE_TIMEOUT_MS,
     });
   } catch {
     await client.send("Runtime.evaluate", {
@@ -1002,6 +977,15 @@ export function enrichAllTextNodes(
 
   function walk(node: W2WNode): void {
     if (node.type === "FRAME") {
+      // Pseudo-element / list-marker wrappers are synthesized by the content
+      // script, never traversed, so they carry no `data-w2w-idx`.
+      if ((node.classList ?? []).some((c) => String(c).startsWith("__w2w-"))) return;
+      // POST-order, like the content script: it tags a host after its
+      // children. Counting pre-order gave vaayu.tech's headings the font of
+      // their nested <em> ("Tobias Italic") — nine upright headings in italic.
+      for (const child of node.children) {
+        walk(child);
+      }
       const hasTextChildren = node.children.some((c) => c.type === "TEXT");
       if (hasTextChildren) {
         const font = fontsByIdx.get(idx);
@@ -1033,9 +1017,6 @@ export function enrichAllTextNodes(
           }
         }
         idx++;
-      }
-      for (const child of node.children) {
-        walk(child);
       }
     }
   }

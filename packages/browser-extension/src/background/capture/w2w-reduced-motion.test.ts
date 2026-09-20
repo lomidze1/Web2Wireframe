@@ -185,7 +185,7 @@ describe('capture order', () => {
   });
 
   it('finishes again per viewport after the auto-scroll and the layout steps, right before EXTRACT_DOM', () => {
-    const scroll = source.indexOf('await autoScrollPage(client)');
+    const scroll = source.indexOf('await w2wAutoScrollAndSampleReveals(client)');
     const measure = source.indexOf('w2wScrollbarWidth(targetViewport', scroll);
     const finishAgain = source.indexOf(FINISH, scroll);
     const extract = source.indexOf('{ type: "EXTRACT_DOM" }');

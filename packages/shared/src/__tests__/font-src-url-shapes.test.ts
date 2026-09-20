@@ -22,6 +22,13 @@ import { extractUrlsFromSrc } from "../font-binary-extraction";
 const IWM =
   "https://www.iwm.org.uk/themes/custom/iwm_theme/fonts/interface_standard_regular/if_std_rg-webfont.woff2";
 
+// notion.com (user report 2026-09-16): minified CSS glues the descriptor to the
+// URL — `url(X)format("woff2")`. Once the wrapper is stripped the src reads
+// `Xformat("woff2")`, and a URL regex that stops only at spaces/quotes/parens
+// swallowed "format" into the URL. Every face fetched a 404 → empty fonts.zip.
+const N = "https://www.notion.com/front-static/fonts/NotionInter-Regular.woff2";
+const N2 = "https://www.notion.com/front-static/fonts/NotionInter-Regular.woff";
+
 describe("extractUrlsFromSrc", () => {
   it("reads a bare URL from a capture-cleaned src", () => {
     expect(extractUrlsFromSrc(`${IWM} format("woff2")`)).toEqual([IWM]);
@@ -79,5 +86,16 @@ describe("extractUrlsFromSrc", () => {
 
   it("returns nothing for an empty src", () => {
     expect(extractUrlsFromSrc("")).toEqual([]);
+  });
+  it("stops a bare URL at a glued format() descriptor (minified CSS)", () => {
+    expect(extractUrlsFromSrc(`${N}format("woff2"),${N2}format("woff")`)).toEqual([N, N2]);
+  });
+
+  it("stops a bare URL at a glued tech() descriptor", () => {
+    expect(extractUrlsFromSrc(`${N}tech(variations)format("woff2")`)).toEqual([N]);
+  });
+
+  it("reads a wrapped URL glued to its format() descriptor", () => {
+    expect(extractUrlsFromSrc(`url(${N})format("woff2"),url(${N2})format("woff")`)).toEqual([N, N2]);
   });
 });
