@@ -99,6 +99,79 @@ describe("maxDescendantBottom", () => {
     const root = frame("div", { y: 0, width: 100, height: 300 }, {}, [child]);
     expect(maxDescendantBottom(root as never)).toBe(300);
   });
+
+  /**
+   * chroniclehq.com: the page came out 286px taller than the site.
+   *
+   * Its footer is `overflow: hidden` and 939px tall, and inside it a Lottie
+   * wrapper is 783px tall in a 410px box, reaching 285px past the end of the
+   * page. The browser never scrolls for it — the footer clips it — but the
+   * walk counted it anyway and the root frame grew to fit, leaving a dead band
+   * under the footer.
+   *
+   * A clipping ancestor's children cannot extend the scrollable page, so the
+   * walk stops there and keeps that ancestor's own bottom edge.
+   */
+  describe("clipped subtrees", () => {
+    it("stops at an overflow:hidden ancestor instead of counting what it clips", () => {
+      const lottie = frame("div", { y: 5655, width: 1212, height: 783 }, {});
+      const inner = frame("div", { y: 5655, width: 1212, height: 410 }, {}, [lottie]);
+      const footer = frame(
+        "footer",
+        { y: 5215, width: 1440, height: 939 },
+        { overflow: "hidden", position: "relative" },
+        [inner],
+      );
+      const app = frame("div", { y: 0, width: 1440, height: 6153 }, {}, [footer]);
+      const body = frame("body", { y: 0, width: 1440, height: 6153 }, { overflow: "auto" }, [app]);
+      const html = frame("html", { y: 0, width: 1440, height: 6153 }, {}, [body]);
+
+      // The footer's own bottom (5215 + 939), not the Lottie's 6438.
+      expect(maxDescendantBottom(html as never)).toBe(6154);
+    });
+
+    it("keeps walking through a scroll root that declares its own overflow", () => {
+      // paco.me's body is `overflow-y: scroll` — it scrolls the page rather
+      // than clipping it, so the taller child behind it must still be found.
+      expect(maxDescendantBottom(pacoTree() as never)).toBe(1424);
+    });
+
+    it("keeps walking through a scrolling element marked by the capture", () => {
+      const tall = frame("div", { y: 0, width: 100, height: 1200 }, {});
+      const scroller = frame(
+        "div",
+        { y: 0, width: 100, height: 400 },
+        { overflow: "auto" },
+        [tall],
+        { isScrollingElt: true },
+      );
+      const root = frame("html", { y: 0, width: 100, height: 400 }, {}, [scroller]);
+      expect(maxDescendantBottom(root as never)).toBe(1200);
+    });
+
+    it("ignores a horizontal-only scroller — it clips nothing vertically", () => {
+      const tall = frame("div", { y: 0, width: 3000, height: 900 }, {});
+      const strip = frame(
+        "div",
+        { y: 0, width: 1440, height: 300 },
+        { overflowX: "auto", overflowY: "visible" },
+        [tall],
+      );
+      const root = frame("html", { y: 0, width: 1440, height: 400 }, {}, [strip]);
+      expect(maxDescendantBottom(root as never)).toBe(900);
+    });
+
+    it("still counts the clipping node itself when it is the tallest thing", () => {
+      const clipped = frame(
+        "section",
+        { y: 200, width: 100, height: 800 },
+        { overflow: "hidden" },
+        [frame("div", { y: 200, width: 100, height: 5000 }, {})],
+      );
+      const root = frame("html", { y: 0, width: 100, height: 400 }, {}, [clipped]);
+      expect(maxDescendantBottom(root as never)).toBe(1000);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

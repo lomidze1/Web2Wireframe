@@ -22,13 +22,6 @@
   gap: var(--space-2);
 }
 
-.footerCenter {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
 /* Generic icon button — used for Settings, Help, Rebind */
 .iconBtn {
   width: 32px;
@@ -88,38 +81,30 @@
   outline-offset: 2px;
 }
 
-/* Re-apply fonts — contextual labeled button. Only rendered when the current
- * page has text imported with substituted fonts (awaiting re-apply), so it
- * reads as an actionable prompt rather than a permanent mystery icon. */
-.rebindFontsBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px var(--space-2);
-  border-radius: var(--radius-input);
-  border: 1px solid var(--accent);
+/* Re-apply fonts — an .iconBtn that is always "on" while it exists. It is only
+ * rendered when the page still holds text imported with a substituted font, so
+ * the accent fill says "there is something here", not "this is selected"; the
+ * RebindBanner above the footer carries the explanation. */
+.rebindBtn {
+  position: relative;
+  border-color: var(--border-accent);
   background: rgba(var(--accent-rgb), 0.1);
   color: var(--accent);
-  font-family: var(--font-display);
-  font-size: var(--font-xs);
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: var(--transition-fast);
 }
 
-.rebindFontsBtn:hover {
+.rebindBtn:hover {
   background: rgba(var(--accent-rgb), 0.18);
 }
 
-.rebindFontsBtn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.rebindFontsBtn svg {
-  width: 14px;
-  height: 14px;
+/* Fonts the user has not acknowledged yet. */
+.rebindDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--warning);
 }
 
 /* Plan pill — compact status indicator (Free 3/10 or Pro) */

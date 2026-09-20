@@ -13,9 +13,14 @@ interface FooterProps {
   /** Only show the Re-apply fonts button when there's actually something to
    * re-apply (current page has substituted-font text). */
   showRebindFonts?: boolean;
-  /** Button text — becomes "Re-apply to selection" when the current Figma
-   *  selection holds pending fonts, else "Re-apply fonts". */
-  rebindFontsLabel?: string;
+  /** Pending fonts the user has not acknowledged yet — shows a dot on the
+   *  Re-apply button. */
+  rebindUnseen?: boolean;
+  /** Names the action for screen readers and the hover tooltip — becomes
+   *  "…to selection" when the current Figma selection holds pending fonts.
+   *  The button itself carries no visible label: at the fixed 410px window a
+   *  labelled button in the footer pushed the plan pill off the edge. */
+  rebindAriaLabel?: string;
   onRebindFontsClick?: () => void;
 }
 
@@ -56,7 +61,8 @@ export default function Footer({
   showExtension = true,
   onExtensionClick,
   showRebindFonts = false,
-  rebindFontsLabel = "Re-apply fonts",
+  rebindUnseen = false,
+  rebindAriaLabel = "Re-apply original fonts",
   onRebindFontsClick,
 }: FooterProps) {
   // License is preloaded + cached by LicenseProvider (mounted in App.tsx).
@@ -110,23 +116,22 @@ export default function Footer({
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
         </button>
-      </div>
-
-      {/* Center slot — reserved for the contextual "Re-apply fonts" prompt.
-          Empty (and invisible) when nothing needs re-applying; because the
-          slot is flex:1, toggling it never shifts the side groups. */}
-      <div class={styles.footerCenter}>
+        {/* Contextual — only rendered while the page still holds text imported
+            with a substituted font. Sits with the other icons rather than in a
+            slot of its own: the window is a fixed 410px, and a labelled button
+            here is what used to clip Extension and the plan pill. */}
         {showRebindFonts && onRebindFontsClick && (
           <button
             type="button"
-            class={styles.rebindFontsBtn}
+            class={`${styles.iconBtn} ${styles.rebindBtn}`}
             onClick={onRebindFontsClick}
-            aria-label="Re-apply original fonts"
-            title="Re-apply original fonts to text imported with substituted fonts (after installing the .zip download)"
+            aria-label={rebindAriaLabel}
+            title={rebindAriaLabel}
+            data-rebind-icon=""
           >
             <svg
-              width="14"
-              height="14"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -140,7 +145,9 @@ export default function Footer({
               <path d="M16 4v4h-4" />
               <path d="M20 12a8 8 0 1 1-2.34-5.66L20 8" />
             </svg>
-            {rebindFontsLabel}
+            {rebindUnseen && (
+              <span class={styles.rebindDot} data-rebind-dot="" aria-hidden="true" />
+            )}
           </button>
         )}
       </div>

@@ -3076,6 +3076,15 @@ function inFlowPositionedZFloor(children: WireframeNode[]): number | undefined {
  */
 function isBehindSiblings(child: WireframeNode, zFloor?: number): boolean {
   if (child.position !== "absolute" && child.position !== "fixed") return false;
+  // A pseudo-element wrapper with no captured z-index: published extension
+  // builds copy ~30 computed styles onto the span they inject to materialise a
+  // pseudo, and z-index is not among them, so `undefined` here means "unknown",
+  // not zero. Guessing zero buries decorative overlays under any sibling that
+  // carries a positive one — chroniclehq.com's carousel edge-fades sit at
+  // z-index 99 over a `position: relative; z-index: 1` swiper, and the floor
+  // put them behind the cards. Leave DOM order alone instead; a pseudo that
+  // really is a backdrop still declares a negative z-index and is caught below.
+  if (child.zIndex == null && child.className?.includes("__w2w-pseudo-")) return false;
   const z = child.zIndex ?? 0;
   if (z < 0) return true;
   return zFloor !== undefined && z < zFloor;
