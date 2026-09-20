@@ -38,7 +38,6 @@ import { useImportProgress } from "../../../hooks/useImportProgress";
 import { deriveQuota } from "../../../shared/quota";
 import { matchStyle, nextStyle, type StyleId } from "../../../shared/styleLadder";
 import { requestPlanModal } from "../../../shared/planEvents";
-import NewsBanner from "../../../components/newsBanner/NewsBanner";
 
 const TAB_ID = "web";
 const STORAGE_KEY = "w2w_settings_expanded_web";
@@ -82,12 +81,7 @@ interface RenderData {
   fontFaceStyles?: Record<string, string[]>;
 }
 
-interface WebProps {
-  /** Set once the "What's new" modal has docked into the tab (see App). */
-  newsBanner?: { onDismiss: () => void } | null;
-}
-
-export default function Web({ newsBanner }: WebProps) {
+export default function Web() {
   const [url, setUrl] = useState("");
   const [importState, setImportState] = useState<ImportState>({
     status: "idle",
@@ -698,9 +692,6 @@ export default function Web({ newsBanner }: WebProps) {
       >
         {importState.status === "loading" ? "Importing…" : "Import"}
       </button>
-
-      {/* Legibly note the "What's new" modal docks into */}
-      {newsBanner && <NewsBanner onDismiss={newsBanner.onDismiss} />}
 
       {/* Font Fallback Modal */}
       <FontFallbackModal

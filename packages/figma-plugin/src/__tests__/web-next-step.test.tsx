@@ -476,23 +476,6 @@ describe("Web tab — first-run instructions", () => {
   });
 });
 
-describe("Web tab — Legibly banner", () => {
-  it("shows the docked Legibly banner right under the Import button", () => {
-    vi.stubGlobal("fetch", vi.fn());
-    const { container } = render(<Web newsBanner={{ onDismiss: vi.fn() }} />);
-    const banner = container.querySelector("[data-news-banner]");
-    expect(banner).toBeTruthy();
-    const importBtn = button(container, /^Import$/)!;
-    expect(importBtn.nextElementSibling).toBe(banner);
-  });
-
-  it("shows no banner until the note is docked", () => {
-    vi.stubGlobal("fetch", vi.fn());
-    const { container } = render(<Web />);
-    expect(container.querySelector("[data-news-banner]")).toBeNull();
-  });
-});
-
 describe("Web tab — free allowance on the card", () => {
   it("says how many free imports are left once the license is fresh", async () => {
     licenseState.current = { refresh: vi.fn(), license: freeLicense(1), isLoading: false, error: null };

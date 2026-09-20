@@ -39,8 +39,6 @@ import { applyColorFilterToPixels, parseColorFilter } from "../rendering/cssFilt
 import { onQuotaExceeded } from "./shared/quotaEvents";
 import { onImportTabRequest } from "./shared/importTabEvents";
 import { onPlanModalRequest } from "./shared/planEvents";
-import WhatsNewModal from "./components/modalPopup/WhatsNewModal";
-import { useWhatsNew } from "./hooks/useWhatsNew";
 import { onAuthExpired } from "./shared/authEvents";
 
 // Components
@@ -350,18 +348,6 @@ function AppContent() {
     if (days <= 3) setExpiringDaysRemaining(days);
   }, [license]);
 
-  // One-time "What's new" note (see hooks/useWhatsNew.ts). Suppressed while the
-  // expiry heads-up is up so two modals never stack.
-  const { isOpen: isWhatsNewOpen, close: closeWhatsNew } = useWhatsNew(
-    license,
-    expiringDaysRemaining !== null
-  );
-  // Closing the modal docks it as a banner under the Web tab's Import button;
-  // the banner's own × hides it for this session. Kept here, not in Web, so it
-  // survives switching tabs.
-  const [newsDocked, setNewsDocked] = useState(false);
-  const [newsBannerDismissed, setNewsBannerDismissed] = useState(false);
-
   // Handle asset conversion requests from sandbox (AVIF/WebP → JPEG via Canvas)
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -470,15 +456,7 @@ function AppContent() {
   const renderImportContent = () => {
     switch (importTab) {
       case "web":
-        return (
-          <Web
-            newsBanner={
-              newsDocked && !newsBannerDismissed
-                ? { onDismiss: () => setNewsBannerDismissed(true) }
-                : null
-            }
-          />
-        );
+        return <Web />;
       case "screenshot":
         return <Screenshot />;
       case "html":
@@ -638,11 +616,6 @@ function AppContent() {
         setExpiringDaysRemaining(null);
         setIsPlanOpen(true);
       }}
-    />
-    <WhatsNewModal
-      isOpen={isWhatsNewOpen}
-      onClose={closeWhatsNew}
-      onDock={() => setNewsDocked(true)}
     />
     </Fragment>
   );

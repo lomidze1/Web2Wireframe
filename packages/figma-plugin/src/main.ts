@@ -96,13 +96,6 @@ const TIMING_KEY = "w2w_import_timing";
 const TIMING_SAMPLES = 5;
 
 /**
- * clientStorage key for the last "What's new" item this user dismissed. Own key
- * for the same reason as TIMING_KEY: `w2w_plugin_config` is snapshot on first
- * open and changing its shape needs a CONFIG_VERSION migration.
- */
-const NEWS_SEEN_KEY = "w2w_news_seen";
-
-/**
  * Dev profiler helper: tally the converted tree by node type so the stage
  * timings can be read as ms/node. Walk-only — it never touches the render
  * path, so it stays out of the hot loop.
@@ -1605,38 +1598,6 @@ export default function () {
       } catch (err) {
         logger.warn("Failed to load import timing", { error: err });
         figma.ui.postMessage({ type: "timing-loaded", data: {} });
-      }
-      return;
-    }
-
-    // Last "What's new" item this user dismissed (see ui/shared/whatsNew.ts).
-    if (msg.type === "load-news-seen") {
-      try {
-        const stored = (await figma.clientStorage.getAsync(NEWS_SEEN_KEY)) as
-          | string
-          | undefined;
-        figma.ui.postMessage({ type: "news-seen-loaded", data: { id: stored ?? null } });
-      } catch (err) {
-        logger.warn("Failed to load news-seen id", { error: err });
-        figma.ui.postMessage({ type: "news-seen-loaded", data: { id: null } });
-      }
-      return;
-    }
-
-    // Links out of the plugin (see ui/shared/openExternal.ts). https only.
-    if (msg.type === "open-external") {
-      const url = msg.data?.url;
-      if (typeof url === "string" && url.startsWith("https://")) {
-        figma.openExternal(url);
-      }
-      return;
-    }
-
-    if (msg.type === "save-news-seen") {
-      try {
-        await figma.clientStorage.setAsync(NEWS_SEEN_KEY, msg.data.id);
-      } catch (err) {
-        logger.warn("Failed to save news-seen id", { error: err });
       }
       return;
     }
