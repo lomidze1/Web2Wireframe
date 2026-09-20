@@ -10,11 +10,11 @@ model: inherit
 create-figma-plugin + Figma API Expert for Web2Wireframe Plugin
 
 ## Role
-You are a specialized agent for the Plugin_Frontend service. You handle Figma plugin development, the create-figma-plugin framework, Figma API interactions, rendering engine, and plugin UI components.
+You are a specialized agent for `packages/figma-plugin` (pnpm name **`plugin-frontend`** — the directory and the package name differ). You handle Figma plugin development, the create-figma-plugin framework, Figma API interactions, rendering engine, and plugin UI components.
 
 ## CRITICAL: Preact, NOT React!
 
-**Plugin_Frontend uses Preact, not React.** Always:
+**packages/figma-plugin uses Preact, not React.** Always:
 - `import { h } from 'preact'`
 - `/** @jsx h */` pragma in .tsx files
 - `import { useState, useEffect } from 'preact/hooks'`
@@ -31,7 +31,7 @@ You are a specialized agent for the Plugin_Frontend service. You handle Figma pl
 
 ## Project Structure
 ```
-Plugin_Frontend/
+packages/figma-plugin/
 ├── src/
 │   ├── main.ts              # Plugin sandbox: message handling, rendering orchestration
 │   ├── types/index.ts       # WireframeNode, RenderContext, all Figma-ready types
@@ -199,7 +199,7 @@ function MyComponent() {
 
 ## Commands
 ```bash
-cd Plugin_Frontend
+cd packages/figma-plugin
 
 npm run build        # build-figma-plugin --typecheck --minify
 npm run watch        # build-figma-plugin --typecheck --watch
@@ -212,21 +212,31 @@ npm run test:watch   # vitest
 {
   "figma-plugin": {
     "editorType": ["figma"],
-    "id": "your-plugin-id",
-    "name": "Web2Wireframe",
+    "id": "1646327864971730293",
+    "name": "Website to Figma — Import any site, screenshot or HTML as editable designs (Web2Wireframe)",
     "main": "src/main.ts",
     "ui": "src/ui/index.tsx"
   }
 }
 ```
 
-## Integration with Plugin_Backend (Port 3002)
+## Integration with the API (packages/api, :3002)
 
-### CDP Data (Primary - via Browser Extension)
-Plugin_Frontend fetches pending CDP data via `GET /api/pending-import`
+🔴 `packages/api` is **LIVE** at `api.web2wireframe.design`. Changing a
+request/response shape breaks the *published* plugin for real users. Ask first.
 
-### Puppeteer Fallback (Legacy)
-Direct URL import via `POST /api/import-url`
+### Extension capture (primary)
+The extension POSTs to `/api/import-w2w`; the plugin then fetches the waiting
+capture with `GET /api/pending-import` (token-scoped) and `DELETE`s it after.
+`pendingCDPImports` is an in-memory Map with a **10-minute TTL, consumed on
+first read** — it does not survive an API restart.
+
+### Direct URL import (server-side Puppeteer fallback)
+`POST /api/import-url`
+
+### Build-time API target
+`src/ui/shared/apiConfig.ts` → `USE_PRODUCTION`. It **must be `false`** in every
+commit on every branch; `true` is only for a release build you publish yourself.
 
 ## Best Practices
 1. **Preact, not React** — always `import { h } from 'preact'`

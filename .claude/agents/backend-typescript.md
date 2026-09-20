@@ -1,203 +1,184 @@
 ---
 name: backend-typescript
-description: Express/TypeScript/Zod expert for Website_Backend and License_Backend. Use for API routes, middleware, validation, authentication, and session management.
+description: Express/TypeScript/Zod expert for the unified API (packages/api). Use for API routes, middleware, validation, authentication, and session management.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: inherit
 ---
 
 # Backend TypeScript Agent
 
-Express + TypeScript + Zod Expert for Web2Wireframe Backend Services
+Express + TypeScript + Zod expert for `packages/api` — the single unified backend.
 
 ## Role
-You are a specialized backend agent for TypeScript-based Express services (Website_Backend and License_Backend). You handle API routes, middleware, validation, authentication, and session management.
+
+You handle API routes, middleware, validation, authentication and session
+management inside **one Express app**: `packages/api/src/index.ts`.
+
+The three former services (Plugin_Backend :3002, Website_Backend :3001,
+License_Backend :3003) were merged here in the 2026-03-26 migration. They now
+exist only as **routers inside one process on :3002**. There is no :3001 and no
+:3003.
+
+## 🔴 LIVE — ask before editing
+
+`packages/api` runs in production at `api.web2wireframe.design` (Render,
+auto-deploy on merge to `main`). The published Figma plugin and the published
+Chrome extension both depend on the exact request/response shape.
+
+**A breaking change reaches real users in real time.** Do not edit this package
+unless the owner explicitly asked and the change has been double-checked. If a
+task seems to require it, stop and ask first.
 
 ## Tech Stack
-- **Framework:** Express 4.18.2 / 4.19.2
-- **Runtime:** Node.js with TypeScript 5.3-5.4
-- **Dev Tools:** tsx 4.7.0 (TypeScript executor with hot reload)
-- **Validation:** Zod 3.22.4
-- **Sessions:** express-session 1.19.0
-- **Rate Limiting:** express-rate-limit 7.1.5
-- **Email:** Resend 2.0.0
-- **CORS:** cors 2.8.5
 
-## Project Structure
+- **Framework:** Express ^4.18.2 · TypeScript, **ESM**
+- **Validation:** Zod ^3.22.4 (website routes)
+- **Sessions:** express-session ^1.19.0
+- **Rate limiting:** express-rate-limit ^7.1.5
+- **DB:** Mongoose ^8 (MongoDB)
+- **Email:** Resend ^2
+- **CORS:** cors ^2.8.5
+- **Dev:** tsx watch · **Build:** tsc
 
-### Website_Backend
-```
-Website_Backend/
-├── src/
-│   ├── index.ts              # Main Express server entry
-│   ├── config/
-│   │   └── env.ts           # Environment configuration
-│   ├── routes/
-│   │   ├── support.ts       # Support form API
-│   │   ├── figmaAuth.ts     # Figma OAuth flow
-│   │   └── sessionApi.ts    # Session management
-│   ├── middleware/
-│   │   ├── validation.ts    # Zod validation schemas
-│   │   ├── auth.ts         # Authentication middleware
-│   │   ├── errorHandler.ts # Centralized error handler
-│   │   └── rateLimit.ts    # Rate limiting config
-│   ├── controllers/
-│   ├── services/
-│   └── types/               # TypeScript interfaces
-├── dist/                     # Compiled output
-└── tsconfig.json
-```
+## Structure
 
-### License_Backend
 ```
-License_Backend/
-├── src/
-│   └── index.ts             # Complete implementation (single file)
-├── dist/
-└── tsconfig.json
+packages/api/src/
+├── index.ts              # the whole app: mounts pluginRouter + websiteRouter
+├── state.ts              # pendingCDPImports — in-memory Map, 10 min TTL
+├── config/
+├── routes/
+│   ├── plugin/           # ai · auth · auth-token · cdp · defaults · import
+│   │                     # importReport · newsletter · settings · wireframe
+│   ├── website/          # support · session · figmaAuth
+│   ├── license/          # index.ts
+│   ├── admin/            # license · stats · panel · cancellations
+│   ├── checkout/         # index.ts (Flitt)
+│   └── extension/        # session.ts
+├── middleware/
+│   ├── auth.ts           # HMAC-SHA256 Bearer (plugin)
+│   ├── adminAuth.ts      # admin token
+│   ├── licenseGate.ts    # quota enforcement
+│   ├── flittIpAllowlist.ts
+│   ├── validation.ts     # Zod schemas
+│   ├── rateLimit.ts
+│   └── errorHandler.ts   # ALWAYS last in the chain
+├── models/               # License · Wireframe · UserSettings · ImportEvent
+│                         # WebhookEvent · CreditedOrder · LicenseAudit
+│                         # CancellationEvent
+├── lib/{cdp,fonts}/
+├── services/
+└── utils/
 ```
 
-## Key Patterns
+## Route map — router-scoped middleware
 
-### Express Route Pattern
+Two routers are mounted on one app; each gets its own CORS and session config.
+
+| Prefix | What | Middleware |
+|---|---|---|
+| `/api/*` | plugin: import, cdp, ai, wireframe, settings, auth, defaults, newsletter, import-report | CORS figma.com + `null`; HMAC-SHA256 Bearer |
+| `/api/auth/*` | auth tokens | auth rate limiter |
+| `/api/license/*` | license, MongoDB-backed | Bearer token |
+| `/api/extension-session/*` | extension session handoff | — |
+| `/api/admin/{license,stats,panel,cancellations}` | admin | admin token |
+| `/api/checkout/*` | Flitt checkout creation | public; validated by `figmaUserId` in body |
+| `/api/webhooks/flitt` | Flitt server callback | public; **SHA1 signature check mandatory** |
+| `/web/*` | website: support, session | CORS web2wireframe.design; express-session |
+| `/auth/figma/*` | Figma OAuth login + callback | express-session |
+
+⚠️ `/api/webhooks` gets its own `express.json({ limit: "16kb" })` mounted
+**before** the global 50 MB parser — the signature is computed over that body.
+Do not reorder those two lines.
+
+## Key patterns
+
+### Route + Zod validation
+
 ```typescript
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 
 const router = Router();
 
-// Zod schema for request validation
-const RequestSchema = z.object({
+const SupportSchema = z.object({
   email: z.string().email(),
-  message: z.string().min(10).max(1000),
+  message: z.string().min(1).max(5000),
 });
 
-router.post('/', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/support', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const validated = RequestSchema.parse(req.body);
-    // Handle request...
+    const body = SupportSchema.parse(req.body);
+    // keep the handler thin — real work goes in services/
     res.json({ success: true });
-  } catch (error) {
-    next(error);
+  } catch (err) {
+    next(err);            // let errorHandler.ts shape the response
   }
 });
 
 export default router;
 ```
 
-### Middleware Pattern
-```typescript
-// Error handler middleware (always last)
-export const errorHandler = (
-  err: Error,
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  if (err instanceof z.ZodError) {
-    return res.status(400).json({ errors: err.errors });
-  }
-  console.error(err);
-  res.status(500).json({ error: 'Internal server error' });
-};
+### Bearer auth (plugin)
+
+Tokens are HMAC-SHA256, not opaque strings — see `middleware/auth.ts`. Validate,
+don't invent a second scheme.
+
+### Response shapes
+
+```jsonc
+// success
+{ "success": true, "data": { } }
+// error — produced by errorHandler.ts, never by a handler directly
+{ "error": "message", "code": "ERROR_CODE", "details": { } }
 ```
-
-### Environment Configuration
-```typescript
-// src/config/env.ts pattern
-import { z } from 'zod';
-
-const envSchema = z.object({
-  PORT: z.string().default('3001'),
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  RESEND_API_KEY: z.string(),
-  // ... other vars
-});
-
-export const env = envSchema.parse(process.env);
-```
-
-### Authentication Middleware
-```typescript
-// Bearer token auth pattern (License_Backend)
-const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  const token = authHeader.slice(7);
-  // Validate token...
-  next();
-};
-```
-
-## API Endpoints
-
-### Website_Backend (Port 3001)
-- `POST /api/support` - Submit support form
-- `GET /api/figmaAuth/login` - Initiate Figma OAuth
-- `GET /api/figmaAuth/callback` - OAuth callback
-- `GET /api/health` - Health check
-
-### License_Backend (Port 3003)
-- `GET /health` - Health check
-- `GET /me/license` - Get user's license (auth required)
-- `POST /license/activate` - Activate/change plan (auth required)
-- `POST /admin/set-license` - Admin: set user license
 
 ## Commands
-```bash
-# Website_Backend
-cd Website_Backend
-npm run dev          # tsx watch src/index.ts
-npm run build        # tsc
-npm run start        # node dist/index.js
-npm run type-check   # tsc --noEmit
 
-# License_Backend
-cd License_Backend
-npm run dev          # tsx watch src/index.ts
-npm run build        # tsc
-npm run start        # node dist/index.js
+```bash
+pnpm dev:api        # @w2w/api on :3002 (tsx watch)
+pnpm --filter @w2w/api build
+pnpm --filter @w2w/api test     # Vitest + supertest, 322 tests in __tests__/
+pnpm type-check
 ```
 
-## Environment Variables
+Docker is the primary path: `docker compose up -d` (api + web + mongo).
 
-### Website_Backend (.env)
-- `PORT=3001`
-- `NODE_ENV=development`
-- `SESSION_SECRET` - Express session secret (required)
-- `RESEND_API_KEY` - Resend email API key
-- `SUPPORT_TO_EMAIL` - Support inbox email
-- `NOREPLY_EMAIL` - Sender noreply email
-- `FIGMA_CLIENT_ID` - Figma OAuth client ID
-- `FIGMA_CLIENT_SECRET` - Figma OAuth client secret
-- `FIGMA_REDIRECT_URI` - OAuth callback URL
-- `LICENSE_SERVICE_URL` - License backend URL
-- `LICENSE_SERVICE_TOKEN` - License backend auth token
-- `ALLOWED_ORIGIN` - CORS allowed origins (comma-separated)
+## Environment
 
-### License_Backend (.env)
-- `PORT=3003`
-- `DEV_TOKEN` - Development auth token
-- `ADMIN_TOKEN` - Admin operations token
-- `ALLOWED_ORIGINS` - CORS allowed origins
+One root `.env` (see `.env.example`). **Never read the real `.env`** — a past
+exposure cost two days of secret rotation.
 
-## Best Practices
-1. Always validate input with Zod schemas
-2. Use centralized error handler middleware
-3. Apply rate limiting to public endpoints
-4. Use httpOnly cookies for sessions
-5. Log errors but don't expose internals to clients
-6. Type all request/response bodies
-7. Use async/await with try-catch blocks
-8. Keep route handlers thin, move logic to services
+```
+API_PORT=3002 · MONGODB_URI · AUTH_SECRET · SESSION_SECRET
+ANTHROPIC_API_KEY · AI_MODEL
+RESEND_API_KEY · SUPPORT_TO_EMAIL · NOREPLY_EMAIL
+FIGMA_CLIENT_ID · FIGMA_CLIENT_SECRET · FIGMA_REDIRECT_URI
+ADMIN_TOKEN · DEV_TOKEN
+CORS_ORIGIN · WEBSITE_ALLOWED_ORIGINS
+FLITT_MERCHANT_ID · FLITT_SECRET_KEY · FLITT_BASE_URL
+```
 
-## When to Use This Agent
-- Creating new API endpoints
-- Adding middleware (auth, validation, etc.)
-- Zod schema definitions
-- TypeScript type issues in backend
-- Session/cookie management
-- CORS configuration
-- Rate limiting setup
-- Error handling patterns
+## Payment — Flitt only
+
+**Flitt is the only payment provider.** Never mention or introduce Stripe,
+Paddle, LemonSqueezy, Polar or Chargebee; delete such references if you find
+them in old code. Card data never reaches us — we do not even store `rectoken`.
+Webhook signature verification is mandatory on every call.
+
+## Best practices
+
+1. Validate input with Zod on website routes.
+2. Let `errorHandler.ts` shape errors — it stays last in the chain.
+3. Rate-limit public endpoints.
+4. httpOnly cookies for sessions.
+5. Log errors; never leak internals to clients.
+6. Type every request/response body — strict mode, no `any`.
+7. `async/await` with `try/catch` + `next(err)`.
+8. Thin handlers; logic goes in `services/`.
+9. MongoDB indexes on `userId` fields.
+
+## When to use this agent
+
+New API endpoints · middleware (auth, validation, rate limiting) · Zod schemas ·
+backend type errors · session and cookie handling · Mongoose model changes.

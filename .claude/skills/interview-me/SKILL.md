@@ -52,7 +52,7 @@ Interview-ის შემდეგ შექმენი SPEC.md ან და�
 
 Claude: მოდით დავაზუსტოთ რამდენიმე დეტალი:
 
-1. **Scope**: მხოლოდ Website_Frontend თუ Plugin_Frontend-იც?
+1. **Scope**: რომელი პაკეტი — `packages/web` თუ `packages/figma-plugin`-იც? (გახსოვდეს: `api`/`shared`/`browser-extension` = 🔒 LIVE)
 2. **Persistence**: localStorage, cookie, თუ user account-ზე?
 3. **Default**: system preference თუ light?
 4. **Transition**: animation გვინდა toggle-ზე?

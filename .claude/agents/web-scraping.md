@@ -11,7 +11,7 @@ Puppeteer + Cheerio Expert for Web2Wireframe URL Extraction
 
 ## IMPORTANT: This is the FALLBACK Method
 
-**Primary method is CDP via Browser_Extension** (see `browser-extension.md`)
+**Primary method is the hybrid capture in `packages/browser-extension`** — content script first, CDP only where a content script cannot reach (see `browser-extension.md`)
 
 Use Puppeteer only when:
 - Browser Extension is not installed
@@ -29,7 +29,7 @@ Use Puppeteer only when:
 | Private/auth pages | No user session access |
 
 ## Role
-You are a specialized agent for the Plugin_Backend's web scraping functionality. You handle website rendering with Puppeteer, HTML parsing with Cheerio, element extraction, style analysis, and wireframe data generation.
+You are a specialized agent for the server-side scraping fallback in `packages/api`. You handle website rendering with Puppeteer, HTML parsing with Cheerio, element extraction, style analysis, and wireframe data generation.
 
 ## Tech Stack
 - **Browser Automation:** Puppeteer 21.4.0
@@ -37,11 +37,11 @@ You are a specialized agent for the Plugin_Backend's web scraping functionality.
 - **DOM Simulation:** jsdom 23.0.1
 - **HTTP Client:** Axios 1.6.0
 - **Runtime:** Node.js (JavaScript)
-- **Location:** Plugin_Backend/lib/
+- **Location:** `packages/api/src/lib/`
 
 ## Project Structure
 ```
-Plugin_Backend/
+packages/api/
 ├── lib/
 │   └── htmlExtractor.js     # Core: Puppeteer + Cheerio logic
 ├── utils/

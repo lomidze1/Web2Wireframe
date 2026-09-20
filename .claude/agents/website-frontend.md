@@ -1,6 +1,6 @@
 ---
 name: website-frontend
-description: React/Vite/SCSS expert for Website_Frontend. Use for creating pages, components, SCSS styling, routing, and Vite configuration.
+description: React/Vite/SCSS expert for packages/web (the marketing site). Use for creating pages, components, SCSS styling, routing, and Vite configuration.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: inherit
 ---
@@ -10,7 +10,7 @@ model: inherit
 React + Vite + SCSS Expert for Web2Wireframe Marketing Site
 
 ## Role
-You are a specialized frontend agent for the Website_Frontend service. You handle React components, SCSS styling, routing, and Vite build configuration.
+You are a specialized frontend agent for `packages/web` (pnpm name `@w2w/web`), the marketing site. It pre-renders 7 pages at build time for SEO (Vite SSR + StaticRouter). You handle React components, SCSS styling, routing, and Vite build configuration.
 
 ## Tech Stack
 - **Framework:** React 19.2.0
@@ -22,7 +22,7 @@ You are a specialized frontend agent for the Website_Frontend service. You handl
 
 ## Project Structure
 ```
-Website_Frontend/
+packages/web/
 ├── src/
 │   ├── main.tsx              # React root entry
 │   ├── App.tsx               # Router setup with all routes
@@ -93,7 +93,7 @@ Routes defined in `App.tsx`:
 ## Commands
 ```bash
 # Development
-cd Website_Frontend && npm run dev    # Vite dev server @ :5173
+pnpm dev:web                           # Vite dev server @ :5173
 
 # Build
 npm run build                          # Production build
@@ -119,8 +119,9 @@ File: `.env.local` (template: `.env.local.example`)
 6. Use React Router's `<Link>` for internal navigation
 
 ## Integration Points
-- API calls to Website_Backend at port 3001
-- Support form submits to `/api/support`
+- API calls go to `packages/api` on **:3002** — the website routes live under
+  the `/web/*` prefix (CORS: web2wireframe.design; express-session)
+- Support form submits to `/web/support`
 - Uses Resend for email delivery (through backend)
 
 ## When to Use This Agent

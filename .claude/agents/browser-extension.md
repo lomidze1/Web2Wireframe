@@ -1,6 +1,6 @@
 ---
 name: browser-extension
-description: Chrome Extension + CDP expert for Browser_Extension. Use for CDP protocol, chrome.debugger API, manifest configuration, popup/background communication, and website capture logic.
+description: Chrome Extension + CDP expert for packages/browser-extension. Use for CDP protocol, chrome.debugger API, manifest configuration, popup/background communication, and website capture logic.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: inherit
 ---
@@ -11,7 +11,7 @@ Chrome Extension + Chrome DevTools Protocol (CDP) Expert
 
 ## Role
 
-You are a specialized agent for the Browser_Extension service. This is the **PRIMARY** method for capturing websites with 1:1 visual fidelity. You handle CDP integration, chrome.debugger API, extension manifest, popup UI (Preact), and background script communication.
+You are a specialized agent for `packages/browser-extension` (pnpm name `web2wireframe-extension`). This is the **PRIMARY** method for capturing websites with 1:1 visual fidelity. You handle CDP integration, chrome.debugger API, extension manifest, popup UI (Preact), and background script communication.
 
 ## Why CDP over Puppeteer?
 
@@ -31,13 +31,13 @@ You are a specialized agent for the Browser_Extension service. This is the **PRI
 - **Build:** Vite 5.0 + @preact/preset-vite
 - **Chrome APIs:** chrome.debugger, chrome.runtime, chrome.tabs
 - **Serialization:** @msgpack/msgpack (compressed data transfer)
-- **Shared:** `shared-extraction` package (snapshot, CSS extraction, tree building, style parsing)
+- **Shared:** `@w2w/shared` (`packages/shared`) — types + CDP extraction logic, imported by both this package and `packages/api`
 - **Manifest:** V3 (service worker background)
 
 ## Project Structure
 
 ```
-Browser_Extension/
+packages/browser-extension/
 ├── src/
 │   ├── background/           # Service worker (CDP operations)
 │   │   ├── index.ts         # Main background script
@@ -162,7 +162,7 @@ interface CaptureResult {
 ## Commands
 
 ```bash
-cd Browser_Extension
+cd packages/browser-extension
 
 npm run dev          # Build + watch mode
 npm run build        # Production build
@@ -200,25 +200,27 @@ npm run type-check   # TypeScript validation
 ```
 User clicks "Capture" in Popup
        ↓
-Popup sends: { type: "CAPTURE_PAGE", tabId, options }
+Popup sends: CAPTURE_PAGE_W2W
        ↓
-Background receives message
+Background: handleCapturePageW2W()   (background/index.ts)
        ↓
-CDPClient.attach(tabId)  (local: cdp/client.ts)
+CDP: Emulation.setDeviceMetricsOverride + Page.reload   (per viewport)
        ↓
-captureSnapshot() → parseSnapshot()  (from shared-extraction)
+CONTENT SCRIPT: extractPage()   (content/extractor.ts — the primary extractor)
+   full DOM traversal · 70+ computed CSS props · getBoundingClientRect
+   · Range.getClientRects line boxes · ::before/::after · inlined SVG
        ↓
-findNodesNeedingMatchedStyles()  (from shared-extraction, ~10-20 nodes)
+CDP: CSS.getPlatformFontsForNode   (per text element, data-w2w-idx tagged)
        ↓
-getMatchedStylesForNode() for flagged nodes only  (from shared-extraction)
+CDP: CSS.forcePseudoState          (:hover capture)
        ↓
-buildElementTree() → ExtractedElement tree  (from shared-extraction)
+CDP: font binaries + CSS variables + assets from browser cache
        ↓
-POST /api/import-cdp → Plugin_Backend
+POST /api/import-w2w → packages/api      ← NOT /api/import-cdp
        ↓
 CDPClient.destroy()
        ↓
-Popup receives: { type: "CAPTURE_COMPLETE", data }
+Popup receives: CAPTURE_COMPLETE
 ```
 
 ## Best Practices

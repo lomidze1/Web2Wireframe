@@ -19,7 +19,7 @@
 **სავალდებულო:**
 - [ ] კონკრეტული ფაილები მითითებულია?
 - [ ] მკაფიო მოთხოვნა — ზუსტად რა უნდა გაკეთდეს?
-- [ ] სერვისი იდენტიფიცირებულია (Plugin_Frontend, Website_Backend...)?
+- [ ] პაკეტი იდენტიფიცირებულია (`packages/figma-plugin`, `packages/api`, `packages/web`, `packages/shared`, `packages/browser-extension`)?
 
 **სასურველი:**
 - [ ] Reference ლინკები (API docs, design specs)?
