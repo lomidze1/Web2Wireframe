@@ -62,7 +62,9 @@
 | სოც-ქსელების გეგმა, სცენარები, ვიდეო, ხმა | [`social-agent/`](../social-agent/) |
 | ვიდეოს ძრავა (`w2wkit.py`, `make_vo.py`) | `scripts/video/` |
 | მესამე-მხარის ამოღებული კოდი (Figma / h2d გაფართოებები) | `_research/` (gitignored) |
-| იმპორტის ხარისხის სამუშაო სესიები | `import-improve/NN - <host>/` |
+| მძიმე reference მასალა, მკვდარი მიგრაციამდელი კოდი | [`_archive/`](../_archive/README.md) (gitignored) |
+| h2d reverse-engineering-ის მასტერ-ანგარიში | `ხარისხის_გაუმჯობესება/` (gitignored) |
+| იმპორტის ხარისხის სამუშაო სესიები | `_archive/import-improve/NN - <host>/` (gitignored) |
 | არქიტექტურა, ბრძანებები, სამუშაო წესები | [`../CLAUDE.md`](../CLAUDE.md) |
 | Docker / deploy | [`../DEPLOYMENT.md`](../DEPLOYMENT.md) |
 | პრომპტის წერის სახელმძღვანელო | `~/.claude/Prompter.md` (გლობალური) |

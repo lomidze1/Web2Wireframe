@@ -18,4 +18,10 @@ social-agent/**/*.mov
 social-agent/**/*.m4a
 social-agent/**/*.wav
 social-agent/**/*.cmproj/
+social-agent/**/*.trec
 __pycache__/
+
+# მძიმე სამუშაო მასალა — დისკზე რჩება, git-ში არა (იხ. _archive/README.md)
+_archive/
+ხარისხის_გაუმჯობესება/
+განსხვავებები/
