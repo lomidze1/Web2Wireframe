@@ -34,6 +34,14 @@ import {
   isSvgUrl,
   fetchSvgMarkupForUrls,
 } from '@w2w/shared';
+/**
+ * Set by the shared auto-scroll on elements shown while scrolling but
+ * transparent again at extraction — keep in sync with `W2W_REVEAL_MARKER_ATTR`
+ * in @w2w/shared (local for the same code-split reason as the hover parser).
+ */
+const REVEAL_MARKER_ATTR = 'data-w2w-reveal-transform';
+/** Below this a marked element counts as faded out (vaayu.tech footer read 0.0001). */
+const REVEAL_NEAR_ZERO_OPACITY = 0.05;
 // NOTE: hover parser is LOCAL (not @w2w/shared) so Vite doesn't code-split
 // the content script — Chrome content scripts can't load ES module chunks.
 import {
@@ -1033,6 +1041,13 @@ function injectPseudoSpan(
   const stylesToCopy = [
     'display', 'position', 'width', 'height', 'minWidth', 'minHeight',
     'top', 'right', 'bottom', 'left',
+    // z-index rides along with the other positioning properties: without it the
+    // span reports `auto`, the renderer reads that as zero, and a decorative
+    // overlay loses to any sibling with a positive z-index — chroniclehq.com's
+    // carousel edge-fades are `z-index: 99` over a `z-index: 1` swiper and were
+    // painted underneath the cards. It cannot move the span: z-index affects
+    // paint order only, never layout, so the measured rect is unchanged.
+    'zIndex',
     'margin', 'padding',
     'fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'lineHeight', 'color',
     'backgroundColor', 'backgroundImage', 'backgroundSize', 'backgroundPosition',
@@ -1428,6 +1443,22 @@ function extractStyles(el: HTMLElement | SVGElement, computed: CSSStyleDeclarati
     (styles as Record<string, string | number>)[prop] = value;
   }
 
+  // Reversible scroll reveal: the shared auto-scroll saw this element visible,
+  // but the page faded it out again before we read it (Webflow IX2 / GSAP).
+  // Emit the revealed state — its end opacity (1, the default) and the
+  // transform it had while shown.
+  const revealTransform = el.getAttribute(REVEAL_MARKER_ATTR);
+  // Near-zero too: the reveal may still be fading out (vaayu.tech footer 0.0001).
+  if (
+    revealTransform !== null &&
+    styles.opacity !== undefined &&
+    styles.opacity < REVEAL_NEAR_ZERO_OPACITY
+  ) {
+    delete styles.opacity;
+    if (revealTransform === '' || revealTransform === 'none') delete styles.transform;
+    else styles.transform = revealTransform;
+  }
+
   return styles;
 }
 
@@ -1573,6 +1604,7 @@ export function extractSubtree(selector: string): W2WFrameNode | null {
 export function cleanupMarkers(): void {
   const marked = document.querySelectorAll('[data-w2w-idx]');
   marked.forEach(el => el.removeAttribute('data-w2w-idx'));
+  document.querySelectorAll(`[${REVEAL_MARKER_ATTR}]`).forEach(el => el.removeAttribute(REVEAL_MARKER_ATTR));
 }
 
 /**
