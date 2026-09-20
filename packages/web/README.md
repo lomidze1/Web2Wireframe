@@ -1,4 +1,4 @@
-# Website_Frontend
+# packages/web
 
 Marketing site and documentation for Web2Wireframe.
 
@@ -49,7 +49,7 @@ npm run lint     # ESLint check
 ## Project Structure
 
 ```
-Website_Frontend/
+packages/web/
 ├── src/
 │   ├── main.tsx           # React root entry
 │   ├── App.tsx            # Router setup
@@ -65,5 +65,6 @@ Website_Frontend/
 
 ## Integration
 
-- API calls to Website_Backend at port 3001
-- Support form → `POST /api/support`
+- API calls go to `packages/api` @ **:3002** — website routes are under `/web/*`
+  (the former Website_Backend :3001 was merged into it on 2026-03-26)
+- Support form → `POST /web/support`

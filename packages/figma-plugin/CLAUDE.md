@@ -1,4 +1,4 @@
-# Plugin_Frontend
+# packages/figma-plugin
 
 Figma plugin UI and rendering engine — **Preact** (NOT React) via create-figma-plugin.
 
