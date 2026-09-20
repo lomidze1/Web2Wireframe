@@ -34,8 +34,8 @@ social-agent/
 სათაურითა და აღწერით:
 
 ```
-01) video/production/apple-import.mp4
-01) video/production/apple-import.md      ← title + description
+01) video/done/NN-<video-name>/outputs/NN-<video-name>.mp4
+01) video/done/NN-<video-name>/outputs/NN-<video-name>.md   ← title + description
 ```
 
 ამის გარეშე ატვირთვა შეუძლებელია.
@@ -45,7 +45,7 @@ social-agent/
 
 ## როგორ ვიმუშაო ამით
 
-1. გადაიღე მასალა → ჩააგდე `01) video/development/raw/videos/` ან `/images/`-ში
+1. გადაიღე მასალა → ჩააგდე `01) video/development/_inbox/videos/` ან `/images/`-ში
 2. ახალ ჩატში: **„social-agent — ახალი მასალა ავტვირთე"**
 3. ან უბრალოდ: **„რა მაქვს გადასაღები?"** → აგენტი `QUEUE.md`-ს გიკითხავს
    და ერთ კონკრეტულ დავალებას მოგცემს
@@ -53,7 +53,7 @@ social-agent/
 **ფაილის სახელი:** `YYYY-MM-DD_თემა.mp4` — მაგ. `2026-08-26_linear-import.mp4`.
 თარიღი და თემა საკმარისია, დანარჩენს აგენტი გაარკვევს.
 
-დაპოსტვის შემდეგ ნედლი ფაილი გადადის `raw/used/`-ში, ხოლო ჩანაწერი ემატება
+დაპოსტვის შემდეგ ნედლი ფაილი გადადის `_inbox/used/`-ში, ხოლო ჩანაწერი ემატება
 `02) articles/development/CONTENT-LOG.md`-ს.
 
 ## რა არ დევს აქ
@@ -64,5 +64,5 @@ social-agent/
 
 ## რატომ არ ინახება git-ში
 
-`01) video/development/raw/`-ის შიგთავსი `.gitignore`-შია — ვიდეოები მძიმეა და
+`01) video/development/_inbox/`-ის შიგთავსი `.gitignore`-შია — ვიდეოები მძიმეა და
 repo-ს ბერავს. საქაღალდეების სტრუქტურა ინახება (`.gitkeep`), ფაილები არა.
