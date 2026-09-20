@@ -12,14 +12,12 @@ _research/
 
 # Playwright MCP session artifacts
 .playwright-mcp/
-# სოც-არხების მედია — გეგმა/სცენარი/build-სკრიპტი ინახება, ნედლი მედია არა
-social-agent/**/*.mp4
-social-agent/**/*.mov
-social-agent/**/*.m4a
-social-agent/**/*.mp3
-social-agent/**/*.wav
-social-agent/**/*.cmproj/
-social-agent/**/*.trec
+# სოც-არხები — მთლიანად git-ის გარეთ (owner-ის გადაწყვეტილება 2026-09-20).
+# მარკეტინგის მასალაა, არა კოდი; მედია მძიმეა და repo-ს ბერავს.
+social-agent/
+
+# იმპორტის ნედლი capture-ები (.w2w) — 12 MB+ თითო
+w2w-files/
 __pycache__/
 
 # მძიმე სამუშაო მასალა — დისკზე რჩება, git-ში არა (იხ. _archive/README.md)
