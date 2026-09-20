@@ -162,18 +162,32 @@ redeploy-იც იდენტურ API-ს ააწყობს (იგი�
 თუ მომხმარებელი explicitly მოითხოვს (მაგ. release tag-ისთვის). Default
 ქცევა = ყოველთვის false-ად ვტოვებთ.
 
+### IMPORTANT: სესიის დასაწყისი — `/web2wireframe-start`
+
+`scripts/devcheck.sh` ავტომატურად ეშვება SessionStart hook-ით (dev-log :3999,
+tree-dump :3998, watch, build freshness). როცა owner ითხოვს სრულ სურათს
+("გადაამოწმე ჩართულია თუ არა ყველაფერი", "დავიწყოთ მუშაობა") — გაუშვი
+**`/web2wireframe-start`**: იმავეს ამოწმებს + watch-ის მფლობელობა, uncommitted
+სამუშაო პაკეტების ჭრილში, LIVE ზონის სტატუსი, `USE_PRODUCTION` gate და
+შაბათ/კვირის რელიზის შეხსენება.
+
+⚠️ **პარალელური სესიები:** `build/`, ports და working tree გაზიარებულია. ერთი
+watch ყველა სესიას ემსახურება → bundle შეიძლება ორი სესიის კოდის ნაზავი იყოს,
+რაც Figma-ვერიფიკაციას უაზროდ აქცევს. დეტალები და წესები: skill-ის
+„პარალელური სესიის პროტოკოლი".
+
 ### IMPORTANT: Dev-Log Bridge — "შეამოწმე ლოგები"
 
-როცა მომხმარებელი ითხოვს plugin-ის კონსოლის ლოგების ნახვას ("შეამოწმე ლოგები",
-"check logs", "რა ლოგდება"), Claude **ერთი ბრძანებით** უშვებს ლოკალურ receiver-ს
-(background):
+receiver **ავტომატურად** ეშვება ყოველი სესიის დასაწყისში — `scripts/devcheck.sh`
+(SessionStart hook). ამიტომ "შეამოწმე ლოგები"-ზე Claude-ს გაშვება აღარ სჭირდება,
+პირდაპირ კითხულობს. ხელით, თუ საჭირო გახდა:
 
 ```bash
-node packages/figma-plugin/scripts/devlog-server.mjs   # 127.0.0.1:3999
+bash scripts/devcheck.sh   # dev-log :3999 + tree-dump :3998 + watch + build freshness
 ```
 
-შემდეგ მომხმარებელი dev plugin-ით აკეთებს import-ს → ლოგები server-ის stdout-ში
-ჩამოდის. **წინაპირობა:** `npm run watch` გაშვებულია და dev plugin reload-ია
+შემდეგ მომხმარებელი dev plugin-ით აკეთებს import-ს → ლოგები `/tmp/w2w-devlog.log`-ში
+ჩამოდის (`tail -f /tmp/w2w-devlog.log`). **წინაპირობა:** dev plugin reload-ია
 Figma-ში. დეტალები + prod-safety: `packages/figma-plugin/CLAUDE.md` → "Dev-Log
 Bridge". **🔒 live-ზე ვერ აიტვირთება** (compile-time `__W2W_DEV_LOG__` DCE +
 build-prod grep gate).
@@ -220,7 +234,9 @@ Chrome extension (საჭიროებისამებრ API deploy-თ�
 2. uncommitted ცვლილებების **Figma-ვერიფიკაცია** → მხოლოდ მერე commit.
 3. თუ რელიზი API/shared-ზეა დამოკიდებული → **ჯერ** `dev→main` merge
    (Render auto-deploy), შემდეგ client publish.
-4. Figma plugin: `cd packages/figma-plugin && npm run build` → Figma desktop →
+4. ⚠️ **ჯერ watch მოკალი** — `pgrep -fl "create-figma-plugin/build"` → `kill <pid>`
+   (SessionStart hook ავტომატურად უშვებს, და watch prod bundle-ს გადააწერს).
+   შემდეგ Figma plugin: `cd packages/figma-plugin && npm run build` → Figma desktop →
    Manage plugins in development → Publish (ID `1646327864971730293`).
 5. Chrome extension: `manifest.json` `version` bump → build → zip `dist/`-ის
    შიგთავსი → Web Store upload (ID `fcmicolldgpmpdkcdljkaaimmjmboipl`).

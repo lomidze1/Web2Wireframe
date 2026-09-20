@@ -126,15 +126,17 @@ Figma desktop exposes the plugin console nowhere Claude can read (remote
 debugging disabled; renderer `console.*` not piped to stdout). The dev-log
 bridge mirrors plugin output to a local receiver Claude tails.
 
-**ჩართვა (ერთი ბრძანება):** როცა მომხმარებელი იტყვის "შეამოწმე ლოგები" /
-"check logs", Claude უშვებს receiver-ს background-ში:
+**ჩართვა:** receiver ავტომატურად ეშვება ყოველი სესიის დასაწყისში —
+`scripts/devcheck.sh` (SessionStart hook, `.claude/settings.json`), tree-dump
+receiver-თან და `npm run watch`-თან ერთად. ხელით გაშვება fallback-ად:
 
 ```bash
 node packages/figma-plugin/scripts/devlog-server.mjs   # listens on 127.0.0.1:3999
 ```
 
-შემდეგ მომხმარებელი dev plugin-ით აკეთებს import-ს → ლოგები server-ის
-stdout-ში ჩამოდის (Claude კითხულობს). წინაპირობა: plugin გაშვებულია dev/watch
+შემდეგ მომხმარებელი dev plugin-ით აკეთებს import-ს → ლოგები
+`/tmp/w2w-devlog.log`-ში ჩამოდის, საიდანაც Claude კითხულობს
+(`tail -f /tmp/w2w-devlog.log`). წინაპირობა: plugin გაშვებულია dev/watch
 build-ით (`npm run watch`).
 
 **როგორ მუშაობს:** sandbox (`main.ts`) console/logger → `figma.ui.postMessage`
