@@ -58,7 +58,7 @@ packages/browser-extension/
 └── dist/                  # Build output
 ```
 
-Uses `shared-extraction` library for unified CDP extraction logic (shared with Plugin_Backend).
+Uses the `@w2w/shared` library (`packages/shared`) for unified CDP extraction logic, shared with `packages/api`.
 
 ## CDP vs Puppeteer
 
@@ -75,7 +75,7 @@ Uses `shared-extraction` library for unified CDP extraction logic (shared with P
 1. User clicks extension icon
 2. Extension attaches debugger to tab
 3. CDP extracts DOM tree with matched CSS rules
-4. Data sent to Plugin_Backend (`/api/import-cdp`)
+4. Data sent to `packages/api` (`POST /api/import-w2w` — `/api/import-cdp` is the dead legacy path)
 5. Backend processes and sends to Figma plugin
 
 ## Permissions

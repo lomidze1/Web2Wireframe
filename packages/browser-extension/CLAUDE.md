@@ -1,6 +1,6 @@
-# Browser_Extension
+# packages/browser-extension
 
-Chrome Extension (Manifest V3) — captures websites via **hybrid Content Script + CDP** approach and sends to Plugin_Backend.
+Chrome Extension (Manifest V3) — captures websites via **hybrid Content Script + CDP** approach and sends them to `packages/api`.
 
 ## Tech Stack
 
@@ -8,7 +8,7 @@ Chrome Extension (Manifest V3) — captures websites via **hybrid Content Script
 - **UI Framework:** **Preact** (popup and options pages)
 - **Build:** Vite 5 with `@preact/preset-vite`
 - **Serialization:** `@msgpack/msgpack` (binary encoding)
-- **Shared:** `shared-extraction` package
+- **Shared:** `@w2w/shared` (`packages/shared`)
 - **Module:** ESM
 - **Manifest:** Chrome Manifest V3
 
@@ -68,7 +68,7 @@ Active flow triggered by popup's "Capture" button (sends `CAPTURE_PAGE_W2W` mess
 3. **Service Worker (CDP):** `CSS.getPlatformFontsForNode` for each tagged element — returns ACTUAL rendered font (post-fallback resolution), different from CSS request
 4. **Service Worker (CDP):** `CSS.forcePseudoState` to capture `:hover` states; content script re-extracts the hovered subtree
 5. **Service Worker (CDP):** Font binaries via `Page.getResourceContent`, CSS variables, image assets from browser cache
-6. Result posted to `POST /api/import-w2w` on Plugin_Backend
+6. Result posted to `POST /api/import-w2w` on `packages/api` (:3002)
 
 ### Why Hybrid (not pure content script)
 
@@ -111,4 +111,4 @@ Old `handleCapturePage()` (CDP-only via `DOMSnapshot.captureSnapshot` + `CSS.get
 - `chrome.debugger` requires user permission on each tab
 - Service worker has limited lifetime — no persistent state
 - No test framework configured
-- `shared-extraction` must be built before this extension
+- `@w2w/shared` must be built before this extension (`turbo` handles it via `^build`)
