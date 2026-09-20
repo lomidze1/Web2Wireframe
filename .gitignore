@@ -16,6 +16,7 @@ _research/
 social-agent/**/*.mp4
 social-agent/**/*.mov
 social-agent/**/*.m4a
+social-agent/**/*.mp3
 social-agent/**/*.wav
 social-agent/**/*.cmproj/
 social-agent/**/*.trec
