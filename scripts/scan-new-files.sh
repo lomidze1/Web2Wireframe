@@ -20,13 +20,11 @@ NC='\033[0m' # No Color
 
 # Directories to scan (service → glob pattern)
 declare -a SCAN_DIRS=(
-  "Plugin_Frontend/src:ts,tsx,css"
-  "Plugin_Backend:js"
-  "Browser_Extension/src:ts,tsx"
-  "Website_Frontend/src:ts,tsx"
-  "Website_Backend/src:ts"
-  "License_Backend/src:ts"
-  "shared-extraction/src:ts"
+  "packages/figma-plugin/src:ts,tsx,css"
+  "packages/api/src:ts"
+  "packages/browser-extension/src:ts,tsx"
+  "packages/web/src:ts,tsx"
+  "packages/shared/src:ts"
 )
 
 # Files/dirs to exclude

@@ -1,9 +1,0 @@
-{
-  "api": "1.0.0",
-  "editorType": [
-    "figma"
-  ],
-  "id": "figma-plugin",
-  "name": "figma-plugin",
-  "main": "build/main.js"
-}

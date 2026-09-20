@@ -39,7 +39,7 @@ export function needsFigmaConversion(mimeType: string): boolean {
 }
 
 /** Encode Uint8Array to base64 string — works in service worker */
-function uint8ToBase64(bytes: Uint8Array): string {
+export function uint8ToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);

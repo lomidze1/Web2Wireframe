@@ -16,6 +16,7 @@ import {
 import { metrics } from "../../services/metrics.js";
 import { config } from "../../config/env.js";
 import { WebhookEvent } from "../../models/WebhookEvent.js";
+import { CreditedOrder } from "../../models/CreditedOrder.js";
 import { CancellationEvent } from "../../models/CancellationEvent.js";
 import {
   PLAN_PRICES,
@@ -24,6 +25,7 @@ import {
   type ProDuration,
 } from "../../models/License.js";
 import { assertStringMax } from "../../lib/validators.js";
+import { optionalAuth } from "../../middleware/auth.js";
 
 // Figma user ids are short (~12 chars in practice). 64 is ample headroom for
 // any future Figma id format while bounding storage amplification in
@@ -42,7 +44,7 @@ const router = Router();
 // complete the payment, so it's harmless beyond UX confusion.
 // ============================================================================
 
-router.post("/create", async (req: Request, res: Response) => {
+router.post("/create", optionalAuth, async (req: Request, res: Response) => {
   const log = createLogger("checkout-create");
   try {
     const { figmaUserId, returnUrl, plan } = req.body as {
@@ -96,10 +98,17 @@ router.post("/create", async (req: Request, res: Response) => {
     // "Customer email" column and triggers Flitt's own receipt mail. The
     // field is null until the user completes Figma OAuth on the website,
     // so anonymous plugin checkouts simply skip it.
+    //
+    // Security audit 2026-09-19 (#3): figmaUserId in the body is not proof of
+    // identity, so license-derived data (stored email, remaining Pro time)
+    // is only used when a valid plugin token for the same user is present.
+    // The plugin sends one; the website and /renew links do not and still
+    // get a working checkout, just without email prefill or day counts.
+    const isOwner = req.userId === figmaUserId;
     let senderEmail: string | undefined;
     try {
       const license = await licenseService.getOrCreate(figmaUserId);
-      if (license.email) {
+      if (isOwner && license.email) {
         senderEmail = license.email;
       }
       if (license.plan === "pro") {
@@ -119,13 +128,16 @@ router.post("/create", async (req: Request, res: Response) => {
             renewalOpensInDays,
           });
           metrics.checkoutCreate("fail");
-          res.status(400).json({
-            error: "already_pro",
-            remainingDays,
-            renewalOpensInDays,
-            renewalWindowDays:
-              duration === "yearly" ? 10 : 7,
-          });
+          res.status(400).json(
+            isOwner
+              ? {
+                  error: "already_pro",
+                  remainingDays,
+                  renewalOpensInDays,
+                  renewalWindowDays: duration === "yearly" ? 10 : 7,
+                }
+              : { error: "already_pro" },
+          );
           return;
         }
       }
@@ -402,10 +414,22 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
   // silently swallow a paid event.
   const log = createWebhookLogger();
   let transactionId: string | undefined;
+  // Set once this delivery has written the CreditedOrder marker, so a failed
+  // grant can release it for Flitt's retry.
+  let creditedOrderId: string | undefined;
   try {
     const payload = req.body as Record<string, unknown>;
     if (!payload || typeof payload !== "object") {
       log.warn("empty body");
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    // Outside production a missing FLITT_SECRET_KEY resolves to "" — and a
+    // signature over an empty secret is forgeable by anyone. Never verify
+    // (or act) with it.
+    if (!config.flitt.secretKey) {
+      log.error("Flitt secret key not configured — ignoring callback");
       res.status(200).json({ received: true });
       return;
     }
@@ -556,10 +580,12 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
     // a payload we'd legitimately act on gets to consume a dedup key.
     // Concurrent Flitt retries land here and dedup correctly because the
     // unique index on `transactionId` rejects the second insert.
-    transactionId =
-      typeof payload.payment_id === "string"
-        ? payload.payment_id
-        : `${orderId}_${orderStatus}`;
+    //
+    // Keyed on order_id + order_status only. payment_id is deliberately not
+    // used: flittSign signs String(v), so 123 and "123" carry the same
+    // signature — a key that depended on payment_id's JSON type let one
+    // signed approval be credited twice (security audit 2026-09-19, #1).
+    transactionId = `${orderId}_${orderStatus}`;
     // Record the real charge amount so admin-stats can sum actual dollars
     // (yearly $144 vs monthly $16) instead of assuming every charge is
     // monthly. Only persist a finite number — a non-numeric amount (possible
@@ -601,6 +627,24 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
     try {
     if (isOneTime) {
       if (orderStatus === "approved") {
+        // Durable replay guard: WebhookEvent rows expire after 90 days, a
+        // CreditedOrder never does. A second credit of the same order is a
+        // replay — acknowledge and change nothing.
+        try {
+          await CreditedOrder.create({ orderId, figmaUserId });
+        } catch (err) {
+          if ((err as { code?: number }).code === 11000) {
+            log.warn("order already credited — replay ignored", {
+              order_id: orderId,
+              figmaUserId,
+            });
+            metrics.webhook(orderStatus, "deduped");
+            res.status(200).json({ received: true, deduped: true });
+            return;
+          }
+          throw err;
+        }
+        creditedOrderId = orderId;
         const email =
           typeof payload.sender_email === "string"
             ? payload.sender_email
@@ -808,6 +852,9 @@ webhookRouter.post("/flitt", async (req: Request, res: Response) => {
           mutationErr instanceof Error ? mutationErr.message : String(mutationErr),
       });
       await releaseLease(transactionId, log);
+      if (creditedOrderId) {
+        await releaseCreditedOrder(creditedOrderId, log);
+      }
       // Still 200 — Flitt's retry will redeliver; a 5xx here just delays
       // the retry by Flitt's own backoff schedule with no benefit.
       res.status(200).json({ received: true });
@@ -853,6 +900,24 @@ async function releaseLease(
   } catch (err) {
     log.warn("lease release failed (non-fatal)", {
       transactionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Drop the CreditedOrder marker after a failed grant so Flitt's retry can
+ * credit the order. Best-effort, same contract as `releaseLease`.
+ */
+async function releaseCreditedOrder(
+  orderId: string,
+  log: { warn: (msg: string, ctx?: Record<string, unknown>) => void },
+): Promise<void> {
+  try {
+    await CreditedOrder.deleteOne({ orderId });
+  } catch (err) {
+    log.warn("credited-order release failed (non-fatal)", {
+      order_id: orderId,
       error: err instanceof Error ? err.message : String(err),
     });
   }

@@ -41,6 +41,7 @@ import {
 } from "./rendering";
 import { convertW2WToWireframe } from "./rendering/css-converter";
 import { planOversizedImages } from "./utils/figmaImageLimit";
+import { finishFilteredImages, planFilteredImages } from "./utils/filteredImages";
 import { resetFontFailures } from "./rendering/fontLoader";
 import { extractHostname } from "./rendering/hostname";
 import {
@@ -55,6 +56,7 @@ import {
 } from "./rendering/diagnostics";
 import {
   collectAllFonts,
+  collectFontStacks,
   collectFontUsage,
   checkFontsAvailability,
   filterMissingCutsToDeclared,
@@ -63,6 +65,7 @@ import {
   buildPluginModeFontMapping,
   partitionMissingFonts,
   buildChoiceRenderPlan,
+  resolveStackFallbacks,
 } from "./utils/fontUtils";
 import {
   prePassConvertFrames,
@@ -583,10 +586,10 @@ export default function () {
       // the sandbox does not): a format Figma cannot take (AVIF/WebP), or a
       // size over Figma's 4096px limit (utils/figmaImageLimit.ts). One job per
       // url, even when several viewport frames carry it.
-      const conversionJobs = new Map<string, { url: string; dataUri: string; frameIdxs: number[] }>();
-      const queueConversion = (url: string, dataUri: string, frameIdx: number): void => {
+      const conversionJobs = new Map<string, { url: string; dataUri: string; frameIdxs: number[]; filter?: string }>();
+      const queueConversion = (url: string, dataUri: string, frameIdx: number, filter?: string): void => {
         const job = conversionJobs.get(url);
-        if (!job) conversionJobs.set(url, { url, dataUri, frameIdxs: [frameIdx] });
+        if (!job) conversionJobs.set(url, { url, dataUri, frameIdxs: [frameIdx], ...(filter ? { filter } : {}) });
         else if (!job.frameIdxs.includes(frameIdx)) job.frameIdxs.push(frameIdx);
       };
 
@@ -618,6 +621,18 @@ export default function () {
       // urls the renderer will look up, whatever flow filled the assets.
       for (const job of planOversizedImages(frames as WireframeFrame[])) {
         for (const fi of job.frameIdxs) queueConversion(job.url, job.dataUri, fi);
+      }
+
+      // CSS color filters on raster images (white logos: `brightness(0)
+      // invert(1)`) — recoloured by the same UI conversion, under a filtered key.
+      const filteredImagePlan = assetMode === "realAssets"
+        ? planFilteredImages(
+            frames as WireframeFrame[],
+            new Map(Array.from(conversionJobs.values(), (job) => [job.url, job.dataUri])),
+          )
+        : null;
+      for (const job of filteredImagePlan?.jobs ?? []) {
+        for (const fi of job.frameIdxs) queueConversion(job.key, job.dataUri, fi, job.filter);
       }
 
       // Original sizes of the images the conversion shrinks — fills.ts measures
@@ -668,7 +683,13 @@ export default function () {
 
           figma.ui.postMessage({
             type: "convert-assets",
-            data: { assets: Array.from(conversionJobs.values()).map(({ url, dataUri }) => ({ url, dataUri })) },
+            data: {
+              assets: Array.from(conversionJobs.values()).map(({ url, dataUri, filter }) => ({
+                url,
+                dataUri,
+                ...(filter ? { filter } : {}),
+              })),
+            },
           });
 
           // Timeout after 30s — keep whatever arrived.
@@ -693,6 +714,9 @@ export default function () {
               height: converted.originalHeight,
             });
           }
+        }
+        if (filteredImagePlan) {
+          finishFilteredImages(filteredImagePlan, new Set(convertedAssets.map((c) => c.url)));
         }
         logger.info("Image conversion complete", {
           converted: convertedAssets.length,
@@ -1410,11 +1434,19 @@ export default function () {
           // Figma shipped every declared @font-face weight (e.g. apple.com's
           // unused SF Pro Text Light). See buildDownloadCuts.
           const downloadCuts = buildDownloadCuts(stillMissing, missingCuts, fontUsage);
+          // "Use fallback fonts" follows each family's own CSS stack to an
+          // installed substitute before the plugin font.
+          const stackFallbacks = resolveStackFallbacks(
+            modalFonts,
+            collectFontStacks(frames),
+            installedFamilies,
+          );
           const message = buildFontsNotAvailableMessage(
             modalFonts,
             pluginFont || "Montserrat",
             uniqueOptions,
-            downloadCuts
+            downloadCuts,
+            stackFallbacks
           );
 
           pendingRenderData = { data, executeRender, missingFonts: modalFonts, autoOriginal };

@@ -37,8 +37,11 @@ import { getResourceBase64 } from "./resource-graph";
  */
 export function extractUrlsFromSrc(src: string): string[] {
   // The first alternative consumes the whole `url(...)`, so a wrapped URL can
-  // never also be picked up by the bare-URL alternative.
-  const regex = /url\(\s*['"]?(https?:\/\/[^'")\s]+)['"]?\s*\)|(https?:\/\/[^\s'")\],]+)/g;
+  // never also be picked up by the bare-URL alternative. A bare URL also stops
+  // at a glued `format(` / `tech(` descriptor: minified CSS writes
+  // `url(X)format("woff2")`, which reads `Xformat("woff2")` once the wrapper
+  // is stripped (notion.com — every font fetch 404'd).
+  const regex = /url\(\s*['"]?(https?:\/\/[^'")\s]+)['"]?\s*\)|(https?:\/\/(?:(?!(?:format|tech)\()[^\s'")\],])+)/gi;
   const urls: string[] = [];
   for (const match of src.matchAll(regex)) {
     urls.push(match[1] || match[2]);

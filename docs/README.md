@@ -8,6 +8,7 @@
 |--------|-----|
 | **გავიგო რატომ გადაწყდა ასე** (ფასი, ფორმატი, სტრატეგია) | [`decisions/`](./decisions/) |
 | **დავიწყო ან გავაგრძელო დაგეგმილი სამუშაო** | [`plans/`](./plans/) |
+| **გავიგო კონკრეტული ბაგი — მიზეზი და fix-გეგმა** | [`specs/`](./specs/) |
 | **გავაკეთო გამეორებადი ოპერაცია** (deploy, refund, store upload) | [`runbooks/`](./runbooks/) |
 | **მივყვე სამუშაო პროცესს** (იმპორტის ხარისხის გაუმჯობესება) | [`guides/`](./guides/) |
 | **ვნახო ბიზნესის მდგომარეობა** (ციფრები, კონკურენტები, გეგმა) | [`growth/`](./growth/) |
@@ -48,6 +49,15 @@
 აქტიური გეგმა: [`.claude/skills/growth/references/plan-3-months.md`](../.claude/skills/growth/references/plan-3-months.md)
 (ვადა 2026-11-24, კრიტერიუმი = 3 ფასიანი მომხმარებელი). გაშვება: `/growth`.
 
+### [`specs/`](./specs/) — ერთი ბაგი, ერთი ანალიზი
+სიმპტომი → დადასტურებული მიზეზი → fix-გეგმა, რეალურ დამპზე აგებული.
+**თითოეულის სტატუსი (✅ დანერგილი / 📋 ღია / 🔬 კვლევა) ცხრილშია:**
+→ [`specs/README.md`](./specs/README.md)
+
+### [`pending-specs/`](./pending-specs/) — გაჩერებული ტესტ-ფაილები
+`.test.ts`, რომელიც იმპლემენტაციას ელოდება — პაკეტის `src/`-ის გარეთ, რომ
+`pnpm test` მწვანე დარჩეს. **მხოლოდ ტესტები** — ანალიზი `specs/`-შია.
+
 ### [`incidents/`](./incidents/) — ინციდენტების ჟურნალი
 ჯერ ცარიელია. ახალი: გადაწერე [`TEMPLATE.md`](./incidents/TEMPLATE.md) → `YYYY-MM-DD-<slug>.md`.
 
@@ -62,7 +72,9 @@
 | სოც-ქსელების გეგმა, სცენარები, ვიდეო, ხმა | [`social-agent/`](../social-agent/) |
 | ვიდეოს ძრავა (`w2wkit.py`, `make_vo.py`) | `scripts/video/` |
 | მესამე-მხარის ამოღებული კოდი (Figma / h2d გაფართოებები) | `_research/` (gitignored) |
-| იმპორტის ხარისხის სამუშაო სესიები | `import-improve/NN - <host>/` |
+| მძიმე reference მასალა, მკვდარი მიგრაციამდელი კოდი | [`_archive/`](../_archive/README.md) (gitignored) |
+| h2d reverse-engineering-ის მასტერ-ანგარიში | `ხარისხის_გაუმჯობესება/` (gitignored) |
+| იმპორტის ხარისხის სამუშაო სესიები | `_archive/import-improve/NN - <host>/` (gitignored) |
 | არქიტექტურა, ბრძანებები, სამუშაო წესები | [`../CLAUDE.md`](../CLAUDE.md) |
 | Docker / deploy | [`../DEPLOYMENT.md`](../DEPLOYMENT.md) |
 | პრომპტის წერის სახელმძღვანელო | `~/.claude/Prompter.md` (გლობალური) |

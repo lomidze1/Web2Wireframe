@@ -590,6 +590,46 @@ describe("convertEffectsToFigma", () => {
     });
   });
 
+  /**
+   * `filter: blur(0px)` is how a reveal animation spells "no blur" in its
+   * settled state — chroniclehq.com carries it on 12 wrappers, including a
+   * 969x654 hero with 80 descendants. A Figma LAYER_BLUR blurs the frame AND
+   * its whole subtree, so turning those zeros into the old `|| 10` default
+   * fogged the entire import.
+   */
+  describe("zero-radius blur", () => {
+    it("drops a layer blur of zero instead of defaulting it to 10", () => {
+      const effects: FigmaEffect[] = [
+        { type: "LAYER_BLUR", visible: true, blurRadius: 0 },
+      ];
+      expect(convertEffectsToFigma(effects, makeContext())).toEqual([]);
+    });
+
+    it("drops a background blur of zero", () => {
+      const effects: FigmaEffect[] = [
+        { type: "BACKGROUND_BLUR", visible: true, blurRadius: 0 },
+      ];
+      const ctx = makeContext({ colorMode: "website" });
+      expect(convertEffectsToFigma(effects, ctx)).toEqual([]);
+    });
+
+    it("still honours a real blur radius", () => {
+      const effects: FigmaEffect[] = [
+        { type: "LAYER_BLUR", visible: true, blurRadius: 8 },
+      ];
+      const result = convertEffectsToFigma(effects, makeContext());
+      expect(result).toHaveLength(1);
+      expect((result[0] as any).radius).toBe(8);
+    });
+
+    it("keeps the 10 fallback for an effect that carries no radius at all", () => {
+      const effects: FigmaEffect[] = [{ type: "LAYER_BLUR", visible: true }];
+      const result = convertEffectsToFigma(effects, makeContext());
+      expect(result).toHaveLength(1);
+      expect((result[0] as any).radius).toBe(10);
+    });
+  });
+
   describe("invisible effects", () => {
     it("skips invisible effects", () => {
       const effects: FigmaEffect[] = [

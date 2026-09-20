@@ -40,6 +40,7 @@ vi.mock("../src/config/env.js", () => ({
   },
 }));
 
+const { signToken } = await import("../src/middleware/auth.js");
 const checkoutRoutes = (await import("../src/routes/checkout/index.js")).default;
 
 function makeApp() {
@@ -71,6 +72,7 @@ function fakeFreeLicense() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.AUTH_SECRET = "test-secret-32bytes-for-hmac-signing";
 });
 
 describe("POST /api/checkout/create — P2-#1 stacking block", () => {
@@ -78,6 +80,7 @@ describe("POST /api/checkout/create — P2-#1 stacking block", () => {
     mockGetOrCreate.mockResolvedValue(fakeProLicense({ daysRemaining: 20 }));
     const res = await request(makeApp())
       .post("/api/checkout/create")
+      .set("Authorization", `Bearer ${signToken("u-1", process.env.AUTH_SECRET!)}`)
       .send({ figmaUserId: "u-1", plan: "monthly" });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("already_pro");
@@ -85,6 +88,28 @@ describe("POST /api/checkout/create — P2-#1 stacking block", () => {
     expect(res.body.renewalOpensInDays).toBeGreaterThan(0);
     expect(res.body.renewalWindowDays).toBe(7);
     expect(mockCreateOneTimeCheckout).not.toHaveBeenCalled();
+  });
+
+  // Security audit 2026-09-19 (#3): an unauthenticated caller who only knows
+  // a figmaUserId must not learn that user's remaining Pro time.
+  it("blocks but hides remaining-time fields when the request has no token", async () => {
+    mockGetOrCreate.mockResolvedValue(fakeProLicense({ daysRemaining: 20 }));
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .send({ figmaUserId: "u-1", plan: "monthly" });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "already_pro" });
+    expect(mockCreateOneTimeCheckout).not.toHaveBeenCalled();
+  });
+
+  it("hides remaining-time fields when the token belongs to a different user", async () => {
+    mockGetOrCreate.mockResolvedValue(fakeProLicense({ daysRemaining: 20 }));
+    const res = await request(makeApp())
+      .post("/api/checkout/create")
+      .set("Authorization", `Bearer ${signToken("attacker", process.env.AUTH_SECRET!)}`)
+      .send({ figmaUserId: "u-1", plan: "monthly" });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "already_pro" });
   });
 
   it("allows monthly renewal when user has ≤ 7 days remaining", async () => {
@@ -118,6 +143,7 @@ describe("POST /api/checkout/create — P2-#1 stacking block", () => {
     mockGetOrCreate.mockResolvedValue(fakeProLicense({ daysRemaining: 15 }));
     const res = await request(makeApp())
       .post("/api/checkout/create")
+      .set("Authorization", `Bearer ${signToken("u-1", process.env.AUTH_SECRET!)}`)
       .send({ figmaUserId: "u-1", plan: "yearly" });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("already_pro");

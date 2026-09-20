@@ -8,7 +8,7 @@
 - ახალი feature-ის დამატება
 - რეფაქტორინგი
 - მიგრაცია
-- Cross-service ცვლილება (მაგ: shared-extraction + Browser_Extension + Plugin_Backend)
+- Cross-package ცვლილება (მაგ: `packages/shared` + `packages/browser-extension` + `packages/api`)
 
 **არ გჭირდება Plan Mode:** one-liner fix, typo, ერთი ფაილის მცირე ცვლილება
 
@@ -32,18 +32,18 @@
 
 **კარგი:**
 ```
-1. წავიკითხო Plugin_Frontend/src/rendering/nodes.ts — გავიგო createNodeFromData() სტრუქტურა
+1. წავიკითხო packages/figma-plugin/src/rendering/nodes.ts — გავიგო createNodeFromData() სტრუქტურა
 2. დავამატო gradient parsing ლოგიკა createFillFromCSS() ფუნქციაში (ხაზი ~120)
-3. შევცვალო shared-extraction/src/types.ts — GradientStop ტიპის დამატება
-4. დავწერო ტესტი Plugin_Frontend/src/__tests__/gradient.test.ts
-5. გავუშვა: cd Plugin_Frontend && npx vitest run
-6. type-check: npm run type-check
+3. დავწერო ტესტი packages/figma-plugin/src/__tests__/gradient.test.ts (TDD — იმპლემენტაციამდე)
+4. გავუშვა: pnpm --filter plugin-frontend test
+5. type-check: pnpm type-check
 ```
 
 ## 4. Web2Wireframe-ის Quick Tips
 
-- **Cross-service ცვლილება?** → ჯერ shared-extraction, შემდეგ consumers (Browser_Extension, Plugin_Backend)
-- **Rendering ცვლილება?** → Plugin_Frontend/src/rendering/nodes.ts → ტესტი → rebuild
-- **API ცვლილება?** → Plugin_Backend/api/index.js (CommonJS!) → შესაბამისი frontend
-- **CDP ცვლილება?** → shared-extraction/src/index.ts → Browser_Extension/src/background/cdp/
-- ყოველთვის: `npm run type-check && npm run lint` ცვლილების შემდეგ
+- 🔒 **`api` / `shared` / `browser-extension` = LIVE** → ჯერ გაჩერდი და ჰკითხე owner-ს
+- **Rendering ცვლილება?** → `packages/figma-plugin/src/rendering/nodes.ts` → ტესტი → rebuild
+- **API ცვლილება?** → `packages/api/src/routes/` (TS/ESM) → 🔴 LIVE, დადასტურება საჭიროა
+- **CDP ცვლილება?** → `packages/shared/src/index.ts` → `packages/browser-extension/src/background/cdp/`
+- **Cross-package?** → ჯერ `packages/shared`, შემდეგ consumers
+- ყოველთვის: `pnpm type-check && pnpm lint` ცვლილების შემდეგ

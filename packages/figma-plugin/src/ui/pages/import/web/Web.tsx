@@ -36,6 +36,7 @@ import NextStepCard, {
 } from "../../../components/nextStepCard/NextStepCard";
 import { useImportProgress } from "../../../hooks/useImportProgress";
 import { deriveQuota } from "../../../shared/quota";
+import { matchStyle, nextStyle, type StyleId } from "../../../shared/styleLadder";
 import { requestPlanModal } from "../../../shared/planEvents";
 
 const TAB_ID = "web";
@@ -107,6 +108,12 @@ export default function Web() {
   // The last import that rendered — the next-step card re-imports from it. Kept
   // apart from `url`, which is cleared when the loader closes.
   const [lastImport, setLastImport] = useState<ImportSnapshot | null>(null);
+  // Style-ladder steps already imported for this site (see shared/styleLadder.ts).
+  const [triedStyles, setTriedStyles] = useState<StyleId[]>([]);
+  // A finished import this session — hides the first-run how-to steps.
+  const [hasImported, setHasImported] = useState(false);
+  // Bumped by "Choose yourself" when More Options is already open.
+  const [optionsScrollRequest, setOptionsScrollRequest] = useState(0);
   const pendingImportRef = useRef<ImportSnapshot | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -133,9 +140,15 @@ export default function Web() {
 
         // When complete, show success state then close
         if (isComplete) {
-          if (pendingImportRef.current) {
-            setLastImport(pendingImportRef.current);
+          const finished = pendingImportRef.current;
+          if (finished) {
+            setLastImport(finished);
+            setHasImported(true);
             pendingImportRef.current = null;
+            const style = matchStyle(finished);
+            if (style) {
+              setTriedStyles((prev) => (prev.includes(style) ? prev : [...prev, style]));
+            }
           }
           if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
           resetTimeoutRef.current = setTimeout(() => {
@@ -257,6 +270,7 @@ export default function Web() {
       colorMode: overrides.colorMode ?? settings.localColorMode,
       fontMode: overrides.fontMode ?? settings.localFontMode,
       assetMode: overrides.assetMode ?? settings.localAssetMode,
+      textMode: overrides.textMode ?? settings.localTextMode,
     };
 
     // A previous import's 10s "reset to idle" timer may still be pending. It
@@ -272,6 +286,9 @@ export default function Web() {
     setImportState({ status: "loading", message: "Importing the website…" });
     setPopupBlocked(false);
     setLastImport(null);
+    // An import typed into the form starts a new site's ladder; the card's
+    // own re-imports pass the URL and keep climbing.
+    if (overrides.url === undefined) setTriedStyles([]);
 
     // Collapse settings panel so user can see loading status
     settings.collapseSettings();
@@ -296,7 +313,7 @@ export default function Web() {
           viewports: effective.viewports.map(Number),
           colorMode: effective.colorMode,        // "plugin" | "website"
           typographyMode: effective.fontMode,     // "plugin" | "website" | "lines"
-          textMode: settings.localTextMode,
+          textMode: effective.textMode,
           assetMode: effective.assetMode,
           cssVariablesMode: settings.localCssVariablesMode,
           layoutMode: settings.localLayoutMode,
@@ -383,8 +400,8 @@ export default function Web() {
         frames = rawFrames.map((f: any) => {
           const tree = f.tree;
           // Apply text transformation (semantic/lorem) to W2W tree before sending to Figma
-          if (settings.localTextMode !== "website") {
-            transformW2WTreeText(tree, settings.localTextMode);
+          if (effective.textMode !== "website") {
+            transformW2WTreeText(tree, effective.textMode);
           }
           return {
             viewportWidth: f.viewportWidth,
@@ -404,7 +421,7 @@ export default function Web() {
           {
             colorMode: effective.colorMode,
             fontMode: effective.fontMode,
-            textMode: settings.localTextMode,
+            textMode: effective.textMode,
           }
         );
         frames = prepareFramesForRendering(
@@ -426,7 +443,7 @@ export default function Web() {
         cssVariables: data.cssVariables || [],
         colorMode: effective.colorMode,
         fontMode: effective.fontMode,
-        textMode: settings.localTextMode,
+        textMode: effective.textMode,
         layoutMode: settings.localLayoutMode,
         assetMode: effective.assetMode,
         fontRealNames: buildFontRealNames(data.fonts),
@@ -459,6 +476,8 @@ export default function Web() {
   };
 
   const isDisabled = !url.trim() || importState.status === "loading";
+  // The how-to steps are for someone who has never imported; the field label stays.
+  const showFirstRunSteps = !hasImported && !((license?.usage.imports ?? 0) > 0);
 
   return (
     <div class={styles.webContainer}>
@@ -467,11 +486,13 @@ export default function Web() {
         <label class={styles.urlLabel} for="w2w-url-input">
           Website URL
         </label>
-        <ul class={styles.webBullets}>
-          <li>Paste a website URL</li>
-          <li>Choose your import options</li>
-          <li>Click Import</li>
-        </ul>
+        {showFirstRunSteps && (
+          <ul class={styles.webBullets}>
+            <li>Paste a website URL</li>
+            <li>Choose your import options</li>
+            <li>Click Import</li>
+          </ul>
+        )}
       </div>
 
       {/* URL Input */}
@@ -511,20 +532,31 @@ export default function Web() {
           quota={license && !licenseLoading && !licenseError ? deriveQuota(license) : null}
           disabled={importState.status === "loading"}
           onImportMobile={() =>
-            handleImport({ ...lastImport, viewports: [MOBILE_VIEWPORT] })
+            // Only URL + width: colours, fonts and assets come from the tab's
+            // own settings, so a one-off wireframe re-import doesn't carry over.
+            handleImport({ url: lastImport.url, viewports: [MOBILE_VIEWPORT] })
           }
           onAnotherPage={() => {
             setUrl(`${new URL(lastImport.url).origin}/`);
             inputRef.current?.focus();
           }}
-          onWireframe={() =>
+          nextStyle={nextStyle(triedStyles)}
+          showChooseYourself={triedStyles.length > 0}
+          onTryStyle={() => {
+            const style = nextStyle(triedStyles);
+            if (!style) return;
             handleImport({
-              ...lastImport,
-              colorMode: "plugin",
-              fontMode: "plugin",
-              assetMode: "placeholders",
-            })
-          }
+              url: lastImport.url,
+              viewports: lastImport.viewports,
+              ...style.settings,
+            });
+          }}
+          onChooseYourself={() => {
+            // Collapsed: opening scrolls by itself. Already open: ask the panel
+            // to scroll there again.
+            if (!settings.isExpanded) settings.toggleExpanded();
+            else setOptionsScrollRequest((n) => n + 1);
+          }}
           onDismiss={() => setLastImport(null)}
           onSeePro={requestPlanModal}
         />
@@ -649,6 +681,7 @@ export default function Web() {
         handleSaveAsDefault={settings.handleSaveAsDefault}
         hasOverrides={settings.hasOverrides}
         openSettings={settings.openSettings}
+        scrollRequest={optionsScrollRequest}
       />
 
       {/* Import Button */}

@@ -465,6 +465,12 @@ export interface WireframeNode {
   // CSS filter: grayscale(N) on this element (0…1). Applied as a saturation
   // color adjustment on the element's IMAGE paints (realImages.ts / fills.ts).
   filterGrayscale?: number;
+  // CSS filter color functions on this element (brightness, invert, …),
+  // normalized. Baked into the created subtree's paints (rendering/cssFilter.ts).
+  cssColorFilter?: string;
+  // Every raster image under this filter was recoloured in the UI iframe
+  // (utils/filteredImages.ts) — the render must not re-filter or report them.
+  imageFilterBaked?: boolean;
 
   // Static CSS transform decomposed from the computed matrix. width/height/x/y
   // remain the captured AABB; nodes.ts recovers the untransformed box and the

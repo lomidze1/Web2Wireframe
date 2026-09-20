@@ -226,6 +226,25 @@ describe("sortChildrenForStacking", () => {
     expect(sorted.map(c => c.name)).toEqual(["inner", "border", "caption"]);
   });
 
+  /**
+   * notion.com bento card (user report 2026-09-17): an in-flow <picture> (the
+   * card's base screenshot) followed by absolute image layers — the chart and
+   * the "What are our biggest opportunities" pill — that CSS paints ON TOP.
+   * The hoist exists to keep in-flow COPY above a background image; when the
+   * in-flow sibling is itself only an image there is no copy to protect, and
+   * hoisting buried both layers under the screenshot.
+   */
+  it("an image-only in-flow sibling does not trigger the hoist", () => {
+    const img = () => makeNode("img", { type: "placeholder", isPlaceholder: true });
+    const children = [
+      makeNode("picture", { children: [img()] }),
+      makeNode("chart-layer", { position: "absolute", children: [img()] }),
+      makeNode("prompt-layer", { position: "absolute", children: [img()] }),
+    ];
+    const sorted = sortChildrenForStacking(children, "VERTICAL");
+    expect(sorted.map(c => c.name)).toEqual(["picture", "chart-layer", "prompt-layer"]);
+  });
+
   it("a fixed sibling is out of flow too, so it does not re-enable the hoist", () => {
     const children = [
       makeNode("overlay", { position: "fixed" }),

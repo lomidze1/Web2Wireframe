@@ -25,7 +25,7 @@
 
 ```
 Web2Wireframe/
-└── import-improve/
+└── _archive/import-improve/        ← gitignored (მძიმე screenshot/dump)
     └── NN - <website-host>/          ← მაგ. `01 - www.iwm.org.uk`
     ├── screenshot.png          ← რეალური საიტის სურათი (მან ჩადო)
     └── ...                     ← შენ აქ წერ ყველა artifact-ს
@@ -101,7 +101,7 @@ const cs = getComputedStyle(el);
 
 ## 1.2 — შეისწავლე reference სურათი
 
-`Read` tool-ით გახსენი `import-improve/NN - <website-host>/`-ში მდებარე screenshot.
+`Read` tool-ით გახსენი `_archive/import-improve/NN - <website-host>/`-ში მდებარე screenshot.
 
 - ეს არის **ვიზუალური ეტალონი** — როგორ *უნდა* გამოიყურებოდეს შედეგი
 - გადაამოწმე: ემთხვევა თუ არა ის, რაც ბრაუზერში ნახე? (საიტი შეიძლება შეცვლილიყო,
@@ -142,7 +142,7 @@ curl -s -H "X-Figma-Token: $(cat ~/.figma_token)" \
 
 ## 1.4 — შეადგინე განსხვავებების sheet
 
-ჩაწერე `import-improve/NN - <website-host>/findings.md`-ში. ფორმატი:
+ჩაწერე `_archive/import-improve/NN - <website-host>/findings.md`-ში. ფორმატი:
 
 ```markdown
 # <website> — Import Findings
@@ -181,7 +181,7 @@ Reference: <URL> · viewport <W>px · Figma node <node-id> · <date>
 > **მიზანი:** `findings.md`-ის თითოეული მწკრივი ცალკე, ბოლომდე გავიდეს ციკლს.
 > **ერთდროულად მხოლოდ ერთი პრობლემა.** N პრობლემა = N-ჯერ გამეორებული ეს ციკლი.
 
-ყოველი პრობლემისთვის შექმენი `import-improve/NN - <website-host>/issue-NN-<slug>.md`
+ყოველი პრობლემისთვის შექმენი `_archive/import-improve/NN - <website-host>/issue-NN-<slug>.md`
 და იქ აწარმოე ჩანაწერი ნაბიჯების მიხედვით.
 
 ## 2.1 — ღრმად შეისწავლე ეს ადგილი ვებსაიტზე

@@ -545,6 +545,20 @@ export async function rebindOriginalFonts(
     // markers are handled here even when the node-level marker is absent
     // (e.g. only one inline icon run was substituted).
     if (node.fontName === figma.mixed || segJson) {
+      // Figma won't rewrite a range whose CURRENT font isn't loaded in this
+      // session ("Cannot write to node with unloaded font Inter Regular") —
+      // a Re-apply in a fresh session failed on notion.com exactly so.
+      try {
+        const current = (node as TextNode & {
+          getRangeAllFontNames?: (start: number, end: number) => FontName[];
+        }).getRangeAllFontNames?.(0, node.characters.length) ?? [];
+        await Promise.all(
+          current.map((f) => figma.loadFontAsync(f).catch(() => undefined)),
+        );
+      } catch {
+        /* best-effort — the write below reports its own failure */
+      }
+
       let segs: Array<{ start: number; end: number; family: string }> = [];
       if (segJson) {
         try {

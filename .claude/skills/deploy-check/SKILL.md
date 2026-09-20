@@ -6,90 +6,120 @@ disable-model-invocation: true
 
 # Deploy Check Skill
 
-Deployment-ის წინ გასაშვები ჩეკლისტი.
+რელიზამდე გასაშვები ჩეკლისტი. სრული runbook: `CLAUDE.md` → „Release Cadence".
 
 ## Usage
 
 ```
-/deploy-check
-/deploy-check Website_Frontend
-/deploy-check --production
+/deploy-check              # სრული შემოწმება
+/deploy-check plugin       # მხოლოდ Figma plugin
+/deploy-check extension    # მხოლოდ Chrome extension
+/deploy-check api          # მხოლოდ API (🔴 LIVE)
 ```
 
-## Checklist
+## 0. 🛑 Gate — ამის გარეშე არ გრძელდება
 
-### 1. Build Verification
 ```bash
-npm run build:shared   # Must build first (dependency for Extension + Plugin_Backend)
-npm run build:all
-npm run type-check
-npm run lint
+grep -nE "^const USE_PRODUCTION *=" packages/figma-plugin/src/ui/shared/apiConfig.ts
+```
+`false`-ის გარდა ნებისმიერი მნიშვნელობა = **commit/push აკრძალულია** ყველა
+ბრანჩზე. გამონაკლისი მხოლოდ იმ ერთ prod build-ზე, რომელსაც თავად აქვეყნებ.
+
+```bash
+git status --porcelain -- packages/api packages/shared packages/browser-extension
+```
+თუ LIVE ზონაში uncommitted ცვლილებაა და ამ სესიას არ შეუცვლია — **ნუ
+დააკომიტებ და ნუ დააბრუნებ უკან.** სხვისი სამუშაოა.
+
+⚠️ **ვერიფიკაცია ყოველთვის წინ უსწრებს კადენსს.** ვაქვეყნებთ მხოლოდ იმას, რაც
+Figma-ში ხელით დამოწმდა. უვერიფიცირებელი კოდი deadline-ის გამო live-ზე
+**არ გადის** — სჯობს კვირა გამოვტოვოთ.
+
+## 1. Build + tests
+
+```bash
+pnpm build        # turbo build — ^build რიგით, @w2w/shared ჯერ
+pnpm test         # shared + api + plugin
+pnpm type-check
 ```
 
-### 2. Environment Variables
-- [ ] All required env vars documented
-- [ ] No secrets in codebase
-- [ ] Production URLs configured
+⚠️ **ჯერ watch მოკალი** — `pgrep -fl "create-figma-plugin/build"` → `kill <pid>`.
+SessionStart hook ავტომატურად უშვებს, და watch-ი prod bundle-ს dev-ით გადააწერს.
 
-### 3. Security
-- [ ] CORS origins restricted to production domains
-- [ ] Rate limiting enabled
-- [ ] Session secrets are strong
-- [ ] No debug logs in production
+## 2. Environment
 
-### 4. Performance
-- [ ] Images optimized
-- [ ] Bundle size acceptable
-- [ ] Database indexes created
+- [ ] `.env.example` სრულია, ახალი ცვლადიც შიგაა
+- [ ] კოდში secret არ არის
+- [ ] production URL = `api.web2wireframe.design` (სხვა დომენი აღარ არსებობს)
 
-### 5. Service-Specific
+## 3. Security
 
-#### Website_Frontend
-- [ ] Build output clean
-- [ ] All routes working
-- [ ] Assets loading
+- [ ] CORS: `/api/*` → figma.com + `null`; `/web/*` → web2wireframe.design
+- [ ] rate limiting ჩართულია public endpoint-ებზე
+- [ ] `/api/webhooks/flitt` SHA1 signature-ს ამოწმებს
+- [ ] production-ში debug ლოგი არ რჩება (`__W2W_DEV_LOG__` compile-time DCE)
+- [ ] MongoDB index-ები `userId` ველებზე
 
-#### Website_Backend
-- [ ] Health endpoint responding
-- [ ] Resend API key valid
-- [ ] Session storage configured
+## 4. რიგი — ⚠️ თანმიმდევრობა მნიშვნელოვანია
 
-#### Plugin_Backend
-- [ ] MongoDB connection working
-- [ ] Puppeteer dependencies installed
-- [ ] vercel.json configured
+თუ რელიზი `api`/`shared`-ზეა დამოკიდებული:
 
-#### License_Backend
-- [ ] Auth tokens configured
-- [ ] CORS origins set
+```
+1. dev → main merge          → Render auto-deploy (API) + Vercel (web)
+2. დაელოდე და დაადასტურე     → API-ს build marker არ აქვს: ან Render
+                                dashboard, ან რეალური იმპორტი
+3. მხოლოდ მერე → plugin publish → extension upload
+```
 
-#### Browser_Extension
-- [ ] Manifest version correct (V3)
-- [ ] Permissions minimal and documented
-- [ ] Icons in all sizes (16, 48, 128)
-- [ ] Build output in dist/
-- [ ] No console.logs in production
-- [ ] chrome.debugger permissions declared
+პირიქით რომ გააკეთო, გამოქვეყნებული client ძველ API-ს მოხვდება.
 
-#### shared-extraction
-- [ ] Build succeeds (`npm run build`)
-- [ ] Tests pass (`npm run test`)
-- [ ] Exported types are correct
-- [ ] No breaking API changes
+## 5. პაკეტების მიხედვით
+
+#### packages/figma-plugin
+- [ ] watch მოკლულია, `npm run build` prod bundle-ს აწყობს
+- [ ] bundle-ის ზომა ელოდება prod-ს (watch-ის dev build უფრო პატარაა)
+- [ ] Figma desktop → Manage plugins in development → Publish
+- [ ] id `1646327864971730293`
+
+#### packages/browser-extension — 🔴 LIVE
+- [ ] `manifest.json` `version` bump
+- [ ] manifest V3, `key` ველი ადგილზეა (unpacked-load CORS-ისთვის)
+- [ ] permissions მინიმალური, `chrome.debugger` დეკლარირებული
+- [ ] icons 16/48/128
+- [ ] **plain rebuild** — არა `W2W_DEV_LOG=1`
+- [ ] zip = `dist/`-ის **შიგთავსი**, არა თავად საქაღალდე
+- [ ] Web Store id `fcmicolldgpmpdkcdljkaaimmjmboipl`
+
+#### packages/api — 🔴 LIVE
+- [ ] MongoDB კავშირი მუშაობს
+- [ ] Chromium/Puppeteer dependency-ები Docker image-შია
+- [ ] ⚠️ extractor-ის import graph `src/content`-ში რჩება, თორემ Render build ტყდება
+- [ ] request/response ფორმატი **გამოქვეყნებულ** plugin-თან თავსებადია
+
+#### packages/shared — 🔴 LIVE კონტრაქტი
+- [ ] `CDPClientInterface` არ შეცვლილა
+- [ ] import data format უკან-თავსებადია (extension live-ია)
+- [ ] `pnpm --filter @w2w/shared test`
+
+#### packages/web
+- [ ] SSG 7 გვერდს prerender-ს აკეთებს
+- [ ] route-ები მუშაობს, asset-ები იტვირთება
 
 ## Output
 
 ```markdown
 ## Deploy Check Results
 
+### 🛑 Gate
+- USE_PRODUCTION = false ✅
+- LIVE ზონა: N ფაილი uncommitted
+
 ### ✅ Passed
-- Build successful
-- Type check passed
-- Lint passed
+- build / test / type-check
 
 ### ⚠️ Warnings
-- Bundle size increased by 15%
+- ...
 
 ### ❌ Failed
-- Missing RESEND_API_KEY in production
+- ...
 ```

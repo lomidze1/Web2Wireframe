@@ -12,8 +12,8 @@ disable-model-invocation: true
 
 ```
 /code-review [file-or-folder]
-/code-review src/components/Header.tsx
-/code-review Website_Backend/src/routes/
+/code-review packages/web/src/components/Header.tsx
+/code-review packages/api/src/routes/
 ```
 
 ## Review Checklist

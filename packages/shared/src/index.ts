@@ -324,6 +324,13 @@ export {
   W2W_HYDRATION_TIMEOUT_MS,
 } from "./w2w-hydration";
 
+// Auto-scroll that records reversible scroll reveals — shared by both paths.
+export {
+  W2W_REVEAL_MARKER_ATTR,
+  W2W_SCROLL_AND_SAMPLE_EXPRESSION,
+  W2W_SCROLL_AND_SAMPLE_TIMEOUT_MS,
+} from "./w2w-reveal-scroll";
+
 export {
   captureTaintedCanvases,
   MAX_CANVAS_SHOT_BYTES,

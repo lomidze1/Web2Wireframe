@@ -1,4 +1,4 @@
-# Website_Frontend
+# packages/web
 
 Marketing website for Web2Wireframe — React 19 + Vite 7 + TypeScript.
 
@@ -80,7 +80,7 @@ src/
 
 ## Warnings
 
-- ეს არის **React** (არა Preact, როგორც Plugin_Frontend)
+- ეს არის **React** (არა Preact, როგორც `packages/figma-plugin`)
 - Docs/ folder ძალიან კომპლექსურია — ფრთხილად ცვლილებებთან
 - Environment variables: `VITE_API_URL` (already exists), `VITE_CHECKOUT_BASE` if needed
 - No test framework configured

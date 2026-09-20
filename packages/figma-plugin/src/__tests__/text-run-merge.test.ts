@@ -440,3 +440,187 @@ describe("merge inside simplifyTree", () => {
     expect(JSON.stringify(parent)).toBe(after);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bridging a captured space — GSAP SplitText and friends
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-word animation libraries (GSAP SplitText, Splitting.js) rewrite a heading
+ * into one `<span>` per word plus `<span class="split-space"> </span>` for each
+ * space. The extractor drops whitespace-only text nodes
+ * (browser-extension/src/content/extractor.ts:719), so that space arrives here
+ * as a CHILDLESS, INKLESS FRAME sitting between two runs — and a non-text
+ * sibling is exactly what breaks the merge chain.
+ *
+ * Measured on chroniclehq.com's hero `<h1>` (54px Diatype), the captured tree is
+ *
+ *   Container (HORIZONTAL, itemSpacing 0, 466.55x56.7)
+ *     TEXT  "Credible"  x=0        w=203
+ *     FRAME (empty)     x=203      w=11.18   <- the space
+ *     TEXT  "decks"     x=214.18   w=147
+ *
+ * which rendered as two layers per line, ten for the heading. The bridge is
+ * neutral for the same reason the plain space merge is: the frame IS the space
+ * the browser painted, and `mergeRuns` widens the survivor across it, so no
+ * later sibling moves.
+ */
+describe("mergeInlineTextRuns — bridging an empty space frame", () => {
+  /** The real chroniclehq geometry: two words with a captured space between. */
+  const splitWords = (
+    parentExtra: Partial<WireframeNode> = {},
+    gapExtra: Partial<WireframeNode> = {},
+  ): WireframeNode => {
+    const a = text("Credible", { x: 0, y: 0, width: 203, height: 57 });
+    const gap = frame([], {
+      tag: "span", x: 203, y: 0, width: 11.18, height: 56.7, ...gapExtra,
+    });
+    const b = text("decks", { x: 214.18, y: 0, width: 147, height: 57 });
+    return frame([a, gap, b], {
+      width: 466.55, height: 56.7, layoutMode: "HORIZONTAL", itemSpacing: 0,
+      ...parentExtra,
+    });
+  };
+
+  const refuses = (parent: WireframeNode): void => {
+    expect(mergeInlineTextRuns(parent)).toBe(false);
+    expect(parent.children).toHaveLength(3);
+  };
+
+  it("joins two words across the captured space frame", () => {
+    const parent = splitWords();
+
+    expect(mergeInlineTextRuns(parent)).toBe(true);
+    expect(parent.children).toHaveLength(1);
+    expect(parent.children[0].textContent).toBe("Credible decks");
+  });
+
+  it("widens the survivor across the removed frame so nothing after it moves", () => {
+    const parent = splitWords();
+    mergeInlineTextRuns(parent);
+
+    // 203 + 11.18 + 147 — the slot the space frame occupied is reabsorbed.
+    expect(parent.children[0].width).toBeCloseTo(361.18, 2);
+    expect(parent.children[0].x).toBe(0);
+  });
+
+  it("carries the restored space as a real segment, not an invented one", () => {
+    const parent = splitWords();
+    mergeInlineTextRuns(parent);
+
+    const merged = parent.children[0];
+    expect(merged.exactSegments).toBe(true);
+    expect(merged.styledSegments?.map((s) => s.text)).toEqual(["Credible", " ", "decks"]);
+  });
+
+  it("bridges in a NONE parent too", () => {
+    const parent = splitWords({ layoutMode: "NONE", itemSpacing: 0 });
+
+    expect(mergeInlineTextRuns(parent)).toBe(true);
+    expect(parent.children[0].textContent).toBe("Credible decks");
+  });
+
+  it("chains across several words in one sweep", () => {
+    const a = text("Credible", { x: 0, y: 0, width: 203, height: 57 });
+    const g1 = frame([], { tag: "span", x: 203, y: 0, width: 11.18, height: 56.7 });
+    const b = text("decks", { x: 214.18, y: 0, width: 147, height: 57 });
+    const g2 = frame([], { tag: "span", x: 361.18, y: 0, width: 11.18, height: 56.7 });
+    const c = text("at", { x: 372.36, y: 0, width: 49, height: 57 });
+    const parent = frame([a, g1, b, g2, c], {
+      width: 466.55, height: 56.7, layoutMode: "HORIZONTAL", itemSpacing: 0,
+    });
+
+    expect(mergeInlineTextRuns(parent)).toBe(true);
+    expect(parent.children).toHaveLength(1);
+    expect(parent.children[0].textContent).toBe("Credible decks at");
+  });
+
+  it("leaves a trailing space frame alone — deleting it would shorten the row", () => {
+    const parent = splitWords();
+    parent.children.push(
+      frame([], { tag: "span", x: 361.18, y: 0, width: 11.18, height: 56.7 }),
+    );
+
+    expect(mergeInlineTextRuns(parent)).toBe(true);
+    expect(parent.children).toHaveLength(2);
+    expect(parent.children[0].textContent).toBe("Credible decks");
+    expect(parent.children[1].type).toBe("frame");
+  });
+
+  it("refuses a frame that paints — it is a divider, not a space", () => {
+    refuses(splitWords({}, { backgroundColor: "#dddddd" }));
+  });
+
+  it("refuses a frame that carries a hover identity", () => {
+    refuses(splitWords({}, { pseudoStateStyles: { hover: { opacity: 1 } } as never }));
+  });
+
+  it("refuses a frame that is a click target", () => {
+    refuses(splitWords({}, { linkReactionUrl: "https://example.com" }));
+  });
+
+  it("refuses a frame with children — it is a wrapper, not a space", () => {
+    const parent = splitWords();
+    parent.children[1].children = [
+      text("x", { x: 203, y: 0, width: 11.18, height: 56.7 }),
+    ];
+    refuses(parent);
+  });
+
+  it("refuses a frame far too wide to be one space", () => {
+    const a = text("Credible", { x: 0, y: 0, width: 203, height: 57 });
+    const gap = frame([], { tag: "div", x: 203, y: 0, width: 40, height: 56.7 });
+    const b = text("decks", { x: 243, y: 0, width: 147, height: 57 });
+    refuses(frame([a, gap, b], { layoutMode: "NONE", itemSpacing: 0 }));
+  });
+
+  it("refuses an out-of-flow frame — it occupies no slot to reabsorb", () => {
+    refuses(splitWords({}, { position: "absolute" }));
+  });
+
+  it("refuses when the frame does not touch both runs", () => {
+    const a = text("Credible", { x: 0, y: 0, width: 203, height: 57 });
+    const gap = frame([], { tag: "span", x: 210, y: 0, width: 11.18, height: 56.7 });
+    const b = text("decks", { x: 240, y: 0, width: 147, height: 57 });
+    refuses(frame([a, gap, b], { layoutMode: "NONE", itemSpacing: 0 }));
+  });
+
+  it("refuses when the runs either side are incompatible", () => {
+    const parent = splitWords();
+    parent.children[2].textAlign = "center";
+    refuses(parent);
+  });
+
+  it("refuses when the runs sit on different rows", () => {
+    const parent = splitWords();
+    parent.children[2].y = 57;
+    refuses(parent);
+  });
+});
+
+describe("split-space bridge through convertW2WToWireframe", () => {
+  it("folds a SplitText heading line back into one TEXT node", () => {
+    // <div><span>Credible</span><span class="split-space"></span><span>decks</span>
+    //      <span class="split-space"></span><span>at</span></div>
+    const word = (v: string, w: number, x: number) =>
+      w2wFrame("span", w, 18, { ...BASE, display: "inline" },
+        [w2wText(v, w, 18, x, 0)], x, 0);
+    const space = (x: number) =>
+      w2wFrame("span", 4.45, 18, { ...BASE, display: "inline" }, [], x, 0);
+
+    const root = w2wFrame("body", 800, 200, { display: "block" }, [
+      w2wFrame("div", 400, 20, { ...BASE, display: "block" }, [
+        word("Credible", 60, 0),
+        space(60),
+        word("decks", 40, 64.45),
+        space(104.45),
+        word("at", 16, 108.9),
+      ], 0, 0),
+    ]);
+
+    const tree = convertW2WToWireframe(root as never, {}) as WireframeNode;
+    expect(countText(tree)).toBe(1);
+    const merged = tree.children[0].children[0] ?? tree.children[0];
+    expect(merged.textContent).toBe("Credible decks at");
+  });
+});

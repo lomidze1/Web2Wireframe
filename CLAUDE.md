@@ -162,18 +162,32 @@ redeploy-იც იდენტურ API-ს ააწყობს (იგი�
 თუ მომხმარებელი explicitly მოითხოვს (მაგ. release tag-ისთვის). Default
 ქცევა = ყოველთვის false-ად ვტოვებთ.
 
+### IMPORTANT: სესიის დასაწყისი — `/web2wireframe-start`
+
+`scripts/devcheck.sh` ავტომატურად ეშვება SessionStart hook-ით (dev-log :3999,
+tree-dump :3998, watch, build freshness). როცა owner ითხოვს სრულ სურათს
+("გადაამოწმე ჩართულია თუ არა ყველაფერი", "დავიწყოთ მუშაობა") — გაუშვი
+**`/web2wireframe-start`**: იმავეს ამოწმებს + watch-ის მფლობელობა, uncommitted
+სამუშაო პაკეტების ჭრილში, LIVE ზონის სტატუსი, `USE_PRODUCTION` gate და
+შაბათ/კვირის რელიზის შეხსენება.
+
+⚠️ **პარალელური სესიები:** `build/`, ports და working tree გაზიარებულია. ერთი
+watch ყველა სესიას ემსახურება → bundle შეიძლება ორი სესიის კოდის ნაზავი იყოს,
+რაც Figma-ვერიფიკაციას უაზროდ აქცევს. დეტალები და წესები: skill-ის
+„პარალელური სესიის პროტოკოლი".
+
 ### IMPORTANT: Dev-Log Bridge — "შეამოწმე ლოგები"
 
-როცა მომხმარებელი ითხოვს plugin-ის კონსოლის ლოგების ნახვას ("შეამოწმე ლოგები",
-"check logs", "რა ლოგდება"), Claude **ერთი ბრძანებით** უშვებს ლოკალურ receiver-ს
-(background):
+receiver **ავტომატურად** ეშვება ყოველი სესიის დასაწყისში — `scripts/devcheck.sh`
+(SessionStart hook). ამიტომ "შეამოწმე ლოგები"-ზე Claude-ს გაშვება აღარ სჭირდება,
+პირდაპირ კითხულობს. ხელით, თუ საჭირო გახდა:
 
 ```bash
-node packages/figma-plugin/scripts/devlog-server.mjs   # 127.0.0.1:3999
+bash scripts/devcheck.sh   # dev-log :3999 + tree-dump :3998 + watch + build freshness
 ```
 
-შემდეგ მომხმარებელი dev plugin-ით აკეთებს import-ს → ლოგები server-ის stdout-ში
-ჩამოდის. **წინაპირობა:** `npm run watch` გაშვებულია და dev plugin reload-ია
+შემდეგ მომხმარებელი dev plugin-ით აკეთებს import-ს → ლოგები `/tmp/w2w-devlog.log`-ში
+ჩამოდის (`tail -f /tmp/w2w-devlog.log`). **წინაპირობა:** dev plugin reload-ია
 Figma-ში. დეტალები + prod-safety: `packages/figma-plugin/CLAUDE.md` → "Dev-Log
 Bridge". **🔒 live-ზე ვერ აიტვირთება** (compile-time `__W2W_DEV_LOG__` DCE +
 build-prod grep gate).
@@ -212,6 +226,7 @@ Chrome extension (საჭიროებისამებრ API deploy-თ�
 შეამოწმე `currentDate`-ის დღე. **თუ დღეს შაბათი ან კვირაა** — პასუხის
 წინ შეახსენე owner-ს (მოკლედ, ერთ ხაზად): *"🔔 შეხსენება: ვერსიის გამოქვეყნების
 დრო იწურება (კვირა დღეა deadline) — Figma plugin + extension განახლება საჭიროა."*
+იმავე ხაზის ქვეშ **კითხვად** დაამატე: *"📊 ჩაგაბარო growth სტატისტიკა? (`/go` ლინკების დაწკაპუნებები თითო არხზე vs ახალი მომხმარებლები, `/growth`)"*
 თუ სხვა დღეა, ან owner-მა უკვე გამოაქვეყნა ამ კვირას — ჩუმად გამოტოვე.
 
 **Release runbook (ყოველი გამოქვეყნებისას):**
@@ -219,7 +234,9 @@ Chrome extension (საჭიროებისამებრ API deploy-თ�
 2. uncommitted ცვლილებების **Figma-ვერიფიკაცია** → მხოლოდ მერე commit.
 3. თუ რელიზი API/shared-ზეა დამოკიდებული → **ჯერ** `dev→main` merge
    (Render auto-deploy), შემდეგ client publish.
-4. Figma plugin: `cd packages/figma-plugin && npm run build` → Figma desktop →
+4. ⚠️ **ჯერ watch მოკალი** — `pgrep -fl "create-figma-plugin/build"` → `kill <pid>`
+   (SessionStart hook ავტომატურად უშვებს, და watch prod bundle-ს გადააწერს).
+   შემდეგ Figma plugin: `cd packages/figma-plugin && npm run build` → Figma desktop →
    Manage plugins in development → Publish (ID `1646327864971730293`).
 5. Chrome extension: `manifest.json` `version` bump → build → zip `dist/`-ის
    შიგთავსი → Web Store upload (ID `fcmicolldgpmpdkcdljkaaimmjmboipl`).
@@ -266,49 +283,26 @@ FLITT_MERCHANT_ID, FLITT_SECRET_KEY, FLITT_BASE_URL
 
 ## Payment System (Flitt)
 
-**Provider:** Flitt (Georgia/CIS PCI-DSS Level 1 gateway). **მხოლოდ Flitt** — Stripe/Paddle/LemonSqueezy/Polar **არასოდეს** ვახსენოთ კოდში ან დოკუმენტაციაში.
+**Flitt is the only payment provider** (Georgia/CIS, PCI-DSS Level 1).
+Stripe/Paddle/LemonSqueezy/Polar/Chargebee **არასოდეს** ვახსენოთ კოდში ან
+დოკუმენტაციაში — ძველ კოდში თუ იხილავ, წაშალე.
 
-### Plans (launch — June 16, 2026)
-
-| Plan | Imports | ფასი (USD) | Cycle |
-|------|---------|-----------|-------|
+| Plan | Imports | USD | Cycle |
+|------|---------|-----|-------|
 | Free | 10 / month | $0 | — |
 | Pro Monthly | unlimited | $16 | 30 days |
-| Pro Yearly | unlimited | $144 | 365 days (25% off vs monthly) |
+| Pro Yearly | unlimited | $144 | 365 days (25% off) |
 
-**Pricing rationale:**
-- $16 monthly covers Flitt's 4% commission (net ≈ $15.36) — round whole-dollar pricing for simplicity
-- $144 yearly = 25% off vs 12×$16 ($192) — matches h2d's annual discount tier, encourages commitment
-- One-time payment model both tiers — no subscription. Renewal stacks days on top of remaining time
-- USD only globally; **EU VAT NOT collected at launch** (Terms disclaimer + non-EU seller posture); revisit at ~$30K/year EU revenue
-- **No refunds**, cancel-anytime (just stop renewing); cancellation = end-of-period (Pro until cycleEndsAt, then Free)
-- **No trial** — Free tier IS the trial (10 imports/month forever)
-- **Quota-exceeded UX:** hard block + upgrade modal on 11th import attempt
+- **One-time payment, არა subscription** — განახლება დღეებს ამატებს ნარჩენ დროს
+- **არც რეგისტრაცია, არც login** — plugin კითხულობს `figma.currentUser.id`-ს →
+  License-ის primary key. Email მხოლოდ Flitt checkout-ზე (ქვითარი/აღდგენა)
+- **Lazy reset, cron არ არის** — ყოველ license read-ზე `now >= cycleEndsAt` → reset
+- **Counter** = URL + Screenshot + HTML + Extension capture (screenshot = 1 იმპორტი)
 
-**Counter rules:**
-- Imports counter = URL + Screenshot + HTML + Browser Extension capture
-- Screenshot import counts as a regular import (uses Anthropic AI internally, but billed as 1 import)
-- Counters reset monthly via **lazy reset** (no cron; on every license read, if `now >= cycleEndsAt` → reset)
-- AI Generation tab does **not** exist in launch — code is on `ai-generation-backup` branch
-
-### User Identity
-- **NO registration, NO login**
-- Plugin reads `figma.currentUser.id` (Figma SDK) → primary key for License
-- Email collected at Flitt checkout (receipts/recovery only)
-
-### Recurring Billing
-- Native Flitt subscriptions (`subscription: "Y"` + `recurring_data`)
-- **Flitt charges automatically** — no custom cron for charging
-- Cancel via Flitt API: `SubscriptionActions({ order_id, action: "stop" })`
-- Webhook = source of truth for license status
-
-### Currency
-- **USD** primary (Flitt supports USD/GEL/EUR)
-
-### Implementation reference
-- Strategy: [docs/decisions/LAUNCH-STRATEGY-2026.md](docs/decisions/LAUNCH-STRATEGY-2026.md)
-- Plan: [docs/plans/PAYMENT-SYSTEM.md](docs/plans/PAYMENT-SYSTEM.md) (single-tier $16, finalized 2026-05-04)
-- Flitt API ref: see auto-memory `reference_flitt-api.md`
+დანარჩენი — counter semantics, cancel, refund, VAT, trial, quota UX და
+**parked** recurring გზა — **[docs/plans/PAYMENT-SYSTEM.md](docs/plans/PAYMENT-SYSTEM.md) §2**.
+სტრატეგია: [docs/decisions/LAUNCH-STRATEGY-2026.md](docs/decisions/LAUNCH-STRATEGY-2026.md).
+Flitt API: auto-memory `reference_flitt-api.md`.
 
 ## Warnings
 
@@ -360,73 +354,31 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up  # Dev (hot re
 
 ---
 
-## CRITICAL: Hybrid Extraction Approach (Content Script + CDP)
+## CRITICAL: Hybrid Extraction (Content Script + CDP)
 
-### მიზანი: 1:1 ხარისხიანი ექსტრაქცია (html.to.design დონეზე)
+მიზანი — 1:1 ხარისხი. **Content script = primary**, CDP მხოლოდ იქ, სადაც
+content script ტექნიკურად ვერ აღწევს.
 
-**არქიტექტურა არის ჰიბრიდული** — content script primary, CDP კონკრეტული ამოცანებისთვის რომლებიც content script-ში ტექნიკურად შეუძლებელია.
+**Primary:** `packages/browser-extension/src/content/extractor.ts` →
+`extractPage()` — DOM traversal, 70+ CSS property, `getBoundingClientRect()`,
+line-breaking `Range.getClientRects()`-ით, `::before`/`::after`, SVG inlining.
 
-### Primary: Content Script (DOM ექსტრაქციის უმეტესობა)
+**CDP-ს ვიყენებთ მხოლოდ ამისთვის:** multi-viewport emulation · scrollbar
+metrics · რეალურად დარენდერებული ფონტი (`CSS.getPlatformFontsForNode`) ·
+`:hover` force · cross-origin stylesheet-ები · font/asset binary-ები cache-დან.
 
+**Data flow:**
 ```
-ფაილი: packages/browser-extension/src/content/extractor.ts
+popup CAPTURE_PAGE_W2W → viewport emulation → extractPage()
+  → platform fonts → hover → binaries → POST /api/import-w2w
 ```
+⚠️ **`/api/import-w2w`, არა `/api/import-cdp`.**
 
-რას აკეთებს `extractPage()`:
-- DOM tree traversal (recursive `<html>`-დან)
-- 70+ CSS property `getComputedStyle()`-ით
-- Geometry: `getBoundingClientRect()`
-- Text content + line-breaking via `Range.getClientRects()`
-- Pseudo-elements (`::before`, `::after`) — DOM injection ხერხით
-- SVG markup inlining
+⛔ ძველი `handleCapturePage()` (CDP-only, DOMSnapshot) **dead code-ია** — popup-დან
+მიუწვდომელია. ახალი კოდი ყოველთვის `handleCapturePageW2W()`-ს იყენებს.
 
-### Secondary: CDP (კონკრეტული ამოცანებისთვის — გამართლებული)
-
-CDP გამოიყენება **მხოლოდ იქ სადაც content script ვერ მოახერხებს**:
-
-| CDP API | რისთვის | რატომ ვერ აკეთებს content script |
-|---------|---------|-----------------------------------|
-| `Emulation.setDeviceMetricsOverride` + `Page.reload` | Multi-viewport capture | Content script ფიქსირებულ viewport-შია |
-| `Page.getLayoutMetrics` | Scrollbar compensation | `window.innerWidth` არ ითვლის scrollbar offset-ს |
-| `CSS.getPlatformFontsForNode` | რეალურად დარენდერებული ფონტი | `getComputedStyle().fontFamily` მხოლოდ CSS request-ს აბრუნებს, არა fallback-ის შემდგომ რეალურ ფონტს |
-| `CSS.forcePseudoState` | `:hover` state capture | Content script ვერ აიძულებს pseudo-class-ს |
-| `CSS.getStyleSheetText` | Cross-origin stylesheet-ების კითხვა | CORS ბლოკავს content script-ის `cssRules` წვდომას |
-| `Page.getResourceContent` | Font binary file-ების ამოღება cache-დან | CORS ბლოკავს fetch-ს page context-დან |
-| `extractCSSVariables` (CDP-based) | CSS custom properties enum-ი | Per-element iteration ნაცვლად global scope |
-
-### Data Flow
-
-```
-1. User clicks "Capture" → popup sends CAPTURE_PAGE_W2W
-2. Service Worker (CDP): Emulation.setDeviceMetricsOverride + Page.reload (per viewport)
-3. Content Script: extractPage() — full DOM + styles + geometry
-4. Service Worker (CDP): CSS.getPlatformFontsForNode for each text element (data-w2w-idx tagged)
-5. Service Worker (CDP): CSS.forcePseudoState for hover capture
-6. Service Worker (CDP): font binaries + CSS variables + assets
-7. Result: POST /api/import-w2w (NOT /api/import-cdp)
-```
-
-### Browser Extension Code Layout
-
-```
-packages/browser-extension/src/
-├── background/
-│   ├── index.ts          # Service worker: handleCapturePageW2W() — orchestrates content script + CDP
-│   └── cdp/
-│       ├── client.ts     # chrome.debugger wrapper (CDPClient class)
-│       ├── css.ts        # CSS-related CDP helpers
-│       ├── dom.ts        # DOM-related CDP helpers
-│       ├── fonts.ts      # @font-face + binary extraction
-│       └── assets.ts     # Image/SVG resource extraction from cache
-└── content/
-    ├── index.ts          # Message handler (EXTRACT_DOM, EXTRACT_SUBTREE, COLLECT_HOVER_SELECTORS, FETCH_FONT_DATA)
-    ├── extractor.ts      # CORE: extractPage() — DOM traversal (1300+ lines)
-    └── hover-parser.ts   # Local hover selector parser (no @w2w/shared import)
-```
-
-### Legacy CDP-Only Mode (DO NOT USE)
-
-ძველი `handleCapturePage()` ფუნქცია (CDP-only, DOMSnapshot-based) ფიზიკურად კოდშია, მაგრამ **dead code-ია** — popup UI-დან მიუწვდომელია. შენახულია მხოლოდ `old-branch`-ზე შედარებისთვის. **ახალი კოდი ყოველთვის `handleCapturePageW2W()`-ს იყენებს.**
+სრული ცხრილი (რომელი CDP API რატომ), code layout და manifest permissions:
+**[packages/browser-extension/CLAUDE.md](packages/browser-extension/CLAUDE.md)**
 
 ---
 

@@ -109,18 +109,20 @@ describe("grid-area → explicit grid placement", () => {
     expect(c.gridRowStart).toBeUndefined();
   });
 
-  it("ignores spans, matching parseGridLine's existing strictness", () => {
+  it("a span on both sides has no line to anchor to", () => {
     const root = convert(frGrid({ gridArea: '2 / span 2 / 3 / span 2' }));
     const c = child(root)!;
     expect(c.gridRowStart).toBe(2);
     expect(c.gridColumnStart).toBeUndefined();
   });
 
-  it("accepts negative line numbers", () => {
+  it("resolves negative line numbers against the parent's tracks", () => {
+    // 3 columns → 4 lines: -1 is line 4, -2 is line 3. The renderer only
+    // understands positive lines, so a raw -1 used to break the span.
     const root = convert(frGrid({ gridArea: '1 / -2 / 2 / -1' }));
     const c = child(root)!;
-    expect(c.gridColumnStart).toBe(-2);
-    expect(c.gridColumnEnd).toBe(-1);
+    expect(c.gridColumnStart).toBe(3);
+    expect(c.gridColumnEnd).toBe(4);
   });
 
   it("tolerates a partial shorthand", () => {
@@ -180,5 +182,81 @@ describe("grid-area does not disturb the geometric fallback", () => {
     const root = convert(pxGrid({ gridArea: '1 / 3 / 2 / 4' }));
     const c = findNode(root, n => n.tag === 'article')!;
     expect(c.gridColumnStart).toBe(3);
+  });
+});
+
+// notion.com footer (user report 2026-09-17): a 12-column grid inside a
+// named-line layout grid. `span 4`, `-1` and `content-start / content-end`
+// were all dropped, so the brand block took ONE 82px column and the whole
+// footer collapsed into the wrong cells.
+function notionFooter() {
+  const col = (x: number, y: number, w: number, h: number, tag: string, gridArea: string) => ({
+    type: 'FRAME', x, y, width: w, height: h,
+    quad: [x, y, x + w, y, x + w, y + h, x, y + h],
+    tag, classList: [], attr: {},
+    styles: { display: 'block', gridArea },
+    children: [],
+  });
+  const tracks = Array(12).fill('82.3281px').join(' ');
+  const inner = {
+    type: 'FRAME', x: 94, y: 0, width: 1252, height: 292,
+    quad: [94, 0, 1346, 0, 1346, 292, 94, 292],
+    tag: 'main', classList: [], attr: {},
+    styles: {
+      display: 'grid', gridTemplateColumns: tracks, gridTemplateRows: '214px 38px',
+      columnGap: '24px', rowGap: '40px', gridArea: 'auto / content-start / auto / content-end',
+    },
+    children: [
+      col(94, 0, 401, 214, 'section', 'auto / 1 / auto / span 4'),
+      col(519, 0, 827, 214, 'nav', 'auto / 5 / auto / -1'),
+      col(1157, 254, 189, 38, 'aside', '2 / 11 / auto / span 2'),
+      col(519, 254, 189, 29, 'p', '2 / span 2 / auto / 7'),
+    ],
+  };
+  return {
+    type: 'FRAME', x: 30, y: 0, width: 1380, height: 292,
+    quad: [30, 0, 1410, 0, 1410, 292, 30, 292],
+    tag: 'div', classList: [], attr: {},
+    styles: {
+      display: 'grid',
+      gridTemplateColumns: '[full-start] 64px [content-start] 1252px [content-end] 64px [full-end]',
+    },
+    children: [inner],
+  };
+}
+
+describe("grid placement: span, negative and named lines (notion.com footer)", () => {
+  const root = convert(notionFooter());
+  const byTag = (tag: string) => findNode(root, n => n.tag === tag)!;
+
+  it("resolves named lines from the parent's template", () => {
+    const inner = byTag('main');
+    expect(inner.gridColumnStart).toBe(2);
+    expect(inner.gridColumnEnd).toBe(3);
+  });
+
+  it("turns an end `span N` into a line", () => {
+    const brand = byTag('section');
+    expect(brand.gridColumnStart).toBe(1);
+    expect(brand.gridColumnEnd).toBe(5);
+  });
+
+  it("turns `-1` into the last line", () => {
+    const nav = byTag('nav');
+    expect(nav.gridColumnStart).toBe(5);
+    expect(nav.gridColumnEnd).toBe(13);
+  });
+
+  it("keeps an explicit row and a span end together", () => {
+    const locale = byTag('aside');
+    expect(locale.gridRowStart).toBe(2);
+    expect(locale.gridColumnStart).toBe(11);
+    expect(locale.gridColumnEnd).toBe(13);
+  });
+
+  it("turns a start `span N` before a definite end into a line", () => {
+    const p = byTag('p');
+    expect(p.gridColumnStart).toBe(5);
+    expect(p.gridColumnEnd).toBe(7);
   });
 });

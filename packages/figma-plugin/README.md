@@ -1,4 +1,4 @@
-# Plugin_Frontend
+# packages/figma-plugin
 
 Figma plugin UI for converting websites to wireframes.
 
@@ -12,7 +12,7 @@ Figma plugin UI for converting websites to wireframes.
 
 ## Import Types
 
-- **Web** — URL import via Plugin_Backend
+- **Web** — URL import via `packages/api`
 - **Screenshot** — Screenshot upload (AI-powered reconstruction)
 - **HTML** — Raw HTML paste
 - **Area Selection** — Element selection via browser extension
@@ -38,12 +38,12 @@ npm run build    # build-figma-plugin --typecheck --minify
 
 1. Open Figma desktop app
 2. Quick Actions → "Import plugin from manifest..."
-3. Select `Plugin_Frontend/manifest.json`
+3. Select `packages/figma-plugin/manifest.json`
 
 ## Project Structure
 
 ```
-Plugin_Frontend/
+packages/figma-plugin/
 ├── src/
 │   ├── main.ts                # Plugin sandbox entry
 │   ├── ui/
@@ -69,6 +69,7 @@ Plugin_Frontend/
 
 ## Integration
 
-- Plugin_Backend at port 3002 (wireframe extraction)
-- License_Backend at port 3003 (license validation)
-- Browser_Extension (CDP data via /api/import-cdp)
+- `packages/api` @ :3002 — wireframe extraction **and** license validation
+  (the former License_Backend :3003 was merged into it on 2026-03-26)
+- `packages/browser-extension` — capture arrives via `POST /api/import-w2w`;
+  the plugin fetches it with `GET /api/pending-import`

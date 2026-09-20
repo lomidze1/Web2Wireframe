@@ -878,24 +878,28 @@ export function convertEffectsToFigma(
         }
         break;
 
-      case "BACKGROUND_BLUR":
+      // Both blur cases resolve their radius with `??`, not `||`: a radius of
+      // zero is a real value meaning "no blur" (`filter: blur(0px)` is how a
+      // reveal animation spells its settled state), and `||` used to read that
+      // zero as "missing" and substitute the 10px default. On a LAYER_BLUR
+      // that mistake is expensive — Figma blurs the frame AND its whole
+      // subtree, so one fogged wrapper takes every layer under it with it.
+      case "BACKGROUND_BLUR": {
         // Skip background blur in plugin colors mode
         if (isPluginColors) continue;
 
-        figmaEffects.push({
-          type: "BACKGROUND_BLUR",
-          visible: true,
-          radius: effect.blurRadius || effect.radius || 10,
-        });
+        const radius = effect.blurRadius ?? effect.radius ?? 10;
+        if (radius <= 0) continue;
+        figmaEffects.push({ type: "BACKGROUND_BLUR", visible: true, radius });
         break;
+      }
 
-      case "LAYER_BLUR":
-        figmaEffects.push({
-          type: "LAYER_BLUR",
-          visible: true,
-          radius: effect.blurRadius || effect.radius || 10,
-        });
+      case "LAYER_BLUR": {
+        const radius = effect.blurRadius ?? effect.radius ?? 10;
+        if (radius <= 0) continue;
+        figmaEffects.push({ type: "LAYER_BLUR", visible: true, radius });
         break;
+      }
     }
   }
 

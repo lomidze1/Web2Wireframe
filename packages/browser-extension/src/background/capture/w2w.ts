@@ -19,7 +19,7 @@
 
 import { createCDPClient, CDPClient } from "../cdp/client";
 import { extractFonts } from "../cdp/fonts";
-import { buildResourceMap, getResourceBase64 } from "../cdp/assets";
+import { buildResourceMap, getResourceBase64, uint8ToBase64 } from "../cdp/assets";
 
 import {
   extractCSSVariables,
@@ -40,6 +40,8 @@ import {
   orderUrlsByInstallability,
   W2W_HYDRATION_EXPRESSION,
   W2W_HYDRATION_TIMEOUT_MS,
+  W2W_SCROLL_AND_SAMPLE_EXPRESSION,
+  W2W_SCROLL_AND_SAMPLE_TIMEOUT_MS,
   captureTaintedCanvases,
   type W2WTextNode,
 } from "@w2w/shared";
@@ -47,7 +49,6 @@ import {
 import { state, updateProgress } from "../state";
 import { getSettings } from "../utils/settings";
 import { categorizeCSSVariable } from "../utils/misc";
-import { autoScrollPage } from "./legacy";
 import { captureWebglCanvases } from "./webgl-canvas-shots";
 import { DEV_LOG_ENABLED, devWarn } from "../../shared/devLog";
 import type { SkipStats } from "../../content/extractor";
@@ -224,8 +225,8 @@ export async function handleCapturePageW2W(
       // a source-order guard in w2w-hydration.test.ts.
       await w2wWaitForHydration(client);
 
-      // Auto-scroll for lazy content
-      await autoScrollPage(client);
+      // Auto-scroll for lazy content; records reversible scroll reveals.
+      await w2wAutoScrollAndSampleReveals(client);
 
       // Scrollbar compensation
       const layoutMetrics = await client.send<{
@@ -586,6 +587,27 @@ export async function handleCapturePageW2W(
         }
       }
 
+      // Still missing? The page's fetch is bound by CORS, so a cross-origin
+      // host with no `Access-Control-Allow-Origin` refuses it even for images
+      // it just painted. Our own worker is not (host_permissions: <all_urls>).
+      if (resourceMapMisses > 0) {
+        const stillMissing: string[] = [];
+        const seenStill = new Set<string>();
+        for (const cap of captures) {
+          for (const url of w2wCollectImageUrls(cap.frame)) {
+            if (!assets[url] && !seenStill.has(url)) {
+              seenStill.add(url);
+              stillMissing.push(url);
+            }
+          }
+        }
+        const recovered = await w2wFetchMissingImages(stillMissing, assets);
+        resourceMapMisses -= recovered;
+        console.log(
+          `[W2W] Service-worker image fetch: asked ${stillMissing.length}, recovered ${recovered}`,
+        );
+      }
+
       console.log(`[W2W] Assets extracted: ${Object.keys(assets).length}, missed: ${resourceMapMisses}`);
       if (DEV_LOG_ENABLED && resourceMapMisses > 0) {
         const stillMissing = new Set<string>();
@@ -671,11 +693,9 @@ export async function handleCapturePageW2W(
     // w2wFonts.src is already cleaned (no url() wrapper), may contain multiple URLs space-separated
     for (const font of w2wFonts) {
       if (!font.src) continue;
-      // Extract URLs: could be clean URLs (after stripping url()) or still have url() wrappers
-      const urlRegex = /(?:url\(['"]?)?((https?:\/\/[^\s'")\],]+))['"]?\)?/g;
-      let match;
-      while ((match = urlRegex.exec(font.src)) !== null) {
-        const fontUrl = match[1];
+      // Clean or url()-wrapped URLs; the shared parser also stops at a glued
+      // `format(` (minified CSS — notion.com).
+      for (const fontUrl of extractUrlsFromSrc(font.src)) {
         if (assets[fontUrl]) continue; // Already got it
 
         // Try resource map first
@@ -917,6 +937,28 @@ export async function handleCapturePageW2W(
 // ---------------------------------------------------------------------------
 // W2W content script helper functions
 // ---------------------------------------------------------------------------
+
+/**
+ * Auto-scroll for lazy content, recording reversible scroll reveals on the way
+ * (Webflow IX2 / GSAP fade elements out again once scrolled past, so the
+ * back-to-top read saw them at `opacity: 0`). Same expression as the API's URL
+ * import — see `W2W_SCROLL_AND_SAMPLE_EXPRESSION` in `@w2w/shared`. Never
+ * throws; on failure the page is still returned to the top.
+ */
+export async function w2wAutoScrollAndSampleReveals(client: {
+  send: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+}): Promise<void> {
+  try {
+    await client.send("Runtime.evaluate", {
+      expression: W2W_SCROLL_AND_SAMPLE_EXPRESSION,
+      awaitPromise: true,
+      timeout: W2W_SCROLL_AND_SAMPLE_TIMEOUT_MS,
+    });
+  } catch (err) {
+    if (DEV_LOG_ENABLED) devWarn("[W2W-MISS] auto-scroll failed — capturing from the top:", err);
+    await client.send("Runtime.evaluate", { expression: "window.scrollTo(0, 0)" }).catch(() => {});
+  }
+}
 
 /**
  * Let a hydrating framework finish before anything is read off the page.
@@ -1239,6 +1281,43 @@ export async function w2wHarvestImageAssets(
     }
   }
   return { extracted, missed };
+}
+
+/**
+ * Last resort for images neither the resource tree nor the page could supply.
+ *
+ * The page-context fallback issues its fetch from the page's own origin, so a
+ * cross-origin host that sends no `Access-Control-Allow-Origin` refuses it —
+ * chroniclehq.com serves its logos and icons from `cms.chroniclehq.com` and
+ * lost 20 of them that way, every one already loaded and painted on screen.
+ * The service worker holds `host_permissions: ["<all_urls>"]`, and an MV3
+ * worker's fetch to a permitted host is not subject to CORS, so it can read
+ * what the page cannot.
+ *
+ * Mutates `assets` and returns how many URLs it recovered. Anything that
+ * fails — refused, unreachable, or bytes we cannot identify — is left out:
+ * a placeholder beats a misrendered asset.
+ */
+export async function w2wFetchMissingImages(
+  urls: string[],
+  assets: Record<string, W2WAssetEntry>,
+): Promise<number> {
+  let recovered = 0;
+  for (const url of urls) {
+    if (assets[url]) continue;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) continue;
+      const base64 = uint8ToBase64(new Uint8Array(await response.arrayBuffer()));
+      const mimeType = w2wSniffImageMime(base64);
+      if (!mimeType) continue;
+      assets[url] = { base64Encoded: true, content: base64, mimeType };
+      recovered += 1;
+    } catch {
+      // Blocked host, offline, aborted — the node keeps its placeholder.
+    }
+  }
+  return recovered;
 }
 
 /**

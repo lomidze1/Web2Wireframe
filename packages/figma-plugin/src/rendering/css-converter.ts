@@ -60,6 +60,8 @@ import { collapseMarginWrappers } from './marginCollapse';
 import { insertAlignWrappers } from './alignWrappers';
 import { simplifyTree } from './treeSimplify';
 import { isIconFont, isPuaOnlyText, CSS_FONT_KEYWORDS, isUsableMeasuredFamily } from '../utils/fontUtils';
+import { parseColorFilter } from './cssFilter';
+import { parseGridTemplate } from '@w2w/shared';
 import { getSemanticElementName, applyRoleNames, chainNames } from './naming';
 import { parseInsetClipPath } from './clipPath';
 import { logger } from '../utils/logger';
@@ -121,6 +123,9 @@ interface ConvertOptions {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/** A sticky element deeper than this (page px) is content, not a header. */
+const STICKY_HEADER_MAX_PAGE_Y = 200;
 
 /**
  * Tags that can be coalesced into text nodes.
@@ -373,16 +378,37 @@ export function convertW2WToWireframe(
  * only the deeper `#__next` reads 1424px.
  *
  * Returns at least the node's own height (never shrinks).
+ *
+ * The walk stops at anything that clips its own vertical overflow: the browser
+ * does not scroll the page for content a `overflow: hidden` ancestor hides, so
+ * counting it inflates the root. chroniclehq.com's footer is 939px and clips,
+ * and the Lottie inside it is 783px tall in a 410px box — reading through it
+ * grew the page 286px past its real end and left a dead band under the footer.
+ *
+ * Scroll roots are the exception: `html`, `body` and the captured scrolling
+ * element routinely declare `overflow-y: scroll|auto` and yet are exactly what
+ * scrolls, so stopping there would re-break the case this function exists for
+ * (paco.me's body is `overflow-y: scroll` over a 1424px child).
  */
 export function maxDescendantBottom(node: W2WFrameNode): number {
   const rootY = node.y;
   let max = node.height;
+  const clipsVertically = (n: W2WFrameNode): boolean => {
+    if (n.tag === 'html' || n.tag === 'body' || n.isScrollingElt === true) return false;
+    const s = n.styles;
+    if (!s) return false;
+    const clips = (v: string) =>
+      v === 'hidden' || v === 'clip' || v === 'auto' || v === 'scroll';
+    // Vertical axis only — `overflow-x: auto` strips scroll sideways and clip
+    // nothing below them (see the full-bleed scroller handling below).
+    return clips(str(s.overflowY)) || clips(str(s.overflow));
+  };
   const walk = (n: W2WNode): void => {
     const bottom = n.y - rootY + n.height;
     if (bottom > max) max = bottom;
-    if (n.type === 'FRAME' && n.children) {
-      for (const child of n.children) walk(child);
-    }
+    if (n.type !== 'FRAME' || !n.children) return;
+    if (clipsVertically(n)) return;
+    for (const child of n.children) walk(child);
   };
   for (const child of node.children || []) walk(child);
   return max;
@@ -594,6 +620,45 @@ function isContentFunctionResidue(text: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Where a demoted bottom-sticky element sits in the page flow.
+ *
+ * `position: sticky; bottom: …` pins the element to the viewport bottom while
+ * its natural slot is still below the fold — so at scroll 0, where we capture,
+ * its box is displaced upward (notion.com's logo wall: captured y 852, over
+ * the hero screenshot; its slot is right after the hero's closing paragraph,
+ * y 1265). Content sticky is rendered in flow (see STICKY_HEADER_MAX_PAGE_Y),
+ * so it needs that slot: the bottom of the previous in-flow sibling plus the
+ * margins between them, or the parent's content top when it comes first.
+ * Undefined when the element is not a bottom-sticky that got displaced.
+ */
+function bottomStickyFlowY(node: W2WFrameNode, parent: W2WFrameNode | null): number | undefined {
+  const s = node.styles;
+  if (!parent || str(s.position) !== 'sticky') return undefined;
+  if (node.y <= STICKY_HEADER_MAX_PAGE_Y) return undefined;
+  const bottom = str(s.bottom);
+  if (!bottom || bottom === 'auto') return undefined;
+  const top = str(s.top);
+  if (top && top !== 'auto') return undefined;
+
+  const siblings = getEffectiveChildren(parent);
+  const index = siblings.indexOf(node);
+  if (index < 0) return undefined;
+  const px = (v: string | number | undefined): number => parseFloat(str(v)) || 0;
+  let flowY: number | undefined;
+  for (let i = index - 1; i >= 0; i--) {
+    const prev = siblings[i];
+    if (prev.type !== 'FRAME') continue;
+    const ps = (prev as W2WFrameNode).styles;
+    const pos = str(ps.position);
+    if (pos === 'absolute' || pos === 'fixed' || str(ps.display) === 'none') continue;
+    flowY = prev.y + prev.height + Math.max(px(ps.marginBottom), px(s.marginTop));
+    break;
+  }
+  if (flowY === undefined) flowY = parent.y + px(parent.styles.paddingTop) + px(s.marginTop);
+  return Math.abs(flowY - node.y) >= 1 ? flowY : undefined;
+}
+
+/**
  * Recursively flatten display:contents elements out of a child list.
  * Elements with display:contents generate no box — their children become
  * direct children of the parent (same as CSS behavior).
@@ -733,7 +798,7 @@ function convertFrame(
   }
   const gapStr = str(s.gap);
   // The only explicit grid placement we ever receive — see parseGridArea.
-  const gridArea = parseGridArea(s.gridArea);
+  const gridArea = parseGridArea(s.gridArea, parent?.styles);
   // Each axis reads its own longhand. `gap` is a shorthand whose computed form
   // is "<row> <column>", so parseFloat() on it yields the ROW gap — handing a
   // horizontal row the wrong number whenever the two differ. The shorthand
@@ -1798,12 +1863,18 @@ function convertFrame(
     tag: node.tag,
     className: node.classList.join(' ') || undefined,
     x: parent ? node.x - parent.x : node.x,
-    y: (inkGeometry?.y ?? node.y) - (parent ? parent.y : 0),
+    y: (inkGeometry?.y ?? bottomStickyFlowY(node, parent) ?? node.y) - (parent ? parent.y : 0),
     width: node.width,
     height: inkGeometry ? inkGeometry.height : effectiveHeight,
 
     position: (() => {
       const pos = str(s.position) as WireframeNode['position'] || undefined;
+      // Sticky is promoted to a root fixed child (nodes.ts) — right for a page
+      // header, wrong for sticky CONTENT further down, which landed at the top
+      // of the frame over the hero (notion.com logo wall at y≈1328, vaayu.tech
+      // side-scroll scenes at y≈810+). At scroll 0 such an element sits in its
+      // own flow slot, so it stays there.
+      if (pos === 'sticky' && node.y > STICKY_HEADER_MAX_PAGE_Y) return undefined;
       if (pos === 'absolute' || pos === 'fixed' || pos === 'sticky') return pos;
       // Same-row hack: a static flow element pulled up beside its previous
       // sibling via a large negative margin-top (nicepage.io header nav
@@ -2198,6 +2269,7 @@ function convertFrame(
 
     // Losses visible from the captured styles — reported once the node exists.
     pendingWarnings: detectConverterWarnings(node),
+    cssColorFilter: serializeColorFilter(str(s.filter) || str(s.webkitFilter)),
 
     // Media
     isPlaceholder: type === 'placeholder',
@@ -3504,16 +3576,15 @@ function parseEffects(
     effects.push(...shadowEffects);
   }
 
-  // Backdrop filter (blur)
+  // Backdrop filter (blur). A zero radius is dropped rather than pushed: it is
+  // a no-op that would still cost one of Figma's eight effect slots — the same
+  // reason no-op box-shadows are skipped below.
   const backdropFilter = str(s.backdropFilter);
   if (backdropFilter && backdropFilter !== 'none') {
     const blurMatch = backdropFilter.match(/blur\(([^)]+)\)/);
-    if (blurMatch) {
-      effects.push({
-        type: 'BACKGROUND_BLUR',
-        visible: true,
-        blurRadius: parseFloat(blurMatch[1]) || 0,
-      });
+    const blurRadius = blurMatch ? parseFloat(blurMatch[1]) || 0 : 0;
+    if (blurRadius > 0) {
+      effects.push({ type: 'BACKGROUND_BLUR', visible: true, blurRadius });
     }
   }
 
@@ -3537,13 +3608,16 @@ function parseEffects(
 
     // blur() — matched on the drop-shadow-stripped string so a blur radius
     // inside drop-shadow(...) is never misread as a layer blur.
+    //
+    // `blur(0px)` is skipped, not pushed: it is what a reveal animation leaves
+    // behind once it has settled, and it means "no blur". chroniclehq.com
+    // carries it on twelve wrappers — including a 969x654 hero with eighty
+    // descendants — and a LAYER_BLUR applies to the frame's whole subtree, so
+    // honouring those zeros as effects fogged the entire import.
     const blurMatch = filterWithoutDropShadows.match(/blur\(([^)]+)\)/);
-    if (blurMatch) {
-      effects.push({
-        type: 'LAYER_BLUR',
-        visible: true,
-        blurRadius: parseFloat(blurMatch[1]) || 0,
-      });
+    const blurRadius = blurMatch ? parseFloat(blurMatch[1]) || 0 : 0;
+    if (blurRadius > 0) {
+      effects.push({ type: 'LAYER_BLUR', visible: true, blurRadius });
     }
   }
 
@@ -4768,11 +4842,18 @@ function parseAspectRatio(v: string | number | undefined | null): boolean | unde
  * falls through to the geometric inference below, which only works on
  * fixed-px templates and gives up on `fr` / `minmax` / `%` grids.
  *
- * Computed order is `row-start / column-start / row-end / column-end`. Each
- * slot goes through parseGridLine, so "auto", spans and named areas stay
- * undefined and keep deferring to inference exactly as before.
+ * Computed order is `row-start / column-start / row-end / column-end`. The
+ * renderer only understands positive line numbers, so each axis is resolved
+ * against the parent's template: negative lines count from the end, named
+ * lines (`content-start`) map to their position, and a `span N` on one side
+ * becomes a line relative to the other (notion.com footer: `1 / span 4`,
+ * `5 / -1`, `content-start / content-end`). Anything unresolvable stays
+ * undefined and keeps deferring to inference.
  */
-function parseGridArea(v: string | number | undefined | null): {
+function parseGridArea(
+  v: string | number | undefined | null,
+  parentStyles?: Record<string, string | number | undefined>,
+): {
   rowStart?: number;
   columnStart?: number;
   rowEnd?: number;
@@ -4782,12 +4863,81 @@ function parseGridArea(v: string | number | undefined | null): {
   if (!sv || sv === 'auto') return undefined;
   const parts = sv.split('/').map((p) => p.trim());
   if (parts.length < 2) return undefined;
+  const rows = resolveGridAxis(parts[0], parts[2], str(parentStyles?.gridTemplateRows));
+  const cols = resolveGridAxis(parts[1], parts[3], str(parentStyles?.gridTemplateColumns));
   return {
-    rowStart: parseGridLine(parts[0]),
-    columnStart: parseGridLine(parts[1]),
-    rowEnd: parseGridLine(parts[2]),
-    columnEnd: parseGridLine(parts[3]),
+    rowStart: rows.start,
+    columnStart: cols.start,
+    rowEnd: rows.end,
+    columnEnd: cols.end,
   };
+}
+
+/** Line names of a track template → their first 1-based line number. */
+function gridLineNames(template: string): Map<string, number> {
+  const names = new Map<string, number>();
+  let line = 1;
+  let i = 0;
+  while (i < template.length) {
+    const ch = template[i];
+    if (ch === '[') {
+      const close = template.indexOf(']', i);
+      if (close < 0) break;
+      for (const name of template.slice(i + 1, close).trim().split(/\s+/)) {
+        if (name && !names.has(name)) names.set(name, line);
+      }
+      i = close + 1;
+    } else if (/\s/.test(ch)) {
+      i++;
+    } else {
+      // A track token — a repeat() expands to several lines, so named lines
+      // after it can't be placed: stop naming there.
+      let depth = 0;
+      const startTok = i;
+      while (i < template.length && (depth > 0 || (!/\s/.test(template[i]) && template[i] !== '['))) {
+        if (template[i] === '(') depth++;
+        else if (template[i] === ')') depth--;
+        i++;
+      }
+      if (template.slice(startTok, i).startsWith('repeat(')) break;
+      line++;
+    }
+  }
+  return names;
+}
+
+function resolveGridAxis(
+  startRaw: string | undefined,
+  endRaw: string | undefined,
+  template: string,
+): { start?: number; end?: number } {
+  const trackCount = template && template !== 'none' ? parseGridTemplate(template).length : 0;
+  const names = template ? gridLineNames(template) : new Map<string, number>();
+  const spanOf = (raw: string | undefined): number | undefined => {
+    const m = raw?.trim().match(/^span\s+(\d+)$/);
+    return m ? parseInt(m[1], 10) : undefined;
+  };
+  const lineOf = (raw: string | undefined): number | undefined => {
+    const n = parseGridLine(raw);
+    if (n !== undefined) {
+      if (n > 0) return n;
+      // -1 is the last explicit line (trackCount + 1).
+      const resolved = trackCount + 2 + n;
+      return trackCount > 0 && resolved >= 1 ? resolved : undefined;
+    }
+    const name = raw?.trim();
+    return name ? names.get(name) : undefined;
+  };
+
+  let start = lineOf(startRaw);
+  let end = lineOf(endRaw);
+  const startSpan = spanOf(startRaw);
+  const endSpan = spanOf(endRaw);
+  if (start !== undefined && end === undefined && endSpan) end = start + endSpan;
+  if (end !== undefined && start === undefined && startSpan && end - startSpan >= 1) {
+    start = end - startSpan;
+  }
+  return { start, end };
 }
 
 /**
@@ -4855,8 +5005,9 @@ function inferGridRowStart(
 }
 
 function cleanFontFamily(fontFamily: string): string {
-  const first = fontFamily.split(',')[0].trim();
-  return first.replace(/^["']|["']$/g, '');
+  const entries = fontFamily.split(',').map((f) => f.trim().replace(/^["']|["']$/g, ''));
+  // Skip keyword junk (`false, Clash Grotesk` on crojungle.com) for the next family.
+  return entries.find((f) => !CSS_FONT_KEYWORDS.has(f.toLowerCase())) ?? entries[0];
 }
 
 /**
@@ -5007,11 +5158,24 @@ function countCapturedNodes(node: W2WNode): number {
 }
 
 /**
- * Filter functions the renderer draws (see parseEffects). `grayscale` is
- * honoured on image fills, so it is not reported either — a warning that can
- * fire on a correct render is worse than none.
+ * Filter functions the renderer draws: blur/drop-shadow as effects
+ * (parseEffects), color functions baked into paints (cssFilter.ts — which
+ * reports the images it can't recolor itself). A warning that can fire on a
+ * correct render is worse than none.
  */
-const SUPPORTED_FILTER_FUNCTIONS = new Set(['blur', 'drop-shadow', 'grayscale']);
+const SUPPORTED_FILTER_FUNCTIONS = new Set([
+  'blur', 'drop-shadow',
+  'brightness', 'contrast', 'grayscale', 'hue-rotate', 'invert', 'opacity', 'saturate', 'sepia',
+]);
+
+/** The element's color filter functions, normalized for the renderer. */
+function serializeColorFilter(filter: string): string | undefined {
+  const ops = parseColorFilter(filter);
+  if (ops.length === 0) return undefined;
+  return ops
+    .map((op) => `${op.name}(${op.amount}${op.name === 'hue-rotate' ? 'deg' : ''})`)
+    .join(' ');
+}
 
 /** Split a CSS filter list into `name(args)` pairs, balancing nested parens. */
 function listFilterFunctions(filter: string): { name: string; arg: string }[] {
@@ -5189,6 +5353,151 @@ function subtreePaints(node: W2WNode): boolean {
  * same box is what tells a deck apart from a lone hover overlay: apple.com's
  * globalnav-curtain has no such sibling, so it keeps being dropped.
  */
+/**
+ * The box this node would occupy with its translation undone.
+ *
+ * A staged copy — the off slide of a rotator, the hover face of a button — is
+ * almost always parked with `transform: translate(…)` while it waits. The
+ * captured geometry is the AABB of the already-transformed element, so the copy
+ * lands 20-odd pixels away from the twin whose slot it actually shares. Undoing
+ * the translation puts the two back in the same place.
+ *
+ * Only the translation: rotation and scale change what the box IS, not merely
+ * where it sits, and a rotated copy is not a stand-in for anything.
+ */
+function untranslatedBox(node: W2WFrameNode): { x: number; y: number } {
+  const transform = str(node.styles.transform);
+  const m = matrixArgs(transform, 'matrix') ?? matrixArgs(transform, 'matrix3d');
+  if (!m) return { x: node.x, y: node.y };
+  const [tx, ty] = m.length === 6 ? [m[4], m[5]] : m.length === 16 ? [m[12], m[13]] : [0, 0];
+  return { x: node.x - tx, y: node.y - ty };
+}
+
+/** An opaque sibling on the same row (same top and height) that overlaps it horizontally. */
+function hasVisibleRowTwin(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  const a = untranslatedBox(child);
+  return siblings.some((sibling) => {
+    if (sibling === child || sibling.type !== 'FRAME' || isFullyTransparentFrame(sibling)) return false;
+    const other = sibling as W2WFrameNode;
+    const b = untranslatedBox(other);
+    return (
+      Math.abs(b.y - a.y) <= CROSSFADE_BOX_TOLERANCE &&
+      Math.abs(other.height - child.height) <= CROSSFADE_BOX_TOLERANCE &&
+      b.x < a.x + child.width &&
+      a.x < b.x + other.width
+    );
+  });
+}
+
+/**
+ * An opaque sibling carrying every class this node carries.
+ *
+ * One accordion panel is open and the rest are transparent; one tab pane shows
+ * and the rest wait. They are the same element in different states, so they
+ * share a class — and because their copy differs in length, their boxes do not,
+ * which is what puts them past `hasVisibleRowTwin`. A bare `class`-less node
+ * proves nothing, so an empty list never matches.
+ */
+function hasVisibleClassTwin(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  const classes = child.classList ?? [];
+  if (classes.length === 0) return false;
+  return siblings.some((sibling) => {
+    if (sibling === child || sibling.type !== 'FRAME' || isFullyTransparentFrame(sibling)) return false;
+    const other = (sibling as W2WFrameNode).classList ?? [];
+    return classes.every((c) => other.includes(c));
+  });
+}
+
+/** Every character in the subtree, in document order, whitespace-collapsed. */
+function subtreeText(node: W2WNode): string {
+  if (node.type === 'TEXT') return node.value ?? '';
+  if (node.type !== 'FRAME') return '';
+  return (node.children || []).map(subtreeText).join('');
+}
+
+/**
+ * An opaque sibling that says exactly the same words.
+ *
+ * A hover face shares neither box nor class with the label it replaces —
+ * chroniclehq's is 10px lower and 20px taller, both of them `class`-less
+ * `<span>`s. The words are the whole of the evidence, and they are enough: a
+ * transparent box repeating a visible sibling's text verbatim is a second state
+ * of it, not content the capture lost.
+ */
+function hasVisibleTextTwin(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  const mine = subtreeText(child).replace(/\s+/g, ' ').trim();
+  if (mine.length < 2) return false;
+  return siblings.some((sibling) => {
+    if (sibling === child || sibling.type !== 'FRAME' || isFullyTransparentFrame(sibling)) return false;
+    return subtreeText(sibling).replace(/\s+/g, ' ').trim() === mine;
+  });
+}
+
+/**
+ * A visible sibling sits INSIDE this transparent box.
+ *
+ * Two shapes on stripe.com, one idea. `hero-wave-animation__static` is the
+ * still image wrapped around a live `<canvas>` (337,-107 1392x975 over
+ * 337,0 1393x761); `connect-platform-graphic__payment-screen` is a card's
+ * "Thank you!" face stacked on the visible "Order Summary" face at the same
+ * x/y/width and a slightly taller box. Neither is a hole in the wireframe —
+ * something visible occupies that space — and siblings only overlap at all
+ * when one of them is out of flow, so this stays narrow.
+ *
+ * BOTH directions are required. Covering the sibling alone would suppress a
+ * 600x400 reveal that happens to sit over a 24x24 badge, where the hole is
+ * real and the badge is 1% of it.
+ *
+ * Raw captured boxes, NOT `untranslatedBox`: the canvas fallback carries a
+ * centring `matrix(1, 0, 0, 1, -696, -487.5)`, and undoing that would move it
+ * off the very thing it covers.
+ */
+function coversVisibleSibling(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  const ownArea = child.width * child.height;
+  if (ownArea <= 0) return false;
+  return siblings.some((sibling) => {
+    if (sibling === child || sibling.type !== 'FRAME' || isFullyTransparentFrame(sibling)) return false;
+    const other = sibling as W2WFrameNode;
+    const otherArea = other.width * other.height;
+    if (otherArea <= 0) return false;
+    const overlapW = Math.min(child.x + child.width, other.x + other.width) - Math.max(child.x, other.x);
+    const overlapH = Math.min(child.y + child.height, other.y + other.height) - Math.max(child.y, other.y);
+    if (overlapW <= 0 || overlapH <= 0) return false;
+    const overlap = overlapW * overlapH;
+    return overlap / otherArea >= 0.9 && overlap / ownArea >= 0.7;
+  });
+}
+
+/** Widest/tallest a `<button>` can be and still read as an affordance. */
+const CONTROL_MAX_SIDE = 48;
+
+/**
+ * A small, wordless button — a replay, close or scroll affordance.
+ *
+ * stripe's `platform-graphic__replay-button` is 40x40 with nothing but an icon
+ * inside, which is exactly why `subtreeCarriesContent` waves it through, and
+ * 40x40 only just clears `REPORTABLE_MIN`. A control that the page itself
+ * hides is not missing content. Anything carrying words stays reportable, and
+ * so does anything big enough to be a tile rather than an affordance.
+ */
+function isHiddenControl(child: W2WFrameNode): boolean {
+  const isButton = child.tag === 'button' || child.attr?.role === 'button';
+  if (!isButton) return false;
+  if (child.width > CONTROL_MAX_SIDE || child.height > CONTROL_MAX_SIDE) return false;
+  return subtreeText(child).trim() === '';
+}
+
+/** Is this transparent box a second state, a backdrop, or a control? */
+function isStateDuplicate(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
+  return (
+    hasVisibleRowTwin(child, siblings) ||
+    hasVisibleClassTwin(child, siblings) ||
+    hasVisibleTextTwin(child, siblings) ||
+    coversVisibleSibling(child, siblings) ||
+    isHiddenControl(child)
+  );
+}
+
 function isCrossfadeSlide(child: W2WFrameNode, siblings: readonly W2WNode[]): boolean {
   if (!subtreeCarriesContent(child) && !subtreePaints(child)) return false;
   return siblings.some(
@@ -5302,7 +5611,14 @@ function shouldSkipInvisibleFrame(
       // record). Dropping stays — an overlay painted over the page is worse
       // than a missing one — but a content-bearing box goes on the record so
       // the import report can name what left.
-      if (isFullyTransparent) reportSkippedContent(child, options);
+      // Not reported: a closed menu (`visibility: hidden` too — no scroll
+      // brings it back) or a state duplicate of a sibling that IS showing — a
+      // marquee's measuring copy (notion.com), a rotator's off copy, a closed
+      // accordion panel, a hover face (chroniclehq.com). Nothing the page shows
+      // is lost, and calling it lost is what users mail back as a bug.
+      if (isFullyTransparent && !isInvisible && !isStateDuplicate(child, siblings)) {
+        reportSkippedContent(child, options);
+      }
       if (__W2W_DEV_LOG__) {
         logSkippedFrame(child, siblings, isFullyTransparent ? 'transparent' : 'clipped');
       }
@@ -5449,7 +5765,27 @@ function parseFontString(font: string | undefined | null): { family: string; wei
     black: 900, heavy: 900,
   };
 
-  const parts = font.split(' ');
+  let parts = font.split(' ');
+  // Italic/Oblique is the face's style, not its family: vaayu.tech measured
+  // CSS `Tobias` + `font-style: italic` as "Tobias Italic" — no such family,
+  // so its italic cuts never reached the font ZIP. The italic itself comes
+  // from the CSS font-style.
+  if (parts.length >= 2 && /^(italic|oblique)$/i.test(parts[parts.length - 1])) {
+    parts = parts.slice(0, -1);
+    if (parts.length === 1) return { family: parts[0], weight: 400 };
+    font = parts.join(' ');
+  }
+  // Two-word suffix first: "Inter Semi Bold" would otherwise keep "Semi" in
+  // the family ("Inter Semi" — never installed, so notion.com fell back).
+  if (parts.length >= 3) {
+    const lastTwo = (parts[parts.length - 2] + parts[parts.length - 1]).toLowerCase();
+    if (weightMap[lastTwo]) {
+      return {
+        family: parts.slice(0, -2).join(' '),
+        weight: weightMap[lastTwo],
+      };
+    }
+  }
   if (parts.length >= 2) {
     const lastPart = parts[parts.length - 1].toLowerCase();
     if (weightMap[lastPart]) {

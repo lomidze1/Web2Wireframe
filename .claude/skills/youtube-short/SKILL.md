@@ -1,129 +1,161 @@
 ---
 name: youtube-short
-description: Web2Wireframe-ის YouTube Short-ის აწყობა — ვერტიკალური 1080×1920, ხმის გარეშე, წარწერებით. გამოიძახე როცა გიორგი ითხოვს ვიდეოს, Short-ს, სარეკლამო კლიპს, ან აგზავნის ეკრანის ჩანაწერს ასაწყობად. მარკეტინგისთვისაა — კოდს არ ეხება.
+description: Web2Wireframe-ის YouTube Short-ის აწყობა Camtasia-ში — ვერტიკალური 1080×1920, ხმით და წარწერებით. გამოიძახე როცა გიორგი ითხოვს ვიდეოს, Short-ს, სარეკლამო კლიპს, ან აგზავნის ეკრანის ჩანაწერს ასაწყობად. მარკეტინგისთვისაა — კოდს არ ეხება.
 ---
 
 # W2W Short — პაიპლაინი
 
-**შედეგი: ერთი ატვირთვისთვის მზა `.mp4`.** Camtasia არ ერევა — Shorts მოკლეა და
-ფორმულური, სრული აწყობა აქ ჯდება.
+**შედეგი: `.cmproj` — Camtasia-ს ნატიური პროექტი**, რომელსაც გიორგი ხელით ხვეწს და
+თვითონვე აექსპორტებს. `.mp4` ჩვენი ჩასაბარებელი **არაა**.
 
-**ძრავა:** [`scripts/video/w2wkit.py`](../../../scripts/video/w2wkit.py) —
-`~/Desktop/Nicepage - Video/npkit.py`-ის დამტკიცებული ძრავა, ვერტიკალზე და
-W2W-ის პალიტრაზე მორგებული. SFX-ის 48-ეფექტიანი გაზომილი ბიბლიოთეკა იქიდან იტვირთება.
+> 🔄 **ცვლილება 2026-09-20 (გიორგი):** „ffmpeg-ს ჯობია რომ Camtasia-ში დაამუშავო
+> ვიდეო. როგორც ნაისფეიჯში ვიქცევით." — ადრე Short-ები ffmpeg-ით იწყობოდა
+> (`scripts/video/w2wkit.py`) და მზა `.mp4` ბარდებოდა. **ეს გაუქმდა.** მიზეზი:
+> ffmpeg-ის კადრიდან გიორგი ვერაფერს ასწორებს — ყოველი წვრილმანი ჩემთან ბრუნდება.
+> `.cmproj`-ში თვითონ წელავს, წევს, ცვლის.
+
+**ძრავა:** [`~/Desktop/Video/_tools/camkit.py`](file:///Users/giorgi/Desktop/Video/_tools/camkit.py)
+— იგივე, რითაც Nicepage-ის ვიდეოები იწყობა. **ერთი ძრავა ორივე პროექტზე.**
+`scripts/video/w2wkit.py` რჩება მხოლოდ ძველი Short-ების წასაკითხად — ახალში არ გამოიყენო.
 
 ---
 
 ## 0 · სანამ დაიწყებ
 
-1. **წაიკითხე `social-agent/01) video/development/FEEDBACK.md`.**
-   გემოვნება მხოლოდ იქ წერია, კოდში არა.
-2. **შეამოწმე ფაზა** (`docs/growth/METRICS.md`). თვე 1-ში (08-24 → 09-21)
-   **პროდუქტის გამომავალის ჩვენება აკრძალულია** — გატეხილი იმპორტის ვიდეო
-   უარყოფითი რეკლამაა. თვე 1-ის Short-ები craft-თემებზეა
-   (CSS, ტიპოგრაფია, Figma), სადაც ეკრანზე ბრაუზერი და Figma ჩანს, არა ჩვენი შედეგი.
+1. **წაიკითხე `~/Desktop/Video/CLAUDE.md`** — სახლის წესები (ტაიმინგი, ანიმაცია, ფერები,
+   ფონტი, SFX-ის დონეები). ამ საქაღალდის გარეთ ავტომატურად არ იტვირთება.
+2. **წაიკითხე `social-agent/01) video/development/FEEDBACK.md`** — გემოვნება მხოლოდ იქ
+   წერია, კოდში არა.
 3. **ერთი სესია = ერთი Short.**
 
 ## 1 · ფორმატი (ხისტი)
 
 | | |
 |---|---|
-| ზომა | **1080×1920**, 30fps, H.264 yuv420p, +faststart |
+| ზომა | **1080×1920**, 30fps |
 | ხანგრძლივობა | **20–40წმ.** <15წმ ცარიელია, >60წმ აღარაა Short |
-| ხმა | **მხოლოდ SFX.** voice-ი არასდროს — გიორგი ინგლისურად არ ლაპარაკობს |
-| ტექსტი | Poppins. სათაური Bold, წარწერა SemiBold. თეთრი. sentence case |
+| ხმა | **VO + SFX.** ხმა = `Mark - Natural Conversations`, ID `UgBBYS2sOqTuMpoF3BR0` |
+| ტექსტი | Poppins. სათაური Bold/ExtraBold, წარწერა SemiBold. თეთრი. sentence case |
 | აქცენტი | `ACCENT_HI` (#E1AD66) — მხოლოდ **ერთ** ელემენტზე კადრში |
+
+🔒 **ხმა ერთხელაა არჩეული და აღარ იცვლება** (auto-memory `project_brand-voice-elevenlabs`).
+ალტერნატივა არ შესთავაზო, `search_voices` არჩევანისთვის არ გაუშვა.
 
 ## 2 · სტრუქტურა — 4 ბიტი
 
 | ბიტი | დრო | რა |
 |---|---|---|
-| **Hook** | 0–3წმ | ერთი განცხადება, რომელიც ეწინააღმდეგება მოლოდინს. ეკრანზე ტექსტი **პირველივე კადრიდან** |
-| **Proof** | 3–20წმ | ეკრანის ჩანაწერი ან ანიმაცია, რომელიც აჩვენებს |
+| **Hook** | 0–3წმ | ერთი განცხადება, რომელიც ეწინააღმდეგება მოლოდინს. ტექსტი **პირველივე კადრიდან** |
+| **Proof** | 3–20წმ | ეკრანის ჩანაწერი, რომელიც ამტკიცებს |
 | **Payoff** | 20–32წმ | წესი ერთი წინადადებით |
-| **End card** | ბოლო 3წმ | `Web2Wireframe` + `Figma Community` — **გაყინული კადრი** |
+| **End card** | ბოლო 3წმ | `Web2Wireframe` + `Free on Figma Community` — **გაყინული კადრი** |
 
 🔑 **Hook-ის პირველი კადრი ცარიელი არ იყოს.** Shorts-ზე 1.5 წამში წყვეტენ.
 
-## 3 · აწყობა
+## 3 · ხმა — ორი ნაბიჯი, არასდროს ერთი
+
+### 3.1 გენერაცია (გიორგი, ვებ-ინტერფეისით)
+
+🚫 **API-ით არ გამოვა.** უფასო ElevenLabs-ის გეგმა ბიბლიოთეკის ხმას API-ით ბლოკავს
+(`paid_plan_required`), UI-ში კი მუშაობს. ამიტომ:
+
+1. Claude წერს ყველა ხაზს **ერთ ბლოკად, ცარიელი ხაზებით გაყოფილს**.
+2. გიორგი ერთი გენერაციით აკეთებს ElevenLabs-ის საიტზე და mp3-ს აგდებს
+   `social-agent/01) video/development/_inbox/videos/`-ში.
+
+### 3.2 ჭრა (Claude) — მხოლოდ `/video-cleanup-voice`-ის რეცეპტით
+
+🚫 **`silencedetect`-ით არასდროს.** ამოსუნთქვა **−21 dB-საც აღწევს**, ანუ მეტყველებაზე
+ხმამაღალია — ხმის დონის ნებისმიერი ზღვარი მას ვერ დაიჭერს. (ორჯერ დავიწვი: 2026-09-20.)
 
 ```python
-import sys, tempfile
-sys.path.insert(0, "/Users/giorgi/Desktop/Web2Wireframe/scripts/video")
-from pathlib import Path
-from w2wkit import *
-
-DUR = 28.0
-rec = ScreenClip("recording.mov", fit="width")     # ffmpeg-ით კადრებად, ერთხელ
-TITLE = wrap_sprite("line-height: normal is not 1.2", FB, 72, WHITE, maxw=900)
-
-def frame(t):
-    base = new_frame()
-    if t < 3.2:
-        paste(base, TITLE, 540, 900, alpha=ease(seg(t, 0.0, 0.6)),
-              scale=lerp(0.96, 1.0, overshoot(seg(t, 0, 0.5))))
-    else:
-        rec.draw(base, t - 3.2, cy=860, zoom=lerp(1.0, 1.06, seg(t, 3.2, DUR)))
-        draw_caption(base, "The browser computes it from font metrics.", y=1560)
-    return base.convert("RGB")
-
-TMP = Path(tempfile.gettempdir()) / "short_silent.mp4"
-render(frame, TMP, dur=DUR)
-mix_sfx(TMP, "short-01.mp4", [("swoosh.mp3", 0.30, 0.40),
-                              ("popup.mp3",  3.25, 0.45)], dur=DUR + 0.05)
-TMP.unlink(missing_ok=True); rec.close()
+import sys; sys.path.insert(0, "/Users/giorgi/Desktop/Video/_tools")
+from clean_voice import envelope, breath_runs, onset, tail_end, SPEECH, MIN_AIR, FPS
+db, flat, dur = envelope(mp3)
+BR = breath_runs(db, flat)        # სპექტრული ბრტყელობა: flat > 0.3, ორივე მხრიდან სიჩუმე
 ```
 
-**წესები (npkit-იდან, ძვირად ნასწავლი):**
-- **ყოველთვის `ease`**, არასდროს linear. pop-ს `overshoot`
-- **ზუმი ან ≥5%-ია და მთელ ჰოლდზე გაწელილი, ან საერთოდ არაა.**
-  პატარა 1%-იანი ზუმები „კამერა ხელში უჭირავს" ეფექტს იძლევა — გიორგიმ ეს ერთხელ
-  უკვე დაიწუნა
-- ელემენტები **თანმიმდევრობით** (stagger 0.3–0.5წმ)
-- ტექსტი **ერთფეროვანი თეთრი** — ორ ფერად არა
-- **ბოლოს ≥0.5წმ გაყინული კადრი**
-- `_silent.mp4` **/tmp-ში**, ჩასაბარებელ საქაღალდეში არასდროს
+შემდეგ ფრაზის კლიპები (`onset` / `tail_end`), პაუზები **comma 8 · sentence 14 კადრი**.
+სრული რეცეპტი: `/video-cleanup-voice` + auto-memory `voice-cleaning-recipe`.
+სამუშაო მაგალითი: `done/01-website-to-figma/_materials/_build/build_cam_03.py` → `LINES`.
 
-გაშვება (PIL/numpy venv-ში):
+⚠️ **შემოწმება მხოლოდ სუფთა VO-ტრეკზე** — მიქსში SFX-ის კლიკს დეტექტორი ამოსუნთქვად თვლის.
+
+## 4 · აწყობა — `camkit`
+
+```python
+import sys; sys.path.insert(0, "/Users/giorgi/Desktop/Video/_tools")
+from camkit import Proj, rgb, WHITE
+
+P = Proj(proj_path)                        # ჩონჩხი = Camtasia-ს ნამდვილი JSON, width/height 1080/1920
+src = P.add_media(trec_path)               # .trec პირდაპირ ჯდება — გადაკოდირება არ სჭირდება
+t_screen = P.add_track("screen")
+m = P.video(t_screen, src, start, dur, mstart=…, crop=(l, t, r, b), scale=…, fade=0.18)
+P.anim(m, 0.0, dur, scale0=(s, s*1.06), scale1=(s, s*1.06))   # ნატიური Animation
+P.validate(); P.save()
+```
+
+**კადრირება:** `crop` წყაროს პიქსელებშია `(მარცხნიდან, ზემოდან, მარჯვნიდან, ქვემოდან)`,
+`scale = 1080 / ამონაჭრის_სიგანე`. ჰორიზონტალური ჩანაწერიდან ვერტიკალურ კადრს **მხოლოდ
+ამონაჭერი** იძლევა — მთელი ეკრანი ვერტიკალში არასდროს ეტევა.
+
+🔴 **ამონაჭერს ცენტრი ხელით უნდა დაუბრუნო.** `geometryCrop` მხოლოდ კიდეებს ჭრის —
+ნაჭერი **მედიის ძველ ცენტრზე რჩება გასწორებული** და კანვასის გარეთ გადის:
+
+```python
+dx, dy = (x + w/2) - SW/2, (y + h/2) - SH/2      # ამონაჭრის ცენტრი წყაროს ცენტრიდან
+tx, ty = -dx * scale, dy * scale                  # translation1 დადებითი = ზევით
+P.video(track, src, start, dur, x=tx, y=ty, crop=crop, scale=scale)
+P.anim(m, 0, dur, scale0=(s*z0, s*z1), scale1=(s*z0, s*z1),
+       translation0=(tx*z0, tx*z1), translation1=(ty*z0, ty*z1))   # ზუმისას ოფსეტიც იწელება
+```
+
+✅ **ციფრით შემოწმება ჩაბარებამდე:** ყოველი ამონაჭრის ცენტრი კანვასის ცენტრიდან (0,0).
+(2026-09-20: პირველი Camtasia-ს ვერსია სწორედ ამის გამო გავიდა კადრიდან.)
+
+**წესები (ძვირად ნასწავლი):**
+- **ერთ ტრეკზე კლიპები ვერ გადაიფარება** — ფირფიტა, ტექსტი, end card **ცალ-ცალკე ფენებზე**.
+  `P.validate()` ამას იჭერს; გაშვება ჩაწერამდე **სავალდებულოა**.
+- **ზუმი ან ≥5%-ია და მთელ ბიტზე გაწელილი, ან საერთოდ არაა.** 1%-იანი ზუმი „კამერა
+  ხელში უჭირავს" ეფექტს იძლევა — გიორგიმ ეს უკვე დაიწუნა.
+- **მოძრაობა ყოველთვის `P.anim()`-ით**, არა `P.keyframe()`-ით — მხოლოდ `anim` აჩენს
+  Animations-ის ისარს, ანუ გიორგი თაგვით ვერ შეცვლის.
+- **ჯგუფს keyframe არ უნდა ჰქონდეს** — ზუმი შვილებზე ითვლება.
+- ტექსტი **ერთფეროვანი თეთრი** — ორ ფერად არა.
+- **SFX-ის დრო = პიკის დრო**, არა ფაილის დასაწყისი: ყველას თავში სიჩუმეა
+  (`_assets/sound-effect/sfx-index.md`, `npkit.SFX` ცხრილი).
+
+## 5 · შემოწმება — გამოტოვება არ შეიძლება
+
 ```bash
-cd ~/Developer/video-use && uv run python /path/to/build_short_NN.py
+cd ~/Developer/video-use && uv run python ~/Desktop/Video/_tools/camkit.py --check "<proj>"
 ```
 
-## 4 · შემოწმება — გამოტოვება არ შეიძლება
+✅ `validate()` სუფთა · `--check` „იხსნება" · ხანგრძლივობა 20–40წმ ·
+ხმის ტრეკზე ამოსუნთქვა **0** (სუფთა VO-ტრეკზე გაზომილი)
 
-ვიდეოს ვერ ვუყურებ და ხმას ვერ ვისმენ. ციფრი და კონტაქტ-ფურცელი ერთადერთი მტკიცებულებაა.
+ვიდეოს ვერ ვუყურებ და ხმას ვერ ვისმენ — **ციფრი ერთადერთი მტკიცებულებაა.**
+თუ `.mp4`-იც დაგჭირდა შესადარებლად, კონტაქტ-ფურცელი აუცილებლად ნახე (`w2wkit.contact_sheet`).
 
-```python
-print(probe("short-01.mp4", "stream=width,height,r_frame_rate,pix_fmt"))
-print(probe("short-01.mp4", "format=duration"))
-print(probe("short-01.mp4", "stream=codec_name,sample_rate", "a:0"))
-contact_sheet("short-01.mp4", "sheet.png", every=1.5)   # → მერე Read-ით შეხედე
-```
-
-✅ 1080×1920 · 30fps · yuv420p · AAC 44100 · 20–40წმ ·
-კონტაქტ-ფურცელი **ნანახია** · წარწერა ყველა კადრზე იკითხება
-
-## 5 · ჩაბარება
+## 6 · ჩაბარება
 
 ### 🔴 ორი საქაღალდე — არ აურიო
 
 | სად | რა |
 |-----|-----|
-| `social-agent/01) video/development/` | **ყველაფერი მუშა:** ვერსიები, ხმები, შუალედები, build-სკრიპტები |
-| `social-agent/01) video/production/` | **მხოლოდ ასატვირთი** — და **მხოლოდ გიორგის დადასტურების შემდეგ** |
+| `social-agent/01) video/development/` | **ყველაფერი მუშა:** `.cmproj`, build-სკრიპტები, ვერსიები |
+| `social-agent/01) video/done/NN-<name>/outputs/` | **გამოქვეყნებულის ჩასაბარებელი** — მხოლოდ **მართლა გამოქვეყნების** შემდეგ (Buffer `status: sent`) |
 
-**`production/`-ში ვიდეოს ყოველთვის თან უნდა ახლდეს `title` და `description`.**
-ერთი `.mp4` + ერთი `.md` იმავე სახელით. ამის გარეშე ატვირთვა შეუძლებელია.
+- build-სკრიპტი + `.cmproj` → `development/NN-[video-name]/` (აქტიური ვიდეო):
+  `_materials/_build/` და `outputs/`
+- **გიორგის დახვეწის შემდეგ პროექტს ხელახლა არ ვაწყობთ** — მხოლოდ პატჩი, თორემ მისი
+  შესწორებები იშლება (Nicepage-ის იგივე წესი).
+- `outputs/`-ში ვიდეოს ყოველთვის თან ახლავს `title` და `description` — ერთი `.mp4` +
+  ერთი `.md` **იმავე სახელით**. `.cmproj`-საც იგივე სახელი აქვს, და მისი canvas/ხანგრძლივობა
+  `.mp4`-ს უნდა ემთხვეოდეს (იხ. `01) video/development/README.md` → წესი 2).
+- `SendUserFile`-ით გაუგზავნე + აუხსენი **იდეა**, არა ციფრები.
 
-🚫 **არასდროს ჩადო რამე `01) video/production/`-ში დადასტურების გარეშე.**
-
-- გეგმები, სცენარები, VO-ს ტექსტი → `social-agent/01) video/development/scripts/`
-- build-სკრიპტი + შუალედური რენდერები → `social-agent/01) video/development/shorts/<NN-slug>/`
-- ვერსიები `-v2`, `-v3` **იმავე საქაღალდეში**; არსებულ mp4-ს ადგილზე **ნუ გადააწერ**
-- `SendUserFile`-ით გაუგზავნე + აუხსენი **იდეა**, არა ციფრები
-- Buffer-ში YouTube-ის დაგეგმვა → `/social` ან `social-agent`
-
-## 6 · დასრულებისას
+## 7 · დასრულებისას
 
 ჩაწერე `FEEDBACK.md`-ში რა გააკეთე; გიორგი დაამატებს რა შეცვალა და **რატომ**.
 შემდეგი სესია იქიდან იწყებს.

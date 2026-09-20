@@ -24,6 +24,7 @@ import ImportReportModal, {
 import type { ImportWarning } from "../types";
 
 import ConnectFigma from "./components/ConnectFigma";
+import LicenseReadyGate from "./components/LicenseReadyGate";
 import {
   applyAuthToken,
   clearAuthToken,
@@ -33,6 +34,7 @@ import { API_BASE_URL } from "./shared/apiConfig";
 import { hasTransparentPixel } from "./shared/imageAlpha";
 import { mayHaveAlpha } from "./shared/figmaImageConvert";
 import { fitWithinFigmaLimit } from "../utils/figmaImageLimit";
+import { applyColorFilterToPixels, parseColorFilter } from "../rendering/cssFilter";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
 import { onImportTabRequest } from "./shared/importTabEvents";
@@ -42,6 +44,7 @@ import { onAuthExpired } from "./shared/authEvents";
 // Components
 import Footer from "./components/footer";
 import SubHeader from "./components/subHeader";
+import RebindBanner from "./components/rebindBanner/RebindBanner";
 
 // Import Config Context
 import {
@@ -146,7 +149,11 @@ function ConnectionGate() {
   // here — after Connect succeeded — so figmaUserId is reliably present.
   return (
     <LicenseProvider>
-      <AppContent />
+      {/* Same loading screen until the license is known, so the UI never
+          renders first-run content and then rearranges (see LicenseReadyGate). */}
+      <LicenseReadyGate fallback={<div class={styles.loadingScreen}>Loading…</div>}>
+        <AppContent />
+      </LicenseReadyGate>
     </LicenseProvider>
   );
 }
@@ -190,6 +197,13 @@ function AppContent() {
     Array<{ id: string; name: string; families: string[] }>
   >([]);
   const [isRebindOpen, setIsRebindOpen] = useState(false);
+  // Whether the user has acknowledged the current batch of substituted fonts —
+  // by dismissing the banner or by opening the modal. Drives both the banner
+  // and the footer icon's dot; the icon itself is driven by the count alone.
+  // Session-scoped on purpose (same as ExpiringSoonModal): the scan is live, so
+  // reopening the plugin on a file that still has pending fonts should say so
+  // again rather than stay quiet about work that is genuinely outstanding.
+  const [rebindSeen, setRebindSeen] = useState(false);
   // Re-apply run state: the modal stays open across the run, its button shows
   // a busy label while the sandbox walks nodes, and the outcome renders as an
   // inline banner (the toast alone was easy to miss once the modal closed).
@@ -290,7 +304,13 @@ function AppContent() {
       }
       if (!msg || msg.type !== "rebindable-count") return;
       const count = msg.data?.count;
-      if (typeof count === "number") setRebindableCount(count);
+      if (typeof count === "number") {
+        setRebindableCount(count);
+        // Every font re-applied (or the imported frames deleted) closes the
+        // episode, so the next batch announces itself again instead of
+        // arriving silently behind an already-dismissed banner.
+        if (count === 0) setRebindSeen(false);
+      }
       const families = msg.data?.families;
       if (Array.isArray(families)) {
         setRebindableFamilies(families.filter((f): f is string => typeof f === "string"));
@@ -348,7 +368,7 @@ function AppContent() {
       const msg = event.data?.pluginMessage;
       if (!msg || msg.type !== "convert-assets") return;
 
-      const assets: Array<{ url: string; dataUri: string }> = msg.data?.assets || [];
+      const assets: Array<{ url: string; dataUri: string; filter?: string }> = msg.data?.assets || [];
       if (assets.length === 0) {
         parent.postMessage({ pluginMessage: { type: "assets-converted", data: { convertedAssets: [] } } }, "*");
         return;
@@ -383,8 +403,17 @@ function AppContent() {
             if (!ctx) throw new Error("No 2d context");
             ctx.drawImage(img, 0, 0, width, height);
 
+            // CSS color filter (utils/filteredImages.ts): recolour the pixels
+            // with the paint math — a tainted canvas throws and the sandbox
+            // keeps the unfiltered image.
+            if (asset.filter) {
+              const imageData = ctx.getImageData(0, 0, width, height);
+              applyColorFilterToPixels(imageData.data, parseColorFilter(asset.filter));
+              ctx.putImageData(imageData, 0, 0);
+            }
+
             let needsPng = false;
-            if (mayHaveAlpha(asset.dataUri)) {
+            if (asset.filter || mayHaveAlpha(asset.dataUri)) {
               try {
                 const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
                 needsPng = hasTransparentPixel(rgba);
@@ -437,6 +466,22 @@ function AppContent() {
     }
   }, [setOpenSettingsCallback, openSettings]);
 
+  // The page holds substituted fonts the user has not acknowledged yet: show
+  // the banner and dot the footer icon. The icon alone survives acknowledgement
+  // — the work is still outstanding, it just no longer needs announcing.
+  const rebindNoticeVisible = rebindableCount > 0 && !rebindSeen;
+
+  // Shared by the footer icon and the banner's Re-apply button. Opens the info
+  // modal (install → select → re-apply); the modal's own button fires the
+  // actual `rebind-original-fonts` action.
+  const openRebindModal = useCallback(() => {
+    setRebindSeen(true);
+    setIsRebindOpen(true);
+    // The per-font "use instead" picker needs the families this Figma can
+    // offer; ask now so the list is there when the user expands one.
+    parent.postMessage({ pluginMessage: { type: "list-installed-fonts" } }, "*");
+  }, []);
+
   // Render import tab content
   const renderImportContent = () => {
     switch (importTab) {
@@ -470,6 +515,18 @@ function AppContent() {
         {renderImportContent()}
       </div>
 
+      {/* Substituted-font notice — docked above the footer rather than inside
+          it, so it owns the full window width. The count is the page-wide one:
+          a strip that changed its number as the user clicked around the canvas
+          would read as noise. */}
+      {rebindNoticeVisible && (
+        <RebindBanner
+          count={pageRebindableCount}
+          onReapply={openRebindModal}
+          onDismiss={() => setRebindSeen(true)}
+        />
+      )}
+
       {/* Footer Bar */}
       <Footer
         onSettingsClick={() => setIsSettingsOpen(true)}
@@ -480,20 +537,13 @@ function AppContent() {
           setIsExtensionOpen(true);
         }}
         showRebindFonts={rebindableCount > 0}
-        rebindFontsLabel={
-          selectionRebindableCount > 0 ? "Re-apply to selection" : "Re-apply fonts"
+        rebindUnseen={rebindNoticeVisible}
+        rebindAriaLabel={
+          selectionRebindableCount > 0
+            ? "Re-apply original fonts to selection"
+            : "Re-apply original fonts"
         }
-        onRebindFontsClick={() => {
-          // Opens the info modal (install → select → re-apply); the modal's
-          // own button fires the actual `rebind-original-fonts` action.
-          setIsRebindOpen(true);
-          // The per-font "use instead" picker needs the families this Figma
-          // can offer; ask now so the list is there when the user expands one.
-          parent.postMessage(
-            { pluginMessage: { type: "list-installed-fonts" } },
-            "*",
-          );
-        }}
+        onRebindFontsClick={openRebindModal}
       />
     </div>
 

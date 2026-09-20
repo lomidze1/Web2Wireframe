@@ -170,3 +170,37 @@ describe("enrichAllTextNodes — საავტორო ტექსტი fam
     expect(t.platformFont?.familyName).toBe("Inter");
   });
 });
+
+/**
+ * vaayu.tech (URL import 2026-09-18): the content script tags a host AFTER its
+ * children (post-order) and never tags the synthesized `__w2w-pseudo-*`
+ * wrappers. Counting pre-order gave every heading its nested `<em>`'s font —
+ * "Tobias Italic" — and nine upright headings rendered entirely in italic. The
+ * extension's walk was fixed on 2026-09-08; this is the same numbering.
+ */
+describe("enrichAllTextNodes — numbering matches the content script", () => {
+  const ITALIC = { familyName: "Tobias Italic", postScriptName: "Tobias_Regular_Italic", isCustomFont: true };
+  const UPRIGHT = { familyName: "Tobias", postScriptName: "Tobias_Regular", isCustomFont: true };
+
+  it("numbers a nested host before its parent (post-order)", () => {
+    const heading = textNode("Tobias");
+    const inEm = textNode("Tobias");
+    const root = frameNode([frameNode([heading, frameNode([inEm])])]);
+
+    enrichAllTextNodes(root, new Map([[0, ITALIC], [1, UPRIGHT]]));
+
+    expect(inEm.platformFont?.familyName).toBe("Tobias Italic");
+    expect(heading.platformFont?.familyName).toBe("Tobias");
+    expect(heading.font).toBe("Tobias");
+  });
+
+  it("skips synthesized pseudo-element wrappers, which carry no index", () => {
+    const pseudo = { ...frameNode([textNode("Inter")]), classList: ["__w2w-pseudo-before"] };
+    const label = textNode("Tobias");
+    const root = frameNode([pseudo, frameNode([label])]);
+
+    enrichAllTextNodes(root, new Map([[0, UPRIGHT]]));
+
+    expect(label.platformFont?.familyName).toBe("Tobias");
+  });
+});

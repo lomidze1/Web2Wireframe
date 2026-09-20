@@ -33,7 +33,10 @@ const ICON_FONT_PATTERNS = [
 export function isIconFont(fontFamily: string): boolean {
   if (!fontFamily) return false;
   const lower = fontFamily.toLowerCase().replace(/['"]/g, "").trim();
-  return ICON_FONT_PATTERNS.some(pattern => lower.includes(pattern));
+  if (ICON_FONT_PATTERNS.some(pattern => lower.includes(pattern))) return true;
+  // Site-specific icon fonts ("webflow-icons", "FFIcons", "my_icon_font"):
+  // a trailing "icons", or "icon" as its own word. Not "Lexicon"/"Iconic Sans".
+  return /icons$/.test(lower) || /(^|[\s_-])icons?($|[\s_-])/.test(lower);
 }
 
 /**
@@ -229,6 +232,7 @@ export function isUsableMeasuredFamily(family: string | undefined | null): famil
   // predates Unicode property escapes, so match ASCII letters plus every
   // non-ASCII script block (CJK, Cyrillic, Greek families are all valid).
   if (!/[A-Za-z\u00C0-\u024F\u0370-\uFFFF]/.test(trimmed)) return false;
+  if (CSS_FONT_KEYWORDS.has(trimmed.toLowerCase())) return false;
   return !isServerFallbackFamily(trimmed);
 }
 
@@ -239,6 +243,12 @@ export const CSS_FONT_KEYWORDS: ReadonlySet<string> = new Set([
   "unset",
   "revert",
   "revert-layer",
+  // Unset theme variables printed into CSS (crojungle.com: `font-family: false`).
+  "false",
+  "true",
+  "null",
+  "undefined",
+  "none",
 ]);
 
 /**
@@ -294,6 +304,86 @@ export function collectAllFonts(
   }
 
   return fonts;
+}
+
+// ============================================================================
+// CSS stack fallbacks
+// ============================================================================
+
+/**
+ * The first CSS `font-family` stack seen for each family (node and styled
+ * segments). Keyed by the stack's own family as the renderer names it.
+ */
+export function collectFontStacks(
+  frames: Array<{ tree: WireframeNode }>
+): Record<string, string[]> {
+  const stacks: Record<string, string[]> = {};
+  const note = (family: string | undefined, list: string[] | undefined): void => {
+    if (family && list && list.length > 1 && !stacks[family]) stacks[family] = list;
+  };
+
+  function walkNode(node: WireframeNode): void {
+    note(node.fontFamily, node.fontFamilyList);
+    if (node.styledSegments) {
+      for (const seg of node.styledSegments) note(seg.fontFamily, seg.fontFamilyList);
+    }
+    if (node.children) {
+      for (const child of node.children) walkNode(child);
+    }
+  }
+
+  for (const frame of frames) {
+    if (frame.tree) walkNode(frame.tree);
+  }
+  return stacks;
+}
+
+/** An installed stand-in for a CSS generic family, or undefined. */
+export function genericFallbackFamily(name: string): string | undefined {
+  switch (name.trim().toLowerCase()) {
+    case "sans-serif":
+    case "system-ui":
+    case "ui-sans-serif":
+    case "ui-rounded":
+      return "Inter";
+    case "serif":
+    case "ui-serif":
+      return "Georgia";
+    case "monospace":
+    case "ui-monospace":
+      return "Courier";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * For each missing family, the substitute its own CSS stack names: the first
+ * later entry that is installed, or the stand-in for a generic. Families whose
+ * stack offers neither are left out, so the caller's default applies.
+ */
+export function resolveStackFallbacks(
+  missingFonts: string[],
+  stacks: Record<string, string[]>,
+  installedFamilies: Set<string>
+): FontMapping {
+  const out: FontMapping = {};
+  for (const font of missingFonts) {
+    const stack = stacks[font];
+    if (!stack) continue;
+    for (const entry of stack.slice(stack.indexOf(font) + 1)) {
+      if (installedFamilies.has(entry)) {
+        out[font] = entry;
+        break;
+      }
+      const generic = genericFallbackFamily(entry);
+      if (generic) {
+        out[font] = generic;
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 // ============================================================================
@@ -641,13 +731,16 @@ export async function checkFontsAvailability(
 
 /**
  * Create smart default mapping for missing fonts.
+ * - Icon font → itself
+ * - The page's own CSS stack names an installed substitute → that
  * - Font name contains "serif" (not "sans") → Georgia
  * - Font name contains "mono" → Courier
  * - Otherwise → pluginFont
  */
 export function buildDefaultFontMapping(
   missingFonts: string[],
-  pluginFont: string
+  pluginFont: string,
+  stackFallbacks: FontMapping = {}
 ): FontMapping {
   const mapping: FontMapping = {};
 
@@ -655,6 +748,11 @@ export function buildDefaultFontMapping(
     // Icon fonts: identity mapping — preserve original font for Unicode glyphs
     if (isIconFont(font)) {
       mapping[font] = font;
+      continue;
+    }
+
+    if (stackFallbacks[font]) {
+      mapping[font] = stackFallbacks[font];
       continue;
     }
 
@@ -1019,7 +1117,8 @@ export function buildFontsNotAvailableMessage(
   missingFonts: string[],
   pluginFont: string,
   pluginFontOptions: string[],
-  missingCuts?: Record<string, FontCut[]>
+  missingCuts?: Record<string, FontCut[]>,
+  stackFallbacks?: FontMapping
 ): {
   type: "fonts-not-available";
   data: {
@@ -1033,7 +1132,7 @@ export function buildFontsNotAvailableMessage(
     missingCuts?: Record<string, FontCut[]>;
   };
 } {
-  const defaultMapping = buildDefaultFontMapping(missingFonts, pluginFont);
+  const defaultMapping = buildDefaultFontMapping(missingFonts, pluginFont, stackFallbacks);
 
   return {
     type: "fonts-not-available",
@@ -1097,7 +1196,9 @@ export function parseFontSrcUrls(src: string): string[] {
   // run when no wrapped URLs were found, so we don't double-emit on
   // standard CSS input.
   if (urls.length === 0) {
-    const bareRegex = /https?:\/\/[^\s'"),]+/g;
+    // Stops at a glued `format(` / `tech(` descriptor (minified CSS) — keep
+    // in sync with @w2w/shared extractUrlsFromSrc.
+    const bareRegex = /https?:\/\/(?:(?!(?:format|tech)\()[^\s'"),])+/gi;
     while ((match = bareRegex.exec(src)) !== null) {
       urls.push(match[0]);
     }

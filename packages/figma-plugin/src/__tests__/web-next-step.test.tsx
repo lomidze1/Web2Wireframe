@@ -75,7 +75,13 @@ vi.mock("../ui/shared/licenseClient", async (importOriginal) => {
   return { ...actual, authHeader: () => "Bearer test-token" };
 });
 
-vi.mock("../ui/components/settingsPanel", () => ({ default: () => null }));
+const panelProps: { current: any } = { current: null };
+vi.mock("../ui/components/settingsPanel", () => ({
+  default: (props: any) => {
+    panelProps.current = props;
+    return null;
+  },
+}));
 
 const loaderProps: { current: any } = { current: null };
 vi.mock("../ui/components/renderingLoader/RenderingLoader", () => ({
@@ -146,6 +152,8 @@ async function completeImport(container: Element, postSpy: any, renders = 1) {
 
 beforeEach(() => {
   loaderProps.current = null;
+  panelProps.current = null;
+  settingsMock.isExpanded = false;
   licenseState.current = { refresh: vi.fn(), license: null, isLoading: false, error: null };
   vi.clearAllMocks();
 });
@@ -262,7 +270,32 @@ describe("Web tab — next-step actions", () => {
 
     expect(settingsMock.setColorMode).not.toHaveBeenCalled();
     expect(settingsMock.setFontMode).not.toHaveBeenCalled();
+    expect(settingsMock.setTextMode).not.toHaveBeenCalled();
     expect(settingsMock.setAssetMode).not.toHaveBeenCalled();
+  });
+
+  it("imports the mobile version in the user's own style after a wireframe re-import", async () => {
+    // Owner-reported: import → Try wireframe style → Import mobile version
+    // came out wireframe-styled. Mobile means "the same import, narrower" —
+    // the one-off wireframe style must not carry over.
+    const fetchMock = vi.fn().mockResolvedValue(successResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const postSpy = vi.spyOn(parent, "postMessage");
+    const { container } = render(<Web />);
+    await completeImport(container, postSpy);
+
+    fireEvent.click(button(container, /wireframe style/i)!);
+    await completeImport(container, postSpy, 2);
+
+    fireEvent.click(button(container, /mobile version/i)!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(body.sourceUrl).toBe(TARGET_URL);
+    expect(body.viewports).toEqual([375]);
+    expect(body.colorMode).toBe("website");
+    expect(body.typographyMode).toBe("website");
+    expect(body.assetMode).toBe("realAssets");
   });
 
   it("prefills the site's home page for another page, without importing", async () => {
@@ -292,6 +325,154 @@ describe("Web tab — next-step actions", () => {
     });
 
     expect(urlInput(container).value).toBe("https://stripe.com/");
+  });
+});
+
+const STYLE_BUTTON = /wireframe style|low-fi sketch|smart placeholder text/i;
+
+describe("Web tab — style ladder", () => {
+  it("offers only the wireframe style right after the first import", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(successResponse()));
+    const postSpy = vi.spyOn(parent, "postMessage");
+    const { container } = render(<Web />);
+    await completeImport(container, postSpy);
+
+    expect(button(container, /wireframe style/i)).toBeTruthy();
+    expect(button(container, /choose yourself/i)).toBeUndefined();
+  });
+
+  it("offers the low-fi sketch after the wireframe style", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(successResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const postSpy = vi.spyOn(parent, "postMessage");
+    const { container } = render(<Web />);
+    await completeImport(container, postSpy);
+
+    fireEvent.click(button(container, /wireframe style/i)!);
+    await completeImport(container, postSpy, 2);
+
+    expect(button(container, /wireframe style/i)).toBeUndefined();
+    expect(button(container, /choose yourself/i)).toBeTruthy();
+    fireEvent.click(button(container, /low-fi sketch/i)!);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1].body);
+    expect(body.sourceUrl).toBe(TARGET_URL);
+    expect(body.colorMode).toBe("plugin");
+    expect(body.typographyMode).toBe("lines");
+    expect(body.textMode).toBe("website");
+    expect(body.assetMode).toBe("placeholders");
+  });
+
+  it("offers smart placeholder text after the sketch, then only Choose yourself", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(successResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const postSpy = vi.spyOn(parent, "postMessage");
+    const { container } = render(<Web />);
+    await completeImport(container, postSpy);
+
+    fireEvent.click(button(container, /wireframe style/i)!);
+    await completeImport(container, postSpy, 2);
+    fireEvent.click(button(container, /low-fi sketch/i)!);
+    await completeImport(container, postSpy, 3);
+
+    fireEvent.click(button(container, /smart placeholder text/i)!);
+    await completeImport(container, postSpy, 4);
+
+    const body = JSON.parse(fetchMock.mock.calls[3][1].body);
+    expect(body.colorMode).toBe("plugin");
+    expect(body.typographyMode).toBe("plugin");
+    expect(body.textMode).toBe("semantic");
+    expect(body.assetMode).toBe("placeholders");
+    expect(renderCalls(postSpy)[3][0].pluginMessage.data.textMode).toBe("semantic");
+
+    expect(button(container, STYLE_BUTTON)).toBeUndefined();
+    expect(button(container, /pick your own settings/i)).toBeTruthy();
+    expect(settingsMock.setTextMode).not.toHaveBeenCalled();
+  });
+
+  it("starts the ladder over for a new import from the form", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(successResponse()));
+    const postSpy = vi.spyOn(parent, "postMessage");
+    const { container } = render(<Web />);
+    await completeImport(container, postSpy);
+    fireEvent.click(button(container, /wireframe style/i)!);
+    await completeImport(container, postSpy, 2);
+    expect(button(container, /low-fi sketch/i)).toBeTruthy();
+
+    fireEvent.input(urlInput(container), { target: { value: "https://linear.app" } });
+    fireEvent.click(button(container, /^Import$/)!);
+    await completeImport(container, postSpy, 3);
+
+    expect(button(container, /wireframe style/i)).toBeTruthy();
+  });
+
+  it("scrolls to the options again when they are already open", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(successResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const postSpy = vi.spyOn(parent, "postMessage");
+    const { container } = render(<Web />);
+    await completeImport(container, postSpy);
+    fireEvent.click(button(container, /wireframe style/i)!);
+    await completeImport(container, postSpy, 2);
+
+    settingsMock.isExpanded = true;
+    const before = panelProps.current.scrollRequest ?? 0;
+    fireEvent.click(button(container, /choose yourself/i)!);
+
+    expect(settingsMock.toggleExpanded).not.toHaveBeenCalled();
+    expect(panelProps.current.scrollRequest).toBe(before + 1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens More Options from Choose yourself without importing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(successResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const postSpy = vi.spyOn(parent, "postMessage");
+    const { container } = render(<Web />);
+    await completeImport(container, postSpy);
+    fireEvent.click(button(container, /wireframe style/i)!);
+    await completeImport(container, postSpy, 2);
+
+    fireEvent.click(button(container, /choose yourself/i)!);
+
+    expect(settingsMock.toggleExpanded).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Web tab — first-run instructions", () => {
+  const STEPS = /Paste a website URL/;
+
+  it("shows the three steps to someone who has not imported yet", () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const { container } = render(<Web />);
+    expect(container.textContent).toMatch(STEPS);
+    expect(container.textContent).toMatch(/Website URL/);
+  });
+
+  it("hides the steps after the first import, even once the card is dismissed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(successResponse()));
+    const postSpy = vi.spyOn(parent, "postMessage");
+    const { container } = render(<Web />);
+    await completeImport(container, postSpy);
+    expect(container.textContent).not.toMatch(STEPS);
+
+    const dismiss = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.getAttribute("aria-label") === "Dismiss suggestions"
+    ) as HTMLButtonElement;
+    fireEvent.click(dismiss);
+
+    expect(container.textContent).not.toMatch(STEPS);
+    // The field keeps its label — only the how-to steps go.
+    expect(container.textContent).toMatch(/Website URL/);
+  });
+
+  it("hides the steps from a returning user who already imported this month", () => {
+    licenseState.current = { refresh: vi.fn(), license: freeLicense(3), isLoading: false, error: null };
+    vi.stubGlobal("fetch", vi.fn());
+    const { container } = render(<Web />);
+    expect(container.textContent).not.toMatch(STEPS);
   });
 });
 
