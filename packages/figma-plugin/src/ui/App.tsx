@@ -45,6 +45,7 @@ import { onAuthExpired } from "./shared/authEvents";
 import Footer from "./components/footer";
 import SubHeader from "./components/subHeader";
 import RebindBanner from "./components/rebindBanner/RebindBanner";
+import ContrastCard, { type ContrastInfo } from "./components/contrastCard/ContrastCard";
 
 // Import Config Context
 import {
@@ -256,6 +257,29 @@ function AppContent() {
           : undefined,
       );
       setIsImportReportOpen(warnings.length > 0);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  // Post-import WCAG AA count (main.ts posts `contrast-audit` after the
+  // report). Every import sends one, so a clean import clears the card.
+  const [contrast, setContrast] = useState<ContrastInfo | null>(null);
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data?.pluginMessage;
+      if (!msg || msg.type !== "contrast-audit") return;
+      const d = msg.data ?? {};
+      setContrast(
+        typeof d.issues === "number" && typeof d.styles === "number"
+          ? {
+              issues: d.issues,
+              styles: d.styles,
+              colors: typeof d.colors === "number" ? d.colors : 0,
+              capped: d.capped === true,
+            }
+          : null,
+      );
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -525,6 +549,10 @@ function AppContent() {
           onReapply={openRebindModal}
           onDismiss={() => setRebindSeen(true)}
         />
+      )}
+
+      {contrast && (
+        <ContrastCard result={contrast} onDismiss={() => setContrast(null)} />
       )}
 
       {/* Footer Bar */}

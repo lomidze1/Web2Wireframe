@@ -15,6 +15,7 @@ import Signin from "./pages/Signin/Signin";
 import Renew from "./pages/Renew/Renew";
 import LandingPage from "./pages/Landing/LandingPage";
 import Go from "./pages/Go/Go";
+import A11yFix, { A11Y_FIX_THANKS_PATH } from "./pages/A11yFix/A11yFix";
 import { landingPages } from "./pages/Landing/landingData";
 import { docsNavigation } from "./pages/Docs/data/docsStructure";
 
@@ -69,6 +70,9 @@ export default function AppRoutes(): ReactElement {
       <Route path="/account" element={<Account />} />
       <Route path="/signin" element={<Signin />} />
       <Route path="/renew" element={<Renew />} />
+      {/* Fake door for the plugin's contrast fix — static paths outrank :source. */}
+      <Route path="/go/a11y-fix" element={<A11yFix />} />
+      <Route path={A11Y_FIX_THANKS_PATH} element={<A11yFix submitted />} />
       <Route path="/go/:source" element={<Go />} />
     </Routes>
   );
