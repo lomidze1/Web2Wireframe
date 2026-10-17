@@ -158,7 +158,7 @@ describe("POST /api/extension-session/redeem", () => {
     expect(res.body.figmaUserId).toBe("u-1");
     expect(res.body.email).toBe("u1@example.com");
     expect(res.body.license.plan).toBe("free");
-    expect(res.body.license.limits.imports).toBe(10);
+    expect(res.body.license.limits.imports).toBe(3);
     // expiresAt should be ~30 days in the future.
     const expiresMs = new Date(res.body.expiresAt).getTime() - Date.now();
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;

@@ -68,7 +68,7 @@ const HTML_TO_FIGMA: LandingContent = {
   lead: "Paste the markup and the styles. The plugin reads them as a document — sections, rows, columns, the flex and grid rules holding them together — and lands the result in Figma as named, nested, editable frames.",
   seoTitle: "HTML to Figma — Import HTML and CSS as Editable Layers",
   seoDescription:
-    "Paste HTML and CSS into Figma and get editable frames, real text layers and auto layout — not a flat image. Works for local builds, components and pages behind a login. 10 free imports a month.",
+    "Paste HTML and CSS into Figma and get editable frames, real text layers and auto layout — not a flat image. Works for local builds, components and pages behind a login. 3 free imports a month.",
   breadcrumb: "HTML to Figma",
   intro: {
     title: "When you already have the code",
@@ -157,7 +157,7 @@ const HTML_TO_FIGMA: LandingContent = {
     {
       question: "How much does HTML import cost?",
       answer:
-        "The free plan includes 10 imports a month with every setting unlocked. Pro removes the monthly limit at $16 for 30 days or $144 for a year.",
+        "The free plan includes 3 imports a month with every setting unlocked. Pro removes the monthly limit at $16 for 30 days or $144 for a year.",
     },
   ],
   related: [
@@ -191,7 +191,7 @@ const WEBSITE_TO_FIGMA: LandingContent = {
   lead: "Paste a URL. The page comes back as named, nested Figma frames — real text, real colours, auto layout where the site used flexbox or grid — at every viewport width you asked for, in a single run.",
   seoTitle: "Website to Figma — Convert Any URL Into Editable Frames",
   seoDescription:
-    "Paste a website URL and get editable Figma frames with real text, auto layout and your chosen viewports — desktop, tablet and mobile in one import. 10 free imports a month.",
+    "Paste a website URL and get editable Figma frames with real text, auto layout and your chosen viewports — desktop, tablet and mobile in one import. 3 free imports a month.",
   breadcrumb: "Website to Figma",
   intro: {
     title: "One paste, every width you design for",
@@ -319,7 +319,7 @@ const SCREENSHOT_TO_FIGMA: LandingContent = {
   lead: "Drop in an image and it is parsed into structured frames — sections, rows, real text layers — rather than placed as a flat picture. For everything a URL cannot reach.",
   seoTitle: "Screenshot to Figma — Convert an Image Into Editable Layers",
   seoDescription:
-    "Drop a screenshot into Figma and get parsed frames and editable text layers instead of a flat image. For pages behind a login, a paywall or a checkout. 10 free imports a month.",
+    "Drop a screenshot into Figma and get parsed frames and editable text layers instead of a flat image. For pages behind a login, a paywall or a checkout. 3 free imports a month.",
   breadcrumb: "Screenshot to Figma",
   intro: {
     title: "For the pages a URL can't reach",

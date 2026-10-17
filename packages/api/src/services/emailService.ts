@@ -371,7 +371,7 @@ export const generateExpiryReminderHtml = (data: {
         </div>
         <p>Your Pro access ends on <strong>${escapeHtml(
           data.expiresAt,
-        )}</strong>. After that your account returns to the Free plan (10 imports per month).</p>
+        )}</strong>. After that your account returns to the Free plan (3 imports per month).</p>
         <p>Renew for ${priceLabel} to keep unlimited imports for another ${cycleLabel}.</p>
         <p><a class="cta" href="${escapeHtml(data.renewUrl)}">Renew Pro — ${priceLabel}</a></p>
         <p class="meta">One-time payment — you're only charged when you choose to renew.</p>
@@ -396,7 +396,7 @@ export const generateExpiryReminderText = (data: {
   return `
 Your Web2Wireframe Pro access is about to expire.
 
-Your Pro access ends on ${data.expiresAt}. After that your account returns to the Free plan (10 imports per month).
+Your Pro access ends on ${data.expiresAt}. After that your account returns to the Free plan (3 imports per month).
 
 Renew for ${priceLabel} to keep unlimited imports for another ${cycleLabel}:
 ${data.renewUrl}
@@ -711,7 +711,7 @@ export const generateRefundNotificationHtml = (data: {
         <div class="header">
           <h2>Your Pro purchase was refunded</h2>
         </div>
-        <p>Your Web2Wireframe Pro purchase has been refunded by your bank or by Flitt. Your account is now on the Free plan (10 imports per month).</p>
+        <p>Your Web2Wireframe Pro purchase has been refunded by your bank or by Flitt. Your account is now on the Free plan (3 imports per month).</p>
         <p>If you didn't request this refund, it may have been issued automatically due to a chargeback. Please reach out to <a href="mailto:billing@web2wireframe.design">billing@web2wireframe.design</a> if you have questions or want to re-subscribe.</p>
         <div class="footer">
           <p>You're receiving this because Pro access was linked to ${escapeHtml(
@@ -730,7 +730,7 @@ export const generateRefundNotificationText = (data: {
   return `
 Your Web2Wireframe Pro purchase has been refunded.
 
-Your account is now on the Free plan (10 imports per month).
+Your account is now on the Free plan (3 imports per month).
 
 If you didn't request this refund, it may have been issued automatically due to a chargeback. Please reach out to billing@web2wireframe.design if you have questions or want to re-subscribe.
 

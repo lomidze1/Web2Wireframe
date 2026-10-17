@@ -14,7 +14,7 @@ export interface Usage {
   limit: number | null;
 }
 
-const FREE_LIMIT = 10;
+const FREE_LIMIT = 3;
 
 export function getInitials(email: string | null): string {
   const local = (email ?? "").split("@")[0].trim();

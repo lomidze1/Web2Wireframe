@@ -158,7 +158,7 @@ const SUPPORT_FAQ = [
   {
     question: "How many imports do I get on the Free plan?",
     answer:
-      "Free users get 10 imports per month. The counter resets monthly.",
+      "Free users get 3 imports per month. The counter resets monthly.",
   },
   {
     question: "What's the difference between Pro Monthly and Pro Yearly?",
@@ -206,7 +206,7 @@ export const seoConfig: Record<string, SeoConfig> = {
   "/pricing": {
     title: "Pricing — Web2Wireframe Free & Pro Plans",
     description:
-      "Free plan: 10 imports per month. Pro Monthly: $16 (30 days). Pro Yearly: $144 (365 days, save 25%). Unlimited imports, full colors, fonts, and styles.",
+      "Free plan: 3 imports per month. Pro Monthly: $16 (30 days). Pro Yearly: $144 (365 days, save 25%). Unlimited imports, full colors, fonts, and styles.",
     canonical: `${SITE_URL}/pricing`,
     ogType: "product",
     jsonLd: [

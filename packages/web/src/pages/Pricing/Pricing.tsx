@@ -9,7 +9,7 @@ import styles from "./Pricing.module.scss";
 type ProTier = "monthly" | "yearly";
 
 const FREE_FEATURES = [
-  "10 imports per month",
+  "3 imports per month",
   "URL, screenshot, HTML/CSS and area select",
   "All viewports, colours, fonts and text modes",
   "Real assets, Figma variables, hover states",
@@ -25,7 +25,7 @@ const PRO_FEATURES = [
 ];
 
 const COMPARE_ROWS = [
-  { feature: "Imports per month", free: "10", pro: "Unlimited" },
+  { feature: "Imports per month", free: "3", pro: "Unlimited" },
   { feature: "URL, screenshot, HTML/CSS, area select", free: "All four", pro: "All four" },
   { feature: "Viewports", free: "Full access", pro: "Full access" },
   { feature: "Layout mode, text and asset modes", free: "Full access", pro: "Full access" },

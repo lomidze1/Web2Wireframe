@@ -46,8 +46,8 @@ export default function QuotaExceededModal({
         </div>
         <div class={styles.modalContent}>
           <div class={styles.planNotice}>
-            You've used all 10 free imports this month. Upgrade to Pro for 30
-            days of unlimited imports.
+            You've used all 3 free imports this month. The Free plan now includes
+            3 imports a month — upgrade to Pro for 30 days of unlimited imports.
           </div>
           <div class={styles.planSummary}>
             <span class={styles.planLabel}>Pro</span>

@@ -24,8 +24,8 @@ describe("chip label", () => {
     expect(getChipLabel("free", { imports: 0, limit: 10 })).toBe("0/10");
   });
 
-  it("defaults a missing limit to 10 on free", () => {
-    expect(getChipLabel("free", { imports: 3, limit: null })).toBe("3/10");
+  it("defaults a missing limit to 3 on free", () => {
+    expect(getChipLabel("free", { imports: 2, limit: null })).toBe("2/3");
   });
 
   it("shows PRO on the pro plan", () => {

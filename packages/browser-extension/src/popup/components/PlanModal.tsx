@@ -312,7 +312,7 @@ function UnpairedView({
       <div class="plan-meta">
         <div class="plan-meta-row">
           <span>Usage</span>
-          <span class="plan-meta-value">0/10 imports this month</span>
+          <span class="plan-meta-value">0/3 imports this month</span>
         </div>
       </div>
 

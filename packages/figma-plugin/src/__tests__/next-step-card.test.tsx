@@ -25,7 +25,7 @@ const SNAPSHOT: ImportSnapshot = {
 
 const WIREFRAME = { label: "✏️ Try wireframe style" };
 
-const finite = (remaining: number, limit = 10): QuotaInfo => ({
+const finite = (remaining: number, limit = 3): QuotaInfo => ({
   unlimited: false,
   remaining,
   limit,
@@ -161,7 +161,7 @@ describe("NextStepCard — free allowance", () => {
 
   it("drops the importing actions once the allowance is used up", () => {
     const { container, button } = setup({ quota: finite(0) });
-    expect(container.textContent).toMatch(/You've used all 10 free imports this month/);
+    expect(container.textContent).toMatch(/You've used all 3 free imports this month/);
     expect(button(/mobile version/i)).toBeUndefined();
     expect(button(/wireframe style/i)).toBeUndefined();
     expect(button(/another page/i)).toBeTruthy();

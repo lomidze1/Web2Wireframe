@@ -176,7 +176,7 @@ const Home = (): ReactElement => {
           <div className={styles.planRows}>
             <div className={styles.planRow}>
               <span className={styles.planName}>Free</span>
-              <span className={styles.planValue}>10 imports / month</span>
+              <span className={styles.planValue}>3 imports / month</span>
             </div>
             <div className={styles.planRow}>
               <span className={styles.planName}>Pro</span>

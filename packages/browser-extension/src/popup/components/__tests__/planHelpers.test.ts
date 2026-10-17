@@ -35,7 +35,7 @@ function fakeLicense(overrides: Partial<License> = {}): License {
     cycleStartedAt: "2026-05-01T00:00:00.000Z",
     cycleEndsAt: "2026-06-01T00:00:00.000Z",
     usage: { imports: 0, periodStartedAt: "2026-05-01T00:00:00.000Z" },
-    limits: { imports: 10 },
+    limits: { imports: 3 },
     subscription: null,
     createdAt: "2026-05-01T00:00:00.000Z",
     updatedAt: "2026-05-01T00:00:00.000Z",
@@ -151,10 +151,10 @@ describe("planLabel", () => {
 // ---------------------------------------------------------------------------
 
 describe("limitText", () => {
-  it("formats the free quota as 'N/10 imports this month'", () => {
+  it("formats the free quota as 'N/3 imports this month'", () => {
     expect(
-      limitText(fakeLicense({ usage: { imports: 3, periodStartedAt: "" } })),
-    ).toBe("3/10 imports this month");
+      limitText(fakeLicense({ usage: { imports: 2, periodStartedAt: "" } })),
+    ).toBe("2/3 imports this month");
   });
 
   it("formats the pro plan as 'N imports this cycle (unlimited)'", () => {
@@ -181,10 +181,10 @@ describe("usagePillText", () => {
     expect(usagePillText(null)).toBeNull();
   });
 
-  it("returns 'N/10 imports per month' for a free license with N imports used", () => {
+  it("returns 'N/3 imports per month' for a free license with N imports used", () => {
     expect(
-      usagePillText(fakeLicense({ usage: { imports: 3, periodStartedAt: "" } })),
-    ).toBe("3/10 imports per month");
+      usagePillText(fakeLicense({ usage: { imports: 2, periodStartedAt: "" } })),
+    ).toBe("2/3 imports per month");
   });
 
   it("returns 'Pro' for a pro license regardless of usage", () => {
