@@ -1247,22 +1247,6 @@ export default function () {
           },
         });
 
-        // Read-only WCAG AA count for the "Fix all via styles — Pro" card.
-        // Best-effort: a failed audit must never taint a successful import.
-        try {
-          const { auditTextContrast } = await import("./rendering/contrastAudit");
-          const texts = createdFrames.flatMap((f) =>
-            f.findAllWithCriteria({ types: ["TEXT"] }),
-          );
-          const contrast = perf.timedSync("contrastAudit", () => auditTextContrast(texts));
-          logger.info("Contrast audit", { texts: texts.length, ...contrast });
-          figma.ui.postMessage({ type: "contrast-audit", data: contrast });
-        } catch (err) {
-          logger.warn("Contrast audit failed", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
         // Dev profiler: one table per import, out through the dev-log bridge.
         // Gated at the call site so the `[w2w-perf]` sentinel never reaches a
         // production bundle (scripts/build-prod.mjs greps for it).
