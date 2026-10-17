@@ -139,8 +139,8 @@ const Terms = (): ReactElement => {
         content: (
           <>
             <p>
-              The Free plan includes 10 imports per month with full access to
-              all import features. Once you reach 10 imports in a monthly cycle,
+              The Free plan includes 3 imports per month with full access to
+              all import features. Once you reach 3 imports in a monthly cycle,
               further imports are blocked until your counter resets at the start
               of the next cycle, or until you upgrade to Pro (which includes
               unlimited imports). Support on the Free plan is provided through

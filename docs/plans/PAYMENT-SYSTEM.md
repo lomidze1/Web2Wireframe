@@ -84,13 +84,13 @@ Build a complete payment, subscription, and licensing system for the Web2Wirefra
 
 ### 2.9 Trial Period
 
-- **No trial.** Free tier IS the trial: 10 imports/month forever.
+- **No trial.** Free tier IS the trial: 3 imports/month (10 → 3 experiment, 2026-10-17 → 2026-11-16; see `docs/growth/METRICS.md`).
 - Plan transitions: `free` → `pro` (after Flitt checkout webhook approves).
 
 ### 2.10 Quota-Exceeded UX
 
 - **Hard block** when Free user hits 10/10.
-- Modal: *"You've used 10/10 free imports this month. Upgrade to Pro for unlimited imports."*
+- Modal: *"You've used all 3 free imports this month. The Free plan now includes 3 imports a month. Upgrade to Pro for unlimited imports."*
 - Two CTAs: `Get Pro` (→ Flitt checkout) and `Maybe later` (closes modal).
 
 ### 2.11 Admin Tooling
@@ -286,7 +286,7 @@ LicenseSchema.index({ cycleEndsAt: 1 });
 // packages/api/src/services/licenseService.ts
 
 export const PLAN_LIMITS = {
-  free: { imports: 10 },
+  free: { imports: 3 }, // experiment 2026-10-17 → 2026-11-16, was 10
   pro:  { imports: Infinity },
 } as const;
 

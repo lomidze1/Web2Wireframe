@@ -37,7 +37,7 @@ function fakeLicense(overrides: Partial<License> = {}): License {
     cycleStartedAt: "2026-05-01T00:00:00.000Z",
     cycleEndsAt: "2026-06-01T00:00:00.000Z",
     usage: { imports: 0, periodStartedAt: "2026-05-01T00:00:00.000Z" },
-    limits: { imports: 10 },
+    limits: { imports: 3 },
     subscription: null,
     createdAt: "2026-05-01T00:00:00.000Z",
     updatedAt: "2026-05-01T00:00:00.000Z",
@@ -79,13 +79,13 @@ describe("Footer usage pill", () => {
   it("shows a real count once a free license is loaded", () => {
     mount({
       license: fakeLicense({
-        usage: { imports: 3, periodStartedAt: "2026-05-01T00:00:00.000Z" },
+        usage: { imports: 2, periodStartedAt: "2026-05-01T00:00:00.000Z" },
       }),
       session: fakeSession,
     });
 
     const pill = container.querySelector(".usage-pill");
-    expect(pill?.textContent).toBe("3/10 imports per month");
+    expect(pill?.textContent).toBe("2/3 imports per month");
   });
 
   it("shows 'Pro' for a pro license", () => {

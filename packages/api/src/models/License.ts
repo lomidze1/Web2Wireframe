@@ -80,9 +80,13 @@ export function getRenewalWindowMs(duration: ProDuration): number {
     : RENEWAL_WINDOW_MS_MONTHLY;
 }
 
-/** Per-plan import limits. Pro is unlimited. */
+/**
+ * Per-plan import limits. Pro is unlimited.
+ * Free = 3 is a 30-day pricing experiment (2026-10-17 → 2026-11-16); was 10.
+ * See docs/growth/METRICS.md → "ექსპერიმენტი: უფასო ლიმიტი 3".
+ */
 export const PLAN_LIMITS = {
-  free: { imports: 10 },
+  free: { imports: 3 },
   pro: { imports: Number.POSITIVE_INFINITY },
 } as const;
 

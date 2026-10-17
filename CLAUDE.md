@@ -289,7 +289,7 @@ Stripe/Paddle/LemonSqueezy/Polar/Chargebee **არასოდეს** ვა�
 
 | Plan | Imports | USD | Cycle |
 |------|---------|-----|-------|
-| Free | 10 / month | $0 | — |
+| Free | **3** / month (ექსპერიმენტი 2026-10-17 → 2026-11-16; იყო 10) | $0 | — |
 | Pro Monthly | unlimited | $16 | 30 days |
 | Pro Yearly | unlimited | $144 | 365 days (25% off) |
 

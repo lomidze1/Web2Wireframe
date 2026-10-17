@@ -44,7 +44,7 @@ function deriveLabel(license: License | null): PlanLabel {
     };
   }
   const used = license.usage.imports;
-  const limit = license.limits.imports ?? 10;
+  const limit = license.limits.imports ?? 3;
   const remaining = Math.max(0, limit - used);
   return {
     text: `${used}/${limit}`,

@@ -15,8 +15,8 @@ import {
 // ============================================================================
 
 describe("License constants", () => {
-  it("PLAN_LIMITS.free.imports = 10", () => {
-    expect(PLAN_LIMITS.free.imports).toBe(10);
+  it("PLAN_LIMITS.free.imports = 3 (experiment 2026-10-17 → 2026-11-16)", () => {
+    expect(PLAN_LIMITS.free.imports).toBe(3);
   });
 
   it("PLAN_LIMITS.pro.imports = Infinity (unlimited)", () => {

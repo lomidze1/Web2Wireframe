@@ -58,7 +58,7 @@ src/
 
 ## Payment Flow (Flitt)
 
-**Plans:** Free (10 imports/month) · Pro $16/month · USD only · no VAT collected at launch.
+**Plans:** Free (3 imports/month — ექსპერიმენტი 2026-10-17 → 2026-11-16, იყო 10) · Pro $16/month · USD only · no VAT collected at launch.
 
 **Checkout flow** — Pro upgrade starts INSIDE the plugin (needs `figma.currentUser.id`):
 1. Plugin sandbox emits `current-user` → UI knows `figmaUserId`

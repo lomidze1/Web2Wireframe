@@ -29,7 +29,7 @@ export const softwareApplicationSchema: JsonLd = {
       name: "Free",
       price: "0",
       priceCurrency: "USD",
-      description: "10 imports per month",
+      description: "3 imports per month",
     },
     {
       "@type": "Offer",

@@ -38,7 +38,7 @@ export function planLabel(license: License): string {
 }
 
 /**
- * Usage row text. Free: "3/10 imports this month". Pro (unlimited):
+ * Usage row text. Free: "2/3 imports this month". Pro (unlimited):
  * "N imports this cycle (unlimited)". Matches plugin Plan.tsx:211-216.
  */
 export function limitText(license: License): string {
@@ -53,17 +53,17 @@ export function limitText(license: License): string {
  * footer hides the slot entirely in that case.
  *
  * Deliberately diverges from the plugin's Footer.tsx `deriveLabel`, which
- * falls back to a "0/10" placeholder: the plugin is where imports are actually
+ * falls back to a "0/3" placeholder: the plugin is where imports are actually
  * spent, so a count belongs there. Capture needs no sign-in and never touches
  * the quota, so an unpaired extension user would only ever see a frozen zero.
  *   - "Pro" for paid users
- *   - "N/10 imports per month" for free
+ *   - "N/3 imports per month" for free
  *   - null when no license is loaded (signed out, or not fetched yet)
  */
 export function usagePillText(license: License | null): string | null {
   if (!license) return null;
   if (license.plan === "pro") return "Pro";
-  const limit = license.limits.imports ?? 10;
+  const limit = license.limits.imports ?? 3;
   return `${license.usage.imports}/${limit} imports per month`;
 }
 

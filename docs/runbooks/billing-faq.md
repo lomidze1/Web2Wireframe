@@ -94,7 +94,7 @@ docker compose logs api | grep '"component":"flitt-webhook"' | tail -20
 
 > Hi <Name>,
 >
-> Good news — there's nothing to cancel. Web2Wireframe Pro is a one-time purchase, not a subscription. The $16 you paid gives you 30 days of unlimited imports. Your card will NOT be charged again automatically. After 30 days you simply go back to the Free plan (10 imports/month) until you decide to buy another month — or upgrade to the $144 yearly plan for 365 days of Pro.
+> Good news — there's nothing to cancel. Web2Wireframe Pro is a one-time purchase, not a subscription. The $16 you paid gives you 30 days of unlimited imports. Your card will NOT be charged again automatically. After 30 days you simply go back to the Free plan (3 imports/month) until you decide to buy another month — or upgrade to the $144 yearly plan for 365 days of Pro.
 >
 > Thanks,
 > <You>
@@ -103,7 +103,7 @@ docker compose logs api | grep '"component":"flitt-webhook"' | tail -20
 
 > Hi <Name>,
 >
-> Good news — there's nothing to cancel. Web2Wireframe Pro Yearly is a one-time $144 purchase that gives you 365 days of unlimited imports. Your card will NOT be charged again automatically. After 365 days you simply go back to the Free plan (10 imports/month) until you decide to renew.
+> Good news — there's nothing to cancel. Web2Wireframe Pro Yearly is a one-time $144 purchase that gives you 365 days of unlimited imports. Your card will NOT be charged again automatically. After 365 days you simply go back to the Free plan (3 imports/month) until you decide to renew.
 >
 > Thanks,
 > <You>

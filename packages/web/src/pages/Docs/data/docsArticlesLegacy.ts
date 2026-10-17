@@ -561,7 +561,7 @@ export const legacyArticles: DocsArticleMap = {
           "The plan structure is deliberately simple: two tiers, both running the same engine with the same settings.",
         ],
         list: [
-          "Free — 10 imports per month, for exploration and occasional use",
+          "Free — 3 imports per month, for exploration and occasional use",
           "Pro — $16 for 30 days of unlimited imports and full features, as a one-time payment with no auto-renewal",
         ],
       },
