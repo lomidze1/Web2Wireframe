@@ -286,7 +286,7 @@ Terms/docs/email ტექსტები; Community listing ტექსტი 
 | ველი | მნიშვნელობა |
 |---|---|
 | კოდი მზადაა | 2026-10-17 (dev, ტესტები მწვანე) |
-| **დაწყება** | **2026-10-17** — ითვლება API deploy-ის დღიდან (Render); ჩაწერე რეალური თარიღი: ______ |
+| **დაწყება** | **2026-10-17** — dev→main `6db6ff5` (Render API deploy) + plugin გამოქვეყნდა Figma-დან იმავე საღამოს |
 | **შემოწმება** | **2026-11-16** |
 | წყარო | `GET /api/admin/stats` (იგივე ბარათები) + `GET /api/admin/stats/imports` (per-user) + Flitt approved charges |
 
