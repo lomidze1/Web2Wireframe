@@ -14,7 +14,7 @@ description: Web2Wireframe-ის YouTube Short-ის აწყობა Camtas
 > ffmpeg-ის კადრიდან გიორგი ვერაფერს ასწორებს — ყოველი წვრილმანი ჩემთან ბრუნდება.
 > `.cmproj`-ში თვითონ წელავს, წევს, ცვლის.
 
-**ძრავა:** [`~/Desktop/Video/_tools/camkit.py`](file:///Users/giorgi/Desktop/Video/_tools/camkit.py)
+**ძრავა:** [`~/Desktop/Nicepage - Video/_tools/camkit.py`](file:///Users/giorgi/Desktop/Nicepage - Video/_tools/camkit.py)
 — იგივე, რითაც Nicepage-ის ვიდეოები იწყობა. **ერთი ძრავა ორივე პროექტზე.**
 `scripts/video/w2wkit.py` რჩება მხოლოდ ძველი Short-ების წასაკითხად — ახალში არ გამოიყენო.
 
@@ -22,7 +22,7 @@ description: Web2Wireframe-ის YouTube Short-ის აწყობა Camtas
 
 ## 0 · სანამ დაიწყებ
 
-1. **წაიკითხე `~/Desktop/Video/CLAUDE.md`** — სახლის წესები (ტაიმინგი, ანიმაცია, ფერები,
+1. **წაიკითხე `~/Desktop/Nicepage - Video/CLAUDE.md`** — სახლის წესები (ტაიმინგი, ანიმაცია, ფერები,
    ფონტი, SFX-ის დონეები). ამ საქაღალდის გარეთ ავტომატურად არ იტვირთება.
 2. **წაიკითხე `social-agent/01) video/development/FEEDBACK.md`** — გემოვნება მხოლოდ იქ
    წერია, კოდში არა.
@@ -69,7 +69,7 @@ description: Web2Wireframe-ის YouTube Short-ის აწყობა Camtas
 ხმამაღალია — ხმის დონის ნებისმიერი ზღვარი მას ვერ დაიჭერს. (ორჯერ დავიწვი: 2026-09-20.)
 
 ```python
-import sys; sys.path.insert(0, "/Users/giorgi/Desktop/Video/_tools")
+import sys; sys.path.insert(0, "/Users/giorgi/Desktop/Nicepage - Video/_tools")
 from clean_voice import envelope, breath_runs, onset, tail_end, SPEECH, MIN_AIR, FPS
 db, flat, dur = envelope(mp3)
 BR = breath_runs(db, flat)        # სპექტრული ბრტყელობა: flat > 0.3, ორივე მხრიდან სიჩუმე
@@ -84,7 +84,7 @@ BR = breath_runs(db, flat)        # სპექტრული ბრტყე�
 ## 4 · აწყობა — `camkit`
 
 ```python
-import sys; sys.path.insert(0, "/Users/giorgi/Desktop/Video/_tools")
+import sys; sys.path.insert(0, "/Users/giorgi/Desktop/Nicepage - Video/_tools")
 from camkit import Proj, rgb, WHITE
 
 P = Proj(proj_path)                        # ჩონჩხი = Camtasia-ს ნამდვილი JSON, width/height 1080/1920
@@ -128,7 +128,7 @@ P.anim(m, 0, dur, scale0=(s*z0, s*z1), scale1=(s*z0, s*z1),
 ## 5 · შემოწმება — გამოტოვება არ შეიძლება
 
 ```bash
-cd ~/Developer/video-use && uv run python ~/Desktop/Video/_tools/camkit.py --check "<proj>"
+cd ~/Developer/video-use && uv run python "$HOME/Desktop/Nicepage - Video/_tools/camkit.py" --check "<proj>"
 ```
 
 ✅ `validate()` სუფთა · `--check` „იხსნება" · ხანგრძლივობა 20–40წმ ·

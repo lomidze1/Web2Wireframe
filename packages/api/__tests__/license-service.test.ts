@@ -328,7 +328,7 @@ describe("licenseService.useImport", () => {
 
     const result = await licenseService.useImport("u-1");
 
-    expect(result).toEqual({ ok: true, remaining: 2 });
+    expect(result).toEqual({ ok: true, remaining: 999 });
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
       { figmaUserId: "u-1", "usage.imports": { $lt: PLAN_LIMITS.free.imports } },
       { $inc: { "usage.imports": 1 } },
@@ -336,8 +336,25 @@ describe("licenseService.useImport", () => {
     );
   });
 
-  it("returns limit_exceeded when atomic update returns null (gate fired)", async () => {
+  it("does not block a Free user at the old experiment cap of 3", async () => {
     const existing = makeLicense({ plan: "free", usage: { imports: 3, periodStartedAt: new Date() } });
+    mockFindOne.mockResolvedValue(existing);
+    mockFindOneAndUpdate.mockResolvedValue(
+      makeLicense({ plan: "free", usage: { imports: 4, periodStartedAt: new Date() } }),
+    );
+
+    const result = await licenseService.useImport("u-1");
+
+    expect(result).toEqual({ ok: true, remaining: 996 });
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { figmaUserId: "u-1", "usage.imports": { $lt: 1000 } },
+      { $inc: { "usage.imports": 1 } },
+      { new: true },
+    );
+  });
+
+  it("returns limit_exceeded when atomic update returns null (gate fired)", async () => {
+    const existing = makeLicense({ plan: "free", usage: { imports: 1000, periodStartedAt: new Date() } });
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockResolvedValue(null);
 

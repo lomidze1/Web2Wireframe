@@ -275,8 +275,8 @@ def render(frame_fn, out, dur, fps=FPS, w=W, h=H, crf=17, quiet=False):
 
 # ---------------------------------------------------------------- SFX
 # npkit-ის გაზომილი ბიბლიოთეკა (48 ეფექტი, RMS-ით გაზომილი თავის სიჩუმე).
-SFX_DIR = "/Users/giorgi/Desktop/Video/_assets/sound-effect/"
-_NPKIT = "/Users/giorgi/Desktop/Video/_tools"
+SFX_DIR = "/Users/giorgi/Desktop/Nicepage - Video/_assets/sound-effect/"
+_NPKIT = "/Users/giorgi/Desktop/Nicepage - Video/_tools"
 
 
 def _load_sfx():

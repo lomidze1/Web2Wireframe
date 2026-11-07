@@ -89,7 +89,7 @@ describe("GET /api/license/me", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns serialized Free license with limits.imports = 3", async () => {
+  it("returns serialized Free license with limits.imports = 1000", async () => {
     mockGetOrCreate.mockResolvedValue(fakeLicense());
     const res = await request(makeApp())
       .get("/api/license/me")
@@ -98,7 +98,7 @@ describe("GET /api/license/me", () => {
     expect(res.body.figmaUserId).toBe("u-1");
     expect(res.body.plan).toBe("free");
     expect(res.body.status).toBe("active");
-    expect(res.body.limits.imports).toBe(3);
+    expect(res.body.limits.imports).toBe(1000);
     expect(res.body.subscription).toBe(null);
     expect(res.body.cycleStartedAt).toBe("2026-05-04T10:00:00.000Z");
     // Caller identity comes from the verified token, not the query string.
