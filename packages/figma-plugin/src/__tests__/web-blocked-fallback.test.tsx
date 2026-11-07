@@ -3,7 +3,6 @@ import { h } from "preact";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, act } from "@testing-library/preact";
 import Web from "../ui/pages/import/web/Web";
-import { onImportTabRequest } from "../ui/shared/importTabEvents";
 
 // Mock ConfigContext
 vi.mock("../ui/shared/ConfigContext", async (importOriginal) => {
@@ -195,23 +194,16 @@ describe("Web tab — bot-protection fallback", () => {
     });
   });
 
-  it("switches to the Screenshot tab on request", async () => {
+  it("offers the extension but no Screenshot fallback (Screenshot is gone)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(blockPageResponse()));
-    const handler = vi.fn();
-    const unsubscribe = onImportTabRequest(handler);
     const { container } = render(<Web />);
 
     await runImport(container);
 
-    const link = await waitFor(() => {
-      const l = findByText(container, "button", "Try Screenshot import");
-      expect(l).toBeTruthy();
-      return l!;
+    await waitFor(() => {
+      expect(container.querySelector(`a[href*="chromewebstore"], a[href*="extension"]`) ?? findByText(container, "a", "Get the extension")).toBeTruthy();
     });
-    fireEvent.click(link);
-
-    expect(handler).toHaveBeenCalledWith("screenshot");
-    unsubscribe();
+    expect(container.textContent).not.toMatch(/screenshot/i);
   });
 
   it("survives a previous import's pending reset timer", async () => {

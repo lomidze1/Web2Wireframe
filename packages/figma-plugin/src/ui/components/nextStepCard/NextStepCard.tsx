@@ -2,7 +2,6 @@
 import { h } from "preact";
 import { useRef } from "preact/hooks";
 import type { PluginConfig } from "../../shared/ConfigContext";
-import type { QuotaInfo } from "../../shared/quota";
 import styles from "./NextStepCard.css";
 
 /** What the last successful import actually used — the card's re-imports start from it. */
@@ -20,7 +19,6 @@ export const MOBILE_VIEWPORT = "375";
 
 interface NextStepCardProps {
   snapshot: ImportSnapshot;
-  quota: QuotaInfo | null;
   /** An import is running — the importing actions wait for it. */
   disabled: boolean;
   /** The next style-ladder step, or null once every step was tried. */
@@ -33,20 +31,15 @@ interface NextStepCardProps {
   onTryStyle: () => void;
   onChooseYourself: () => void;
   onDismiss: () => void;
-  onSeePro: () => void;
 }
-
-const freeImports = (n: number) => `${n} free import${n === 1 ? "" : "s"}`;
 
 /**
  * Shown after a successful URL import. Most users import once and leave; the
  * ones who stay re-import the same site at another size or style — this puts
- * that next step one click away, and says plainly what is left of the free
- * allowance.
+ * that next step one click away.
  */
 export default function NextStepCard({
   snapshot,
-  quota,
   disabled,
   nextStyle,
   showChooseYourself,
@@ -55,10 +48,9 @@ export default function NextStepCard({
   onTryStyle,
   onChooseYourself,
   onDismiss,
-  onSeePro,
 }: NextStepCardProps) {
   // The parent disables the buttons only after its state updates, so without
-  // this a quick double click would start (and bill) two imports.
+  // this a quick double click would start two imports.
   const firedRef = useRef(false);
   const once = (action: () => void) => () => {
     if (firedRef.current) return;
@@ -66,10 +58,8 @@ export default function NextStepCard({
     action();
   };
 
-  const finite = quota && !quota.unlimited ? quota : null;
-  const canImport = !finite || finite.remaining > 0;
-  const showMobile = canImport && !snapshot.viewports.includes(MOBILE_VIEWPORT);
-  const showStyle = canImport && nextStyle !== null;
+  const showMobile = !snapshot.viewports.includes(MOBILE_VIEWPORT);
+  const showStyle = nextStyle !== null;
 
   return (
     <div class={styles.card} role="region" aria-label="Next steps">
@@ -117,34 +107,6 @@ export default function NextStepCard({
           )}
         </div>
       </div>
-
-      {finite && finite.remaining > 0 && (showMobile || showStyle) && (
-        <p class={styles.hint}>
-          {finite.remaining === 1
-            ? "Uses your last free import"
-            : `Uses 1 of your ${finite.remaining} remaining imports`}
-        </p>
-      )}
-
-      {finite && finite.remaining === 0 && (
-        <p class={`${styles.quota} ${styles.quotaWarn}`}>
-          {`You've used all ${finite.limit} free imports this month · `}
-          <button type="button" class={styles.link} onClick={onSeePro}>
-            See Pro
-          </button>
-        </p>
-      )}
-      {finite && finite.remaining > 0 && finite.nearLimit && (
-        <p class={`${styles.quota} ${styles.quotaWarn}`}>
-          {`Only ${freeImports(finite.remaining)} left this month · Pro is unlimited · `}
-          <button type="button" class={styles.link} onClick={onSeePro}>
-            See Pro
-          </button>
-        </p>
-      )}
-      {finite && !finite.nearLimit && (
-        <p class={styles.quota}>{`${freeImports(finite.remaining)} left this month`}</p>
-      )}
     </div>
   );
 }

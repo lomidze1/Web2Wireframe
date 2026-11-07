@@ -5,11 +5,13 @@ import { render, fireEvent } from "@testing-library/preact";
 import SubHeader from "../ui/components/subHeader/SubHeader";
 
 describe("SubHeader", () => {
-  it("renders the four import-method tabs", () => {
-    const { getByRole } = render(
+  it("renders the three import-method tabs (no Screenshot)", () => {
+    const { getByRole, getAllByRole } = render(
       <SubHeader currentTab="web" onTabChange={() => {}} />,
     );
-    for (const label of ["Web", "Area", "HTML", "Screenshot"]) {
+    const labels = getAllByRole("tab").map((t) => t.textContent);
+    expect(labels).toEqual(["Web", "Area", "HTML"]);
+    for (const label of ["Web", "Area", "HTML"]) {
       expect(getByRole("tab", { name: label })).toBeTruthy();
     }
   });

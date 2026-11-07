@@ -31,7 +31,7 @@
       "figma"
     ],
     "id": "1646327864971730293",
-    "name": "Website to Figma — Import any site, screenshot or HTML as editable designs (Web2Wireframe)",
+    "name": "Website to Figma — Import any site or HTML as editable designs (Web2Wireframe)",
     "main": "src/main.ts",
     "ui": "src/ui/index.tsx",
     "documentAccess": "dynamic-page",

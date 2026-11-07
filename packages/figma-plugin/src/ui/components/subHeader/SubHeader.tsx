@@ -3,7 +3,7 @@ import { h } from "preact";
 import { useRef } from "preact/hooks";
 import styles from "./SubHeader.css";
 
-type ImportTab = "web" | "screenshot" | "html" | "area";
+type ImportTab = "web" | "html" | "area";
 
 interface TabDef {
   id: ImportTab;
@@ -14,7 +14,6 @@ const VISIBLE_TABS: TabDef[] = [
   { id: "web", label: "Web" },
   { id: "area", label: "Area" },
   { id: "html", label: "HTML" },
-  { id: "screenshot", label: "Screenshot" },
 ];
 
 interface SubHeaderProps {

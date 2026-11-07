@@ -10,7 +10,6 @@ import { authHeader } from "../../../shared/licenseClient";
 import { httpErrorMessage, toUserMessage } from "../../../shared/httpErrors";
 import { API_BASE_URL } from "../../../shared/apiConfig";
 import { looksLikeBlockPage } from "../../../shared/blockPageDetection";
-import { requestImportTab } from "../../../shared/importTabEvents";
 import { transformFramesData, transformW2WTreeText } from "../../../shared/transformData";
 import * as perf from "../../../../utils/perf";
 import { prepareFramesForRendering, type ExtractedElement } from "../../../shared/absoluteModeRenderer";
@@ -35,9 +34,7 @@ import NextStepCard, {
   type ImportSnapshot,
 } from "../../../components/nextStepCard/NextStepCard";
 import { useImportProgress } from "../../../hooks/useImportProgress";
-import { deriveQuota } from "../../../shared/quota";
 import { matchStyle, nextStyle, type StyleId } from "../../../shared/styleLadder";
-import { requestPlanModal } from "../../../shared/planEvents";
 
 const TAB_ID = "web";
 const STORAGE_KEY = "w2w_settings_expanded_web";
@@ -120,12 +117,7 @@ export default function Web() {
   // Use shared hook for all settings logic
   const settings = useTabSettings(TAB_ID, STORAGE_KEY);
   const { config } = useConfig();
-  const {
-    refresh: refreshLicense,
-    license,
-    isLoading: licenseLoading,
-    error: licenseError,
-  } = useLicense();
+  const { refresh: refreshLicense, license } = useLicense();
   const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for messages from Figma plugin main thread
@@ -460,7 +452,7 @@ export default function Web() {
       pendingImportRef.current = { url: normalizedUrl, ...effective };
       sendToFigma(renderData, settings.localCssVariablesMode);
 
-      // Import consumed a quota slot server-side — refresh the footer badge.
+      // Import consumed a quota slot server-side — keep the cached license fresh.
       void refreshLicense();
     } catch (error) {
       // Cancel already closed the overlay and set its own message.
@@ -529,7 +521,6 @@ export default function Web() {
       {lastImport && !loader.isVisible && (
         <NextStepCard
           snapshot={lastImport}
-          quota={license && !licenseLoading && !licenseError ? deriveQuota(license) : null}
           disabled={importState.status === "loading"}
           onImportMobile={() =>
             // Only URL + width: colours, fonts and assets come from the tab's
@@ -558,7 +549,6 @@ export default function Web() {
             else setOptionsScrollRequest((n) => n + 1);
           }}
           onDismiss={() => setLastImport(null)}
-          onSeePro={requestPlanModal}
         />
       )}
 
@@ -608,8 +598,7 @@ export default function Web() {
                 onClick={() => {
                   if (!importState.blockedUrl) return;
                   // Direct user gesture, so popup blockers normally allow it —
-                  // but Figma's iframe can still refuse (same fallback as the
-                  // Plan modal's checkout window).
+                  // but Figma's iframe can still refuse.
                   const opened = window.open(importState.blockedUrl, "_blank");
                   if (!opened) setPopupBlocked(true);
                 }}
@@ -638,13 +627,6 @@ export default function Web() {
                 >
                   Get the extension
                 </a>
-                <span aria-hidden="true">·</span>
-                <button
-                  class={styles.blockedLink}
-                  onClick={() => requestImportTab("screenshot")}
-                >
-                  Try Screenshot import
-                </button>
               </div>
             </div>
           ) : (
