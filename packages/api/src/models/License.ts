@@ -82,11 +82,13 @@ export function getRenewalWindowMs(duration: ProDuration): number {
 
 /**
  * Per-plan import limits. Pro is unlimited.
- * Free = 3 is a 30-day pricing experiment (2026-10-17 → 2026-11-16); was 10.
- * See docs/growth/METRICS.md → "ექსპერიმენტი: უფასო ლიმიტი 3".
+ * Free = 1000: W2W is free since 2026-11-07 (the 3-import experiment ended with
+ * 0 payments). Deliberately finite, not Infinity: published plugin/extension
+ * builds render a `null` limit as `?? 3` ("5/3" + warning), and a cap still
+ * stops runaway Chromium imports. See docs/plans/HOTFIX-free-limit-1000.md.
  */
 export const PLAN_LIMITS = {
-  free: { imports: 3 },
+  free: { imports: 1000 },
   pro: { imports: Number.POSITIVE_INFINITY },
 } as const;
 
