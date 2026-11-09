@@ -7,12 +7,6 @@ import Docs from "./pages/Docs/Docs";
 import Support from "./pages/Support/Support";
 import Terms from "./pages/Terms&conditions/Terms";
 import Privacy from "./pages/Privacy/Privacy";
-import CheckoutSuccess from "./pages/Checkout/CheckoutSuccess";
-import CheckoutCancel from "./pages/Checkout/CheckoutCancel";
-import CheckoutPage from "./pages/Checkout/CheckoutPage";
-import Account from "./pages/Account/Account";
-import Signin from "./pages/Signin/Signin";
-import Renew from "./pages/Renew/Renew";
 import LandingPage from "./pages/Landing/LandingPage";
 import Go from "./pages/Go/Go";
 import A11yFix, { A11Y_FIX_THANKS_PATH } from "./pages/A11yFix/A11yFix";
@@ -20,9 +14,7 @@ import { landingPages } from "./pages/Landing/landingData";
 import { docsNavigation } from "./pages/Docs/data/docsStructure";
 
 /**
- * All routes for SSG prerendering. Checkout/Account/Renew are dynamic and
- * intentionally excluded — they're query-param-driven and require runtime
- * state, so prerendering provides no benefit.
+ * All routes for SSG prerendering.
  *
  * S-C3: docs sub-routes were previously listed in sitemap.xml but NOT
  * prerendered, so Googlebot saw an empty SPA shell with the home page's
@@ -64,12 +56,6 @@ export default function AppRoutes(): ReactElement {
       <Route path="/support" element={<Support />} />
       <Route path="/terms" element={<Terms />} />
       <Route path="/privacy" element={<Privacy />} />
-      <Route path="/checkout" element={<CheckoutPage />} />
-      <Route path="/checkout/success" element={<CheckoutSuccess />} />
-      <Route path="/checkout/cancel" element={<CheckoutCancel />} />
-      <Route path="/account" element={<Account />} />
-      <Route path="/signin" element={<Signin />} />
-      <Route path="/renew" element={<Renew />} />
       {/* Fake door for the plugin's contrast fix — static paths outrank :source. */}
       <Route path="/go/a11y-fix" element={<A11yFix />} />
       <Route path={A11Y_FIX_THANKS_PATH} element={<A11yFix submitted />} />

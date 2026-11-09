@@ -2,19 +2,6 @@ import type { FormEvent, ReactElement, ChangeEvent } from "react";
 import { useEffect, useState } from "react";
 import styles from "./Support.module.scss";
 
-const supportPlans = [
-  {
-    title: "Community",
-    desc: "Public forum and docs. Best for quick questions.",
-    badge: "Free",
-  },
-  {
-    title: "Priority",
-    desc: "Priority queue with hands-on help for Pro customers (24h response).",
-    badge: "Pro",
-  },
-];
-
 interface FormData {
   name: string;
   email: string;
@@ -27,8 +14,6 @@ interface SubmissionState {
   message: string;
   title?: string;
   ticketId?: string;
-  plan?: string;
-  planVerified?: boolean;
   fieldErrors?: Record<string, string>;
 }
 
@@ -130,7 +115,7 @@ const Support = (): ReactElement => {
         error?: string;
         errors?: Array<{ field: string; message: string }>;
         fields?: Record<string, string>;
-        data?: { ticketId: string; plan: string; planVerified?: boolean };
+        data?: { ticketId: string };
       } | null = null;
 
       try {
@@ -170,8 +155,6 @@ const Support = (): ReactElement => {
         message:
           "Ticket ID: This is your reference number. Share it if you follow up so we can find your request fast.",
         ticketId,
-        plan: data.data?.plan,
-        planVerified: data.data?.planVerified,
       });
 
       // Reset form
@@ -222,7 +205,6 @@ const Support = (): ReactElement => {
             <h1>How can we help?</h1>
             <p>
               Tell us what you need and we&apos;ll respond as soon as possible.
-              Priority customers jump the line automatically.
             </p>
             <p>
               <strong>We usually reply within 1-2 business day.</strong>
@@ -233,23 +215,10 @@ const Support = (): ReactElement => {
 
       <section className={styles.section}>
         <div className="container">
-          <div className={styles.planGrid}>
-            {supportPlans.map((plan) => (
-              <div key={plan.title} className={styles.planCard}>
-                <div className={styles.planHead}>
-                  <span className={styles.badge}>{plan.badge}</span>
-                  <h3>{plan.title}</h3>
-                </div>
-                <p>{plan.desc}</p>
-              </div>
-            ))}
-          </div>
-
           <div className={styles.formCard}>
             <h2>Contact support</h2>
             <p>
-              Share a link and describe the issue. We'll look up your plan
-              automatically and route accordingly.
+              Share a link and describe the issue.
             </p>
 
             {submission.status === "success" && (
@@ -292,11 +261,6 @@ const Support = (): ReactElement => {
                       </button>
                     </div>
                   </div>
-                  {submission.planVerified === false && submission.plan && (
-                    <p className={styles.detail}>
-                      Detected plan: {submission.plan} (unverified)
-                    </p>
-                  )}
                 </div>
               </div>
             )}
@@ -369,7 +333,7 @@ const Support = (): ReactElement => {
                   type="text"
                   value={formData.topic}
                   onChange={handleInputChange}
-                  placeholder="Installation, billing, feedback..."
+                  placeholder="Installation, import issue, feedback..."
                   required
                   disabled={submission.status === "loading"}
                 />

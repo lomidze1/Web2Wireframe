@@ -30,8 +30,6 @@ src/
     Home/
     HowItWorks/
     Pricing/
-    Checkout/            # CheckoutSuccess + CheckoutCancel (no checkout entry — flow starts in plugin)
-    Account/             # Manage subscription page (cancel-only at launch)
     Docs/                # Complex: sidebar, breadcrumb, search, 30+ sub-pages
     Support/
     Terms&conditions/
@@ -56,33 +54,17 @@ src/
 - Global styles in `src/styles/global.scss`
 - No inline styles
 
-## Payment Flow (Flitt)
+## Free product (since 2026-11-07)
 
-**Plans:** Free (3 imports/month — ექსპერიმენტი 2026-10-17 → 2026-11-16, იყო 10) · Pro $16/month · USD only · no VAT collected at launch.
-
-**Checkout flow** — Pro upgrade starts INSIDE the plugin (needs `figma.currentUser.id`):
-1. Plugin sandbox emits `current-user` → UI knows `figmaUserId`
-2. User clicks "Get Pro" in Plan modal → UI calls `POST /api/checkout/create` with `figmaUserId`
-3. Backend signs Flitt request, returns `checkoutUrl` (pay.flitt.com)
-4. UI opens `checkoutUrl` in new browser tab and starts polling `/api/license/me` every 5s
-5. User completes payment on Flitt → Flitt redirects browser to `/checkout/success` AND POSTs server-callback to `/api/webhooks/flitt`
-6. Webhook handler activates the Pro license; polling detects the change → toast in plugin
-
-**Cancel flow** — initiated from plugin, completed on website:
-1. Plugin "Manage Subscription" → calls `POST /api/auth/issue-cancel-token` (5-min HMAC token)
-2. UI opens `https://web2wireframe.design/account?fid=<id>&t=<token>` in new tab
-3. Account page reads license, shows "Cancel" button → `POST /api/subscription/cancel { figmaUserId, token }`
-4. Backend verifies HMAC + calls `Flitt.SubscriptionActions stop` → sets `status=canceled`; plan stays `pro` until `cycleEndsAt` (lazy downgrade)
-
-**No payment SDK on frontend** — all Flitt API calls happen server-side (`packages/api`). Frontend never sees secret_key.
-
-**`checkoutLinks` in `src/data/links.ts`:** Pricing page CTAs deep-link to the Figma Community plugin listing (checkout requires `figmaUserId`, only available inside the plugin).
+Web2Wireframe is **free**: no plans, no Pro, no checkout, no donate. `/pricing` stays as a
+"Web2Wireframe is free" page (plugin/extension Help link there). Checkout, Account, Signin and
+Renew pages + website login (AuthContext) were removed 2026-11-09; `vercel.json` 301-redirects
+their old URLs. `src/freeMode.test.tsx` renders every prerendered page and fails on any price,
+"Pro", checkout, Flitt or screenshot copy. Plan: `docs/plans/WEB-free-update.md`.
 
 ## Warnings
 
 - ეს არის **React** (არა Preact, როგორც `packages/figma-plugin`)
 - Docs/ folder ძალიან კომპლექსურია — ფრთხილად ცვლილებებთან
-- Environment variables: `VITE_API_URL` (already exists), `VITE_CHECKOUT_BASE` if needed
-- No test framework configured
-- **Flitt checkout link generation lives on backend** — frontend just opens `checkoutUrl` returned by API. NEVER call Flitt directly from browser.
-- **Privacy/Terms pages must mention Flitt** when payment system goes live (PCI-DSS Level 1, no card data on our servers)
+- Environment variables: `VITE_API_URL`
+- Tests: Vitest (`npm test`)

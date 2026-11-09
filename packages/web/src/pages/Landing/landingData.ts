@@ -6,7 +6,7 @@
  * one per import method, so each has genuinely different content. Four pages
  * saying the same thing in different words would read as doorway pages to
  * Google and get dropped from the index, so the split is by method, not by
- * synonym: HTML paste, live URL, screenshot, and the plugin itself.
+ * synonym: HTML paste, live URL, browser extension, and the plugin itself.
  *
  * Pure data — no React imports. `src/seo/config.ts` reads the `faq` arrays
  * from here to build FAQPage structured data, so the page copy and the
@@ -68,7 +68,7 @@ const HTML_TO_FIGMA: LandingContent = {
   lead: "Paste the markup and the styles. The plugin reads them as a document — sections, rows, columns, the flex and grid rules holding them together — and lands the result in Figma as named, nested, editable frames.",
   seoTitle: "HTML to Figma — Import HTML and CSS as Editable Layers",
   seoDescription:
-    "Paste HTML and CSS into Figma and get editable frames, real text layers and auto layout — not a flat image. Works for local builds, components and pages behind a login. 3 free imports a month.",
+    "Paste HTML and CSS into Figma and get editable frames, real text layers and auto layout — not a flat image. Works for local builds, components and pages behind a login. Free.",
   breadcrumb: "HTML to Figma",
   intro: {
     title: "When you already have the code",
@@ -157,7 +157,7 @@ const HTML_TO_FIGMA: LandingContent = {
     {
       question: "How much does HTML import cost?",
       answer:
-        "The free plan includes 3 imports a month with every setting unlocked. Pro removes the monthly limit at $16 for 30 days or $144 for a year.",
+        "Nothing. Web2Wireframe is free, with every setting unlocked.",
     },
   ],
   related: [
@@ -165,11 +165,6 @@ const HTML_TO_FIGMA: LandingContent = {
       to: "/website-to-figma",
       label: "Website to Figma",
       note: "When the page is public, hand over the URL instead of the markup.",
-    },
-    {
-      to: "/screenshot-to-figma",
-      label: "Screenshot to Figma",
-      note: "When you can see the page but can't get at its code.",
     },
     {
       to: "/figma-browser-extension",
@@ -191,7 +186,7 @@ const WEBSITE_TO_FIGMA: LandingContent = {
   lead: "Paste a URL. The page comes back as named, nested Figma frames — real text, real colours, auto layout where the site used flexbox or grid — at every viewport width you asked for, in a single run.",
   seoTitle: "Website to Figma — Convert Any URL Into Editable Frames",
   seoDescription:
-    "Paste a website URL and get editable Figma frames with real text, auto layout and your chosen viewports — desktop, tablet and mobile in one import. 3 free imports a month.",
+    "Paste a website URL and get editable Figma frames with real text, auto layout and your chosen viewports — desktop, tablet and mobile in one import. Free.",
   breadcrumb: "Website to Figma",
   intro: {
     title: "One paste, every width you design for",
@@ -254,7 +249,7 @@ const WEBSITE_TO_FIGMA: LandingContent = {
       "Sites running an aggressive bot challenge — the plugin says so and offers to hand the job to the browser extension, which captures from a tab you are already signed into",
       "Content that only appears after a scroll-triggered script has run",
     ],
-    note: "For those three, the browser extension or a screenshot is the route in.",
+    note: "For those three, the browser extension is the route in.",
   },
   faq: [
     {
@@ -283,9 +278,9 @@ const WEBSITE_TO_FIGMA: LandingContent = {
         "Yes. Text is text, sections are frames, and images arrive as image fills or as placeholders depending on what you chose. Nothing is flattened into a single picture.",
     },
     {
-      question: "How many website imports are free?",
+      question: "Is website import free?",
       answer:
-        "Ten a month, with every option unlocked from the first one. Pro removes the limit at $16 for 30 days or $144 for a year.",
+        "Yes. Web2Wireframe is free, with every option unlocked from the first import.",
     },
   ],
   related: [
@@ -295,139 +290,9 @@ const WEBSITE_TO_FIGMA: LandingContent = {
       note: "When you have the markup but the page isn't publicly reachable.",
     },
     {
-      to: "/screenshot-to-figma",
-      label: "Screenshot to Figma",
-      note: "When the page is behind a login and a URL gets you nothing.",
-    },
-    {
       to: "/figma-browser-extension",
       label: "Browser extension",
       note: "For one section only, or a site that refuses a plain fetch.",
-    },
-    {
-      to: "/figma-wireframe-plugin",
-      label: "The wireframe plugin",
-      note: "What every option in the settings panel actually changes.",
-    },
-  ],
-};
-
-const SCREENSHOT_TO_FIGMA: LandingContent = {
-  slug: "/screenshot-to-figma",
-  kicker: "Screenshot import",
-  h1: "Turn a screenshot into editable Figma layers.",
-  lead: "Drop in an image and it is parsed into structured frames — sections, rows, real text layers — rather than placed as a flat picture. For everything a URL cannot reach.",
-  seoTitle: "Screenshot to Figma — Convert an Image Into Editable Layers",
-  seoDescription:
-    "Drop a screenshot into Figma and get parsed frames and editable text layers instead of a flat image. For pages behind a login, a paywall or a checkout. 3 free imports a month.",
-  breadcrumb: "Screenshot to Figma",
-  intro: {
-    title: "For the pages a URL can't reach",
-    body: [
-      "Half of the interfaces worth studying sit behind something: a login, a paywall, a checkout step, a dashboard that only exists for paying customers. A screenshot is the one artefact you can always come away with.",
-      "The plugin reads that image the way it reads a live page — hunting for sections, rows, columns and repeated blocks. The difference is that the evidence is pixels rather than markup.",
-    ],
-  },
-  points: [
-    {
-      title: "Anything you can capture",
-      body: "Desktop and mobile screenshots, full-page captures, a cropped section of an interface, a page exported from a PDF. If the layout is legible in the image, it can be parsed.",
-    },
-    {
-      title: "Text arrives as text",
-      body: "Legible copy is transcribed into Figma text layers rather than baked into the picture, so you can edit it, restyle it, or swap it for placeholders after the fact.",
-    },
-    {
-      title: "Palette read from the image itself",
-      body: "With no CSS to consult, the colour scheme is inferred from the capture. In practice that is often the more useful answer — it is the palette as rendered, not as declared.",
-    },
-    {
-      title: "Auto layout from visual alignment",
-      body: "Rows and columns are inferred from how things line up on screen, which means a clean, square-on capture produces markedly better frames than a crooked one.",
-    },
-  ],
-  stepsTitle: "Image to frames, in five steps.",
-  steps: [
-    {
-      n: "01",
-      title: "Capture the page cleanly",
-      body: "Highest resolution you can manage, in a settled state — no cookie banner, no tooltip, no half-open menu. Crop the browser chrome so the layout starts at the edge of the image.",
-    },
-    {
-      n: "02",
-      title: "Open the plugin in your Figma file",
-      body: "As with every other method, the import lands in the file you already have open.",
-    },
-    {
-      n: "03",
-      title: "Drop the image in",
-      body: "Drag it onto the screenshot tab or paste it straight from the clipboard.",
-    },
-    {
-      n: "04",
-      title: "Set the options",
-      body: "Two matter more here than usual. With no markup to read, the site palette is inferred from the image, and semantic placeholders often read more cleanly than attempted real copy.",
-    },
-    {
-      n: "05",
-      title: "Import",
-      body: "Sections arrive as frames, transcribed copy as text layers, and the rest as blocks you can push around.",
-    },
-  ],
-  limits: {
-    title: "What a picture can't tell it",
-    body: "The parser only has what is in the image. It is better to expect the following than to be surprised by it.",
-    list: [
-      "Very small or low-contrast text may be grouped as a block rather than transcribed",
-      "Overlapping or visually ambiguous sections can merge into one",
-      "Heavy blur, gradient and shadow can hide the edges of a block",
-      "Hover and interactive states are not in the picture, so they are not in the import",
-      "Long pages do better captured in sections than as one stitched collage",
-    ],
-    note: "If the page is reachable at a URL, web import will always give a more structured result. Reach for a screenshot when it isn't.",
-  },
-  faq: [
-    {
-      question: "Can you convert a screenshot into an editable Figma design?",
-      answer:
-        "Yes, with a plugin that parses the image rather than simply placing it. Web2Wireframe reads a screenshot's visual structure — sections, rows, columns and text — and builds the equivalent Figma frames and text layers.",
-    },
-    {
-      question: "Does the text stay editable?",
-      answer:
-        "Legible text is transcribed into real Figma text layers. Very small or low-contrast text may be grouped as a block instead, which is the main reason to capture at the highest resolution available to you.",
-    },
-    {
-      question: "Which image formats work?",
-      answer:
-        "Ordinary screen captures — PNG and JPG — from a desktop browser, a phone, an emulator, or a page exported out of a PDF.",
-    },
-    {
-      question: "Is a screenshot import as accurate as importing the live URL?",
-      answer:
-        "No, and it is not meant to be. A live URL gives the parser real markup to work from; an image gives it pixels to interpret. Use a URL when you have one and a screenshot when you don't.",
-    },
-    {
-      question: "Does a screenshot import count against my quota?",
-      answer:
-        "Yes — it counts as one import, the same as every other method. The free plan includes ten a month.",
-    },
-  ],
-  related: [
-    {
-      to: "/website-to-figma",
-      label: "Website to Figma",
-      note: "More structured, whenever the page is public.",
-    },
-    {
-      to: "/html-to-figma",
-      label: "HTML to Figma",
-      note: "If you can reach the markup, paste that instead of a picture of it.",
-    },
-    {
-      to: "/figma-browser-extension",
-      label: "Browser extension",
-      note: "Captures the live page you're logged into — no screenshot needed.",
     },
     {
       to: "/figma-wireframe-plugin",
@@ -444,7 +309,7 @@ const FIGMA_WIREFRAME_PLUGIN: LandingContent = {
   lead: "Web2Wireframe turns a real page into a wireframe whose shape you chose — greyscale or full colour, placeholder copy or the site's own words, boxes or real images. Eight decisions before the import, instead of an evening of cleanup after it.",
   seoTitle: "Figma Wireframe Plugin — Turn Any Website Into a Wireframe",
   seoDescription:
-    "A Figma plugin that converts a URL, screenshot, HTML or a captured region into an editable wireframe — with fidelity, text, assets and auto layout decided before the import runs.",
+    "A Figma plugin that converts a URL, HTML or a captured region into an editable wireframe — with fidelity, text, assets and auto layout decided before the import runs.",
   breadcrumb: "Figma wireframe plugin",
   intro: {
     title: "What 'wireframe' means here",
@@ -460,7 +325,7 @@ const FIGMA_WIREFRAME_PLUGIN: LandingContent = {
     },
     {
       title: "Four ways in",
-      body: "A live URL, a pasted screenshot, raw HTML, or a region drawn on a page with the browser extension. Same parser, same settings panel, same kind of output.",
+      body: "A live URL, raw HTML, or a region drawn on a page with the browser extension. Same parser, same settings panel, same kind of output.",
     },
     {
       title: "Auto layout on purpose",
@@ -513,7 +378,7 @@ const FIGMA_WIREFRAME_PLUGIN: LandingContent = {
       question:
         "Is there a Figma plugin that converts a website into a wireframe?",
       answer:
-        "Yes. Web2Wireframe runs inside Figma and converts a live URL, a screenshot, pasted HTML or a captured region into editable wireframe frames, with the fidelity — greyscale through to full colour — chosen before the import runs.",
+        "Yes. Web2Wireframe runs inside Figma and converts a live URL, pasted HTML or a captured region into editable wireframe frames, with the fidelity — greyscale through to full colour — chosen before the import runs.",
     },
     {
       question:
@@ -534,7 +399,7 @@ const FIGMA_WIREFRAME_PLUGIN: LandingContent = {
     {
       question: "What does the plugin cost?",
       answer:
-        "Ten imports a month are free, with every setting unlocked from the first one. Pro is $16 for 30 days of unlimited imports, or $144 for a year — a one-time payment either way, with no auto-renewal.",
+        "Nothing. Web2Wireframe is free, with every setting unlocked from the first import.",
     },
   ],
   related: [
@@ -542,11 +407,6 @@ const FIGMA_WIREFRAME_PLUGIN: LandingContent = {
       to: "/website-to-figma",
       label: "Website to Figma",
       note: "The URL route — the fastest one when the page is public.",
-    },
-    {
-      to: "/screenshot-to-figma",
-      label: "Screenshot to Figma",
-      note: "The route in for anything behind a login.",
     },
     {
       to: "/html-to-figma",
@@ -585,7 +445,7 @@ const FIGMA_BROWSER_EXTENSION: LandingContent = {
     },
     {
       title: "Pages behind a login",
-      body: "Anything past a sign-in, a paywall or a checkout step is visible to the extension, because it reads the page you are already looking at with your session intact.",
+      body: "Anything past a sign-in, a paywall or a payment step is visible to the extension, because it reads the page you are already looking at with your session intact.",
     },
     {
       title: "Sites that turn importers away",
@@ -621,7 +481,7 @@ const FIGMA_BROWSER_EXTENSION: LandingContent = {
     {
       n: "05",
       title: "Set the options and import",
-      body: "Layout mode, text, assets, variables — the same panel as a URL or screenshot import, with whatever defaults you saved.",
+      body: "Layout mode, text, assets, variables — the same panel as a URL or HTML import, with whatever defaults you saved.",
     },
   ],
   limits: {
@@ -649,7 +509,7 @@ const FIGMA_BROWSER_EXTENSION: LandingContent = {
     {
       question: "Can I import a page that needs a login?",
       answer:
-        "Yes. The extension captures the page you are already looking at, with your session intact, so anything behind a sign-in, a paywall or a checkout step is available to it.",
+        "Yes. The extension captures the page you are already looking at, with your session intact, so anything behind a sign-in, a paywall or a payment step is available to it.",
     },
     {
       question: "What about sites that block importers?",
@@ -659,7 +519,7 @@ const FIGMA_BROWSER_EXTENSION: LandingContent = {
     {
       question: "Do I need both the extension and the plugin?",
       answer:
-        "For area capture, yes — the extension does the capturing and the plugin builds the Figma frames. If you only ever import public URLs, screenshots or pasted HTML, the plugin on its own is enough.",
+        "For area capture, yes — the extension does the capturing and the plugin builds the Figma frames. If you only ever import public URLs or pasted HTML, the plugin on its own is enough.",
     },
     {
       question: "Which browsers does it work in?",
@@ -669,7 +529,7 @@ const FIGMA_BROWSER_EXTENSION: LandingContent = {
     {
       question: "Does the extension cost extra?",
       answer:
-        "No. The extension is free, and a capture counts against the same allowance as every other method — ten imports a month on the free plan.",
+        "No. The extension is free, and so is the plugin.",
     },
   ],
   related: [
@@ -677,11 +537,6 @@ const FIGMA_BROWSER_EXTENSION: LandingContent = {
       to: "/website-to-figma",
       label: "Website to Figma",
       note: "Fewer steps, when the page is public and you want all of it.",
-    },
-    {
-      to: "/screenshot-to-figma",
-      label: "Screenshot to Figma",
-      note: "The no-install route to a page you can only see.",
     },
     {
       to: "/html-to-figma",
@@ -699,7 +554,6 @@ const FIGMA_BROWSER_EXTENSION: LandingContent = {
 export const landingPages: LandingContent[] = [
   HTML_TO_FIGMA,
   WEBSITE_TO_FIGMA,
-  SCREENSHOT_TO_FIGMA,
   FIGMA_WIREFRAME_PLUGIN,
   FIGMA_BROWSER_EXTENSION,
 ];

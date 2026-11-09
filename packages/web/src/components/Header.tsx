@@ -1,8 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext";
 import { installLinks } from "../data/links";
-import { getChipLabel, getInitials } from "../pages/Account/accountLogic";
 import styles from "./Header.module.scss";
 
 type NavItem = {
@@ -19,7 +17,6 @@ const navItems: NavItem[] = [
 
 const Header = (): ReactElement => {
   const location = useLocation();
-  const { user } = useAuth();
   // S-H6: mobile nav state. Hamburger toggles the panel at <768px; the
   // existing inline `<nav>` is hidden on narrow viewports via CSS so it
   // no longer wraps/overflows the brand row.
@@ -28,10 +25,6 @@ const Header = (): ReactElement => {
   const isTermsPage = location.pathname.startsWith("/terms");
   const isPrivacyPage = location.pathname.startsWith("/privacy");
   const isStaticHeader = isDocsPage || isTermsPage || isPrivacyPage;
-  // The loudest button on a payment screen must not point away from the
-  // purchase — the primary Install CTA is suppressed on Checkout/Success.
-  const isPaymentPage = location.pathname.startsWith("/checkout");
-  const isAccountPage = location.pathname.startsWith("/account");
 
   // Close the mobile menu on route change so a NavLink click doesn't leave
   // it hovering over the new page.
@@ -69,40 +62,14 @@ const Header = (): ReactElement => {
           ))}
         </nav>
         <div className={styles.actions}>
-          {!user && (
-            <Link to="/signin" className={styles.signInLink}>
-              Sign in
-            </Link>
-          )}
-          {!isPaymentPage && (
-            <a
-              className={`btn btn-primary ${styles.installBtn}`}
-              href={installLinks.figmaCommunity}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Install free
-            </a>
-          )}
-          {user && (
-            <Link
-              to="/account"
-              className={`${styles.accountChip} ${
-                isAccountPage ? styles.accountChipActive : ""
-              }`}
-              aria-label={
-                user.email ? `Account — ${user.email}` : "Account"
-              }
-              title={user.email ?? user.figmaUserId}
-            >
-              <span className={styles.chipInitials}>
-                {getInitials(user.email)}
-              </span>
-              <span className={styles.chipLabel}>
-                {getChipLabel(user.plan, user.usage)}
-              </span>
-            </Link>
-          )}
+          <a
+            className={`btn btn-primary ${styles.installBtn}`}
+            href={installLinks.figmaCommunity}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Install free
+          </a>
           {/* S-H6: hamburger button visible only at <768px (CSS handles
               the breakpoint). Toggles the mobile nav panel. */}
           <button

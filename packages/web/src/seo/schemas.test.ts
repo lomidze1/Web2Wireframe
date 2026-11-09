@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   organizationSchema,
   softwareApplicationSchema,
-  productSchema,
   breadcrumbSchema,
   faqSchema,
 } from "./schemas";
@@ -16,33 +15,17 @@ describe("organizationSchema", () => {
 });
 
 describe("softwareApplicationSchema", () => {
-  it("lists Free, Pro Monthly, and Pro Yearly offers", () => {
+  it("has exactly one offer: Free at $0", () => {
     expect(softwareApplicationSchema["@type"]).toBe("SoftwareApplication");
-    const offers = softwareApplicationSchema.offers as Array<{ name: string }>;
-    const names = offers.map((o) => o.name);
-    expect(names).toContain("Free");
-    expect(names).toContain("Pro Monthly");
-    expect(names).toContain("Pro Yearly");
-  });
-
-  it("prices match the launch plan ($16 monthly, $144 yearly)", () => {
     const offers = softwareApplicationSchema.offers as Array<{
       name: string;
       price: string;
+      priceCurrency: string;
     }>;
-    expect(offers.find((o) => o.name === "Pro Monthly")?.price).toBe("16");
-    expect(offers.find((o) => o.name === "Pro Yearly")?.price).toBe("144");
-  });
-});
-
-describe("productSchema", () => {
-  it("describes Pro and pins prices in USD", () => {
-    expect(productSchema["@type"]).toBe("Product");
-    expect(productSchema.name).toContain("Pro");
-    const offers = productSchema.offers as Array<{ priceCurrency: string }>;
-    for (const o of offers) {
-      expect(o.priceCurrency).toBe("USD");
-    }
+    expect(offers).toHaveLength(1);
+    expect(offers[0].name).toBe("Free");
+    expect(offers[0].price).toBe("0");
+    expect(offers[0].priceCurrency).toBe("USD");
   });
 });
 

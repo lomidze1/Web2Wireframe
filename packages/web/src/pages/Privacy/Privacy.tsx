@@ -50,17 +50,16 @@ const Privacy = (): ReactElement => {
                 <strong>Figma user ID.</strong> When you connect Figma, we
                 receive your Figma user ID via Figma OAuth (scope:{" "}
                 <code>current_user:read</code>). This ID is the key we use to
-                store your plan and import usage. We do not receive your Figma
+                store your import usage. We do not receive your Figma
                 files or designs.
               </li>
               <li>
-                <strong>Imported content.</strong> The URLs, HTML, screenshots,
-                or files you submit for conversion into wireframes.
+                <strong>Imported content.</strong> The URLs, HTML, or files you
+                submit for conversion into wireframes.
               </li>
               <li>
                 <strong>Email address.</strong> Provided when you contact{" "}
-                <a href="/support">/support</a>, complete a purchase (via Flitt),
-                or subscribe to our newsletter.
+                <a href="/support">/support</a> or subscribe to our newsletter.
               </li>
               <li>
                 <strong>Support messages.</strong> The content of messages you
@@ -85,12 +84,12 @@ const Privacy = (): ReactElement => {
             </p>
             <ul>
               <li>
-                Provide the Service and manage your plan and license —{" "}
+                Provide the Service and record import usage —{" "}
                 <strong>performance of a contract</strong>.
               </li>
               <li>
-                Process payments and keep tax and accounting records —{" "}
-                <strong>legal obligation</strong>.
+                Keep accounting records for purchases made before the Service
+                became free — <strong>legal obligation</strong>.
               </li>
               <li>
                 Respond to support requests and communicate with you —{" "}
@@ -116,8 +115,7 @@ const Privacy = (): ReactElement => {
           <>
             <p>
               When you import a website, its content is processed to generate
-              your wireframe. For the Screenshot import feature, the image you
-              upload is sent to an AI service that interprets its layout.
+              your wireframe.
             </p>
             <p>
               We do not use your imported content or Outputs to train AI models.
@@ -146,8 +144,8 @@ const Privacy = (): ReactElement => {
         content: (
           <p>
             We rely on a small number of trusted third-party providers to
-            operate the Service — for example, to process payments, send email,
-            host the Service, and power AI features. They act as our processors,
+            operate the Service — for example, to send email and host the
+            Service. They act as our processors,
             receive only the data needed to do their job, and are not permitted
             to use it for their own purposes.{" "}
             <strong>We do not sell your personal data.</strong>
@@ -156,59 +154,35 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "payment-data",
-        title: "8. Payment Data",
-        content: (
-          <>
-            <p>
-              Pro payments are processed by{" "}
-              <a
-                href="https://flitt.com/"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Flitt
-              </a>
-              , a PCI-DSS Level 1 payment gateway. Card data is collected,
-              processed, and stored exclusively by Flitt — Web2Wireframe never
-              receives or stores card numbers, CVCs, or expiration dates.
-            </p>
-            <p>
-              We retain payment metadata necessary for tax and accounting
-              compliance: order ID, transaction ID, charged amount, currency,
-              status, billing email, and the Figma user ID associated with the
-              purchase. This information is retained for the period
-              required by Georgian accounting law (typically 7 years).
-            </p>
-          </>
-        ),
-      },
-      {
-        id: "tax-notice",
-        title: "9. Tax Notice",
+        title: "8. Past Payment Data",
         content: (
           <p>
-            Web2Wireframe is operated from outside the European Union.
-            Customers are responsible for any local taxes (such as VAT)
-            applicable in their own jurisdiction. Prices displayed in the
-            Service and on our website are exclusive of such taxes.
+            The Service is free and we no longer collect payments. Purchases
+            made before November 2026 were processed by a PCI-DSS Level 1
+            payment gateway; Web2Wireframe never received or stored card
+            details. For those past purchases we retain the payment metadata
+            needed for tax and accounting compliance (order ID, transaction ID,
+            amount, currency, status, billing email, and the associated Figma
+            user ID) for the period required by Georgian accounting law
+            (typically 7 years).
           </p>
         ),
       },
       {
         id: "marketing-newsletter",
-        title: "10. Marketing & Newsletter",
+        title: "9. Marketing & Newsletter",
         content: (
           <p>
             We only send marketing or newsletter emails if you explicitly opt in.
             You can unsubscribe at any time using the link in any such email.
             Opting out of marketing does not stop essential transactional emails
-            (for example, payment receipts or support replies).
+            (for example, support replies).
           </p>
         ),
       },
       {
         id: "retention",
-        title: "11. Data Retention",
+        title: "10. Data Retention",
         content: (
           <>
             <p>
@@ -217,13 +191,13 @@ const Privacy = (): ReactElement => {
             </p>
             <ul>
               <li>
-                <strong>Plan &amp; usage</strong> (tied to your Figma user ID) —
+                <strong>Import usage</strong> (tied to your Figma user ID) —
                 kept for as long as you use the Service.
               </li>
               <li>
-                <strong>Payment metadata</strong> — retained for the period
+                <strong>Past payment metadata</strong> — retained for the period
                 required by Georgian accounting law (typically 7 years; see
-                Payment Data above).
+                Past Payment Data above).
               </li>
               <li>
                 <strong>Support records</strong> — retained as needed to resolve
@@ -243,7 +217,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "sharing",
-        title: "12. Data Sharing",
+        title: "11. Data Sharing",
         content: (
           <>
             <p>
@@ -270,7 +244,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "international-transfers",
-        title: "13. International Data Transfers",
+        title: "12. International Data Transfers",
         content: (
           <p>
             If you access W2W from outside Georgia, your data may be processed
@@ -282,7 +256,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "automated-decisions",
-        title: "14. Automated Decision-Making",
+        title: "13. Automated Decision-Making",
         content: (
           <p>
             We do not use your personal data for automated decision-making or
@@ -292,7 +266,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "rights",
-        title: "15. Your Rights",
+        title: "14. Your Rights",
         content: (
           <>
             <p>
@@ -321,12 +295,11 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "security",
-        title: "16. Security",
+        title: "15. Security",
         content: (
           <p>
             We use reasonable technical and organizational measures to protect
-            data: traffic is encrypted in transit (HTTPS), card data is never
-            stored on our servers (it is handled by Flitt), and access to data
+            data: traffic is encrypted in transit (HTTPS), and access to data
             is limited to what is needed to run the Service. No system is
             perfectly secure, and we cannot guarantee absolute security.
           </p>
@@ -334,7 +307,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "children",
-        title: "17. Children’s Privacy",
+        title: "16. Children’s Privacy",
         content: (
           <p>
             W2W is not intended for children under 16, and we do not knowingly
@@ -344,7 +317,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "changes",
-        title: "18. Changes to This Policy",
+        title: "17. Changes to This Policy",
         content: (
           <p>
             We may update this Policy from time to time. If changes are
@@ -355,7 +328,7 @@ const Privacy = (): ReactElement => {
       },
       {
         id: "contact",
-        title: "19. Contact",
+        title: "18. Contact",
         content: (
           <p>
             For privacy questions or requests, contact{" "}
@@ -415,7 +388,7 @@ const Privacy = (): ReactElement => {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <h2>Privacy Policy</h2>
-            <span>Effective date: 2026-06-16</span>
+            <span>Effective date: 2026-11-09</span>
           </div>
           <nav>
             <ul className={styles.sidebarList}>

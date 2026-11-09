@@ -54,8 +54,8 @@
   --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
   --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
 
-  /* ── Legacy tokens (pre-Classical pages: Docs, Support, Terms, Privacy,
-     Account, Checkout, Renew + PricingModal). Their module.scss
+  /* ── Legacy tokens (pre-Classical pages: Docs, Support, Terms, Privacy).
+     Their module.scss
      files still reference these; remove in Phase 2 once those pages get the
      Classical treatment. NOTE: --radius-* above intentionally replaces the
      old rounder values so shared modals pick up the new crisp corners. ── */

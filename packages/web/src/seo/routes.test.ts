@@ -70,7 +70,6 @@ describe("keyword landing pages", () => {
   const LANDING_ROUTES = [
     "/html-to-figma",
     "/website-to-figma",
-    "/screenshot-to-figma",
     "/figma-wireframe-plugin",
     "/figma-browser-extension",
   ];
@@ -96,9 +95,6 @@ describe("keyword landing pages", () => {
   it("leads its <title> with the phrase people actually search for", () => {
     expect(seoConfig["/html-to-figma"]?.title).toMatch(/^HTML to Figma/);
     expect(seoConfig["/website-to-figma"]?.title).toMatch(/^Website to Figma/);
-    expect(seoConfig["/screenshot-to-figma"]?.title).toMatch(
-      /^Screenshot to Figma/,
-    );
     expect(seoConfig["/figma-wireframe-plugin"]?.title).toMatch(
       /^Figma Wireframe Plugin/,
     );

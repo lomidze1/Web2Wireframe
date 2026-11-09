@@ -24,7 +24,6 @@ interface OptionSpec<K extends keyof ConsoleState> {
 
 const SOURCE_OPTIONS: OptionSpec<"source">[] = [
   { value: "url", label: "Web URL" },
-  { value: "screenshot", label: "Screenshot" },
   { value: "html", label: "HTML / CSS" },
   { value: "area", label: "Area select" },
 ];

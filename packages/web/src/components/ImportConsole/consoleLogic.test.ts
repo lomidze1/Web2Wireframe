@@ -11,7 +11,6 @@ import {
   deriveLayers,
   deriveLayerNote,
   deriveSummary,
-  derivePrice,
 } from "./consoleLogic";
 
 describe("defaults", () => {
@@ -112,12 +111,10 @@ describe("frame metrics", () => {
 });
 
 describe("source hints", () => {
-  it("covers all four sources with the design copy", () => {
+  it("covers the three sources with the design copy (Screenshot import is gone)", () => {
+    expect(Object.keys(SOURCE_HINTS).sort()).toEqual(["area", "html", "url"]);
     expect(SOURCE_HINTS.url).toBe(
       "https://northwind.example/pricing — public pages, fetched and parsed live.",
-    );
-    expect(SOURCE_HINTS.screenshot).toBe(
-      "Drop a PNG or JPG. Structure is inferred from the image — the way most people use this.",
     );
     expect(SOURCE_HINTS.html).toBe(
       "Paste markup and styles straight from devtools, or a saved page.",
@@ -233,41 +230,5 @@ describe("summary", () => {
         vars: "figma",
       }),
     ).toBe("768px  ·  absolute  ·  site palette  ·  figma variables");
-  });
-});
-
-describe("price", () => {
-  it("computes the launch pricing from 16/144", () => {
-    const price = derivePrice("annual");
-    expect(price.monthly).toBe("$16");
-    expect(price.annual).toBe("$144");
-    expect(price.perMonth).toBe("$12");
-    expect(price.savePct).toBe("25%");
-  });
-
-  it("annual billing shows the per-month figure as a one-time yearly payment", () => {
-    const price = derivePrice("annual");
-    expect(price.big).toBe("$12");
-    expect(price.unit).toBe("per month, paid once a year");
-    expect(price.badge).toBe("save 25%");
-    expect(price.note).toBe(
-      "$144 once for 365 days — 25% off the monthly rate. One-time payment, no auto-renewal.",
-    );
-  });
-
-  it("monthly billing shows the flat monthly rate as a one-time payment", () => {
-    const price = derivePrice("monthly");
-    expect(price.big).toBe("$16");
-    expect(price.unit).toBe("per month");
-    expect(price.badge).toBe("unlimited");
-    expect(price.note).toBe(
-      "$16 once for 30 days, unlimited imports. One-time payment, no auto-renewal.",
-    );
-  });
-
-  it("supports custom price inputs", () => {
-    const price = derivePrice("annual", 20, 180);
-    expect(price.perMonth).toBe("$15");
-    expect(price.savePct).toBe("25%");
   });
 });

@@ -78,19 +78,13 @@ export const docsNavigation: DocsTopic[] = [
     id: "import-methods",
     title: "Import methods",
     path: "/docs/import-methods/web-import",
-    blurb: "Four ways in. Screenshot is the one most people use.",
+    blurb: "Three ways in: a URL, pasted HTML, or a region.",
     pages: [
       {
         id: "web-import",
         title: "Web import",
         path: "web-import",
         blurb: "From a public URL",
-      },
-      {
-        id: "screenshot-import",
-        title: "Screenshot import",
-        path: "screenshot-import",
-        blurb: "Behind a login",
       },
       {
         id: "html-import",
@@ -123,32 +117,6 @@ export const docsNavigation: DocsTopic[] = [
         title: "Import with the extension",
         path: "import-with-extension",
         blurb: "Capture to canvas",
-      },
-    ],
-  },
-  {
-    id: "pricing",
-    title: "Pricing & plans",
-    path: "/docs/pricing/overview",
-    blurb: "Ten free imports a month, every option unlocked.",
-    pages: [
-      {
-        id: "overview",
-        title: "Pricing overview",
-        path: "overview",
-        blurb: "Free and Pro",
-      },
-      {
-        id: "purchase",
-        title: "Purchase & access",
-        path: "purchase",
-        blurb: "Billing and licences",
-      },
-      {
-        id: "additional",
-        title: "Additional information",
-        path: "additional",
-        blurb: "Refunds, VAT, teams",
       },
     ],
   },

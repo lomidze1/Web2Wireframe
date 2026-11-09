@@ -5,7 +5,6 @@ import { Analytics } from "@vercel/analytics/react";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import AppRoutes from "./AppRoutes";
-import { AuthProvider } from "./contexts/AuthContext";
 import styles from "./App.module.scss";
 
 const ScrollToTop = (): null => {
@@ -20,8 +19,7 @@ const ScrollToTop = (): null => {
 
 function App(): ReactElement {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <BrowserRouter>
         <ScrollToTop />
         {/* Cookieless pageview counting (Vercel Web Analytics). Client-only:
             entry-server.tsx deliberately doesn't render it. */}
@@ -40,8 +38,7 @@ function App(): ReactElement {
           </main>
           <Footer />
         </div>
-      </BrowserRouter>
-    </AuthProvider>
+    </BrowserRouter>
   );
 }
 

@@ -127,8 +127,7 @@ const LandingPage = ({ content }: { content: LandingContent }): ReactElement => 
       <section className={styles.closing}>
         <div className={styles.closingPanel}>
           <p className={styles.closingLine}>
-            Ten imports a month, free, with every setting unlocked from the
-            first one.
+            Free, with every setting unlocked from the first import.
           </p>
           <a
             className="btn btn-primary"
@@ -138,9 +137,14 @@ const LandingPage = ({ content }: { content: LandingContent }): ReactElement => 
           >
             Install free
           </a>
-          <Link className="btn btn-secondary" to="/pricing">
-            Compare plans
-          </Link>
+          <a
+            className="btn btn-secondary"
+            href={installLinks.chrome}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Get the extension
+          </a>
         </div>
       </section>
     </div>
