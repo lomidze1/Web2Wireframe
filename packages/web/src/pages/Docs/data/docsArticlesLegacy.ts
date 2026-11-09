@@ -20,7 +20,7 @@ export const legacyArticles: DocsArticleMap = {
         id: "overview",
         title: "Overview",
         paras: [
-          "Web2Wireframe is a Figma plugin that converts websites into clean, structured wireframes in seconds. It combines multi-method import — URL, screenshot, HTML, area capture and the browser extension — with reusable wireframe libraries, so you can move from an existing website to an editable Figma layout faster and more consistently.",
+          "Web2Wireframe is a Figma plugin that converts websites into clean, structured wireframes in seconds. It combines multi-method import — URL, HTML, area capture and the browser extension — with reusable wireframe libraries, so you can move from an existing website to an editable Figma layout faster and more consistently.",
         ],
       },
       {
@@ -156,7 +156,7 @@ export const legacyArticles: DocsArticleMap = {
         title: "What happens when you open the plugin",
         paras: [
           "When you open Web2Wireframe, the plugin launches into its main workspace inside Figma. This is where every import and library action begins.",
-          "Nothing is generated automatically at this stage. The plugin waits for you to decide how to start — by choosing an import method: URL, screenshot, HTML, area capture or the browser extension. You stay in control from the beginning.",
+          "Nothing is generated automatically at this stage. The plugin waits for you to decide how to start — by choosing an import method: URL, HTML, area capture or the browser extension. You stay in control from the beginning.",
         ],
       },
       {
@@ -259,14 +259,14 @@ export const legacyArticles: DocsArticleMap = {
         title: "Notes and limitations",
         paras: [
           "Web import depends on the structure it can read from the website, so some pages produce less clean results — when content is highly dynamic or loads after the initial render, when critical sections require a login, or when layouts are heavily script-driven and change per session.",
-          "If web import is not giving you the structure you expect, screenshot import, HTML import and area capture each approach the same page differently.",
+          "If web import is not giving you the structure you expect, HTML import and area capture each approach the same page differently.",
         ],
       },
       {
         id: "next-step",
         title: "Next step",
         paras: [
-          "Continue to screenshot import to learn how to generate wireframes from a static image.",
+          "Continue to HTML import to learn how to generate wireframes from pasted markup.",
         ],
       },
     ],
@@ -281,7 +281,7 @@ export const legacyArticles: DocsArticleMap = {
         id: "what-is-html-import",
         title: "What is HTML import",
         paras: [
-          "HTML import generates wireframes directly from markup instead of a live website or a screenshot. It is designed for the case where you already have the HTML and want to convert its structure without relying on a rendered page.",
+          "HTML import generates wireframes directly from markup instead of a live website. It is designed for the case where you already have the HTML and want to convert its structure without relying on a rendered page.",
           "Because it reads the document itself, the plugin concentrates purely on structure, layout hierarchy and content organisation — which makes it a good fit for technical workflows where clean structure matters more than visual appearance.",
         ],
         figure: {
@@ -388,7 +388,7 @@ export const legacyArticles: DocsArticleMap = {
         id: "when-area-capture-works-best",
         title: "When area capture works best",
         paras: [
-          "It is most effective when you want a specific part of a page rather than the full layout. If you need the complete page structure instead, web import or screenshot import are the better choice.",
+          "It is most effective when you want a specific part of a page rather than the full layout. If you need the complete page structure instead, web import or HTML import are the better choice.",
         ],
         list: [
           "Importing hero sections or landing page blocks",
@@ -446,7 +446,7 @@ export const legacyArticles: DocsArticleMap = {
           "You are researching competitors or gathering inspiration",
           "You would rather not download screenshots or copy URLs by hand",
         ],
-        note: "If you already have a URL or an image, web import and screenshot import cover the same ground from inside the plugin.",
+        note: "If you already have a URL or the markup, web import and HTML import cover the same ground from inside the plugin.",
       },
       {
         id: "how-it-works-with-web2wireframe",
@@ -529,172 +529,6 @@ export const legacyArticles: DocsArticleMap = {
         title: "Next step",
         paras: [
           "That completes the extension workflow. Return to Getting started, or try one of the other import methods.",
-        ],
-      },
-    ],
-  },
-
-  "pricing/overview": {
-    lead: "Ten imports a month on the free plan, every option unlocked. Pro removes the count.",
-    readingTime: "3 min read",
-    updated: "Updated 2 August 2026",
-    sections: [
-      {
-        id: "what-is-included-in-pro",
-        title: "What is included in Pro",
-        paras: [
-          "Web2Wireframe has free and paid functionality. Pro is for people who use the product regularly and need scale rather than a different feature set.",
-        ],
-        list: [
-          "Unlimited URL, screenshot, HTML and browser-extension imports",
-          "Full styling — colours, fonts and all viewports",
-          "Real copy, hover state capture and real assets",
-          "Font binary download, as a ZIP with auto-install",
-          "Priority email support",
-        ],
-        note: "Pro is about productivity and scale, not about withholding core functionality — the settings panel works fully on the free plan.",
-      },
-      {
-        id: "available-plan-types",
-        title: "Available plan types",
-        paras: [
-          "The plan structure is deliberately simple: two tiers, both running the same engine with the same settings.",
-        ],
-        list: [
-          "Free — 3 imports per month, for exploration and occasional use",
-          "Pro — $16 for 30 days of unlimited imports and full features, as a one-time payment with no auto-renewal",
-        ],
-      },
-      {
-        id: "why-the-paid-plan-exists",
-        title: "Why the paid plan exists",
-        paras: [
-          "Pro funds the ongoing development and maintenance of the plugin. Multi-viewport capture, hover state extraction and font handling all need infrastructure and continuous work.",
-          "That revenue is what allows performance and stability to improve, new capabilities to arrive, and the core features to stay accessible on the free plan.",
-        ],
-      },
-      {
-        id: "comparison-between-free-and-pro",
-        title: "Comparison between free and Pro",
-        paras: [
-          "The free plan is enough to understand how Web2Wireframe works and to run its core workflows end to end. Pro extends the same capabilities for people who import frequently.",
-          "In general: free suits learning and light usage; Pro suits production workflows and repeated use.",
-        ],
-      },
-      {
-        id: "which-plan-fits-different-needs",
-        title: "Which plan fits different needs",
-        paras: [
-          "The right plan depends on how often you import, not on which features you need.",
-        ],
-        list: [
-          "Choose Free if you are exploring the product or running fewer than ten imports a month",
-          "Choose Pro if you import frequently and want the monthly count out of the way",
-          "Upgrade when Web2Wireframe becomes part of your regular workflow",
-        ],
-      },
-      {
-        id: "next-step",
-        title: "Next step",
-        paras: [
-          "Continue to Purchase & access to see how buying and renewing Pro works.",
-        ],
-      },
-    ],
-  },
-
-  "pricing/purchase": {
-    lead: "Pro is a one-time purchase: $16 for 30 days, no subscription and nothing to cancel.",
-    readingTime: "3 min read",
-    updated: "Updated 2 August 2026",
-    sections: [
-      {
-        id: "how-the-one-time-purchase-model-works",
-        title: "How the one-time purchase model works",
-        paras: [
-          "Web2Wireframe Pro is a one-time purchase. A single $16 payment unlocks 30 days of Pro access — there is no recurring subscription and you are never charged automatically.",
-          "For those 30 days you can use every Pro feature without interruption. When the period ends, your account returns to the free tier unless you choose to buy again.",
-          "The result is predictable: you always know exactly when and how much you will be charged, because nothing happens unless you start a purchase yourself.",
-        ],
-      },
-      {
-        id: "step-by-step-purchase-process",
-        title: "Step-by-step purchase process",
-        paras: [
-          "Buying Pro is designed to take as few steps as possible, and access is updated the moment the payment completes.",
-        ],
-        list: [
-          "Open the Plan modal in the plugin and choose Pro",
-          "Start the purchase",
-          "Complete the checkout steps on the payment page",
-          "Return to the plugin — Pro features are available immediately",
-        ],
-      },
-      {
-        id: "renewing-your-access",
-        title: "Renewing your access",
-        paras: [
-          "Because Pro does not auto-renew, there is nothing to cancel — access simply ends when the 30 days are up. To keep Pro, you make another one-time purchase.",
-          "You stay in control of your usage and your costs: you are only ever charged when you choose to buy.",
-        ],
-        list: [
-          "Renew at any time from the Plan modal in the plugin, or from the link in your expiry reminder email",
-          "Renewing early stacks the new days onto your remaining time — no days are lost",
-          "We email a reminder a few days before your access is due to expire",
-        ],
-      },
-      {
-        id: "next-step",
-        title: "Next step",
-        paras: [
-          "Continue to Additional information for general pricing details, future payment options and related topics.",
-        ],
-      },
-    ],
-  },
-
-  "pricing/additional": {
-    lead: "General pricing notes: how plans may change, what happens at expiry, and where to check your status.",
-    readingTime: "2 min read",
-    updated: "Updated 2 August 2026",
-    sections: [
-      {
-        id: "general-information-about-pricing-and-plans",
-        title: "General information about pricing and plans",
-        paras: [
-          "Pricing is meant to be clear and predictable: what is included in each plan, and how access to features works.",
-          "As the product develops, pricing information may be updated to reflect new functionality. Anything material is documented here rather than announced only in the plugin.",
-        ],
-      },
-      {
-        id: "future-payment-options",
-        title: "Future payment options",
-        paras: [
-          "Additional payment options may be introduced to better support different regions and needs — new billing periods, alternative payment methods, or expanded plan types.",
-          "Any new option will be communicated clearly before it becomes active, and this documentation will be updated with it.",
-        ],
-      },
-      {
-        id: "changes-to-plans-and-conditions",
-        title: "Changes to plans and conditions",
-        paras: [
-          "Plans, features and conditions may change as Web2Wireframe develops. When they do, the intent is to improve the experience and keep pricing aligned with the value of the features.",
-          "Significant changes are announced in advance wherever possible, and the updated information always appears here.",
-        ],
-      },
-      {
-        id: "renewal-and-account-related-topics",
-        title: "Renewal and account-related topics",
-        paras: [
-          "Pro is a one-time purchase, so there is no recurring subscription to cancel and no automatic charge. Access lasts 30 days from the date of purchase, and you can check your current plan and expiry date at any time in the plugin's Plan modal.",
-          "To keep Pro past the 30 days you make another one-time purchase. If the period ends without one, the account simply returns to the free tier — and we email a reminder beforehand so it is never a surprise.",
-        ],
-      },
-      {
-        id: "final-note",
-        title: "Final note",
-        paras: [
-          "This page is general guidance rather than a billing policy. For the binding terms, see the Terms page; for anything specific to your account, email billing@web2wireframe.design.",
         ],
       },
     ],

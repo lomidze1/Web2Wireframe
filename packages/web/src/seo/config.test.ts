@@ -5,7 +5,7 @@ describe("getSeoConfig", () => {
   it("returns the route-specific config for a known route", () => {
     const cfg = getSeoConfig("/pricing");
     expect(cfg.canonical).toBe("https://www.web2wireframe.design/pricing");
-    expect(cfg.title).toContain("Pricing");
+    expect(cfg.title).toMatch(/Free/);
   });
 
   it("falls back to the root config for an unknown route", () => {
@@ -20,10 +20,11 @@ describe("getSeoConfig", () => {
     expect(types).toContain("SoftwareApplication");
   });
 
-  it("pricing page has Product schema + BreadcrumbList", () => {
+  it("pricing page has SoftwareApplication schema (no Product) + BreadcrumbList", () => {
     const cfg = getSeoConfig("/pricing");
     const types = (cfg.jsonLd ?? []).map((s) => s["@type"]);
-    expect(types).toContain("Product");
+    expect(types).toContain("SoftwareApplication");
+    expect(types).not.toContain("Product");
     expect(types).toContain("BreadcrumbList");
   });
 

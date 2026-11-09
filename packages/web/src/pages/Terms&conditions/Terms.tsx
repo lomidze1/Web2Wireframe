@@ -51,14 +51,11 @@ const Terms = (): ReactElement => {
             </li>
             <li>
               "Content" means materials you submit or import, including URLs,
-              HTML, screenshots, or files.
+              HTML, or files.
             </li>
             <li>
               "Output" means wireframes, layouts, or assets produced by the
               Service.
-            </li>
-            <li>
-              "Plan" means a Free or Pro tier.
             </li>
           </ol>
         ),
@@ -77,8 +74,8 @@ const Terms = (): ReactElement => {
             <p>
               W2W does not have its own registration, usernames, or passwords.
               Your identity is established through Figma sign-in (Figma OAuth,
-              scope <code>current_user:read</code>), and your plan and import
-              usage are tied to your Figma user ID. You are responsible for
+              scope <code>current_user:read</code>), and your import usage is
+              tied to your Figma user ID. You are responsible for
               activity that occurs through your Figma sign-in and for keeping
               your Figma account secure.
             </p>
@@ -134,73 +131,40 @@ const Terms = (): ReactElement => {
         ),
       },
       {
-        id: "free-tier",
-        title: "7. Free Tier (Freemium) Limits",
+        id: "free-service",
+        title: "7. Free Service & Fair Use",
         content: (
           <>
             <p>
-              The Free plan includes 3 imports per month with full access to
-              all import features. Once you reach 3 imports in a monthly cycle,
-              further imports are blocked until your counter resets at the start
-              of the next cycle, or until you upgrade to Pro (which includes
-              unlimited imports). Support on the Free plan is provided through
-              community channels.
+              The Service is provided free of charge, with every import method
+              and setting included. There is no paid plan. To keep the Service
+              available for everyone, we may apply reasonable fair-use limits
+              to automated or unusually heavy use.
             </p>
             <p>
-              Free limits and features may change over time. For the current
-              plan matrix, visit <a href="/pricing">/pricing</a>.
+              We may change or discontinue features of the Service at any time.
             </p>
           </>
         ),
       },
       {
-        id: "payment-access",
-        title: "8. Payment & Access",
+        id: "fees",
+        title: "8. Fees & Past Purchases",
         content: (
           <>
             <p>
-              The paid plan is Pro, sold as a one-time purchase in two options:
-              $16 grants 30 days of Pro access, or $144 grants 365 days. Access
-              does not auto-renew and you are not charged automatically — to
-              extend Pro you make another one-time purchase. A new purchase made
-              while Pro is still active adds its days on top of the time
-              remaining. When your Pro period ends without a new purchase, the
-              account reverts to the Free tier.
-            </p>
-            <p>
-              Payments are processed by Flitt, a PCI-DSS Level 1 payment
-              gateway. Card data is handled exclusively by Flitt — Web2Wireframe
-              never receives or stores card details. Prices are exclusive of
-              any local taxes (e.g. VAT) for which you may be responsible in
-              your jurisdiction.
-            </p>
-          </>
-        ),
-      },
-      {
-        id: "refunds",
-        title: "9. Refunds",
-        content: (
-          <>
-            <p>
-              Because Pro is a one-time purchase with no auto-renewal, there is
-              nothing to cancel — access simply ends when your Pro period is up
-              unless you choose to buy again.
-            </p>
-            <p>
-              <strong>All fees are non-refundable.</strong> We do not offer
-              prorated refunds for unused time or partial periods. If you
-              believe a charge was made in error or you have a billing dispute,
-              contact <EmailLink email="billing@web2wireframe.design" /> and we'll
-              investigate. Statutory refund rights under your local
-              law (where applicable) are not affected by this policy.
+              We do not charge for the Service and do not collect payment
+              details. Purchases made before the Service became free
+              (November 2026) were governed by the Terms in force at the time
+              of purchase. Questions about a past purchase can be sent to{" "}
+              <EmailLink email="billing@web2wireframe.design" />.
             </p>
           </>
         ),
       },
       {
         id: "intellectual-property",
-        title: "10. Intellectual Property",
+        title: "9. Intellectual Property",
         content: (
           <>
             <p>
@@ -213,7 +177,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "user-content-ownership",
-        title: "11. User Content & Ownership of Imported Materials",
+        title: "10. User Content & Ownership of Imported Materials",
         content: (
           <>
             <p>
@@ -227,7 +191,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "third-party-services",
-        title: "12. Third-Party Services & Figma Platform Terms",
+        title: "11. Third-Party Services & Figma Platform Terms",
         content: (
           <>
             <p>
@@ -241,14 +205,12 @@ const Terms = (): ReactElement => {
       },
       {
         id: "ai-output-disclaimer",
-        title: "13. AI & Output Disclaimer (Accuracy / Limitations)",
+        title: "12. Output Disclaimer (Accuracy / Limitations)",
         content: (
           <>
             <p>
-              The Screenshot import feature uses a third-party AI service to
-              interpret the layout of an uploaded image. AI interpretation can
-              produce incomplete or incorrect results, and
-              all Outputs may contain inaccuracies. You are responsible for
+              Outputs are produced automatically and may be incomplete or
+              contain inaccuracies. You are responsible for
               reviewing, validating, and editing Outputs before use.
             </p>
           </>
@@ -256,7 +218,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "security-availability",
-        title: "14. Security & Availability",
+        title: "13. Security & Availability",
         content: (
           <>
             <p>
@@ -269,7 +231,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "termination-suspension",
-        title: "15. Termination & Suspension",
+        title: "14. Termination & Suspension",
         content: (
           <>
             <p>
@@ -282,7 +244,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "disclaimer-warranties",
-        title: "16. Disclaimer of Warranties",
+        title: "15. Disclaimer of Warranties",
         content: (
           <>
             <p>
@@ -296,7 +258,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "limitation-liability",
-        title: "17. Limitation of Liability",
+        title: "16. Limitation of Liability",
         content: (
           <>
             <p>
@@ -307,16 +269,17 @@ const Terms = (): ReactElement => {
             </p>
             <p>
               In any case, Glinc's total aggregate liability for all claims
-              arising from or related to the Service will not exceed the amount
-              you paid us for the Service in the twelve (12) months immediately
-              before the event giving rise to the claim.
+              arising from or related to the Service will not exceed the greater
+              of (a) the amount you paid us for the Service in the twelve (12)
+              months immediately before the event giving rise to the claim, or
+              (b) fifty US dollars (USD 50).
             </p>
           </>
         ),
       },
       {
         id: "indemnification",
-        title: "18. Indemnification",
+        title: "17. Indemnification",
         content: (
           <>
             <p>
@@ -329,7 +292,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "privacy-data",
-        title: "19. Privacy & Data Processing",
+        title: "18. Privacy & Data Processing",
         content: (
           <>
             <p>
@@ -342,7 +305,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "changes-terms",
-        title: "20. Changes to These Terms",
+        title: "19. Changes to These Terms",
         content: (
           <>
             <p>
@@ -356,7 +319,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "governing-law",
-        title: "21. Governing Law & Disputes (Georgia)",
+        title: "20. Governing Law & Disputes (Georgia)",
         content: (
           <>
             <p>
@@ -369,7 +332,7 @@ const Terms = (): ReactElement => {
       },
       {
         id: "contact",
-        title: "22. Contact",
+        title: "21. Contact",
         content: (
           <>
             <p>
@@ -431,7 +394,7 @@ const Terms = (): ReactElement => {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <h2>Terms & Conditions</h2>
-            <span>Effective date: 2026-06-16</span>
+            <span>Effective date: 2026-11-09</span>
           </div>
           <nav>
             <ul className={styles.sidebarList}>
@@ -457,8 +420,8 @@ const Terms = (): ReactElement => {
           <header className={styles.header}>
             <h1>Terms & Conditions</h1>
             <p>
-              These Terms describe how Web2Wireframe works, how plans are billed,
-              and how you may use Outputs. Please read them carefully.
+              These Terms describe how Web2Wireframe works and how you may use
+              Outputs. Please read them carefully.
             </p>
           </header>
 

@@ -75,7 +75,7 @@ const DocsSidebar = (): ReactElement => {
           id="docs-search"
           className={styles.searchInput}
           type="search"
-          placeholder="Try “screenshot”"
+          placeholder="Try “viewports”"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}

@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "preact/hooks";
 
 // Import sub-pages
 import Web from "./pages/import/web";
-import Screenshot from "./pages/import/screenshot";
 import HTML from "./pages/import/html";
 import AreaSelection from "./pages/import/areaSelection";
 
@@ -15,9 +14,7 @@ import ExtensionModal from "./components/modalPopup/ExtensionModal";
 import RebindFontsModal, {
   type RebindResultInfo,
 } from "./components/modalPopup/RebindFontsModal";
-import Plan from "./components/modalPopup/planPopup/Plan";
 import QuotaExceededModal from "./components/modalPopup/QuotaExceededModal";
-import ExpiringSoonModal from "./components/modalPopup/ExpiringSoonModal";
 import ImportReportModal, {
   type ReportSource,
 } from "./components/modalPopup/ImportReportModal";
@@ -37,8 +34,6 @@ import { fitWithinFigmaLimit } from "../utils/figmaImageLimit";
 import { applyColorFilterToPixels, parseColorFilter } from "../rendering/cssFilter";
 
 import { onQuotaExceeded } from "./shared/quotaEvents";
-import { onImportTabRequest } from "./shared/importTabEvents";
-import { onPlanModalRequest } from "./shared/planEvents";
 import { onAuthExpired } from "./shared/authEvents";
 
 // Components
@@ -52,13 +47,13 @@ import {
   useConfig,
   SettingsPanel,
 } from "./shared/ConfigContext";
-import { LicenseProvider, useLicense } from "./shared/LicenseContext";
+import { LicenseProvider } from "./shared/LicenseContext";
 
 // Import global and base styles
 import styles from "./styles/ui.css";
 import importStyles from "./pages/import/Import.css";
 
-type ImportTab = "web" | "screenshot" | "html" | "area";
+type ImportTab = "web" | "html" | "area";
 
 export default function App() {
   return (
@@ -144,8 +139,8 @@ function ConnectionGate() {
   if (conn === "disconnected") {
     return <ConnectFigma onConnected={() => setConn("connected")} />;
   }
-  // LicenseProvider preloads the user's license during plugin startup so the
-  // Plan modal (and footer pill) render with cached data immediately. Mounted
+  // LicenseProvider preloads the user's license during plugin startup (email
+  // capture + per-user stats; W2W is free, nothing is shown). Mounted
   // here — after Connect succeeded — so figmaUserId is reliably present.
   return (
     <LicenseProvider>
@@ -165,7 +160,6 @@ function AppContent() {
     useState<SettingsPanel>("configuration");
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isExtensionOpen, setIsExtensionOpen] = useState(false);
-  const [isPlanOpen, setIsPlanOpen] = useState(false);
   const [isQuotaExceededOpen, setIsQuotaExceededOpen] = useState(false);
   // Number of text nodes on the current page still carrying the
   // `w2w_original_font` marker (imported with a substituted font, awaiting
@@ -200,7 +194,7 @@ function AppContent() {
   // Whether the user has acknowledged the current batch of substituted fonts —
   // by dismissing the banner or by opening the modal. Drives both the banner
   // and the footer icon's dot; the icon itself is driven by the count alone.
-  // Session-scoped on purpose (same as ExpiringSoonModal): the scan is live, so
+  // Session-scoped on purpose: the scan is live, so
   // reopening the plugin on a file that still has pending fonts should say so
   // again rather than stay quiet about work that is genuinely outstanding.
   const [rebindSeen, setRebindSeen] = useState(false);
@@ -209,9 +203,6 @@ function AppContent() {
   // inline banner (the toast alone was easy to miss once the modal closed).
   const [isReapplying, setIsReapplying] = useState(false);
   const [rebindResult, setRebindResult] = useState<RebindResultInfo | null>(null);
-  const [expiringDaysRemaining, setExpiringDaysRemaining] = useState<
-    number | null
-  >(null);
   // Post-import diagnostics: categorised warnings with the node ids the
   // sandbox collected during rendering. The report opens itself, because the
   // whole point is that the user learns WHICH layers degraded — a toast they
@@ -265,18 +256,6 @@ function AppContent() {
   // (see shared/quotaEvents.ts → isQuotaExceeded).
   useEffect(() => {
     return onQuotaExceeded(() => setIsQuotaExceededOpen(true));
-  }, []);
-
-  // Listen for tab-switch requests from inside a tab (see
-  // shared/importTabEvents.ts → requestImportTab).
-  useEffect(() => {
-    return onImportTabRequest(setImportTab);
-  }, []);
-
-  // Listen for Plan modal requests from inside a tab (see
-  // shared/planEvents.ts → requestPlanModal).
-  useEffect(() => {
-    return onPlanModalRequest(() => setIsPlanOpen(true));
   }, []);
 
   // Track how many text nodes still need their original font re-applied.
@@ -347,20 +326,6 @@ function AppContent() {
   }, []);
 
   const { setOpenSettingsCallback } = useConfig();
-  const { license } = useLicense();
-
-  // Expiry heads-up: on plugin open, if the user is Pro with ≤3 days left,
-  // surface ExpiringSoonModal once. Re-shows on every plugin reopen inside
-  // the window — no persistent dismissal. Once daysRemaining hits 0 the
-  // lazy-downgrade flips them to Free server-side and this gate naturally
-  // stops firing.
-  useEffect(() => {
-    if (!license || license.plan !== "pro") return;
-    const ms = new Date(license.cycleEndsAt).getTime() - Date.now();
-    if (!Number.isFinite(ms) || ms <= 0) return;
-    const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
-    if (days <= 3) setExpiringDaysRemaining(days);
-  }, [license]);
 
   // Handle asset conversion requests from sandbox (AVIF/WebP → JPEG via Canvas)
   useEffect(() => {
@@ -487,8 +452,6 @@ function AppContent() {
     switch (importTab) {
       case "web":
         return <Web />;
-      case "screenshot":
-        return <Screenshot />;
       case "html":
         return <HTML />;
       case "area":
@@ -531,7 +494,6 @@ function AppContent() {
       <Footer
         onSettingsClick={() => setIsSettingsOpen(true)}
         onHelpClick={() => setIsHelpOpen(true)}
-        onPlanClick={() => setIsPlanOpen(true)}
         showExtension={true}
         onExtensionClick={() => {
           setIsExtensionOpen(true);
@@ -634,23 +596,9 @@ function AppContent() {
       isReapplying={isReapplying}
       result={rebindResult}
     />
-    <Plan isOpen={isPlanOpen} onClose={() => setIsPlanOpen(false)} />
     <QuotaExceededModal
       isOpen={isQuotaExceededOpen}
       onClose={() => setIsQuotaExceededOpen(false)}
-      onUpgrade={() => {
-        setIsQuotaExceededOpen(false);
-        setIsPlanOpen(true);
-      }}
-    />
-    <ExpiringSoonModal
-      isOpen={expiringDaysRemaining !== null}
-      daysRemaining={expiringDaysRemaining ?? 0}
-      onClose={() => setExpiringDaysRemaining(null)}
-      onExtend={() => {
-        setExpiringDaysRemaining(null);
-        setIsPlanOpen(true);
-      }}
     />
     </Fragment>
   );

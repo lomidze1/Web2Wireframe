@@ -2,6 +2,16 @@
   "installCommand": "cd ../.. && pnpm install",
   "buildCommand": "cd ../.. && pnpm build --filter @w2w/web",
   "outputDirectory": "dist/client",
+  "redirects": [
+    { "source": "/checkout", "destination": "/pricing", "permanent": true },
+    { "source": "/checkout/:path*", "destination": "/pricing", "permanent": true },
+    { "source": "/renew", "destination": "/pricing", "permanent": true },
+    { "source": "/account", "destination": "/pricing", "permanent": true },
+    { "source": "/signin", "destination": "/", "permanent": true },
+    { "source": "/screenshot-to-figma", "destination": "/website-to-figma", "permanent": true },
+    { "source": "/docs/pricing/:path*", "destination": "/pricing", "permanent": true },
+    { "source": "/docs/import-methods/screenshot-import", "destination": "/docs", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "https://api.web2wireframe.design/api/$1" },
     { "source": "/web/(.*)", "destination": "https://api.web2wireframe.design/web/$1" },

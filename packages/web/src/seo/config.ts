@@ -3,7 +3,6 @@ import { SITE_URL } from "./types";
 import {
   organizationSchema,
   softwareApplicationSchema,
-  productSchema,
   breadcrumbSchema,
   faqSchema,
   websiteSchema,
@@ -56,11 +55,6 @@ export const DOCS_PAGE_SEO: Record<
     description:
       "Convert any live website into a wireframe by providing its URL for instant structural analysis and conversion.",
   },
-  "import-methods/screenshot-import": {
-    title: "Screenshot Import — Docs",
-    description:
-      "Transform website screenshots into editable wireframes without needing live access to the original site.",
-  },
   "import-methods/html-import": {
     title: "HTML Import — Docs",
     description:
@@ -80,21 +74,6 @@ export const DOCS_PAGE_SEO: Record<
     title: "Import Using the Browser Extension — Docs",
     description:
       "Step-by-step guide to installing and using the browser extension for quick content capture and import.",
-  },
-  "pricing/overview": {
-    title: "Web2Wireframe Pricing Plans — Docs",
-    description:
-      "Free and Pro tier comparison including features, limits, and benefits for different user needs.",
-  },
-  "pricing/purchase": {
-    title: "How to Purchase & Access Pro — Docs",
-    description:
-      "Complete guide to upgrading from Free to Pro, payment methods, account access, and feature activation.",
-  },
-  "pricing/additional": {
-    title: "Pricing FAQs & Details — Docs",
-    description:
-      "Answers to common billing questions, refund policy, subscription management, and pricing transparency.",
   },
 };
 
@@ -156,24 +135,19 @@ function buildLandingSeoEntries(): Record<string, SeoConfig> {
 
 const SUPPORT_FAQ = [
   {
-    question: "How many imports do I get on the Free plan?",
+    question: "Is Web2Wireframe free?",
     answer:
-      "Free users get 3 imports per month. The counter resets monthly.",
+      "Yes. The Figma plugin and the browser extension are free, with every import method and setting included. There is no paid plan.",
   },
   {
-    question: "What's the difference between Pro Monthly and Pro Yearly?",
+    question: "Do I need an account?",
     answer:
-      "Pro Monthly is $16 for 30 days of unlimited imports. Pro Yearly is $144 for 365 days — a 25% discount versus monthly. Both are one-time payments with no auto-renewal.",
+      "No separate account. The plugin uses your Figma sign-in, and there is no card or payment involved.",
   },
   {
-    question: "Is my payment information secure?",
+    question: "How do I get help?",
     answer:
-      "Yes. Payments are processed by Flitt, a PCI-DSS Level 1 certified payment gateway. Your card details never touch our servers.",
-  },
-  {
-    question: "Can I cancel my subscription?",
-    answer:
-      "Yes. You can stop renewing anytime. Your Pro access stays active until the end of the current period.",
+      "Use the contact form on this page and include the URL you were importing. We usually reply within one to two business days.",
   },
 ];
 
@@ -182,7 +156,7 @@ export const seoConfig: Record<string, SeoConfig> = {
     title:
       "Web2Wireframe — Convert Any Website Into Editable Figma Wireframes",
     description:
-      "Decide how the wireframe comes out — before it lands in Figma. Configure layout, text, assets, colours, fonts and variables up front, then import any website. Free tier available.",
+      "Decide how the wireframe comes out — before it lands in Figma. Configure layout, text, assets, colours, fonts and variables up front, then import any website. Free.",
     canonical: `${SITE_URL}/`,
     ogType: "website",
     twitterCard: "summary_large_image",
@@ -204,13 +178,13 @@ export const seoConfig: Record<string, SeoConfig> = {
     ],
   },
   "/pricing": {
-    title: "Pricing — Web2Wireframe Free & Pro Plans",
+    title: "Pricing — Web2Wireframe Is Free",
     description:
-      "Free plan: 3 imports per month. Pro Monthly: $16 (30 days). Pro Yearly: $144 (365 days, save 25%). Unlimited imports, full colors, fonts, and styles.",
+      "Web2Wireframe is free: the Figma plugin and the browser extension, with every import method and setting included. No plans, no card, no upgrades.",
     canonical: `${SITE_URL}/pricing`,
-    ogType: "product",
+    ogType: "website",
     jsonLd: [
-      productSchema,
+      softwareApplicationSchema,
       breadcrumbSchema([
         { name: "Home", url: "/" },
         { name: "Pricing", url: "/pricing" },
@@ -220,7 +194,7 @@ export const seoConfig: Record<string, SeoConfig> = {
   "/docs": {
     title: "Documentation — Web2Wireframe",
     description:
-      "Get started with Web2Wireframe. Documentation for the Figma plugin, browser extension, import methods, and pricing.",
+      "Get started with Web2Wireframe. Documentation for the Figma plugin, browser extension, import methods, and settings.",
     canonical: `${SITE_URL}/docs`,
     ogType: "article",
     jsonLd: [
@@ -233,7 +207,7 @@ export const seoConfig: Record<string, SeoConfig> = {
   "/support": {
     title: "Support — Web2Wireframe",
     description:
-      "Need help with Web2Wireframe? Contact our support team or browse the FAQ for answers to common questions about imports, billing, and Pro features.",
+      "Need help with Web2Wireframe? Contact our support team or browse the FAQ for answers to common questions about imports and the browser extension.",
     canonical: `${SITE_URL}/support`,
     ogType: "article",
     jsonLd: [
@@ -260,7 +234,7 @@ export const seoConfig: Record<string, SeoConfig> = {
   "/privacy": {
     title: "Privacy Policy — Web2Wireframe",
     description:
-      "How Web2Wireframe handles your data. Privacy policy for the Figma plugin, browser extension, and payment processing via Flitt.",
+      "How Web2Wireframe handles your data. Privacy policy for the Figma plugin, browser extension, and website.",
     canonical: `${SITE_URL}/privacy`,
     ogType: "article",
     jsonLd: [
@@ -270,27 +244,8 @@ export const seoConfig: Record<string, SeoConfig> = {
       ]),
     ],
   },
-  // Session-driven pages — real titles for the tab/history, but noindex:
-  // they render per-user state and have no value in the index (robots.txt
-  // also disallows them).
-  "/signin": {
-    title: "Sign in — Web2Wireframe",
-    description:
-      "Sign in with Figma to see your Web2Wireframe plan and import quota. Same account as the plugin — no password.",
-    canonical: `${SITE_URL}/signin`,
-    ogType: "website",
-    noindex: true,
-  },
-  "/checkout": {
-    title: "Checkout — Web2Wireframe Pro",
-    description:
-      "Upgrade to Web2Wireframe Pro. One-time payment, no auto-renewal — handled securely by Flitt.",
-    canonical: `${SITE_URL}/checkout`,
-    ogType: "website",
-    noindex: true,
-  },
   ...buildLandingSeoEntries(),
-  // S-C3: spread the 16 generated docs entries here so a missed lookup
+  // S-C3: spread the generated docs entries here so a missed lookup
   // falls back to the home page only when the route truly isn't a docs page.
   ...buildDocsSeoEntries(),
 };

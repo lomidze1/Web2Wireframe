@@ -1,13 +1,10 @@
 /** @jsx h */
 import { h } from "preact";
 import styles from "./Footer.css";
-import { type License } from "../../shared/licenseClient";
-import { useLicense } from "../../shared/LicenseContext";
 
 interface FooterProps {
   onSettingsClick: () => void;
   onHelpClick: () => void;
-  onPlanClick?: () => void;
   showExtension?: boolean;
   onExtensionClick?: () => void;
   /** Only show the Re-apply fonts button when there's actually something to
@@ -19,45 +16,14 @@ interface FooterProps {
   /** Names the action for screen readers and the hover tooltip — becomes
    *  "…to selection" when the current Figma selection holds pending fonts.
    *  The button itself carries no visible label: at the fixed 410px window a
-   *  labelled button in the footer pushed the plan pill off the edge. */
+   *  labelled button in the footer pushed the right-hand group off the edge. */
   rebindAriaLabel?: string;
   onRebindFontsClick?: () => void;
-}
-
-interface PlanLabel {
-  text: string;
-  ariaLabel: string;
-  nearLimit: boolean;
-  isPro: boolean;
-}
-
-function deriveLabel(license: License | null): PlanLabel {
-  if (!license) {
-    return { text: "—", ariaLabel: "Plan: loading", nearLimit: false, isPro: false };
-  }
-  if (license.plan === "pro") {
-    return {
-      text: "Pro",
-      ariaLabel: "Plan: Pro — open billing details",
-      nearLimit: false,
-      isPro: true,
-    };
-  }
-  const used = license.usage.imports;
-  const limit = license.limits.imports ?? 3;
-  const remaining = Math.max(0, limit - used);
-  return {
-    text: `${used}/${limit}`,
-    ariaLabel: `Plan: Free, ${used} of ${limit} imports used (${remaining} remaining)`,
-    nearLimit: remaining <= 2,
-    isPro: false,
-  };
 }
 
 export default function Footer({
   onSettingsClick,
   onHelpClick,
-  onPlanClick,
   showExtension = true,
   onExtensionClick,
   showRebindFonts = false,
@@ -65,11 +31,6 @@ export default function Footer({
   rebindAriaLabel = "Re-apply original fonts",
   onRebindFontsClick,
 }: FooterProps) {
-  // License is preloaded + cached by LicenseProvider (mounted in App.tsx).
-  // Quota-exceeded refresh also lives in the provider — no per-consumer wiring.
-  const { license } = useLicense();
-  const planLabel = deriveLabel(license);
-
   return (
     <footer class={styles.footerBar} role="contentinfo">
       <div class={styles.footerGroup}>
@@ -119,7 +80,7 @@ export default function Footer({
         {/* Contextual — only rendered while the page still holds text imported
             with a substituted font. Sits with the other icons rather than in a
             slot of its own: the window is a fixed 410px, and a labelled button
-            here is what used to clip Extension and the plan pill. */}
+            here is what used to clip the Extension button. */}
         {showRebindFonts && onRebindFontsClick && (
           <button
             type="button"
@@ -160,19 +121,6 @@ export default function Footer({
             onClick={onExtensionClick}
           >
             Extension
-          </button>
-        )}
-        {onPlanClick && (
-          <button
-            type="button"
-            class={`${styles.planPill} ${planLabel.nearLimit ? styles.planPillWarn : ""} ${planLabel.isPro ? styles.planPillPro : ""}`}
-            onClick={onPlanClick}
-            aria-label={planLabel.ariaLabel}
-          >
-            {planLabel.isPro && (
-              <span class={styles.proDot} aria-hidden="true" />
-            )}
-            <span>{planLabel.text}</span>
           </button>
         )}
       </div>

@@ -8,9 +8,9 @@ import { DOCS_PAGE_SEO } from "../../../seo/config";
 const pages = getAllDocPages();
 
 describe("structure", () => {
-  it("has five topics and fifteen pages", () => {
-    expect(docsNavigation).toHaveLength(5);
-    expect(pages).toHaveLength(15);
+  it("has four topics and eleven pages (no pricing, no screenshot import)", () => {
+    expect(docsNavigation).toHaveLength(4);
+    expect(pages).toHaveLength(11);
   });
 
   it("gives every page a hub descriptor", () => {
@@ -81,7 +81,7 @@ describe("prev / next", () => {
 
   it("starts and ends the sequence at the expected pages", () => {
     expect(pages[0].key).toBe("introduction/what-is");
-    expect(pages[pages.length - 1].key).toBe("pricing/additional");
+    expect(pages[pages.length - 1].key).toBe("browser-extension/import-with-extension");
   });
 });
 
@@ -102,12 +102,14 @@ describe("search index", () => {
     }
   });
 
-  it("finds the screenshot import page", () => {
-    const results = searchDocs("screenshot");
+  it("finds the HTML import page", () => {
+    const results = searchDocs("html");
     expect(results.length).toBeGreaterThan(0);
-    expect(
-      results.some((r) => r.pagePath === "screenshot-import"),
-    ).toBe(true);
+    expect(results.some((r) => r.pagePath === "html-import")).toBe(true);
+  });
+
+  it("has no screenshot import page any more", () => {
+    expect(searchDocs("screenshot").some((r) => r.pagePath === "screenshot-import")).toBe(false);
   });
 
   it("returns nothing for an empty query", () => {

@@ -23,27 +23,14 @@ export const softwareApplicationSchema: JsonLd = {
   operatingSystem: "Web, Figma",
   description:
     "A Figma plugin that converts any website into editable wireframes. Capture layouts, structure, and styles instantly.",
+  // W2W is free since 2026-11-07: one Free offer, no paid plans.
   offers: [
     {
       "@type": "Offer",
       name: "Free",
       price: "0",
       priceCurrency: "USD",
-      description: "3 imports per month",
-    },
-    {
-      "@type": "Offer",
-      name: "Pro Monthly",
-      price: "16",
-      priceCurrency: "USD",
-      description: "Unlimited imports for 30 days",
-    },
-    {
-      "@type": "Offer",
-      name: "Pro Yearly",
-      price: "144",
-      priceCurrency: "USD",
-      description: "Unlimited imports for 365 days (25% off)",
+      description: "Every import method and setting included",
     },
   ],
   url: SITE_URL,
@@ -78,33 +65,6 @@ export const websiteSchema: JsonLd = {
     },
     "query-input": "required name=search_term_string",
   },
-};
-
-export const productSchema: JsonLd = {
-  "@context": "https://schema.org",
-  "@type": "Product",
-  name: `${SITE_NAME} Pro`,
-  description:
-    "Unlimited website-to-wireframe conversions in Figma. Full colors, fonts, all viewports, real text content, styles & assets included.",
-  brand: { "@type": "Brand", name: SITE_NAME },
-  offers: [
-    {
-      "@type": "Offer",
-      name: "Pro Monthly",
-      price: "16",
-      priceCurrency: "USD",
-      availability: "https://schema.org/InStock",
-      url: `${SITE_URL}/pricing`,
-    },
-    {
-      "@type": "Offer",
-      name: "Pro Yearly",
-      price: "144",
-      priceCurrency: "USD",
-      availability: "https://schema.org/InStock",
-      url: `${SITE_URL}/pricing`,
-    },
-  ],
 };
 
 export const breadcrumbSchema = (

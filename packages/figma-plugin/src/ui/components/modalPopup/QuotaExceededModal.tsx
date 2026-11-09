@@ -5,20 +5,15 @@ import { useModal } from "../../hooks/useModal";
 
 interface QuotaExceededModalProps {
   isOpen: boolean;
-  onUpgrade: () => void;
   onClose: () => void;
 }
 
 /**
- * Hard block shown when a Free user hits the 11th import in their monthly
- * cycle. `Get Pro` opens the in-plugin checkout flow (Plan modal); the
- * header × dismisses.
+ * Shown when the server answers an import with 403 `limit_exceeded`. W2W is
+ * free; the only cap left is the 1000-imports-a-month fair-use guard
+ * (PLAN_LIMITS.free in packages/api), so this explains it and nothing more.
  */
-export default function QuotaExceededModal({
-  isOpen,
-  onUpgrade,
-  onClose,
-}: QuotaExceededModalProps) {
+export default function QuotaExceededModal({ isOpen, onClose }: QuotaExceededModalProps) {
   const { modalRef } = useModal({ isOpen, onClose });
   if (!isOpen) return null;
   return (
@@ -33,48 +28,22 @@ export default function QuotaExceededModal({
       >
         <div class={styles.modalHeader}>
           <h2 id="quota-title" class={styles.modalTitle}>
-            You've reached your free limit
+            Monthly limit reached
           </h2>
           <button
             type="button"
             class={styles.modalClose}
             onClick={onClose}
-            aria-label="Close upgrade prompt"
+            aria-label="Close"
           >
             ×
           </button>
         </div>
         <div class={styles.modalContent}>
           <div class={styles.planNotice}>
-            You've used all 3 free imports this month. The Free plan now includes
-            3 imports a month — upgrade to Pro for 30 days of unlimited imports.
+            You've made 1000 imports this month — the fair-use limit. It resets
+            next month.
           </div>
-          <div class={styles.planSummary}>
-            <span class={styles.planLabel}>Pro</span>
-            <span class={styles.planBadge}>$16 / 30 days</span>
-          </div>
-          <div class={styles.planCards}>
-            <div class={`${styles.planCard} ${styles.planCardPro}`}>
-              <ul class={styles.planList}>
-                <li class={styles.planListItem}>Unlimited imports — no monthly cap</li>
-                <li class={styles.planListItem}>Keep every feature you already use, with no limit</li>
-                <li class={styles.planListItem}>Priority email support</li>
-                <li class={styles.planListItem}>
-                  One-time payment — you're charged once, no auto-renewal
-                </li>
-              </ul>
-              <button
-                type="button"
-                class={`${styles.planCardBtn} ${styles.planCardBtnPro}`}
-                onClick={onUpgrade}
-              >
-                Get Pro
-              </button>
-            </div>
-          </div>
-          <p class={styles.planTrustNote}>
-            Secure checkout by Flitt · Apple Pay, Google Pay & all major cards
-          </p>
         </div>
       </div>
     </div>

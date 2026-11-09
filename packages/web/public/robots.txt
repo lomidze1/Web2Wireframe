@@ -1,12 +1,6 @@
 User-agent: *
 Allow: /
 
-# Dynamic pages with query params — not useful in index
-Disallow: /account
-Disallow: /checkout
-Disallow: /checkout/
-Disallow: /renew
-Disallow: /signin
 # /go/<source> — click-counting redirects to the Figma plugin listing
 Disallow: /go/
 

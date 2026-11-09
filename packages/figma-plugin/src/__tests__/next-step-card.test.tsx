@@ -5,7 +5,6 @@ import { render, fireEvent } from "@testing-library/preact";
 import NextStepCard, {
   type ImportSnapshot,
 } from "../ui/components/nextStepCard/NextStepCard";
-import type { QuotaInfo } from "../ui/shared/quota";
 
 /**
  * 60% of activated users import exactly once and never come back, while the
@@ -25,16 +24,8 @@ const SNAPSHOT: ImportSnapshot = {
 
 const WIREFRAME = { label: "✏️ Try wireframe style" };
 
-const finite = (remaining: number, limit = 3): QuotaInfo => ({
-  unlimited: false,
-  remaining,
-  limit,
-  nearLimit: remaining <= 2,
-});
-
 function setup(overrides: {
   snapshot?: ImportSnapshot;
-  quota?: QuotaInfo | null;
   disabled?: boolean;
   nextStyle?: { label: string } | null;
   showChooseYourself?: boolean;
@@ -45,12 +36,10 @@ function setup(overrides: {
     onTryStyle: vi.fn(),
     onChooseYourself: vi.fn(),
     onDismiss: vi.fn(),
-    onSeePro: vi.fn(),
   };
   const { container } = render(
     <NextStepCard
       snapshot={overrides.snapshot ?? SNAPSHOT}
-      quota={overrides.quota === undefined ? finite(9) : overrides.quota}
       disabled={overrides.disabled ?? false}
       nextStyle={overrides.nextStyle === undefined ? WIREFRAME : overrides.nextStyle}
       showChooseYourself={overrides.showChooseYourself ?? true}
@@ -139,47 +128,17 @@ describe("NextStepCard — actions", () => {
   });
 });
 
-describe("NextStepCard — free allowance", () => {
-  it("says how many free imports are left and what an action costs", () => {
-    const { container } = setup({ quota: finite(9) });
-    expect(container.textContent).toMatch(/9 free imports left this month/);
-    expect(container.textContent).toMatch(/Uses 1 of your 9 remaining imports/);
-  });
-
-  it("warns near the limit and offers Pro", () => {
-    const { container, button, handlers } = setup({ quota: finite(2) });
-    expect(container.textContent).toMatch(/Only 2 free imports left this month/);
-    expect(container.textContent).toMatch(/Pro is unlimited/);
-    fireEvent.click(button(/see pro/i)!);
-    expect(handlers.onSeePro).toHaveBeenCalledTimes(1);
-  });
-
-  it("uses the singular for the last import", () => {
-    const { container } = setup({ quota: finite(1) });
-    expect(container.textContent).toMatch(/Only 1 free import left this month/);
-  });
-
-  it("drops the importing actions once the allowance is used up", () => {
-    const { container, button } = setup({ quota: finite(0) });
-    expect(container.textContent).toMatch(/You've used all 3 free imports this month/);
-    expect(button(/mobile version/i)).toBeUndefined();
-    expect(button(/wireframe style/i)).toBeUndefined();
-    expect(button(/another page/i)).toBeTruthy();
-    expect(button(/choose yourself/i)).toBeTruthy();
-    expect(button(/see pro/i)).toBeTruthy();
-  });
-
-  it("says nothing about imports to an unlimited plan", () => {
-    const { container, button } = setup({ quota: { unlimited: true } });
-    expect(container.textContent).not.toMatch(/imports? left|remaining/i);
+describe("NextStepCard — free mode (no allowance, no Pro)", () => {
+  it("says nothing about imports left, limits or Pro", () => {
+    const { container, button } = setup();
+    expect(container.textContent).not.toMatch(/imports? left|remaining|free import|Pro\b/i);
     expect(button(/see pro/i)).toBeUndefined();
-    expect(button(/mobile version/i)).toBeTruthy();
   });
 
-  it("keeps the actions but shows no count when the allowance is unknown", () => {
-    const { container, button } = setup({ quota: null });
-    expect(container.textContent).not.toMatch(/imports? left|remaining/i);
+  it("always offers the importing actions", () => {
+    const { button } = setup();
     expect(button(/mobile version/i)).toBeTruthy();
     expect(button(/wireframe style/i)).toBeTruthy();
+    expect(button(/another page/i)).toBeTruthy();
   });
 });

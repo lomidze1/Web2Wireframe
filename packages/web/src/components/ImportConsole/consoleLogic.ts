@@ -2,11 +2,11 @@
  * Pure derivation logic for the interactive import console — a faithful port
  * of the design prototype's DCLogic class ("Web2Wireframe Site.dc.html").
  * Every value the console renders (palette, copy, frame metrics, layer list,
- * summary line, pricing) is a pure function of this state, so the whole
+ * summary line) is a pure function of this state, so the whole
  * centerpiece stays instant and testable. No network, no side effects.
  */
 
-export type SourceMode = "url" | "screenshot" | "html" | "area";
+export type SourceMode = "url" | "html" | "area";
 export type ViewportMode = "1440" | "768" | "375";
 export type LayoutMode = "auto" | "absolute";
 export type TextMode = "semantic" | "lorem" | "website";
@@ -14,7 +14,6 @@ export type AssetsMode = "placeholder" | "real";
 export type ColorsMode = "plugin" | "website";
 export type FontsMode = "plugin" | "website";
 export type VarsMode = "direct" | "figma";
-export type BillingMode = "monthly" | "annual";
 
 export interface ConsoleState {
   source: SourceMode;
@@ -196,8 +195,6 @@ export const FRAMES: Record<ViewportMode, FrameMetrics> = {
 
 export const SOURCE_HINTS: Record<SourceMode, string> = {
   url: "https://northwind.example/pricing — public pages, fetched and parsed live.",
-  screenshot:
-    "Drop a PNG or JPG. Structure is inferred from the image — the way most people use this.",
   html: "Paste markup and styles straight from devtools, or a saved page.",
   area: "Draw a rectangle on the page in the browser extension; only that region imports.",
 };
@@ -248,38 +245,4 @@ export function deriveSummary(state: ConsoleState): string {
     state.colors === "plugin" ? "plugin palette" : "site palette",
     state.vars === "figma" ? "figma variables" : "direct values",
   ].join("  ·  ");
-}
-
-export interface PriceInfo {
-  monthly: string;
-  annual: string;
-  perMonth: string;
-  savePct: string;
-  big: string;
-  unit: string;
-  note: string;
-  badge: string;
-}
-
-export function derivePrice(
-  billing: BillingMode,
-  monthly = 16,
-  annual = 144,
-): PriceInfo {
-  const perMonth = Math.round((annual / 12) * 100) / 100;
-  const savePct = `${Math.round((1 - annual / (monthly * 12)) * 100)}%`;
-  return {
-    monthly: `$${monthly}`,
-    annual: `$${annual}`,
-    perMonth: `$${perMonth}`,
-    savePct,
-    big: billing === "annual" ? `$${perMonth}` : `$${monthly}`,
-    unit: billing === "annual" ? "per month, paid once a year" : "per month",
-    // One-time payment model — no subscription, no auto-renewal.
-    note:
-      billing === "annual"
-        ? `$${annual} once for 365 days — ${savePct} off the monthly rate. One-time payment, no auto-renewal.`
-        : `$${monthly} once for 30 days, unlimited imports. One-time payment, no auto-renewal.`,
-    badge: billing === "annual" ? `save ${savePct}` : "unlimited",
-  };
 }

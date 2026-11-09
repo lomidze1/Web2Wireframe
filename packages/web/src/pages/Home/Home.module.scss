@@ -136,19 +136,19 @@
   hyphens: auto;
 }
 
-/* — 1d. screenshot import — */
-.screenshot {
+/* — 1d. browser extension — */
+.extension {
   padding-top: 84px;
 }
 
-.screenshotGrid {
+.extensionGrid {
   display: grid;
   grid-template-columns: 0.8fr 1.2fr;
   gap: 56px;
   align-items: start;
 }
 
-.screenshotTitle {
+.extensionTitle {
   font-weight: 400;
   font-size: 40px;
   line-height: 1.1;
@@ -157,20 +157,20 @@
   color: var(--color-text);
 }
 
-.screenshotLead {
+.extensionLead {
   font-size: 15px;
   line-height: 1.7;
   color: var(--color-neutral-700);
   margin: 0;
 }
 
-.screenshotItems {
+.extensionItems {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 40px;
 }
 
-.screenshotItem {
+.extensionItem {
   padding: 18px 0;
   border-top: 1px solid var(--color-divider);
 }
@@ -349,7 +349,7 @@
     padding: 24px 0 0;
   }
 
-  .screenshotGrid {
+  .extensionGrid {
     grid-template-columns: 1fr;
     gap: 32px;
   }
@@ -374,7 +374,7 @@
     font-size: 36px;
   }
 
-  .screenshotItems {
+  .extensionItems {
     grid-template-columns: 1fr;
   }
 

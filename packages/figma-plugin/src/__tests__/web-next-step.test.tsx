@@ -3,7 +3,6 @@ import { h } from "preact";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, act } from "@testing-library/preact";
 import Web from "../ui/pages/import/web/Web";
-import { onPlanModalRequest } from "../ui/shared/planEvents";
 
 /**
  * The Web tab's "what next?" card. After a successful import the loader closes
@@ -476,51 +475,15 @@ describe("Web tab — first-run instructions", () => {
   });
 });
 
-describe("Web tab — free allowance on the card", () => {
-  it("says how many free imports are left once the license is fresh", async () => {
-    licenseState.current = { refresh: vi.fn(), license: freeLicense(1), isLoading: false, error: null };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(successResponse()));
-    const postSpy = vi.spyOn(parent, "postMessage");
-    const { container } = render(<Web />);
-    await completeImport(container, postSpy);
-
-    expect(container.textContent).toMatch(/9 free imports left this month/);
-  });
-
-  it("hides the count while the license is still refreshing", async () => {
-    licenseState.current = { refresh: vi.fn(), license: freeLicense(1), isLoading: true, error: null };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(successResponse()));
-    const postSpy = vi.spyOn(parent, "postMessage");
-    const { container } = render(<Web />);
-    await completeImport(container, postSpy);
-
-    expect(container.textContent).toMatch(CARD_TITLE);
-    expect(container.textContent).not.toMatch(/imports? left/);
-  });
-
-  it("hides the count when the refresh failed", async () => {
-    licenseState.current = { refresh: vi.fn(), license: freeLicense(1), isLoading: false, error: "offline" };
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(successResponse()));
-    const postSpy = vi.spyOn(parent, "postMessage");
-    const { container } = render(<Web />);
-    await completeImport(container, postSpy);
-
-    expect(container.textContent).toMatch(CARD_TITLE);
-    expect(container.textContent).not.toMatch(/imports? left/);
-  });
-
-  it("asks App to open the Plan modal from See Pro", async () => {
+describe("Web tab — free mode on the card", () => {
+  it("shows no import count or Pro link after an import", async () => {
     licenseState.current = { refresh: vi.fn(), license: freeLicense(8), isLoading: false, error: null };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(successResponse()));
     const postSpy = vi.spyOn(parent, "postMessage");
-    const handler = vi.fn();
-    const off = onPlanModalRequest(handler);
     const { container } = render(<Web />);
     await completeImport(container, postSpy);
 
-    expect(container.textContent).toMatch(/Only 2 free imports left this month/);
-    fireEvent.click(button(container, /see pro/i)!);
-    expect(handler).toHaveBeenCalledTimes(1);
-    off();
+    expect(container.textContent).toMatch(CARD_TITLE);
+    expect(container.textContent).not.toMatch(/imports? left|remaining|See Pro|Pro is unlimited/i);
   });
 });

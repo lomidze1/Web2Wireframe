@@ -34,54 +34,6 @@
   @extend .section-label;
 }
 
-.planGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.2rem;
-}
-
-.planCard {
-  background: linear-gradient(
-    135deg,
-    var(--glass-bg),
-    rgba(255, 255, 255, 0.78)
-  );
-  border: 1px solid var(--glass-border);
-  border-radius: 14px;
-  padding: 1rem 1.1rem;
-  box-shadow: 0 16px 42px rgba(12, 13, 18, 0.08);
-  backdrop-filter: blur(10px);
-  display: grid;
-  gap: 0.35rem;
-}
-
-.planHead {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  justify-content: space-between;
-}
-
-.planHead h3 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.badge {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--accent-strong);
-  border-radius: 999px;
-  padding: 0.2rem 0.7rem;
-  font-weight: 700;
-  border: 1px solid rgba(59, 130, 246, 0.25);
-}
-
-.planCard p {
-  margin: 0;
-  color: var(--muted);
-}
-
 .formCard {
   background: linear-gradient(
       180deg,

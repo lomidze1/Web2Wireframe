@@ -1,30 +1,25 @@
 import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 import ImportConsole from "../../components/ImportConsole/ImportConsole";
-import { derivePrice } from "../../components/ImportConsole/consoleLogic";
 import { installLinks } from "../../data/links";
 import styles from "./Home.module.scss";
 
 const steps = [
-  { n: "01", title: "Pick a source", body: "A URL, a screenshot, pasted HTML, or a region you draw." },
+  { n: "01", title: "Pick a source", body: "A URL, pasted HTML, or a region you draw in your browser." },
   { n: "02", title: "Open W2W in Figma", body: "The plugin runs in the file you're already working in." },
-  { n: "03", title: "Hand it the page", body: "Paste, drop, or select. Parsing starts immediately." },
+  { n: "03", title: "Hand it the page", body: "Paste a URL or HTML, or select a region. Parsing starts immediately." },
   { n: "04", title: "Set the options", body: "The eight decisions. Thirty seconds here, an hour saved after." },
   { n: "05", title: "Import", body: "Named, editable layers land on the canvas, ready to change." },
 ];
 
-const screenshotItems = [
+const extensionItems = [
   {
     title: "Behind a login",
     body: "Dashboards, account settings, anything a crawler is shown the door for.",
   },
   {
-    title: "Checkout and paywalls",
-    body: "The three screens every audit needs and no public URL will give you.",
-  },
-  {
-    title: "A slide or a PDF",
-    body: "Whatever the client sent at eleven at night, in whatever format they had.",
+    title: "Sign-up and payment flows",
+    body: "The screens every audit needs and no public URL will give you.",
   },
   {
     title: "One region only",
@@ -33,8 +28,6 @@ const screenshotItems = [
 ];
 
 const Home = (): ReactElement => {
-  const price = derivePrice("annual");
-
   return (
     <>
       <section className={`container ${styles.hero}`}>
@@ -106,20 +99,20 @@ const Home = (): ReactElement => {
         </div>
       </section>
 
-      <section className={`container ${styles.screenshot}`}>
-        <div className={styles.screenshotGrid}>
+      <section className={`container ${styles.extension}`}>
+        <div className={styles.extensionGrid}>
           <div>
-            <div className={styles.kicker}>Screenshot import</div>
-            <h2 className={styles.screenshotTitle}>For the pages a URL can't reach.</h2>
-            <p className={styles.screenshotLead}>
-              Half of the work worth studying sits behind something. Drop an
-              image in and it is parsed into structured frames the same way a
-              live page is.
+            <div className={styles.kicker}>Browser extension</div>
+            <h2 className={styles.extensionTitle}>For the pages a URL can't reach.</h2>
+            <p className={styles.extensionLead}>
+              Half of the work worth studying sits behind something. The free
+              Chrome extension captures the page from your own browser, signed
+              in, exactly as you see it, and opens it in the plugin.
             </p>
           </div>
-          <div className={styles.screenshotItems}>
-            {screenshotItems.map((item) => (
-              <div key={item.title} className={styles.screenshotItem}>
+          <div className={styles.extensionItems}>
+            {extensionItems.map((item) => (
+              <div key={item.title} className={styles.extensionItem}>
                 <h3 className={styles.itemTitle}>{item.title}</h3>
                 <p className={styles.itemBody}>{item.body}</p>
               </div>
@@ -152,12 +145,11 @@ const Home = (): ReactElement => {
         <div className={styles.planPanel}>
           <div>
             <h2 className={styles.planTitle}>
-              Ten imports free. Every option unlocked from the first one.
+              Free. Every option unlocked from the first import.
             </h2>
             <p className={styles.planBody}>
-              Nothing in the settings panel is held back on the free plan —
-              viewports, variables, real assets, all of it. Pro removes the
-              monthly count, for the weeks when one audit is twenty pages.
+              Nothing in the settings panel is held back: viewports, variables,
+              real assets, all of it. No plans, no card, nothing to upgrade.
             </p>
             <div className={styles.planActions}>
               <a
@@ -168,27 +160,28 @@ const Home = (): ReactElement => {
               >
                 Install free
               </a>
-              <Link className="btn btn-secondary" to="/pricing">
-                Compare plans
-              </Link>
+              <a
+                className="btn btn-secondary"
+                href={installLinks.chrome}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Get the extension
+              </a>
             </div>
           </div>
           <div className={styles.planRows}>
             <div className={styles.planRow}>
-              <span className={styles.planName}>Free</span>
-              <span className={styles.planValue}>3 imports / month</span>
+              <span className={styles.planName}>Figma plugin</span>
+              <span className={styles.planValue}>Free</span>
             </div>
             <div className={styles.planRow}>
-              <span className={styles.planName}>Pro</span>
-              <span className={styles.planValue}>
-                Unlimited · {price.monthly} / month
-              </span>
+              <span className={styles.planName}>Chrome extension</span>
+              <span className={styles.planValue}>Free</span>
             </div>
             <div className={`${styles.planRow} ${styles.planRowLast}`}>
-              <span className={styles.planValue}>Pro, yearly</span>
-              <span className={styles.planValueAccent}>
-                {price.annual} · {price.perMonth} / month
-              </span>
+              <span className={styles.planValue}>Every option</span>
+              <span className={styles.planValueAccent}>Included</span>
             </div>
           </div>
         </div>

@@ -12,7 +12,7 @@
   margin-bottom: 18px;
 }
 
-/* — head row + billing toggle — */
+/* — head row — */
 .head {
   display: flex;
   align-items: flex-end;
@@ -41,34 +41,6 @@
   margin: 0;
 }
 
-.billingToggle {
-  display: flex;
-  gap: 6px;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-sm);
-  padding: 4px;
-}
-
-.billingBtn {
-  font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 400;
-  padding: 8px 16px;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: all 120ms;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--color-neutral-700);
-}
-
-.billingBtnActive {
-  background: #fdfcfb;
-  border-color: var(--color-accent);
-  color: var(--color-accent-700);
-  font-weight: 600;
-}
-
 /* — plan cards — */
 .plans {
   display: grid;
@@ -85,30 +57,11 @@
   gap: 16px;
 }
 
-.planCardPro {
-  border-color: var(--color-accent);
-  background: var(--color-neutral-100);
-  box-shadow: var(--shadow-sm);
-}
-
 .planKicker {
   font-size: 11px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--color-neutral-600);
-}
-
-.planKickerPro {
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--color-accent-700);
-}
-
-.proHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .planPrice {
@@ -118,17 +71,6 @@
   line-height: 1;
   font-feature-settings: "tnum";
   color: var(--color-text);
-}
-
-.proPriceRow {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.priceUnit {
-  font-size: 14px;
-  color: var(--color-neutral-700);
 }
 
 .planNote {
@@ -157,31 +99,8 @@
   }
 }
 
-.featureListPro li {
-  color: var(--color-neutral-900);
-}
-
 .planCta {
   margin-top: auto;
-}
-
-.trustNote {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--color-neutral-600);
-  margin: 0;
-
-  a {
-    color: var(--color-accent-700);
-    text-decoration: underline;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 3px;
-  }
-}
-
-/* — comparison table + FAQ — */
-.compare {
-  padding-top: 68px;
 }
 
 .sectionTitle {
@@ -218,19 +137,6 @@
   line-height: 1.7;
   color: var(--color-neutral-700);
   margin: 0;
-}
-
-.billingContact {
-  margin: 40px 0 0;
-  font-size: 13px;
-  color: var(--color-neutral-600);
-
-  a {
-    color: var(--color-accent-700);
-    text-decoration: underline;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 3px;
-  }
 }
 
 /* — responsive — */

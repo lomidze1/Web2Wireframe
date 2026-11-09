@@ -1,18 +1,14 @@
 import type { DocsArticle, DocsArticleMap } from "./docsTypes";
 import { legacyArticles } from "./docsArticlesLegacy";
 import screenshotImport1 from "../../../assets/how-it-work/card-details/screenshot-import-1.png";
-import screenshotImport2 from "../../../assets/how-it-work/card-details/screenshot-import-2.png";
 import textSettings1 from "../../../assets/how-it-work/card-details/text-settings-1.png";
 import colorSettings1 from "../../../assets/how-it-work/card-details/color-settings-1.png";
-import fontSettings1 from "../../../assets/how-it-work/card-details/font-settings-1.png";
-import areaSelection1 from "../../../assets/how-it-work/card-details/area-selection-import-1.png";
 import urlImport1 from "../../../assets/how-it-work/card-details/url-import-1.png";
 import urlImport2 from "../../../assets/how-it-work/card-details/url-import-2.png";
 
 /**
- * The three articles the product data says matter: nobody opens the settings
- * panel, screenshot import is the most-used method, and the first import is
- * where users are lost.
+ * The articles the product data says matter: nobody opens the settings
+ * panel, and the first import is where users are lost.
  */
 const featuredArticles: DocsArticleMap = {
   "start/set-settings": {
@@ -36,7 +32,7 @@ const featuredArticles: DocsArticleMap = {
         id: "viewports",
         title: "Viewports",
         paras: [
-          "Choose every width you intend to design for and the plugin produces them in a single run, side by side on the canvas. Selecting them up front is the difference between one import and three, and a multi-viewport run still counts as one import against your monthly quota.",
+          "Choose every width you intend to design for and the plugin produces them in a single run, side by side on the canvas. Selecting them up front is the difference between one import and three, and a multi-viewport run is still a single import.",
         ],
         list: [
           "1440 — the default desktop frame",
@@ -83,9 +79,9 @@ const featuredArticles: DocsArticleMap = {
         title: "Colours and fonts",
         paras: [
           "The plugin palette is five editable roles — text, background, secondary, surface and accent — tuned to read as a wireframe. The site palette imports what was actually on the page. Both are editable after import; neither is baked in.",
-          "Fonts follow the same shape. Plugin defaults import instantly with no font linking. Site fonts keep the real typefaces, and where a face is not available in Figma, Pro can download the binary so the file sets correctly instead of silently substituting.",
+          "Fonts follow the same shape. Plugin defaults import instantly with no font linking. Site fonts keep the real typefaces, and where a face is not available in Figma, the plugin can download the binary so the file sets correctly instead of silently substituting.",
         ],
-        note: "Font binary download is the only Pro-gated setting. Everything else on this page works on the free plan.",
+        note: "Every setting on this page is included. Web2Wireframe is free.",
         figure: {
           src: colorSettings1,
           caption:
@@ -107,96 +103,6 @@ const featuredArticles: DocsArticleMap = {
           "The footer of the settings panel has a Save button. It writes the current configuration as your default for every future import, in every file. Most of the time you will set this once, in your first week, and never open the panel again.",
         ],
         note: "If you only do one thing after reading this page: set your four most-used options and press Save.",
-      },
-    ],
-  },
-
-  "import-methods/screenshot-import": {
-    lead: "Generate a wireframe from a static image when a URL will not reach the page. The most-used import method, by some distance.",
-    readingTime: "5 min read",
-    updated: "Updated 28 July 2026",
-    sections: [
-      {
-        id: "what-screenshot-import-does",
-        title: "What screenshot import does",
-        paras: [
-          "Instead of fetching a live page, the plugin reads an image and converts its visual structure into editable Figma frames. It looks for sections, rows, columns and repeated blocks the same way the URL importer does — the difference is that the evidence is pixels rather than markup.",
-          "Use it whenever the page cannot be reached directly: anything behind a login, a checkout step, a paywalled article, or a design that only ever existed as an image.",
-        ],
-        figure: {
-          src: screenshotImport1,
-          caption: "The screenshot tab, waiting for an image.",
-        },
-      },
-      {
-        id: "what-you-can-import",
-        title: "What you can import",
-        paras: [
-          "Most common capture formats and sources work, as long as the layout is legible in the image.",
-        ],
-        list: [
-          "Desktop website screenshots",
-          "Mobile screenshots, from a device or an emulator",
-          "Full-page captures",
-          "Cropped sections of an interface",
-          "Slides and pages exported from a PDF",
-        ],
-      },
-      {
-        id: "getting-a-good-result",
-        title: "Getting a good result",
-        paras: [
-          "The parser only has what is in the image, so the quality of the capture sets the ceiling on the quality of the import.",
-        ],
-        list: [
-          "Capture at the highest resolution you can",
-          "Take the page in a clean state — no cookie banners, tooltips or open menus",
-          "Crop out the browser chrome so the layout starts at the page edge",
-          "Import one screen at a time rather than a stitched collage",
-        ],
-        figure: {
-          src: screenshotImport2,
-          caption:
-            "A capture loaded and ready, with the import options below it.",
-        },
-      },
-      {
-        id: "settings-that-matter-here",
-        title: "Settings that matter here",
-        paras: [
-          "Screenshot imports have no CSS to read, so two options do more work than usual. Site palette is inferred from the image itself and is often the more useful choice; and because there is no markup, semantic text placeholders tend to read more cleanly than attempted real copy.",
-          "Everything else behaves exactly as it does for a URL import.",
-        ],
-        note: "Layout mode still applies. Auto layout is inferred from visual alignment, so a well-aligned capture produces markedly better frames.",
-        figure: {
-          src: fontSettings1,
-          caption: "Font handling for an import with no markup to read.",
-        },
-      },
-      {
-        id: "limits",
-        title: "Limits",
-        paras: [
-          "Because the import works from a static image, some things are genuinely unavailable to it.",
-        ],
-        list: [
-          "Very small or low-contrast text may be grouped rather than transcribed",
-          "Overlapping or visually ambiguous sections can merge",
-          "Heavy blurs, gradients and shadows can obscure block edges",
-          "Hover and interactive states are not in the picture, so they are not in the import",
-        ],
-        note: "If a URL is available, web import will always give a more structured result. Reach for screenshots when it is not.",
-      },
-      {
-        id: "next",
-        title: "Next",
-        paras: [
-          "Area capture, from the browser extension, is the middle ground: it works on the live page like web import, but takes only the region you draw.",
-        ],
-        figure: {
-          src: areaSelection1,
-          caption: "Area capture, taking a single region from a live page.",
-        },
       },
     ],
   },

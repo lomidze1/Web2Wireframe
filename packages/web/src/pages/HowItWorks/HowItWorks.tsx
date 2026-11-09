@@ -7,7 +7,7 @@ const stepsLong = [
   {
     n: "01",
     title: "Choose what you're importing",
-    body: "A public URL is the fastest route, but it is not the only one. Screenshots handle anything behind a login or a paywall, pasted HTML and CSS handles a page you already have locally, and area select — from the browser extension — takes a single component instead of the whole document.",
+    body: "A public URL is the fastest route, but it is not the only one. The browser extension captures anything behind a login or a paywall, pasted HTML and CSS handles a page you already have locally, and area select — from the extension — takes a single component instead of the whole document.",
   },
   {
     n: "02",
@@ -17,7 +17,7 @@ const stepsLong = [
   {
     n: "03",
     title: "Hand over the page",
-    body: "Paste the URL, drop the image, or paste the markup. The parser reads structure before pixels: it looks for sections, rows, columns, repeated blocks and the flex or grid rules holding them together, so the result is a layout rather than a flat picture.",
+    body: "Paste the URL or paste the markup. The parser reads structure before pixels: it looks for sections, rows, columns, repeated blocks and the flex or grid rules holding them together, so the result is a layout rather than a flat picture.",
   },
   {
     n: "04",
@@ -67,8 +67,8 @@ const glossary = [
   {
     kicker: "Fonts",
     title: "Plugin defaults or the site's typefaces",
-    body: "Defaults import instantly with no font-linking. Site fonts keep the real type; where a face isn't available in Figma, Pro can download the binary so the file sets correctly.",
-    meta: "Font binary is Pro",
+    body: "Defaults import instantly with no font-linking. Site fonts keep the real type; where a face isn't available in Figma, the plugin can download the binary so the file sets correctly.",
+    meta: "Font binary download included",
   },
   {
     kicker: "CSS variables",

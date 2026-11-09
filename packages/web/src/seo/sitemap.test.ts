@@ -40,8 +40,15 @@ describe("buildSitemap", () => {
   });
 
   it("omits noindex routes so the sitemap never contradicts robots", () => {
-    const xml = buildSitemap(["/", "/signin", "/checkout"], LASTMOD);
-    expect(locs(xml)).toEqual(["https://www.web2wireframe.design/"]);
+    // No real page is noindex since the payment/account pages were removed
+    // (2026-11-09), so use a throwaway entry.
+    seoConfig["/__noindex-fixture"] = { ...seoConfig["/"], noindex: true };
+    try {
+      const xml = buildSitemap(["/", "/__noindex-fixture"], LASTMOD);
+      expect(locs(xml)).toEqual(["https://www.web2wireframe.design/"]);
+    } finally {
+      delete seoConfig["/__noindex-fixture"];
+    }
   });
 
   it("gives the home page top priority and legal pages the lowest", () => {

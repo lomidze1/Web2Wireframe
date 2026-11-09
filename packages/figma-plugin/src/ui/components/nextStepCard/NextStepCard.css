@@ -71,29 +71,3 @@
   opacity: 0.5;
   cursor: default;
 }
-
-.hint {
-  margin: 0;
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-}
-
-.quota {
-  margin: 0;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-}
-
-.quotaWarn {
-  color: var(--warning);
-}
-
-.link {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent);
-  font-size: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
