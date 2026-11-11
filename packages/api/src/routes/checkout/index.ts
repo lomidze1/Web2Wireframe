@@ -1,8 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import {
-  createOneTimeCheckout,
-  verifyCallback,
-} from "../../services/flittService.js";
+import { verifyCallback } from "../../services/flittService.js";
 import { licenseService } from "../../services/licenseService.js";
 import {
   sendRefundNotification,
@@ -21,11 +18,8 @@ import { CancellationEvent } from "../../models/CancellationEvent.js";
 import {
   PLAN_PRICES,
   getProPriceCents,
-  getRenewalWindowMs,
   type ProDuration,
 } from "../../models/License.js";
-import { assertStringMax } from "../../lib/validators.js";
-import { optionalAuth } from "../../middleware/auth.js";
 
 // Figma user ids are short (~12 chars in practice). 64 is ample headroom for
 // any future Figma id format while bounding storage amplification in
@@ -35,161 +29,19 @@ const FIGMA_USER_ID_MAX = 64;
 const router = Router();
 
 // ============================================================================
-// POST /api/checkout/create
+// POST /api/checkout/create — disabled
 // ----------------------------------------------------------------------------
-// Plugin → backend → Flitt. Returns the hosted checkout URL.
-// Public: figmaUserId in body is the bearer credential (consistent with
-// /api/license/me). Worst-case abuse = attacker creates a Pro subscription
-// invoice for someone else; the victim still has to enter their card to
-// complete the payment, so it's harmless beyond UX confusion.
+// Web2Wireframe is free since November 2026. Older published extension
+// versions still have a "Get Pro" button that calls this endpoint, so it
+// answers 410 and never opens a Flitt checkout. Webhooks stay live so any
+// charge Flitt still sends is recorded.
 // ============================================================================
 
-router.post("/create", optionalAuth, async (req: Request, res: Response) => {
-  const log = createLogger("checkout-create");
-  try {
-    const { figmaUserId, returnUrl, plan } = req.body as {
-      figmaUserId?: string;
-      returnUrl?: string;
-      plan?: string;
-    };
-    try {
-      assertStringMax(figmaUserId, "figmaUserId", FIGMA_USER_ID_MAX);
-    } catch {
-      log.warn("invalid figmaUserId", {
-        type: typeof figmaUserId,
-        length:
-          typeof figmaUserId === "string" ? figmaUserId.length : undefined,
-      });
-      res.status(400).json({
-        error: `figmaUserId is required (max ${FIGMA_USER_ID_MAX} chars)`,
-      });
-      return;
-    }
-
-    // Plan tier — defaults to "monthly" if omitted so the existing single-tier
-    // CTA keeps working. Reject anything else explicitly so a typo can't
-    // silently fall back to monthly and undercharge a yearly buyer.
-    let duration: ProDuration = "monthly";
-    if (plan !== undefined) {
-      if (plan !== "monthly" && plan !== "yearly") {
-        log.warn("invalid plan", { figmaUserId, plan });
-        res.status(400).json({ error: "plan must be 'monthly' or 'yearly'" });
-        return;
-      }
-      duration = plan;
-    }
-
-    // P2-#1: refuse to open Flitt checkout for an active Pro user with more
-    // than `renewalWindow` time remaining. Without this, a fraudster can
-    // pay $16 × N to accumulate N × 30 days of Pro, then chargeback all
-    // but the most-recent — `applyRefund` only revokes when flittOrderId
-    // matches the current subscription, so older refunds become no-ops
-    // and the user keeps the stacked time.
-    //
-    // Honest user UX: at 30-day cap, renewal opens with 7 days left
-    // (≤ 7 days remaining) → user buys → gets 37 days total. Outside that
-    // window, the plugin/web should show "you already have Pro".
-    //
-    // licenseService.getOrCreate handles cycle reset + downgrade-on-read,
-    // so the read here always reflects the current effective state.
-    //
-    // We also opportunistically pull license.email here so the downstream
-    // Flitt request can include `sender_email` — populates the portal's
-    // "Customer email" column and triggers Flitt's own receipt mail. The
-    // field is null until the user completes Figma OAuth on the website,
-    // so anonymous plugin checkouts simply skip it.
-    //
-    // Security audit 2026-09-19 (#3): figmaUserId in the body is not proof of
-    // identity, so license-derived data (stored email, remaining Pro time)
-    // is only used when a valid plugin token for the same user is present.
-    // The plugin sends one; the website and /renew links do not and still
-    // get a working checkout, just without email prefill or day counts.
-    const isOwner = req.userId === figmaUserId;
-    let senderEmail: string | undefined;
-    try {
-      const license = await licenseService.getOrCreate(figmaUserId);
-      if (isOwner && license.email) {
-        senderEmail = license.email;
-      }
-      if (license.plan === "pro") {
-        const now = Date.now();
-        const remainingMs = license.cycleEndsAt.getTime() - now;
-        const renewalWindowMs = getRenewalWindowMs(duration);
-        if (remainingMs > renewalWindowMs) {
-          const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
-          const renewalOpensInDays = Math.max(
-            0,
-            Math.ceil((remainingMs - renewalWindowMs) / (24 * 60 * 60 * 1000)),
-          );
-          log.info("checkout blocked — active Pro outside renewal window", {
-            figmaUserId,
-            plan: duration,
-            remainingDays,
-            renewalOpensInDays,
-          });
-          metrics.checkoutCreate("fail");
-          res.status(400).json(
-            isOwner
-              ? {
-                  error: "already_pro",
-                  remainingDays,
-                  renewalOpensInDays,
-                  renewalWindowDays: duration === "yearly" ? 10 : 7,
-                }
-              : { error: "already_pro" },
-          );
-          return;
-        }
-      }
-    } catch (err) {
-      // License read failed (Mongo blip). Don't block checkout — fall through
-      // and let the user buy. The webhook handler's defensive cap below
-      // still prevents unbounded stacking even if this read misses.
-      // senderEmail stays undefined → flittService omits the field; same
-      // behavior as pre-email release on this code path.
-      //
-      // We surface BOTH the lost active-Pro guard AND the omitted
-      // sender_email in the same warn so a support engineer reading logs
-      // can immediately diagnose a "blank Customer email column" report
-      // against a Mongo outage without correlating two facts manually.
-      log.warn(
-        "checkout pre-block license read failed (non-fatal) — sender_email omitted",
-        {
-          figmaUserId,
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
-    }
-
-    const result = await createOneTimeCheckout({
-      figmaUserId,
-      returnUrl,
-      duration,
-      senderEmail,
-    });
-    if (!result.ok) {
-      log.warn("Flitt rejected checkout creation", {
-        figmaUserId,
-        plan: duration,
-        error: result.error,
-      });
-      metrics.checkoutCreate("fail");
-      res.status(502).json({ error: result.error });
-      return;
-    }
-    log.info("checkout created", {
-      figmaUserId,
-      plan: duration,
-      orderId: result.orderId,
-    });
-    metrics.checkoutCreate("success");
-    res.json({ checkoutUrl: result.checkoutUrl, orderId: result.orderId });
-  } catch (err) {
-    log.error("handler error", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    res.status(500).json({ error: "Server error" });
-  }
+router.post("/create", (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: "checkout_disabled",
+    message: "Web2Wireframe is free. No purchase needed.",
+  });
 });
 
 // ============================================================================
