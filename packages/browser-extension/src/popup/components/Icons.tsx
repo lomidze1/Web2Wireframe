@@ -294,11 +294,6 @@ export const PencilIcon = () => (
   </svg>
 );
 
-// CSS-animated spinner — used by PlanModal during loading / checkout polling.
-// Visual styling (border + animation) lives on the `.spinner` class in
-// global.css; this component is just the markup hook.
-export const SpinnerIcon = () => <span class="spinner" aria-hidden="true" />;
-
 // Door with an arrow — Logout.
 export const LogoutIcon = () => (
   <svg

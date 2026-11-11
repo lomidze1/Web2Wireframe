@@ -10,7 +10,6 @@
  *   - refreshSession()         → POST /api/extension-session/refresh
  *   - revokeSession()          → POST /api/extension-session/revoke + clearSession()
  *   - fetchMyLicense()         → GET  /api/license/me
- *   - createCheckout(plan)     → POST /api/checkout/create
  *   - authHeader()             → helper for callers that hand-roll fetch
  *
  * Runtime-context-agnostic — uses only `fetch`, `chrome.storage`, and
@@ -19,8 +18,6 @@
 
 import { API_URL, STORAGE_KEYS } from "./constants";
 import type {
-  CheckoutPlan,
-  CheckoutResponse,
   ExtensionSettings,
   License,
   RedeemResponse,
@@ -383,42 +380,4 @@ export async function connectFigma(signal?: AbortSignal): Promise<License> {
     return license;
   }
   throw new Error("Figma connection timed out — please try again");
-}
-
-// ============================================================================
-// POST /api/checkout/create
-// ============================================================================
-
-/**
- * Open a Flitt checkout for the held session. The plugin's `createCheckout`
- * supports both legacy (figmaUserId in body) and Bearer auth; the extension
- * always sends Bearer.
- */
-export async function createCheckout(
-  plan: CheckoutPlan,
-  signal?: AbortSignal,
-): Promise<CheckoutResponse> {
-  const session = await getSession();
-  if (!session) throw new AuthExpiredError();
-  const token = await getValidToken();
-  if (!token) throw new AuthExpiredError();
-
-  const baseUrl = await getBaseUrl();
-  const response = await fetch(`${baseUrl}/api/checkout/create`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ figmaUserId: session.figmaUserId, plan }),
-    signal,
-  });
-  if (response.status === 401) {
-    await clearSession();
-    throw new AuthExpiredError();
-  }
-  if (!response.ok) {
-    throw new Error(`Checkout failed (HTTP ${response.status})`);
-  }
-  return (await response.json()) as CheckoutResponse;
 }

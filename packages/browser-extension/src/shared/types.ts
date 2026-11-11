@@ -450,7 +450,6 @@ export interface ExtensionSettings {
 
 export type Plan = "free" | "pro";
 export type Status = "active" | "canceled" | "expired";
-export type CheckoutPlan = "monthly" | "yearly";
 
 export interface LicenseSubscription {
   flittOrderId: string;
@@ -491,11 +490,6 @@ export interface RedeemResponse {
   figmaUserId: string;
   email: string | null;
   license: License;
-}
-
-export interface CheckoutResponse {
-  checkoutUrl: string;
-  orderId: string;
 }
 
 /**

@@ -17,7 +17,6 @@ interface HelpLink {
  * (#7): the extension links to the Figma plugin, the plugin links here.
  */
 const HELP_LINKS: HelpLink[] = [
-  { icon: "🛒", label: "Compare plans", url: "https://web2wireframe.design/pricing" },
   { icon: "📄", label: "See our Docs", url: "https://web2wireframe.design/docs" },
   { icon: "💬", label: "Help center", url: "https://web2wireframe.design/support" },
   { icon: "📧", label: "Contact us", url: "https://mail.google.com/mail/?view=cm&fs=1&to=hey@web2wireframe.design" },
