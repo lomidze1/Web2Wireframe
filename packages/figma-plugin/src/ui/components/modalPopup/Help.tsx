@@ -43,11 +43,6 @@ export default function Help({ isOpen, onClose }: HelpProps) {
 
   const helpLinks: HelpLink[] = [
     {
-      icon: "🛒",
-      label: "Compare plans",
-      url: "https://web2wireframe.design/pricing",
-    },
-    {
       icon: "📄",
       label: "See our Docs",
       url: "https://web2wireframe.design/docs",
