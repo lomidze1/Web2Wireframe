@@ -17,7 +17,6 @@ Marketing site and documentation for Web2Wireframe.
 |-------|------|
 | `/` | Home |
 | `/how-it-works` | HowItWorks |
-| `/pricing` | Pricing |
 | `/docs` | Docs (searchable) |
 | `/support` | Support form |
 | `/terms` | Terms & Conditions |

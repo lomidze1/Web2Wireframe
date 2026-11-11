@@ -2,7 +2,6 @@ import type { ReactElement } from "react";
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home/Home";
 import HowItWorks from "./pages/HowItWorks/HowItWorks";
-import Pricing from "./pages/Pricing/Pricing";
 import Docs from "./pages/Docs/Docs";
 import Support from "./pages/Support/Support";
 import Terms from "./pages/Terms&conditions/Terms";
@@ -30,7 +29,6 @@ const docsStaticRoutes = docsNavigation.flatMap((topic) =>
 export const staticRoutes = [
   "/",
   "/how-it-works",
-  "/pricing",
   ...landingPages.map((page) => page.slug),
   "/docs",
   "/support",
@@ -44,7 +42,6 @@ export default function AppRoutes(): ReactElement {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/how-it-works" element={<HowItWorks />} />
-      <Route path="/pricing" element={<Pricing />} />
       {landingPages.map((page) => (
         <Route
           key={page.slug}
