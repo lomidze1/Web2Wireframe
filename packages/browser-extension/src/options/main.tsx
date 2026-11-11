@@ -9,7 +9,6 @@ import {
   revokeSession,
 } from "@/shared/licenseClient";
 import { getSession } from "@/shared/session";
-import { inDaysPhrase, planLabel } from "@/popup/components/planHelpers";
 
 gateConsoleInProduction();
 
@@ -138,14 +137,6 @@ function Options() {
             <div class="paired-card">
               <div class="paired-card-info">
                 <strong>Signed in as {session.email ?? session.figmaUserId}</strong>
-                {session.cachedLicense && (
-                  <span class="paired-card-meta">
-                    {planLabel(session.cachedLicense)} ·{" "}
-                    {session.cachedLicense.plan === "pro"
-                      ? `expires ${inDaysPhrase(session.cachedLicense.cycleEndsAt)}`
-                      : `resets ${inDaysPhrase(session.cachedLicense.cycleEndsAt)}`}
-                  </span>
-                )}
               </div>
               <button
                 class="btn btn-secondary"

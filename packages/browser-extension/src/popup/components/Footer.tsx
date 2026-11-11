@@ -1,12 +1,8 @@
 import { HelpIcon, LogoutIcon, SignInIcon } from "./Icons";
-import { usagePillText } from "./planHelpers";
-import type { License, SessionState } from "../../shared/types";
+import type { SessionState } from "../../shared/types";
 
 interface FooterProps {
-  onPlanClick: () => void;
   onHelpClick: () => void;
-  /** Drives the middle usage pill: "0/10" / "N/10" / "Pro". */
-  license: License | null;
   /** Drives the leftmost identity icon: SignInIcon when null, LogoutIcon
    *  when present. Also feeds the title tooltip's "Sign out (email)". */
   session: SessionState | null;
@@ -16,29 +12,16 @@ interface FooterProps {
 }
 
 /**
- * Three-slot popup footer (Phase 5.1):
- *
- *   ┌──────┬─────────┬──────┐
- *   │ ⇨/⇦ │  0/10   │  ?   │
- *   └──────┴─────────┴──────┘
- *
- * Left = identity action (Sign in with Figma OR Sign out).
- * Middle = usage pill, opens Plan modal. Absent until a license is loaded, so
- *          a signed-out footer is just the two icons at either edge.
- * Right = help, opens Help modal (Contact us lives inside Help).
+ * Popup footer: identity action (Sign in with Figma OR Sign out) on the left,
+ * Help on the right (Contact us lives inside Help). Web2Wireframe is free, so
+ * there is no usage pill or plan entry point.
  */
 export function Footer({
-  onPlanClick,
   onHelpClick,
-  license,
   session,
   onIdentityClick,
 }: FooterProps) {
-  const isPro = license?.plan === "pro";
   const isSignedIn = session !== null;
-  // null until a license is actually loaded — no placeholder count for a
-  // surface that can't spend quota. The slot is simply absent.
-  const pillText = usagePillText(license);
   const identityTitle = isSignedIn
     ? `Sign out${session?.email ? ` (${session.email})` : ""}`
     : "Sign in with Figma";
@@ -54,17 +37,6 @@ export function Footer({
       >
         {isSignedIn ? <LogoutIcon /> : <SignInIcon />}
       </button>
-      {pillText !== null && (
-        <button
-          class={`usage-pill ${isPro ? "usage-pill-pro" : ""}`}
-          onClick={onPlanClick}
-          type="button"
-          aria-label={isPro ? "Pro plan — open Your Plan" : "Imports used — open Your Plan"}
-          title={isPro ? "Pro plan" : "Imports used this month"}
-        >
-          {pillText}
-        </button>
-      )}
       <button
         class="footer-btn"
         onClick={onHelpClick}

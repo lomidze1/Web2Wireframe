@@ -206,36 +206,6 @@ describe("revokeSession", () => {
 });
 
 // ---------------------------------------------------------------------------
-// createCheckout
-// ---------------------------------------------------------------------------
-
-describe("createCheckout", () => {
-  it("returns the checkout URL and sends figmaUserId + plan in body", async () => {
-    fakeSessionInStorage(storage);
-    const spy = mockFetchOnce(200, {
-      checkoutUrl: "https://pay.flitt.com/x",
-      orderId: "ord_1",
-    });
-
-    const result = await lc.createCheckout("yearly");
-    expect(result.checkoutUrl).toContain("flitt.com");
-
-    // Confirm body shape sent to backend.
-    const call = spy.mock.calls[0];
-    expect(call[1]?.method).toBe("POST");
-    const body = JSON.parse(String(call[1]?.body));
-    expect(body.figmaUserId).toBe("u-1");
-    expect(body.plan).toBe("yearly");
-  });
-
-  it("throws AuthExpiredError without a session", async () => {
-    await expect(lc.createCheckout("monthly")).rejects.toBeInstanceOf(
-      lc.AuthExpiredError,
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
 // authHeader
 // ---------------------------------------------------------------------------
 

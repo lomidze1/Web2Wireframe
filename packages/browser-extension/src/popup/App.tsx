@@ -12,7 +12,6 @@ import {
   Footer,
   HelpModal,
   IdentityModal,
-  PlanModal,
   CaptureStatsWarning,
   ReportIssue,
 } from "./components";
@@ -93,12 +92,9 @@ export function App() {
   const [browserWidth, setBrowserWidth] = useState<number | null>(null);
   const [browserSelected, setBrowserSelected] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [showPlanModal, setShowPlanModal] = useState(false);
   const [showIdentityModal, setShowIdentityModal] = useState(false);
-  // Full session — drives the footer pill (via cachedLicense) AND the
-  // leftmost identity icon (sign-in vs sign-out).
+  // Full session — drives the leftmost identity icon (sign-in vs sign-out).
   const [session, setSession] = useState<SessionState | null>(null);
-  const license = session?.cachedLicense ?? null;
 
   useEffect(() => {
     // Active tab + its viewport width; refreshed on tab switch so "Browser"
@@ -120,12 +116,10 @@ export function App() {
     // Live-update the "Browser" width when the user resizes the window.
     chrome.windows.onBoundsChanged.addListener(loadActiveTab);
 
-    // Initial session read — the cached license paints the footer pill
-    // instantly. Then refresh it, so the count reflects imports the Figma
-    // plugin has spent since this popup last ran instead of a stale snapshot.
-    // fetchMyLicense writes through `updateCachedLicense`, which trips the
-    // storage listener below and repaints the pill on its own. Failures stay
-    // silent: the cached value simply stands.
+    // Initial session read, then refresh the cached license in the
+    // background. fetchMyLicense writes through `updateCachedLicense`, which
+    // trips the storage listener below. Failures stay silent: the cached
+    // value simply stands.
     void getSession().then((s) => {
       setSession(s);
       if (s) void fetchMyLicense().catch(() => undefined);
@@ -424,15 +418,12 @@ export function App() {
       </main>
 
       <Footer
-        onPlanClick={() => setShowPlanModal(true)}
         onHelpClick={() => setShowHelpModal(true)}
-        license={license}
         session={session}
         onIdentityClick={handleIdentityClick}
       />
 
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />
-      <PlanModal isOpen={showPlanModal} onClose={() => setShowPlanModal(false)} />
       <IdentityModal
         isOpen={showIdentityModal}
         onClose={() => setShowIdentityModal(false)}
