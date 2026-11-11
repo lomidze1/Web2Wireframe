@@ -44,7 +44,7 @@ async function prerender() {
       .replace(HEAD_FALLBACK_CANONICAL, "")
       .replace(HEAD_MARKER_START, `${HEAD_MARKER_START}\n    ${headHtml}`);
 
-    // Create directory structure: / → dist/client/index.html, /pricing → dist/client/pricing/index.html
+    // Create directory structure: / → dist/client/index.html, /docs → dist/client/docs/index.html
     const outDir =
       route === "/"
         ? path.resolve(__dirname, "dist/client")

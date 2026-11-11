@@ -19,10 +19,10 @@ describe("buildSitemap", () => {
   });
 
   it("renders one <url> block per route with loc/lastmod/changefreq/priority", () => {
-    const xml = buildSitemap(["/", "/pricing"], LASTMOD);
+    const xml = buildSitemap(["/", "/how-it-works"], LASTMOD);
     expect(locs(xml)).toEqual([
       "https://www.web2wireframe.design/",
-      "https://www.web2wireframe.design/pricing",
+      "https://www.web2wireframe.design/how-it-works",
     ]);
     expect(xml.match(/<lastmod>2026-08-26<\/lastmod>/g)).toHaveLength(2);
     expect(xml).toContain("<changefreq>");
@@ -65,7 +65,7 @@ describe("buildSitemap", () => {
   });
 
   it("deduplicates repeated routes", () => {
-    const xml = buildSitemap(["/pricing", "/pricing"], LASTMOD);
+    const xml = buildSitemap(["/docs", "/docs"], LASTMOD);
     expect(locs(xml)).toHaveLength(1);
   });
 });

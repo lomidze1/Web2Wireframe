@@ -177,20 +177,6 @@ export const seoConfig: Record<string, SeoConfig> = {
       ]),
     ],
   },
-  "/pricing": {
-    title: "Pricing — Web2Wireframe Is Free",
-    description:
-      "Web2Wireframe is free: the Figma plugin and the browser extension, with every import method and setting included. No plans, no card, no upgrades.",
-    canonical: `${SITE_URL}/pricing`,
-    ogType: "website",
-    jsonLd: [
-      softwareApplicationSchema,
-      breadcrumbSchema([
-        { name: "Home", url: "/" },
-        { name: "Pricing", url: "/pricing" },
-      ]),
-    ],
-  },
   "/docs": {
     title: "Documentation — Web2Wireframe",
     description:

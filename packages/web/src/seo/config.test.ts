@@ -3,9 +3,8 @@ import { getSeoConfig, seoConfig } from "./config";
 
 describe("getSeoConfig", () => {
   it("returns the route-specific config for a known route", () => {
-    const cfg = getSeoConfig("/pricing");
-    expect(cfg.canonical).toBe("https://www.web2wireframe.design/pricing");
-    expect(cfg.title).toMatch(/Free/);
+    const cfg = getSeoConfig("/how-it-works");
+    expect(cfg.canonical).toBe("https://www.web2wireframe.design/how-it-works");
   });
 
   it("falls back to the root config for an unknown route", () => {
@@ -20,12 +19,8 @@ describe("getSeoConfig", () => {
     expect(types).toContain("SoftwareApplication");
   });
 
-  it("pricing page has SoftwareApplication schema (no Product) + BreadcrumbList", () => {
-    const cfg = getSeoConfig("/pricing");
-    const types = (cfg.jsonLd ?? []).map((s) => s["@type"]);
-    expect(types).toContain("SoftwareApplication");
-    expect(types).not.toContain("Product");
-    expect(types).toContain("BreadcrumbList");
+  it("has no /pricing entry (the page was removed; /pricing redirects to /)", () => {
+    expect(seoConfig["/pricing"]).toBeUndefined();
   });
 
   it("support page has FAQPage schema", () => {

@@ -33,7 +33,7 @@ describe("breadcrumbSchema", () => {
   it("builds BreadcrumbList with 1-based positions and absolutized urls", () => {
     const schema = breadcrumbSchema([
       { name: "Home", url: "/" },
-      { name: "Pricing", url: "/pricing" },
+      { name: "Docs", url: "/docs" },
     ]);
     expect(schema["@type"]).toBe("BreadcrumbList");
     const items = schema.itemListElement as Array<{
@@ -44,7 +44,7 @@ describe("breadcrumbSchema", () => {
     expect(items[0].position).toBe(1);
     expect(items[1].position).toBe(2);
     expect(items[0].item).toBe("https://www.web2wireframe.design/");
-    expect(items[1].item).toBe("https://www.web2wireframe.design/pricing");
+    expect(items[1].item).toBe("https://www.web2wireframe.design/docs");
   });
 
   it("preserves absolute URLs unchanged", () => {

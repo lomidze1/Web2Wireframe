@@ -29,7 +29,6 @@ src/
   pages/
     Home/
     HowItWorks/
-    Pricing/
     Docs/                # Complex: sidebar, breadcrumb, search, 30+ sub-pages
     Support/
     Terms&conditions/
@@ -56,8 +55,8 @@ src/
 
 ## Free product (since 2026-11-07)
 
-Web2Wireframe is **free**: no plans, no Pro, no checkout, no donate. `/pricing` stays as a
-"Web2Wireframe is free" page (plugin/extension Help link there). Checkout, Account, Signin and
+Web2Wireframe is **free**: no plans, no Pro, no checkout, no donate. The `/pricing` page was
+removed 2026-11-11; `vercel.json` 308-redirects `/pricing` to `/` (old plugin/extension Help links). Checkout, Account, Signin and
 Renew pages + website login (AuthContext) were removed 2026-11-09; `vercel.json` 301-redirects
 their old URLs. `src/freeMode.test.tsx` renders every prerendered page and fails on any price,
 "Pro", checkout, Flitt or screenshot copy. Plan: `docs/plans/WEB-free-update.md`.

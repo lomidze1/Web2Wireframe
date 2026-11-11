@@ -25,7 +25,6 @@ const WEIGHT_RULES: Array<[RegExp, RouteWeight]> = [
   [/^\/support$/, { changefreq: "monthly", priority: "0.6" }],
   [/^\/docs\/.+/, { changefreq: "monthly", priority: "0.7" }],
   [/^\/docs$/, { changefreq: "weekly", priority: "0.8" }],
-  [/^\/pricing$/, { changefreq: "weekly", priority: "0.9" }],
 ];
 
 // Marketing and keyword landing pages — the pages we actually want ranking.

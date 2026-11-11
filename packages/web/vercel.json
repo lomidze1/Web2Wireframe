@@ -3,13 +3,14 @@
   "buildCommand": "cd ../.. && pnpm build --filter @w2w/web",
   "outputDirectory": "dist/client",
   "redirects": [
-    { "source": "/checkout", "destination": "/pricing", "permanent": true },
-    { "source": "/checkout/:path*", "destination": "/pricing", "permanent": true },
-    { "source": "/renew", "destination": "/pricing", "permanent": true },
-    { "source": "/account", "destination": "/pricing", "permanent": true },
+    { "source": "/pricing", "destination": "/", "permanent": true },
+    { "source": "/checkout", "destination": "/", "permanent": true },
+    { "source": "/checkout/:path*", "destination": "/", "permanent": true },
+    { "source": "/renew", "destination": "/", "permanent": true },
+    { "source": "/account", "destination": "/", "permanent": true },
     { "source": "/signin", "destination": "/", "permanent": true },
     { "source": "/screenshot-to-figma", "destination": "/website-to-figma", "permanent": true },
-    { "source": "/docs/pricing/:path*", "destination": "/pricing", "permanent": true },
+    { "source": "/docs/pricing/:path*", "destination": "/", "permanent": true },
     { "source": "/docs/import-methods/screenshot-import", "destination": "/docs", "permanent": true }
   ],
   "rewrites": [

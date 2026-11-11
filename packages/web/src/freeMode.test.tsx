@@ -71,10 +71,22 @@ describe("free mode — every prerendered page", () => {
   }
 
   it("removed pages are not prerendered", () => {
-    for (const gone of ["/checkout", "/account", "/signin", "/renew", "/screenshot-to-figma"]) {
+    for (const gone of ["/pricing", "/checkout", "/account", "/signin", "/renew", "/screenshot-to-figma"]) {
       expect(staticRoutes).not.toContain(gone);
     }
     expect(staticRoutes.some((r) => r.startsWith("/docs/pricing"))).toBe(false);
+  });
+
+  it("the header has no Pricing link", () => {
+    const html = render("/");
+    expect(html).not.toMatch(/href="\/pricing"/);
+    expect(html).not.toMatch(/>Pricing</);
+  });
+
+  it("no page links to /pricing", () => {
+    for (const route of staticRoutes) {
+      expect(render(route), route).not.toMatch(/href="\/pricing/);
+    }
   });
 
   it("the only offer in structured data is Free at $0", () => {
@@ -91,13 +103,14 @@ describe("free mode — old payment/account URLs redirect (vercel.json)", () => 
   const dest = (source: string) => cfg.redirects?.find((r) => r.source === source);
 
   it.each([
-    ["/checkout", "/pricing"],
-    ["/checkout/:path*", "/pricing"],
-    ["/renew", "/pricing"],
-    ["/account", "/pricing"],
+    ["/pricing", "/"],
+    ["/checkout", "/"],
+    ["/checkout/:path*", "/"],
+    ["/renew", "/"],
+    ["/account", "/"],
     ["/signin", "/"],
     ["/screenshot-to-figma", "/website-to-figma"],
-    ["/docs/pricing/:path*", "/pricing"],
+    ["/docs/pricing/:path*", "/"],
     ["/docs/import-methods/screenshot-import", "/docs"],
   ])("%s → %s (permanent)", (source, destination) => {
     expect(dest(source)?.destination).toBe(destination);
